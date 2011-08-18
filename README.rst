@@ -37,3 +37,12 @@ To typeset the draft document:
 #. run ``makeindex grammarindex``
 #. run ``makeindex impldefindex``
 #. run ``pdflatex std`` twice more.
+
+----------------
+Acknowledgements
+----------------
+
+A great deal of gratitude goes out to Pete Becker for his amazing work
+in the original conversion of the C++ standard drafts to LaTeX, and
+his subsequent maintenance of the standard drafts up to C++11. Thank
+you Pete.
