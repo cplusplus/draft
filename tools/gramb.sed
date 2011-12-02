@@ -1,9 +1,9 @@
 # copy bnftab groups:
-/^\\end{bnftab}/a\
+/^\\end\{bnftab}/a\
 
 # copy simplebnf groups:
-/^\\end{simplebnf}/a\
+/^\\end\{simplebnf}/a\
 
 # copy bnf groups:
-/^\\end{bnf}/a\
+/^\\end\{bnf}/a\
 
