@@ -9,6 +9,7 @@
 #   texlive-latex-extra
 #   texlive-fonts-recommended
 #   texlive-fonts-extra
+#   texlive-generic-recommended
 
 FIGURES = $(patsubst %.dot,%.pdf,$(wildcard source/*.dot))
 
