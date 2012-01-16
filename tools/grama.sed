@@ -2,5 +2,5 @@
 /\\index.*|see/d
 
 # insert newlines after groups
-/\\end/s/(.*)/\1\
+/\\end/s/\(.*\)/\1\
 /
