@@ -91,7 +91,7 @@ denotes a non-const rvalue of type \tcode{X}.
 \tcode{X::value_type}       &
  \tcode{T}                  &
                             &
- \requires\ \tcode{T} is \tcode{Destructible} &
+ \requires\ \tcode{T} is \tcode{Erasable} from \tcode{X} (see~\ref{container.requirements.general}, below) &
  compile time               \\ \rowsep
 
 \tcode{X::reference}        &
@@ -491,13 +491,31 @@ identical to \tcode{A} and a
 \tcode{value_type} identical to \tcode{T} and given
 an lvalue \tcode{m} of type \tcode{A}, a
 pointer \tcode{p} of type \tcode{T*},
-an expression \tcode{v} of type \tcode{T}, and
+an expression \tcode{v} of type (possibly const) \tcode{T}, and
 an rvalue \tcode{rv} of type
-\tcode{T}, the following terms are defined. (If \tcode{X}
+\tcode{T}, the following terms are defined. If \tcode{X}
 is not allocator-aware, the terms below are defined as if \tcode{A} were
-\tcode{std::allocator<T>}.)
+\tcode{std::allocator<T>} --- no allocator object needs to be created
+and user specializations of \tcode{std::allocator<T>} are not instantiated:
 
 \begin{itemize}
+\item
+\tcode{T} is \defnx{\tcode{DefaultInsertable} into \tcode{X}}
+{DefaultInsertable into X@\tcode{DefaultInsertable} into \tcode{X}}
+means that the following expression is well-formed:
+\begin{codeblock}
+allocator_traits<A>::construct(m, p);
+\end{codeblock}
+
+\item
+An element of \tcode{X} is \defn{default-inserted} if it is initialized
+by evaluation of the expression
+\begin{codeblock}
+allocator_traits<A>::construct(m, p);
+\end{codeblock}
+where \tcode{p} is the address of the uninitialized storage for the element
+allocated within \tcode{X}.
+	
 \item
 \tcode{T} is \defnx{\tcode{CopyInsertable} into \tcode{X}}
 {CopyInsertable into X@\tcode{CopyInsertable} into \tcode{X}}
@@ -524,6 +542,15 @@ for zero
 or more arguments \tcode{args}, means that the following expression is well-formed:
 \begin{codeblock}
 allocator_traits<A>::construct(m, p, args);
+\end{codeblock}
+
+\item
+\tcode{T} is
+\defnx{\tcode{Erasable} from \tcode{X}}
+{Erasable from X@\tcode{Erasable} from \tcode{X}}
+means that the following expression is well-formed:
+\begin{codeblock}
+allocator_traits<A>::destroy(m, p);
 \end{codeblock}
 \end{itemize}
 
@@ -1236,13 +1263,23 @@ and \tcode{c} denotes a value of type \tcode{X::key_compare}.
 
 \tcode{X::key_type}     &
  \tcode{Key}            &
- \requires\ \tcode{Key} is \tcode{Destructible}.  &
+                        &
   compile time \\ \rowsep
 
 \tcode{mapped_type} (\tcode{map} and \tcode{multimap} only) &
   \tcode{T}             &
-  \requires\ \tcode{T} is \tcode{Destructible}. &
+                        &
   compile time          \\ \rowsep
+
+\tcode{X::value_type} (\tcode{set} and \tcode{multiset} only) &
+ \tcode{Key}            &
+  \requires\ \tcode{value_type} is \tcode{Erasable} from \tcode{X} &
+  compile time \\ \rowsep
+
+\tcode{X::value_type} (\tcode{map} and \tcode{multimap} only) &
+ \tcode{pair<const Key, T>}            &
+  \requires\ \tcode{value_type} is \tcode{Erasable} from \tcode{X} &
+  compile time \\ \rowsep
 
 \tcode{X::key_compare}  &
   \tcode{Compare}       &
@@ -1675,16 +1712,26 @@ type \tcode{float}.
 \endhead
 %%
 \tcode{X::key_type}   &
+\indextext{unordered associative containers!\idxcode{key_type}}%
+\indextext{\idxcode{key_type}!unordered associative containers}%
   \tcode{Key}         &
-  \indextext{unordered associative containers!\idxcode{key_type}}%
-  \indextext{\idxcode{key_type}!unordered associative containers}%
-  \requires\ \tcode{Key} shall be \tcode{Destructible}.  &
+                      &
   compile time        \\ \rowsep
 
 \tcode{X::mapped_type} (\tcode{unordered_map} and \tcode{unordered_multimap} only)  &
   \tcode{T}             &
-  \requires\ \tcode{T} is \tcode{Destructible}. &
+                        &
   compile time          \\ \rowsep
+
+\tcode{X::value_type} (\tcode{unordered_set} and \tcode{unordered_multiset} only) &
+ \tcode{Key}            &
+  \requires\ \tcode{value_type} is \tcode{Erasable} from \tcode{X} &
+  compile time \\ \rowsep
+
+\tcode{X::value_type} (\tcode{unordered_map} and \tcode{unordered_multimap} only) &
+ \tcode{pair<const Key, T>}            &
+  \requires\ \tcode{value_type} is \tcode{Erasable} from \tcode{X} &
+  compile time \\ \rowsep
 
 \tcode{X::hasher}
 &   \tcode{Hash}
@@ -2841,10 +2888,10 @@ explicit deque(size_type n);
 \begin{itemdescr}
 \pnum
 \effects Constructs a \tcode{deque} with
-\tcode{n} value-initialized elements.
+\tcode{n} default-inserted elements.
 
 \pnum
-\requires \tcode{T} shall be \tcode{DefaultConstructible}.
+\requires \tcode{T} shall be \tcode{DefaultInsertable} into \tcode{*this}.
 
 \pnum
 \complexity Linear in \tcode{n}.
@@ -2937,12 +2984,11 @@ void resize(size_type sz);
 \effects If \tcode{sz <= size()}, equivalent to calling
 \tcode{pop_back()} \tcode{size() - sz} times.
 If \tcode{size() < sz},
-appends \tcode{sz - size()} value-initialized elements to the
+appends \tcode{sz - size()} default-inserted elements to the
 sequence.
 
 \pnum
-\requires \tcode{T} shall be \tcode{MoveInsertable} into \tcode{*this} and
-\tcode{DefaultConstructible}.
+\requires \tcode{T} shall be \tcode{MoveInsertable} and \tcode{DefaultInsertable} into \tcode{*this}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{resize}!\tcode{deque}}%
@@ -3264,10 +3310,10 @@ explicit forward_list(size_type n);
 
 \begin{itemdescr}
 \pnum
-\effects Constructs a \tcode{forward_list} object with \tcode{n} value-initialized elements.
+\effects Constructs a \tcode{forward_list} object with \tcode{n} default-inserted elements.
 
 \pnum
-\requires \tcode{T} shall be \tcode{DefaultConstructible}.
+\requires \tcode{T} shall be \tcode{DefaultInsertable} into \tcode{*this}.
 
 \pnum
 \complexity Linear in \tcode{n}.
@@ -3555,21 +3601,34 @@ iterator erase_after(const_iterator position, const_iterator last);
 \indexlibrary{\idxcode{forward_list}!\idxcode{resize}}%
 \begin{itemdecl}
 void resize(size_type sz);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects If \tcode{sz < distance(begin(), end())}, erases the last \tcode{distance(begin(),
+end()) - sz} elements from the list. Otherwise, inserts \tcode{sz - distance(begin(), end())} default-inserted
+elements at the end of the list.
+
+\pnum
+\requires \tcode{T} shall be \tcode{DefaultInsertable} into \tcode{*this}.
+\end{itemdescr}
+
+\begin{itemdecl}
 void resize(size_type sz, const value_type& c);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects If \tcode{sz < distance(begin(), end())}, erases the last \tcode{distance(begin(),
-end()) - sz} elements from the list. Otherwise, inserts \tcode{sz - distance(begin(), end())}
-elements at the end of the list. For the first signature the inserted elements are
-value-initialized, and for the second signature they are
-copies of \tcode{c}.
+end()) - sz} elements from the list. Otherwise, inserts \tcode{sz - distance(begin(), end())}  
+elements at the end of the list such that each new element, \tcode{e}, is initialized
+by a method equivalent to calling
+\tcode{allocator_traits<allocator_type>::construct(get_allocator(), std::addressof(e), c)}.
 
 \pnum
-\requires \tcode{T} shall be \tcode{DefaultConstructible} for the first form and it shall be
-\tcode{CopyInsertable} into \tcode{*this} for the second form.
+\requires \tcode{T} shall be \tcode{CopyInsertable} into \tcode{*this}.
 \end{itemdescr}
+
 
 \indexlibrary{\idxcode{clear}!\idxcode{forward_list}}%
 \indexlibrary{\idxcode{forward_list}!\idxcode{clear}}%
@@ -4003,10 +4062,10 @@ explicit list(size_type n);
 \begin{itemdescr}
 \pnum
 \effects Constructs a \tcode{list} with
-\tcode{n} value-initialized elements.
+\tcode{n} default-inserted elements.
 
 \pnum
-\requires \tcode{T} shall be \tcode{DefaultConstructible}.
+\requires \tcode{T} shall be \tcode{DefaultInsertable} into \tcode{*this}.
 
 \pnum
 \complexity
@@ -4100,7 +4159,7 @@ void resize(size_type sz);
 \pnum
 \effects
 If \tcode{size() < sz},
-appends \tcode{sz - size()} value-initialized elements to the
+appends \tcode{sz - size()} default-inserted elements to the
 sequence.
 If \tcode{sz <= size()}, equivalent to
 
@@ -4113,7 +4172,7 @@ erase(it, end());
 
 \pnum
 \requires \tcode{T} shall be
-\tcode{DefaultConstructible}.
+\tcode{DefaultInsertable} into \tcode{*this}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{resize}!\tcode{list}}%
@@ -4708,10 +4767,10 @@ explicit vector(size_type n);
 \begin{itemdescr}
 \pnum
 \effects Constructs a \tcode{vector} with \tcode{n}
-value-initialized elements.
+default-inserted elements.
 
 \pnum
-\requires \tcode{T} shall be \tcode{DefaultConstructible}.
+\requires \tcode{T} shall be \tcode{DefaultInsertable} into \tcode{*this}.
 
 \pnum
 \complexity Linear in \tcode{n}.
@@ -4909,12 +4968,12 @@ void resize(size_type sz);
 \pnum
 \effects If \tcode{sz <= size()}, equivalent to
 calling \tcode{pop_back()} \tcode{size() - sz} times. If \tcode{size() < sz},
-appends \tcode{sz - size()} value-initialized elements to the
+appends \tcode{sz - size()} default-inserted elements to the
 sequence.
 
 \pnum
 \requires \tcode{T} shall be
-\tcode{MoveInsertable} into \tcode{*this} and \tcode{DefaultConstructible}.
+\tcode{MoveInsertable} and \tcode{DefaultInsertable} into \tcode{*this}.
 
 \pnum
 \notes If an exception is thrown other than by the move constructor of a non-\tcode{CopyInsertable}
@@ -5569,7 +5628,7 @@ template <class InputIterator>
 \requires If the iterator's dereference operator returns an lvalue or a
 const rvalue \tcode{pair<key_type, mapped_type>}, then both
 \tcode{key_type} and \tcode{mapped_type} shall be
-\tcode{CopyConstructible}.
+\tcode{CopyInsertable} into \tcode{*this}.
 
 \pnum
 \effects
@@ -5604,8 +5663,8 @@ into the map.
 
 \pnum
 \requires \tcode{key_type} shall be
-\tcode{CopyConstructible} and \tcode{mapped_type} shall be
-\tcode{DefaultConstructible}.
+\tcode{CopyInsertable} and \tcode{mapped_type} shall be
+\tcode{DefaultInsertable} into \tcode{*this}.
 
 \pnum
 \returns
@@ -5633,7 +5692,7 @@ into the map.
 
 \pnum
 \requires \tcode{mapped_type} shall be
-\tcode{DefaultConstructible}.
+\tcode{DefaultInsertable} into \tcode{*this}.
 
 \pnum
 \returns
@@ -5688,19 +5747,19 @@ If \tcode{P} is instantiated as a reference type, then
 the argument \tcode{x} is copied from. Otherwise \tcode{x}
 is considered to be an rvalue as it is converted to
 \tcode{value_type} and inserted into the \tcode{map}.
-Specifically, in such cases \tcode{CopyConstructible} is not required of
+Specifically, in such cases being \tcode{CopyInsertable} into \tcode{*this} is not required of
 \tcode{key_type} or \tcode{mapped_type}
 unless the conversion from \tcode{P} specifically
 requires it (e.g., if \tcode{P} is a
 \tcode{tuple<const key_type, mapped_type>}, then
-\tcode{key_type} must be \tcode{CopyConstructible}).
+\tcode{key_type} shall be \tcode{CopyInsertable} into \tcode{*this}).
 The signature taking \tcode{InputIterator}
-parameters does not require \tcode{CopyConstructible}
-of either \tcode{key_type} or
-\tcode{mapped_type} if the dereferenced \tcode{InputIterator}
+parameters does not require either \tcode{key_type} or
+\tcode{mapped_type} to be \tcode{CopyInsertable}
+into \tcode{*this} if the dereferenced \tcode{InputIterator}
 returns a non-const rvalue
 \tcode{pair<key_type,mapped_type>}. Otherwise
-\tcode{CopyConstructible} is required for
+being \tcode{CopyInsertable} into \tcode{*this} is required for
 both \tcode{key_type} and \tcode{mapped_type}.
 \end{itemdescr}
 
@@ -5990,7 +6049,7 @@ template <class InputIterator>
 \requires If the iterator's dereference operator returns an lvalue or a
 const rvalue \tcode{pair<key_type, mapped_type>}, then both
 \tcode{key_type} and \tcode{mapped_type} shall be
-\tcode{CopyConstructible}.
+\tcode{CopyInsertable} into \tcode{*this}.
 
 \pnum
 \effects
@@ -6028,19 +6087,19 @@ If \tcode{P} is instantiated as a reference type, then
 the argument \tcode{x} is copied from. Otherwise \tcode{x}
 is considered to be an rvalue as it is converted to
 \tcode{value_type} and inserted into the \tcode{map}.
-Specifically, in such cases \tcode{CopyConstructible} is not required of
+Specifically, in such cases being \tcode{CopyInsertable} into \tcode{*this} is not required of
 \tcode{key_type} or \tcode{mapped_type}
 unless the conversion from \tcode{P} specifically
 requires it (e.g., if \tcode{P} is a
 \tcode{tuple<const key_type, mapped_type>}, then
-\tcode{key_type} must be \tcode{CopyConstructible}).
+\tcode{key_type} must be \tcode{CopyInsertable} into \tcode{*this}).
 The signature taking \tcode{InputIterator}
-parameters does not require \tcode{CopyConstructible}
-of either \tcode{key_type} or
-\tcode{mapped_type} if the dereferenced \tcode{InputIterator}
+parameters does not require either \tcode{key_type} or
+\tcode{mapped_type} to be \tcode{CopyInsertable} into \tcode{*this}
+if the dereferenced \tcode{InputIterator}
 returns a non-const rvalue
-\tcode{pair<key_type, mapped_type>}. Otherwise
-\tcode{CopyConstructible} is required for
+\tcode{pair<key_type, mapped_type>}. Otherwise, being
+\tcode{CopyInsertable} into \tcode{*this} is required for
 both \tcode{key_type} and \tcode{mapped_type}.
 \end{itemdescr}
 
@@ -6309,7 +6368,7 @@ and inserts elements from the range
 \pnum
 \requires If the iterator's dereference operator returns an lvalue or a
 non-const rvalue, then \tcode{Key} shall be
-\tcode{CopyConstructible}.
+\tcode{CopyInsertable} into \tcode{*this}.
 
 \pnum
 \complexity
@@ -6545,7 +6604,7 @@ template <class InputIterator>
 \pnum
 \requires If the iterator's dereference operator returns an lvalue or a
 const rvalue, then \tcode{Key} shall be
-\tcode{CopyConstructible}.
+\tcode{CopyInsertable} into \tcode{*this}.
 
 \pnum
 \effects
@@ -6905,8 +6964,8 @@ mapped_type& operator[](key_type&& k);
 
 \begin{itemdescr}
 \pnum
-\requires \tcode{mapped_type} shall be \tcode{DefaultConstructible}.
-For the first operator, \tcode{key_type} shall be \tcode{CopyConstructible}.
+\requires \tcode{mapped_type} shall be \tcode{DefaultInsertable} into \tcode{*this}.
+For the first operator, \tcode{key_type} shall be \tcode{CopyInsertable} into \tcode{*this}.
 For the second operator, \tcode{key_type} shall be \tcode{MoveConstructible}.
 
 \pnum
