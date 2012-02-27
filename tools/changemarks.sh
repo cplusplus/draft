@@ -25,6 +25,6 @@ git archive $BEFORE *.tex | tar xC before
 git archive $AFTER *.tex | tar xC after 
 
 for i in *.tex ; do
-	latexdiff before/$i after/$i > $i
+	latexdiff --append-textcmd=tcode,term,grammarterm,techterm,defnx,defn --append-safecmd=Rplus,Cpp,CppIII,opt,shl,shr,dcr,exor,bigoh,tilde -c PICTUREENV='(?:picture|DIFnomarkup|codeblock)[\w\d*@]*' before/$i after/$i > $i
 done
 
