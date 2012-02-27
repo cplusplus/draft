@@ -25,6 +25,6 @@ git archive $BEFORE *.tex | tar xC before
 git archive $AFTER *.tex | tar xC after 
 
 for i in *.tex ; do
-	latexdiff before/$i after/$i > $i
+	latexdiff -c PICTUREENV='(?:picture|DIFnomarkup|codeblock)[\w\d*@]*' before/$i after/$i > $i
 done
 
