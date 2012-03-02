@@ -13,7 +13,7 @@
 
 FIGURES = $(patsubst %.dot,%.pdf,$(wildcard *.dot))
 
-STDPDF = pdflatex std
+STDPDF = pdflatex std | grep -v "^Overfull"
 
 default: rebuild
 	

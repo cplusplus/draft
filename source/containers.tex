@@ -91,7 +91,7 @@ denotes a non-const rvalue of type \tcode{X}.
 \tcode{X::value_type}       &
  \tcode{T}                  &
                             &
- \requires\ \tcode{T} is \tcode{Destructible} &
+ \requires\ \tcode{T} is \tcode{Erasable} from \tcode{X} (see~\ref{container.requirements.general}, below) &
  compile time               \\ \rowsep
 
 \tcode{X::reference}        &
@@ -491,13 +491,31 @@ identical to \tcode{A} and a
 \tcode{value_type} identical to \tcode{T} and given
 an lvalue \tcode{m} of type \tcode{A}, a
 pointer \tcode{p} of type \tcode{T*},
-an expression \tcode{v} of type \tcode{T}, and
+an expression \tcode{v} of type (possibly const) \tcode{T}, and
 an rvalue \tcode{rv} of type
-\tcode{T}, the following terms are defined. (If \tcode{X}
+\tcode{T}, the following terms are defined. If \tcode{X}
 is not allocator-aware, the terms below are defined as if \tcode{A} were
-\tcode{std::allocator<T>}.)
+\tcode{std::allocator<T>} --- no allocator object needs to be created
+and user specializations of \tcode{std::allocator<T>} are not instantiated:
 
 \begin{itemize}
+\item
+\tcode{T} is \defnx{\tcode{DefaultInsertable} into \tcode{X}}
+{DefaultInsertable into X@\tcode{DefaultInsertable} into \tcode{X}}
+means that the following expression is well-formed:
+\begin{codeblock}
+allocator_traits<A>::construct(m, p);
+\end{codeblock}
+
+\item
+An element of \tcode{X} is \defn{default-inserted} if it is initialized
+by evaluation of the expression
+\begin{codeblock}
+allocator_traits<A>::construct(m, p);
+\end{codeblock}
+where \tcode{p} is the address of the uninitialized storage for the element
+allocated within \tcode{X}.
+	
 \item
 \tcode{T} is \defnx{\tcode{CopyInsertable} into \tcode{X}}
 {CopyInsertable into X@\tcode{CopyInsertable} into \tcode{X}}
@@ -524,6 +542,15 @@ for zero
 or more arguments \tcode{args}, means that the following expression is well-formed:
 \begin{codeblock}
 allocator_traits<A>::construct(m, p, args);
+\end{codeblock}
+
+\item
+\tcode{T} is
+\defnx{\tcode{Erasable} from \tcode{X}}
+{Erasable from X@\tcode{Erasable} from \tcode{X}}
+means that the following expression is well-formed:
+\begin{codeblock}
+allocator_traits<A>::destroy(m, p);
 \end{codeblock}
 \end{itemize}
 
@@ -1128,7 +1155,7 @@ In addition,
 \tcode{map}
 and
 \tcode{multimap}
-associate an arbitrary type
+associate an arbitrary \term{mapped type}
 \tcode{T}
 with the
 \tcode{Key}.
@@ -1173,7 +1200,6 @@ of equivalent elements.
 \pnum
 For \tcode{set} and \tcode{multiset} the value type is the same as the key type.
 For \tcode{map} and \tcode{multimap} it is equal to \tcode{pair<const Key, T>}.
-Keys in an associative container are immutable.
 
 \pnum
 \tcode{iterator}
@@ -1237,13 +1263,23 @@ and \tcode{c} denotes a value of type \tcode{X::key_compare}.
 
 \tcode{X::key_type}     &
  \tcode{Key}            &
- \requires\ \tcode{Key} is \tcode{Destructible}.  &
+                        &
   compile time \\ \rowsep
 
 \tcode{mapped_type} (\tcode{map} and \tcode{multimap} only) &
   \tcode{T}             &
-  \requires\ \tcode{T} is \tcode{Destructible}. &
+                        &
   compile time          \\ \rowsep
+
+\tcode{X::value_type} (\tcode{set} and \tcode{multiset} only) &
+ \tcode{Key}            &
+  \requires\ \tcode{value_type} is \tcode{Erasable} from \tcode{X} &
+  compile time \\ \rowsep
+
+\tcode{X::value_type} (\tcode{map} and \tcode{multimap} only) &
+ \tcode{pair<const Key, T>}            &
+  \requires\ \tcode{value_type} is \tcode{Erasable} from \tcode{X} &
+  compile time \\ \rowsep
 
 \tcode{X::key_compare}  &
   \tcode{Compare}       &
@@ -1556,20 +1592,27 @@ an arbitrary \textit{mapped type} \tcode{T} with the \tcode{Key}.
 \pnum
 \indextext{unordered associative containers!hash function}%
 \indextext{hash function}%
-A hash function is a function object that takes a single argument
-of type \tcode{Key} and returns a value of type \tcode{std::size_t}.
+The container's object of type \tcode{Hash} --- denoted by
+\tcode{hash} --- is called the \term{hash function} of the
+container. The container's object of type \tcode{Pred} ---
+denoted by \tcode{pred} --- is called the
+\term{key equality predicate} of the container.
 
 \pnum
 \indextext{unordered associative containers!equality function}%
 Two values \tcode{k1} and \tcode{k2} of type \tcode{Key} are
 considered equivalent if the container's
-\tcode{key_equal} function object returns
+key equality predicate returns
 \tcode{true} when passed those values.  If \tcode{k1} and
-\tcode{k2} are equivalent, the hash function shall return the same value
-for both.
+\tcode{k2} are equivalent, the container's hash function shall
+return the same value for both.
 \enternote Thus, when an unordered associative container is instantiated with
 a non-default \tcode{Pred} parameter it usually needs a non-default \tcode{Hash}
 parameter as well. \exitnote
+For any two keys \tcode{k1} and \tcode{k2} in the same container,
+calling \tcode{pred(k1, k2)} shall always return the same value.
+For any key \tcode{k} in a container, calling \tcode{hash(k)}
+shall always return the same value.
 
 \pnum
 \indextext{unordered associative containers!unique keys}%
@@ -1592,6 +1635,17 @@ For \tcode{unordered_set} and \tcode{unordered_multiset} the value type is
 the same as the key type.  For \tcode{unordered_map} and
 \tcode{unordered_multimap} it is \tcode{std::pair<const Key,
 T>}.
+
+\pnum
+For unordered containers where the value type is the same as the key
+type, both \tcode{iterator} and \tcode{const_iterator} are constant
+iterators. It is unspecified whether or not \tcode{iterator} and
+\tcode{const_iterator} are the same type.
+\enternote \tcode{iterator} and \tcode{const_iterator} have identical
+semantics in this case, and \tcode{iterator} is convertible to
+\tcode{const_iterator}. Users can avoid violating the One Definition Rule
+by always using \tcode{const_iterator} in their function parameter lists.
+\exitnote
 
 \pnum
 \indextext{buckets}%
@@ -1658,16 +1712,26 @@ type \tcode{float}.
 \endhead
 %%
 \tcode{X::key_type}   &
+\indextext{unordered associative containers!\idxcode{key_type}}%
+\indextext{\idxcode{key_type}!unordered associative containers}%
   \tcode{Key}         &
-  \indextext{unordered associative containers!\idxcode{key_type}}%
-  \indextext{\idxcode{key_type}!unordered associative containers}%
-  \requires\ \tcode{Key} shall be \tcode{Destructible}.  &
+                      &
   compile time        \\ \rowsep
 
 \tcode{X::mapped_type} (\tcode{unordered_map} and \tcode{unordered_multimap} only)  &
   \tcode{T}             &
-  \requires\ \tcode{T} is \tcode{Destructible}. &
+                        &
   compile time          \\ \rowsep
+
+\tcode{X::value_type} (\tcode{unordered_set} and \tcode{unordered_multiset} only) &
+ \tcode{Key}            &
+  \requires\ \tcode{value_type} is \tcode{Erasable} from \tcode{X} &
+  compile time \\ \rowsep
+
+\tcode{X::value_type} (\tcode{unordered_map} and \tcode{unordered_multimap} only) &
+ \tcode{pair<const Key, T>}            &
+  \requires\ \tcode{value_type} is \tcode{Erasable} from \tcode{X} &
+  compile time \\ \rowsep
 
 \tcode{X::hasher}
 &   \tcode{Hash}
@@ -2824,10 +2888,10 @@ explicit deque(size_type n);
 \begin{itemdescr}
 \pnum
 \effects Constructs a \tcode{deque} with
-\tcode{n} value-initialized elements.
+\tcode{n} default-inserted elements.
 
 \pnum
-\requires \tcode{T} shall be \tcode{DefaultConstructible}.
+\requires \tcode{T} shall be \tcode{DefaultInsertable} into \tcode{*this}.
 
 \pnum
 \complexity Linear in \tcode{n}.
@@ -2917,14 +2981,14 @@ void resize(size_type sz);
 
 \begin{itemdescr}
 \pnum
-\effects If \tcode{sz <= size()}, equivalent to
-\tcode{erase(begin() + sz, end());}. If \tcode{size() < sz},
-appends \tcode{sz - size()} value-initialized elements to the
+\effects If \tcode{sz <= size()}, equivalent to calling
+\tcode{pop_back()} \tcode{size() - sz} times.
+If \tcode{size() < sz},
+appends \tcode{sz - size()} default-inserted elements to the
 sequence.
 
 \pnum
-\requires \tcode{T} shall be
-\tcode{DefaultConstructible}.
+\requires \tcode{T} shall be \tcode{MoveInsertable} and \tcode{DefaultInsertable} into \tcode{*this}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{resize}!\tcode{deque}}%
@@ -2934,18 +2998,13 @@ void resize(size_type sz, const T& c);
 
 \begin{itemdescr}
 \pnum
-\effects
-\begin{codeblock}
-if (sz > size())
-  insert(end(), sz-size(), c);
-else if (sz < size())
-  erase(begin()+sz, end());
-else
-  ;                 // do nothing
-\end{codeblock}
+\effects If \tcode{sz <= size()}, equivalent to calling
+\tcode{pop_back()} \tcode{size() - sz} times. If \tcode{size() < sz},
+appends \tcode{sz - size()} copies of \tcode{c} to the sequence.
 
 \pnum
-\requires \tcode{T} shall be \tcode{CopyInsertable} into \tcode{*this}.
+\requires \tcode{T} shall be \tcode{MoveInsertable} into \tcode{*this} and
+\tcode{CopyInsertable} into \tcode{*this}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{shrink_to_fit}!\idxcode{deque}}%
@@ -2956,7 +3015,14 @@ void shrink_to_fit();
 
 \begin{itemdescr}
 \pnum
-\remarks \tcode{shrink_to_fit} is a non-binding request to reduce memory use. \enternote The request is non-binding to allow latitude for implementation-specific optimizations. \exitnote
+\requires \tcode{T} shall be \tcode{MoveInsertable} into \tcode{*this}.
+
+\pnum
+\complexity Linear in the size of the sequence.
+
+\pnum
+\remarks \tcode{shrink_to_fit} is a non-binding request to reduce memory use
+but does not change the size of the sequence. \enternote The request is non-binding to allow latitude for implementation-specific optimizations. \exitnote
 \end{itemdescr}
 
 \rSec3[deque.modifiers]{\tcode{deque} modifiers}
@@ -3244,10 +3310,10 @@ explicit forward_list(size_type n);
 
 \begin{itemdescr}
 \pnum
-\effects Constructs a \tcode{forward_list} object with \tcode{n} value-initialized elements.
+\effects Constructs a \tcode{forward_list} object with \tcode{n} default-inserted elements.
 
 \pnum
-\requires \tcode{T} shall be \tcode{DefaultConstructible}.
+\requires \tcode{T} shall be \tcode{DefaultInsertable} into \tcode{*this}.
 
 \pnum
 \complexity Linear in \tcode{n}.
@@ -3535,21 +3601,34 @@ iterator erase_after(const_iterator position, const_iterator last);
 \indexlibrary{\idxcode{forward_list}!\idxcode{resize}}%
 \begin{itemdecl}
 void resize(size_type sz);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects If \tcode{sz < distance(begin(), end())}, erases the last \tcode{distance(begin(),
+end()) - sz} elements from the list. Otherwise, inserts \tcode{sz - distance(begin(), end())} default-inserted
+elements at the end of the list.
+
+\pnum
+\requires \tcode{T} shall be \tcode{DefaultInsertable} into \tcode{*this}.
+\end{itemdescr}
+
+\begin{itemdecl}
 void resize(size_type sz, const value_type& c);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects If \tcode{sz < distance(begin(), end())}, erases the last \tcode{distance(begin(),
-end()) - sz} elements from the list. Otherwise, inserts \tcode{sz - distance(begin(), end())}
-elements at the end of the list. For the first signature the inserted elements are
-value-initialized, and for the second signature they are
-copies of \tcode{c}.
+end()) - sz} elements from the list. Otherwise, inserts \tcode{sz - distance(begin(), end())}  
+elements at the end of the list such that each new element, \tcode{e}, is initialized
+by a method equivalent to calling
+\tcode{allocator_traits<allocator_type>::construct(get_allocator(), std::addressof(e), c)}.
 
 \pnum
-\requires \tcode{T} shall be \tcode{DefaultConstructible} for the first form and it shall be
-\tcode{CopyInsertable} into \tcode{*this} for the second form.
+\requires \tcode{T} shall be \tcode{CopyInsertable} into \tcode{*this}.
 \end{itemdescr}
+
 
 \indexlibrary{\idxcode{clear}!\idxcode{forward_list}}%
 \indexlibrary{\idxcode{forward_list}!\idxcode{clear}}%
@@ -3578,6 +3657,7 @@ void splice_after(const_iterator position, forward_list&& x);
 \pnum
 \requires \tcode{position} is \tcode{before_begin()} or is a dereferenceable
 iterator in the range \range{begin()}{end()}.
+\tcode{get_allocator() == x.get_allocator()}.
 \tcode{\&x != this}.
 
 \pnum
@@ -3606,6 +3686,7 @@ void splice_after(const_iterator position, forward_list&& x, const_iterator i);
 \requires \tcode{position} is \tcode{before_begin()} or is a dereferenceable
 iterator in the range \range{begin()}{end()}.
 The iterator following \tcode{i} is a dereferenceable iterator in \tcode{x}.
+\tcode{get_allocator() == x.get_allocator()}.
 
 \pnum
 \effects Inserts the element following \tcode{i} into \tcode{*this}, following
@@ -3637,6 +3718,7 @@ void splice_after(const_iterator position, forward_list&& x,
 dereferenceable iterator in the range \range{begin()}{end()}. \orange{first}{last} is a
 valid range in \tcode{x}, and all iterators in the range \orange{first}{last} are
 dereferenceable. \tcode{position} is not an iterator in the range \orange{first}{last}.
+\tcode{get_allocator() == x.get_allocator()}.
 
 \pnum
 \effects Inserts elements in the range \orange{first}{last} after \tcode{position} and
@@ -3711,6 +3793,7 @@ template <class Compare> void merge(forward_list&& x, Compare comp)
 \pnum
 \requires \tcode{comp} defines a strict weak ordering~(\ref{alg.sorting}), and \tcode{*this}
 and \tcode{x} are both sorted according to this ordering.
+\tcode{get_allocator() == x.get_allocator()}.
 
 \pnum
 \effects Merges \tcode{x} into \tcode{*this}. This operation shall be stable: for equivalent
@@ -3979,10 +4062,10 @@ explicit list(size_type n);
 \begin{itemdescr}
 \pnum
 \effects Constructs a \tcode{list} with
-\tcode{n} value-initialized elements.
+\tcode{n} default-inserted elements.
 
 \pnum
-\requires \tcode{T} shall be \tcode{DefaultConstructible}.
+\requires \tcode{T} shall be \tcode{DefaultInsertable} into \tcode{*this}.
 
 \pnum
 \complexity
@@ -4076,7 +4159,7 @@ void resize(size_type sz);
 \pnum
 \effects
 If \tcode{size() < sz},
-appends \tcode{sz - size()} value-initialized elements to the
+appends \tcode{sz - size()} default-inserted elements to the
 sequence.
 If \tcode{sz <= size()}, equivalent to
 
@@ -4089,7 +4172,7 @@ erase(it, end());
 
 \pnum
 \requires \tcode{T} shall be
-\tcode{DefaultConstructible}.
+\tcode{DefaultInsertable} into \tcode{*this}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{resize}!\tcode{list}}%
@@ -4684,10 +4767,10 @@ explicit vector(size_type n);
 \begin{itemdescr}
 \pnum
 \effects Constructs a \tcode{vector} with \tcode{n}
-value-initialized elements.
+default-inserted elements.
 
 \pnum
-\requires \tcode{T} shall be \tcode{DefaultConstructible}.
+\requires \tcode{T} shall be \tcode{DefaultInsertable} into \tcode{*this}.
 
 \pnum
 \complexity Linear in \tcode{n}.
@@ -4796,6 +4879,9 @@ void reserve(size_type n);
 
 \begin{itemdescr}
 \pnum
+\requires \tcode{T} shall be \tcode{MoveInsertable} into \tcode{*this}.
+
+\pnum
 \effects
 A directive that informs a
 \tcode{vector}
@@ -4844,7 +4930,14 @@ void shrink_to_fit();
 
 \begin{itemdescr}
 \pnum
+\requires \tcode{T} shall be \tcode{MoveInsertable} into \tcode{*this}.
+
+\pnum
+\complexity Linear in the size of the sequence.
+
+\pnum
 \notes \tcode{shrink_to_fit} is a non-binding request to reduce \tcode{capacity()} to \tcode{size()}. \enternote The request is non-binding to allow latitude for implementation-specific optimizations. \exitnote
+If an exception is thrown other than by the move constructor of a non-\tcode{CopyInsertable} \tcode{T} there are no effects.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{swap}!\idxcode{vector}}%
@@ -4874,13 +4967,17 @@ void resize(size_type sz);
 \begin{itemdescr}
 \pnum
 \effects If \tcode{sz <= size()}, equivalent to
-\tcode{erase(begin() + sz, end());}. If \tcode{size() < sz},
-appends \tcode{sz - size()} value-initialized elements to the
+calling \tcode{pop_back()} \tcode{size() - sz} times. If \tcode{size() < sz},
+appends \tcode{sz - size()} default-inserted elements to the
 sequence.
 
 \pnum
 \requires \tcode{T} shall be
-\tcode{CopyInsertable} into \tcode{*this}.
+\tcode{MoveInsertable} and \tcode{DefaultInsertable} into \tcode{*this}.
+
+\pnum
+\notes If an exception is thrown other than by the move constructor of a non-\tcode{CopyInsertable}
+\tcode{T} there are no effects.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{resize}!\idxcode{vector}}%
@@ -4890,18 +4987,16 @@ void resize(size_type sz, const T& c);
 
 \begin{itemdescr}
 \pnum
-\effects
-\begin{codeblock}
-if (sz > size())
-  insert(end(), sz-size(), c);
-else if (sz < size())
-  erase(begin()+sz, end());
-else
-  ;                 // do nothing
-\end{codeblock}
+\effects If \tcode{sz <= size()}, equivalent to
+calling \tcode{pop_back()} \tcode{size() - sz} times. If \tcode{size() < sz},
+appends \tcode{sz - size()} copies of \tcode{c} to the sequence.
 
 \pnum
-\requires If an exception is thrown other than by the move constructor of a
+\requires \tcode{T} shall be \tcode{MoveInsertable} into \tcode{*this} and
+\tcode{CopyInsertable} into \tcode{*this}.
+
+\pnum
+\notes If an exception is thrown other than by the move constructor of a
 non-\tcode{CopyInsertable} \tcode{T} there are no effects.
 \end{itemdescr}
 
@@ -5533,7 +5628,7 @@ template <class InputIterator>
 \requires If the iterator's dereference operator returns an lvalue or a
 const rvalue \tcode{pair<key_type, mapped_type>}, then both
 \tcode{key_type} and \tcode{mapped_type} shall be
-\tcode{CopyConstructible}.
+\tcode{CopyInsertable} into \tcode{*this}.
 
 \pnum
 \effects
@@ -5568,8 +5663,8 @@ into the map.
 
 \pnum
 \requires \tcode{key_type} shall be
-\tcode{CopyConstructible} and \tcode{mapped_type} shall be
-\tcode{DefaultConstructible}.
+\tcode{CopyInsertable} and \tcode{mapped_type} shall be
+\tcode{DefaultInsertable} into \tcode{*this}.
 
 \pnum
 \returns
@@ -5597,7 +5692,7 @@ into the map.
 
 \pnum
 \requires \tcode{mapped_type} shall be
-\tcode{DefaultConstructible}.
+\tcode{DefaultInsertable} into \tcode{*this}.
 
 \pnum
 \returns
@@ -5652,19 +5747,19 @@ If \tcode{P} is instantiated as a reference type, then
 the argument \tcode{x} is copied from. Otherwise \tcode{x}
 is considered to be an rvalue as it is converted to
 \tcode{value_type} and inserted into the \tcode{map}.
-Specifically, in such cases \tcode{CopyConstructible} is not required of
+Specifically, in such cases being \tcode{CopyInsertable} into \tcode{*this} is not required of
 \tcode{key_type} or \tcode{mapped_type}
 unless the conversion from \tcode{P} specifically
 requires it (e.g., if \tcode{P} is a
 \tcode{tuple<const key_type, mapped_type>}, then
-\tcode{key_type} must be \tcode{CopyConstructible}).
+\tcode{key_type} shall be \tcode{CopyInsertable} into \tcode{*this}).
 The signature taking \tcode{InputIterator}
-parameters does not require \tcode{CopyConstructible}
-of either \tcode{key_type} or
-\tcode{mapped_type} if the dereferenced \tcode{InputIterator}
+parameters does not require either \tcode{key_type} or
+\tcode{mapped_type} to be \tcode{CopyInsertable}
+into \tcode{*this} if the dereferenced \tcode{InputIterator}
 returns a non-const rvalue
 \tcode{pair<key_type,mapped_type>}. Otherwise
-\tcode{CopyConstructible} is required for
+being \tcode{CopyInsertable} into \tcode{*this} is required for
 both \tcode{key_type} and \tcode{mapped_type}.
 \end{itemdescr}
 
@@ -5954,7 +6049,7 @@ template <class InputIterator>
 \requires If the iterator's dereference operator returns an lvalue or a
 const rvalue \tcode{pair<key_type, mapped_type>}, then both
 \tcode{key_type} and \tcode{mapped_type} shall be
-\tcode{CopyConstructible}.
+\tcode{CopyInsertable} into \tcode{*this}.
 
 \pnum
 \effects
@@ -5992,19 +6087,19 @@ If \tcode{P} is instantiated as a reference type, then
 the argument \tcode{x} is copied from. Otherwise \tcode{x}
 is considered to be an rvalue as it is converted to
 \tcode{value_type} and inserted into the \tcode{map}.
-Specifically, in such cases \tcode{CopyConstructible} is not required of
+Specifically, in such cases being \tcode{CopyInsertable} into \tcode{*this} is not required of
 \tcode{key_type} or \tcode{mapped_type}
 unless the conversion from \tcode{P} specifically
 requires it (e.g., if \tcode{P} is a
 \tcode{tuple<const key_type, mapped_type>}, then
-\tcode{key_type} must be \tcode{CopyConstructible}).
+\tcode{key_type} must be \tcode{CopyInsertable} into \tcode{*this}).
 The signature taking \tcode{InputIterator}
-parameters does not require \tcode{CopyConstructible}
-of either \tcode{key_type} or
-\tcode{mapped_type} if the dereferenced \tcode{InputIterator}
+parameters does not require either \tcode{key_type} or
+\tcode{mapped_type} to be \tcode{CopyInsertable} into \tcode{*this}
+if the dereferenced \tcode{InputIterator}
 returns a non-const rvalue
-\tcode{pair<key_type, mapped_type>}. Otherwise
-\tcode{CopyConstructible} is required for
+\tcode{pair<key_type, mapped_type>}. Otherwise, being
+\tcode{CopyInsertable} into \tcode{*this} is required for
 both \tcode{key_type} and \tcode{mapped_type}.
 \end{itemdescr}
 
@@ -6273,7 +6368,7 @@ and inserts elements from the range
 \pnum
 \requires If the iterator's dereference operator returns an lvalue or a
 non-const rvalue, then \tcode{Key} shall be
-\tcode{CopyConstructible}.
+\tcode{CopyInsertable} into \tcode{*this}.
 
 \pnum
 \complexity
@@ -6509,7 +6604,7 @@ template <class InputIterator>
 \pnum
 \requires If the iterator's dereference operator returns an lvalue or a
 const rvalue, then \tcode{Key} shall be
-\tcode{CopyConstructible}.
+\tcode{CopyInsertable} into \tcode{*this}.
 
 \pnum
 \effects
@@ -6686,23 +6781,23 @@ namespace std {
   {
   public:
     // types
-    typedef Key                                      key_type;
-    typedef std::pair<const Key, T>                  value_type;
-    typedef T                                        mapped_type;
-    typedef Hash                                     hasher;
-    typedef Pred                                     key_equal;
-    typedef Allocator                                allocator_type;
-    typedef typename allocator_type::pointer         pointer;
-    typedef typename allocator_type::const_pointer   const_pointer;
-    typedef typename allocator_type::reference       reference;
-    typedef typename allocator_type::const_reference const_reference;
-    typedef @\impdef@                   size_type;
-    typedef @\impdef@                   difference_type;
+    typedef Key                                                 key_type;
+    typedef std::pair<const Key, T>                             value_type;
+    typedef T                                                   mapped_type;
+    typedef Hash                                                hasher;
+    typedef Pred                                                key_equal;
+    typedef Allocator                                           allocator_type;
+    typedef typename allocator_traits<Allocator>::pointer       pointer;
+    typedef typename allocator_traits<Allocator>::const_pointer const_pointer;
+    typedef value_type&                                         reference;
+    typedef const value_type&                                   const_reference;
+    typedef @\impdef@                              size_type;
+    typedef @\impdef@                              difference_type;
 
-    typedef @\impdef@                    iterator;
-    typedef @\impdef@                    const_iterator;
-    typedef @\impdef@                    local_iterator;
-    typedef @\impdef@                    const_local_iterator;
+    typedef @\impdef@                              iterator;
+    typedef @\impdef@                              const_iterator;
+    typedef @\impdef@                              local_iterator;
+    typedef @\impdef@                              const_local_iterator;
 
     // construct/destroy/copy
     explicit unordered_map(size_type n = @\seebelow@,
@@ -6869,8 +6964,8 @@ mapped_type& operator[](key_type&& k);
 
 \begin{itemdescr}
 \pnum
-\requires \tcode{mapped_type} shall be \tcode{DefaultConstructible}.
-For the first operator, \tcode{key_type} shall be \tcode{CopyConstructible}.
+\requires \tcode{mapped_type} shall be \tcode{DefaultInsertable} into \tcode{*this}.
+For the first operator, \tcode{key_type} shall be \tcode{CopyInsertable} into \tcode{*this}.
 For the second operator, \tcode{key_type} shall be \tcode{MoveConstructible}.
 
 \pnum
@@ -7019,23 +7114,23 @@ namespace std {
   {
   public:
     // types
-    typedef Key                                      key_type;
-    typedef std::pair<const Key, T>                  value_type;
-    typedef T                                        mapped_type;
-    typedef Hash                                     hasher;
-    typedef Pred                                     key_equal;
-    typedef Allocator                                allocator_type;
-    typedef typename allocator_type::pointer         pointer;
-    typedef typename allocator_type::const_pointer   const_pointer;
-    typedef typename allocator_type::reference       reference;
-    typedef typename allocator_type::const_reference const_reference;
-    typedef @\impdef@                   size_type;
-    typedef @\impdef@                   difference_type;
+    typedef Key                                                 key_type;
+    typedef std::pair<const Key, T>                             value_type;
+    typedef T                                                   mapped_type;
+    typedef Hash                                                hasher;
+    typedef Pred                                                key_equal;
+    typedef Allocator                                           allocator_type;
+    typedef typename allocator_traits<Allocator>::pointer       pointer;
+    typedef typename allocator_traits<Allocator>::const_pointer const_pointer;
+    typedef value_type&                                         reference;
+    typedef const value_type&                                   const_reference;
+    typedef @\impdef@                              size_type;
+    typedef @\impdef@                              difference_type;
 
-    typedef @\impdef@                   iterator;
-    typedef @\impdef@                   const_iterator;
-    typedef @\impdef@                   local_iterator;
-    typedef @\impdef@                   const_local_iterator;
+    typedef @\impdef@                              iterator;
+    typedef @\impdef@                              const_iterator;
+    typedef @\impdef@                              local_iterator;
+    typedef @\impdef@                              const_local_iterator;
 
     // construct/destroy/copy
     explicit unordered_multimap(size_type n = @\seebelow@,
@@ -7289,22 +7384,22 @@ namespace std {
   {
   public:
     // types
-    typedef Key                                      key_type;
-    typedef Key                                      value_type;
-    typedef Hash                                     hasher;
-    typedef Pred                                     key_equal;
-    typedef Allocator                                allocator_type;
-    typedef typename allocator_type::pointer         pointer;
-    typedef typename allocator_type::const_pointer   const_pointer;
-    typedef typename allocator_type::reference       reference;
-    typedef typename allocator_type::const_reference const_reference;
-    typedef @\impdef@                   size_type;
-    typedef @\impdef@                   difference_type;
+    typedef Key                                                 key_type;
+    typedef Key                                                 value_type;
+    typedef Hash                                                hasher;
+    typedef Pred                                                key_equal;
+    typedef Allocator                                           allocator_type;
+    typedef typename allocator_traits<Allocator>::pointer       pointer;
+    typedef typename allocator_traits<Allocator>::const_pointer const_pointer;
+    typedef value_type&                                         reference;
+    typedef const value_type&                                   const_reference;
+    typedef @\impdef@                              size_type;
+    typedef @\impdef@                              difference_type;
 
-    typedef @\impdef@                   iterator;
-    typedef @\impdef@                   const_iterator;
-    typedef @\impdef@                   local_iterator;
-    typedef @\impdef@                   const_local_iterator;
+    typedef @\impdef@                              iterator;
+    typedef @\impdef@                              const_iterator;
+    typedef @\impdef@                              local_iterator;
+    typedef @\impdef@                              const_local_iterator;
 
     // construct/destroy/copy
     explicit unordered_set(size_type n = @\seebelow@,
@@ -7508,22 +7603,22 @@ namespace std {
   {
   public:
     // types
-    typedef Key                                      key_type;
-    typedef Key                                      value_type;
-    typedef Hash                                     hasher;
-    typedef Pred                                     key_equal;
-    typedef Allocator                                allocator_type;
-    typedef typename allocator_type::pointer         pointer;
-    typedef typename allocator_type::const_pointer   const_pointer;
-    typedef typename allocator_type::reference       reference;
-    typedef typename allocator_type::const_reference const_reference;
-    typedef @\impdef@                   size_type;
-    typedef @\impdef@                   difference_type;
+    typedef Key                                                 key_type;
+    typedef Key                                                 value_type;
+    typedef Hash                                                hasher;
+    typedef Pred                                                key_equal;
+    typedef Allocator                                           allocator_type;
+    typedef typename allocator_traits<Allocator>::pointer       pointer;
+    typedef typename allocator_traits<Allocator>::const_pointer const_pointer;
+    typedef value_type&                                         reference;
+    typedef const value_type&                                   const_reference;
+    typedef @\impdef@                              size_type;
+    typedef @\impdef@                              difference_type;
 
-    typedef @\impdef@                   iterator;
-    typedef @\impdef@                   const_iterator;
-    typedef @\impdef@                   local_iterator;
-    typedef @\impdef@                   const_local_iterator;
+    typedef @\impdef@                              iterator;
+    typedef @\impdef@                              const_iterator;
+    typedef @\impdef@                              local_iterator;
+    typedef @\impdef@                              const_local_iterator;
 
     // construct/destroy/copy
     explicit unordered_multiset(size_type n = @\seebelow@,
