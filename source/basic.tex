@@ -246,30 +246,54 @@ variable, function, class type, enumeration type, or template.
 \pnum
 An expression is \defn{potentially evaluated} unless it is an
 unevaluated operand (Clause~\ref{expr}) or a subexpression thereof.
-A variable whose name appears as a
-potentially-evaluated expression is \defn{odr-used} unless it is an
+The set of \defn{potential results} of an expression \tcode{e} is
+defined as follows:
+
+\begin{itemize}
+\item If \tcode{e} is an
+\grammarterm{id-expression}~(\ref{expr.prim.general}), the set
+contains only \tcode{e}.
+\item If \tcode{e} is a class member access
+expression~(\ref{expr.ref}), the set contains the potential results of
+the object expression.
+\item If \tcode{e} is a pointer-to-member
+expression~(\ref{expr.mptr.oper}) whose second operand is a constant
+expression, the set contains the potential results of the object
+expression.
+\item If \tcode{e} has the form \tcode{(e1)}, the set contains the
+potential results of \tcode{e1}.
+\item If \tcode{e} is a glvalue conditional
+expression~(\ref{expr.cond}), the set is the union of the sets of
+potential results of the second and third operands.
+\item If \tcode{e} is a comma expression~(\ref{expr.comma}), the set
+contains the potential results of the right operand.
+\item Otherwise, the set is empty.
+\end{itemize}
+
+\pnum
+A variable \tcode{x} whose name appears as a
+potentially-evaluated expression \tcode{ex} is \defn{odr-used} unless \tcode{x} is an
 object that satisfies the requirements for appearing in a
-constant expression~(\ref{expr.const}) and the lvalue-to-rvalue
-conversion~(\ref{conv.lval}) is immediately applied.
+constant expression~(\ref{expr.const}) and \tcode{ex} is an element of
+the set of potential results of an expression \tcode{e}, where either the lvalue-to-rvalue
+conversion~(\ref{conv.lval}) is applied to \tcode{e}, or \tcode{e} is
+a discarded-value expression~(Clause \ref{expr}).
 \tcode{this} is odr-used if it appears as a potentially-evaluated expression
 (including as the result of the implicit transformation in the body of a non-static
 member function~(\ref{class.mfct.non-static})).
 A virtual member
 function is odr-used if it is not pure.
-A
-non-overloaded function whose name appears as a potentially-evaluated
-expression or a
-member of a set of candidate functions,
-if
-selected by overload resolution when referred to from a
-potentially-evaluated expression, is odr-used, unless it is a pure virtual
+A function whose name appears as a potentially-evaluated
+expression is odr-used if it is the unique lookup result or the selected
+member of a set of overloaded functions~(\ref{basic.lookup}, \ref{over.match}, \ref{over.over}), unless it is a pure virtual
 function and its name is not explicitly qualified.
 \enternote This covers calls to named
 functions~(\ref{expr.call}), operator overloading (Clause~\ref{over}),
 user-defined conversions~(\ref{class.conv.fct}), allocation function for
 placement new~(\ref{expr.new}), as well as non-default
-initialization~(\ref{dcl.init}). A copy constructor or move constructor is odr-used even if the
-call is actually elided by the implementation. \exitnote An allocation
+initialization~(\ref{dcl.init}). A constructor selected to copy or move an
+object of class type is odr-used even if the
+call is actually elided by the implementation~(\ref{class.copy}). \exitnote An allocation
 or deallocation function for a class is odr-used by a new expression
 appearing in a potentially-evaluated expression as specified
 in~\ref{expr.new} and~\ref{class.free}. A deallocation function for a
@@ -284,11 +308,10 @@ destructor~(\ref{class.dtor}).\footnote{An implementation is not required
 to call allocation and
 deallocation functions from constructors or destructors; however, this
 is a permissible implementation technique.}
-A copy-assignment function for a class is odr-used by an implicitly-defined
-copy-assignment function for another class as specified
+An assignment operator function in a class is odr-used by an
+implicitly-defined
+copy-assignment or move-assignment function for another class as specified
 in~\ref{class.copy}.
-A move-assignment function for a class is odr-used by an implicitly-defined
-move-assignment function for another class as specified in~\ref{class.copy}.
 A default constructor for a class is odr-used by
 default initialization or value initialization as specified
 in~\ref{dcl.init}. A constructor for a class is odr-used as specified
@@ -334,8 +357,8 @@ to an object of type \tcode{T}~(\ref{conv.lval}), or
 type \tcode{T} (Clause~\ref{conv}, \ref{expr.type.conv},
 \ref{expr.dynamic.cast}, \ref{expr.static.cast}, \ref{expr.cast}), or
 \item an expression that is not a null pointer constant, and has type
-other than \tcode{void*}, is converted to the type pointer to \tcode{T}
-or reference to \tcode{T} using an implicit conversion
+other than \term{cv} \tcode{void*}, is converted to the type pointer to \tcode{T}
+or reference to \tcode{T} using a standard conversion
 (Clause~\ref{conv}), a \tcode{dynamic_cast}~(\ref{expr.dynamic.cast}) or
 a \tcode{static_cast}~(\ref{expr.static.cast}), or
 \item a class member access operator is applied to an expression of type
@@ -803,9 +826,8 @@ The following rules describe the scope of names declared in classes.
 \begin{enumeraten}
 \item The potential scope of a name declared in a class consists not
 only of the declarative region following the name's point of
-declaration, but also of all function bodies,
-\grammarterm{brace-or-equal-initializers} of non-static data members, and
-default arguments
+declaration, but also of all function bodies, default arguments, and
+\grammarterm{brace-or-equal-initializers} of non-static data members
 in that class (including such
 things in nested classes).
 \item A name \tcode{N} used in a class \tcode{S} shall refer to the same
@@ -1124,10 +1146,11 @@ void A::N::f() {
 
 \pnum
 A name used in the definition of a class \tcode{X} outside of a member
-function body or nested class definition\footnote{This refers to unqualified
-names following the class name;
-such a name may be used in the \grammarterm{base-clause} or may be used in
-the class definition.}
+function body, default argument,
+\grammarterm{brace-or-equal-initializer} of a non-static data member,
+or nested class definition\footnote{This refers to unqualified names
+following the class name; such a name may be used in the
+\grammarterm{base-clause} or may be used in the class definition.}
 shall be declared in one of the following ways:
 
 \begin{itemize}
@@ -1189,15 +1212,18 @@ describes the restrictions on the use of names in local class
 definitions. \exitnote
 
 \pnum
-A name used in the definition of a member function~(\ref{class.mfct}) of
-class \tcode{X} following the function's
+For the members of a class \tcode{X}, a name used in a member function
+body, in a default argument, in the
+\grammarterm{brace-or-equal-initializer} of a non-static data
+member~(\ref{class.mem}), or in the definition of a class member
+outside of the definition of \tcode{X}, following the
+member's
 \grammarterm{declarator-id}\footnote{That is, an unqualified name that occurs,
 for instance, in a
-type or default argument in the
-\grammarterm{parameter-declaration-clause} or in the function body.}
-or in the \grammarterm{brace-or-equal-initializer} of a non-static
-data member~(\ref{class.mem}) of class \tcode{X}
-shall be declared in one of the following ways:
+type in the
+\grammarterm{parameter-declaration-clause} or in the
+\grammarterm{exception-specification}.}, shall be declared in one of the
+following ways:
 
 \begin{itemize}
 \item before its use in the block in which it is used or in an enclosing
@@ -2391,25 +2417,23 @@ An implementation shall not predefine the \tcode{main} function. This
 function shall not be overloaded. It shall have a return type of type
 \tcode{int}, but otherwise its type is \impldef{parameters to \tcode{main}}.
 \indextext{\idxcode{main()}!implementation-defined parameters~to}%
-All implementations shall allow both of the following definitions of
-\tcode{main}:
+All implementations shall allow both
 
-\begin{codeblock}
-int main() @\tcode{\{ /* ... */ \}}@
-\end{codeblock}
-
-and
+\begin{itemize}
+\item a function of \tcode{()} returning \tcode{int} and
+\item a function of \tcode{(int}, pointer to pointer to \tcode{char)} returning \tcode{int}
+\end{itemize}
 
 \indextext{\idxcode{argc}}%
 \indextext{\idxcode{argv}}%
-\begin{codeblock}
-int main(int argc, char* argv[]) @\tcode{\{ /* ... */ \}}@
-\end{codeblock}
-
+as the type of \tcode{main}~(\ref{dcl.fct}).
 \indextext{\idxcode{main()}!parameters~to}%
 \indextext{environment!program}%
-In the latter form \tcode{argc} shall be the number of arguments passed
-to the program from the environment in which the program is run. If
+In the latter form, for purposes of exposition, the first function
+parameter is called \tcode{argc} and the second function parameter is
+called \tcode{argv}, where \tcode{argc} shall be the number of
+arguments passed to the program from the environment in which the
+program is run. If
 \tcode{argc} is nonzero these arguments shall be supplied in
 \tcode{argv[0]} through \tcode{argv[argc-1]} as pointers to the initial
 characters of null-terminated multibyte strings (\ntmbs
@@ -3177,12 +3201,13 @@ and the pointer is used as the operand of a \grammarterm{delete-expression},
 non-static member function of the object, or
 
 \item the pointer is implicitly converted~(\ref{conv.ptr}) to a pointer
-to a base class type, or
+to a virtual base class, or
 
 \item the pointer is used as the operand of a
-\tcode{static_cast}~(\ref{expr.static.cast}) (except when the conversion
-is to \tcode{void*}, or to \tcode{void*} and subsequently to
-\tcode{char*}, or \tcode{unsigned} \tcode{char*}), or
+\tcode{static_cast}~(\ref{expr.static.cast}), except when the conversion
+is to pointer to \term{cv} \tcode{void}, or to pointer to \term{cv}
+\tcode{void} and subsequently to pointer to either \term{cv}
+\tcode{char} or \term{cv} \tcode{unsigned char}, or
 
 \item the pointer is used as the operand of a
 \tcode{dynamic_cast}~(\ref{expr.dynamic.cast}). \enterexample
@@ -3236,13 +3261,8 @@ well-defined. The program has undefined behavior if:
 \item the glvalue is used to access a non-static data member or call a
 non-static member function of the object, or
 
-\item the glvalue is implicitly converted~(\ref{conv.ptr}) to a reference
-to a base class type, or
-
-\item the glvalue is used as the operand of a
-\tcode{static_cast}~(\ref{expr.static.cast}) except when the conversion
-is ultimately to \term{cv} \tcode{char\&} or \term{cv}
-\tcode{unsigned} \tcode{char\&}, or
+\item the glvalue is bound to a reference
+to a virtual base class~(\ref{dcl.init.ref}), or
 
 \item the glvalue is used as the operand of a
 \tcode{dynamic_cast}~(\ref{expr.dynamic.cast}) or as the operand of
@@ -3650,7 +3670,9 @@ same.
 The standard signed integer types and standard unsigned integer types
 are collectively called the \term{standard integer types}, and the extended
 signed integer types and extended
-unsigned integer types are collectively called the \term{extended integer types}.
+unsigned integer types are collectively called the \term{extended
+integer types}. The signed and unsigned integral types shall satisfy
+the constraints given in the C standard, section 5.2.4.2.1.
 
 \pnum
 \indextext{arithmetic!\idxcode{unsigned}}%

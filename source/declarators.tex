@@ -126,8 +126,8 @@ Declarators have the syntax
 
 \begin{bnf}
 \nontermdef{parameters-and-qualifiers}\br
-    \terminal{(} parameter-declaration-clause \terminal{)} attribute-specifier-seq\opt cv-qualifier-seq\opt\br
-\hspace*{\bnfindentinc}ref-qualifier\opt exception-specification\opt
+    \terminal{(} parameter-declaration-clause \terminal{)} cv-qualifier-seq\opt\br
+\hspace*{\bnfindentinc}ref-qualifier\opt exception-specification\opt attribute-specifier-seq\opt
 \end{bnf}
 
 \begin{bnf}
@@ -446,19 +446,6 @@ except for the declaration of some special functions
 (\ref{class.conv}, \ref{class.dtor}, \ref{over.oper}) and
 for the declaration of template specializations
 or partial specializations (\ref{temp.spec}).
-A
-\grammarterm{declarator-id}
-shall not be qualified except for the definition of a member
-function (\ref{class.mfct}) or static data member (\ref{class.static})
-outside of its class,
-the definition or explicit instantiation of a
-function or variable
-member of a namespace
-outside of its namespace, or
-the definition of an explicit specialization
-outside of its namespace, or
-the declaration of a friend function that is a member of
-another class or namespace (\ref{class.friend}).
 When the
 \grammarterm{declarator-id}
 is qualified, the declaration shall refer to a previously declared member
@@ -1403,18 +1390,12 @@ see~\ref{expr.call}.
 If the
 \grammarterm{parameter-declaration-clause}
 is empty, the function takes no arguments.
-The parameter list
-\tcode{(void)}
-is equivalent to the empty parameter list.
+A parameter list consisting of a single unnamed parameter of
+non-dependent type \tcode{void} is equivalent to an empty parameter
+list.
 \indextext{parameter!\idxcode{void}}%
-Except for this special case,
-\tcode{void}
-shall not be a parameter type
-(though types derived from
-\tcode{void},
-such as
-\tcode{void*},
-can).
+Except for this special case, a parameter shall not have type \term{cv}
+\tcode{void}.
 If the
 \grammarterm{parameter-declaration-clause}
 \indextext{argument~type!unknown}%
@@ -1867,8 +1848,6 @@ declaration of the function or function template in the translation unit.
 \indextext{argument!type~checking~of default}%
 \indextext{argument!binding~of default}%
 \indextext{argument!evaluation~of default}%
-A default argument is implicitly converted (Clause~\ref{conv})
-to the parameter type.
 The default argument has the
 same semantic constraints as the initializer in a
 declaration of a variable of the parameter type, using the
@@ -2205,7 +2184,7 @@ void f(const char * s = __func__);  // error: \tcode{__func__} is undeclared
 A function definition of the form:
 
 \begin{ncbnf}
-    attribute-specifier-seq\opt decl-specifier-seq\opt declarator \terminal{ = default ;}
+    attribute-specifier-seq\opt decl-specifier-seq\opt declarator virt-specifier-seq\opt \terminal{ = default ;}
 \end{ncbnf}
 
 is called an \grammarterm{explicitly-defaulted} definition.
@@ -2234,12 +2213,9 @@ a function is explicitly defaulted on its first declaration,
 
 \begin{itemize}
 \item it is implicitly considered to be \tcode{constexpr} if the implicit
-declaration would be,
+declaration would be, and,
 \item it is implicitly considered to have the same \grammarterm{exception-specification}
-as if it had been implicitly declared~(\ref{except.spec}), and
-\item in the case of a copy constructor, move constructor,
-copy assignment operator, or move assignment operator, it shall have the
-same parameter type as if it had been implicitly declared.
+as if it had been implicitly declared~(\ref{except.spec}).
 \end{itemize}
 
 \pnum
@@ -2264,7 +2240,7 @@ called \defn{defaulted} functions, and the implementation
 shall provide implicit definitions
 for them~(\ref{class.ctor}
 \ref{class.dtor}, \ref{class.copy}), which might mean defining them as deleted.
-A special member function is
+A function is
 \defn{user-provided} if it is user-declared and not explicitly
 defaulted or deleted on its first declaration. A user-provided explicitly-defaulted function
 (i.e., explicitly defaulted after its first declaration)
@@ -2303,7 +2279,7 @@ nontrivial1::nontrivial1() = default;           // not first declaration
 A function definition of the form:
 
 \begin{ncbnf}
-    attribute-specifier-seq\opt decl-specifier-seq\opt declarator \terminal{ = delete ;}
+    attribute-specifier-seq\opt decl-specifier-seq\opt declarator virt-specifier-seq\opt \terminal{ = delete ;}
 \end{ncbnf}
 
 is called a \term{deleted definition}. A function with a
@@ -2547,19 +2523,17 @@ means:
 \item
 if
 \tcode{T}
-is a (possibly cv-qualified) class type (Clause~\ref{class}) with a user-provided
-constructor (\ref{class.ctor}), then the default constructor for
-\tcode{T}
-is called (and the initialization is ill-formed if
-\tcode{T}
-has no accessible default constructor);
+is a (possibly cv-qualified) class type (Clause~\ref{class}) with
+either no default constructor~(\ref{class.ctor}) or a default
+constructor that is user-provided or deleted, then the object is default-initialized;
 
 \item
 if
 \tcode{T}
-is a (possibly cv-qualified) non-union class type without a user-provided constructor,
-then the object is zero-initialized and, if \tcode{T}'s implicitly-declared default
-constructor is non-trivial, that constructor is called.
+is a (possibly cv-qualified) non-union class type without a
+user-provided or deleted default constructor,
+then the object is zero-initialized and, if \tcode{T} has a
+non-trivial default constructor, default-initialized;
 
 \item
 if
@@ -3406,7 +3380,7 @@ double& rd3 = i;                // error: type mismatch and reference not \tcode
 \item If the initializer expression
 
 \begin{itemize}
-\item is an xvalue, class prvalue, array prvalue or function lvalue and
+\item is an xvalue (but not a bit-field), class prvalue, array prvalue or function lvalue and
 ``\cvqual{cv1} \tcode{T1}'' is
 reference-compatible with ``\cvqual{cv2} \tcode{T2}'', or
 
@@ -3537,10 +3511,7 @@ named~(\ref{dcl.spec.auto}) --- the program is ill-formed.
 \pnum
 List-initialization of an object or reference of type \tcode{T} is defined as follows:
 \begin{itemize}
-\item If the initializer list has no elements and \tcode{T} is a class type with a
-default constructor, the object is value-initialized.
-
-\item Otherwise, if \tcode{T} is an aggregate, aggregate initialization is
+\item If \tcode{T} is an aggregate, aggregate initialization is
 performed~(\ref{dcl.init.aggr}).
 
 \enterexample
@@ -3557,6 +3528,9 @@ S2 s22 { 1.0, 2, 3 };               // error: narrowing
 S2 s23 { };                         // OK: default to 0,0,0
 \end{codeblock}
 \exitexample
+
+\item Otherwise, if the initializer list has no elements and \tcode{T} is a class type with a
+default constructor, the object is value-initialized.
 
 \item Otherwise, if \tcode{T} is a specialization of \tcode{std::initializer_list<E>},
 an \tcode{initializer_list} object is constructed as described below and used to
@@ -3606,6 +3580,20 @@ S s3 { };                           // OK: invoke \#2
 \end{codeblock}
 \exitexample
 
+\item Otherwise, if
+the initializer list has a single element of type \tcode{E} and either
+\tcode{T} is not a reference type or its referenced type is
+reference-related to \tcode{E}, the object or reference is initialized
+from that element; if a narrowing conversion (see below) is required
+to convert the element to \tcode{T}, the program is ill-formed.
+
+\enterexample
+\begin{codeblock}
+int x1 {2};                         // OK
+int x2 {2.0};                       // error: narrowing
+\end{codeblock}
+\exitexample
+
 \item Otherwise, if \tcode{T} is a reference type, a prvalue temporary of the type
 referenced by \tcode{T} is list-initialized, and the reference is bound to that
 temporary. \enternote As usual, the binding will fail and the program is ill-formed if
@@ -3624,18 +3612,6 @@ S& r3 = { 1, 2, 3 };                // error: initializer is not an lvalue
 const int& i1 = { 1 };              // OK
 const int& i2 = { 1.1 };            // error: narrowing
 const int (&iar)[2] = { 1, 2 };     // OK: \tcode{iar} is bound to temporary array
-\end{codeblock}
-\exitexample
-\item Otherwise, if
-the initializer list has a single element, the object or reference
-is initialized from that element;
-if a narrowing conversion (see below) is required to convert the element to \tcode{T},
-the program is ill-formed.
-
-\enterexample
-\begin{codeblock}
-int x1 {2};                         // OK
-int x2 {2.0};                       // error: narrowing
 \end{codeblock}
 \exitexample
 
