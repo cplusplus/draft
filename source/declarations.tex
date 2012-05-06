@@ -752,7 +752,7 @@ explicit specialization can differ from the template declaration with respect to
 Function parameters cannot be declared \tcode{constexpr}.\exitnote
 \enterexample
 \begin{codeblock}
-constexpr int square(int x);    // OK: declaration
+constexpr void square(int &x);  // OK: declaration
 constexpr int bufsz = 1024;     // OK: definition
 constexpr struct pixel {        // error: \tcode{pixel} is a type
   int x;
@@ -760,13 +760,13 @@ constexpr struct pixel {        // error: \tcode{pixel} is a type
   constexpr pixel(int);         // OK: declaration
 }; 
 constexpr pixel::pixel(int a)
-  : x(square(a)), y(square(a))  // OK: definition
-  { }
+  : x(a), y(x)                  // OK: definition
+  { square(x); }
 constexpr pixel small(2);       // error: \tcode{square} not defined, so \tcode{small(2)}
                                 // not constant~(\ref{expr.const}) so \tcode{constexpr} not satisfied
 
-constexpr int square(int x) {   // OK: definition
-  return x * x;
+constexpr void square(int &x) { // OK: definition
+  x *= x;
 }
 constexpr pixel large(4);       // OK: \tcode{square} defined
 int next(constexpr int x) {     // error: not for parameters
@@ -806,16 +806,16 @@ each of its parameter types shall be a literal type;
 its \grammarterm{function-body} shall be
 \tcode{= delete}, \tcode{= default}, or
 a \grammarterm{compound-statement}
-that contains only
+that does not contain
 
 \begin{itemize}
-\item null statements,
-\item \grammarterm{static_assert-declaration}{s}
-\item \tcode{typedef} declarations and \grammarterm{alias-declaration}{s} that
-do not define classes or enumerations,
-\item \grammarterm{using-declaration}{s},
-\item \grammarterm{using-directive}{s},
-\item and exactly one return statement.
+\item an \grammarterm{asm-definition},
+\item a \tcode{goto} statement,
+\item a \grammarterm{try-block}, or
+\item a definition of a variable
+of non-literal type or
+of static or thread storage duration or
+for which no initialization is performed.
 \end{itemize}
 
 \end{itemize}
@@ -826,13 +826,22 @@ constexpr int square(int x)
   { return x * x; }             // OK
 constexpr long long_max() 
   { return 2147483647; }        // OK
-constexpr int abs(int x) 
-  { return x < 0 ? -x : x; }    // OK 
-constexpr void f(int x)         // error: return type is \tcode{void}
-  { /* ... */ }
+constexpr int abs(int x) {
+  if (x < 0)
+    x = -x;
+  return x;                     // OK
+}
+constexpr int first(int n) {
+  static int value = n;         // error: variable has static storage duration
+  return value;
+}
+constexpr int uninit() {
+  int a;                        // error: variable is uninitialized
+  return a;
+}
 constexpr int prev(int x)
-  { return --x; }               // error: use of decrement
-constexpr int g(int x, int n) { // error: body not just ``return expr''
+  { return --x; }               // OK
+constexpr int g(int x, int n) { // OK
   int r = 1;
   while (--n > 0) r *= x;
   return r;
@@ -862,16 +871,8 @@ In addition, either its \grammarterm{function-body} shall be
 \begin{itemize}
 \item
 either its \grammarterm{function-body} shall be \tcode{= default}, or the \grammarterm{compound-statement} of its \grammarterm{function-body}
-shall contain only
-
-\begin{itemize}
-\item null statements,
-\item \grammarterm{static_assert-declaration}{s}
-\item \tcode{typedef} declarations and \grammarterm{alias-declaration}{s} that
-do not define classes or enumerations,
-\item \grammarterm{using-declaration}{s},
-\item and \grammarterm{using-directive}{s};
-\end{itemize}
+shall satisfy the constraints for a \grammarterm{function-body} of a
+\tcode{constexpr} function;
 
 \item
 every non-variant non-static data member and base class sub-object
@@ -884,13 +885,7 @@ shall be initialized;
 
 \item
 every constructor involved in initializing non-static
-data members and base class sub-objects shall be a \tcode{constexpr} constructor;
-
-\item
-every \grammarterm{assignment-expression} that is an \grammarterm{initializer-clause}
-appearing directly or indirectly within a \grammarterm{brace-or-equal-initializer}
-for a non-static data member that is not named by a \grammarterm{mem-initializer-id}
-shall be a constant expression.
+data members and base class sub-objects shall be a \tcode{constexpr} constructor.
 \end{itemize}
 
 \enterexample
@@ -898,65 +893,18 @@ shall be a constant expression.
 struct Length { 
   explicit constexpr Length(int i = 0) : val(i) { }
 private: 
-    int val; 
+  int val; 
 }; 
 \end{codeblock}
 \exitexample
 
 \pnum
-\indexdefn{function invocation substitution}\term{Function invocation substitution}
-for a call of a \tcode{constexpr} function or
-of a \tcode{constexpr} constructor means:
-
-\begin{itemize}
-
-\item
-implicitly converting each argument to the corresponding parameter
-type as if by copy-initialization,\footnote{The resulting converted
-value will include an lvalue-to-rvalue conversion~(\ref{conv.lval}) if
-the corresponding copy-initialization requires one.}
-
-\item
-substituting that converted expression for each use of the corresponding parameter in the
-\grammarterm{function-body},
-
-\item
-in a member function, substituting for each use of
-\tcode{this}~(\ref{class.this}) a prvalue pointer whose value is the
-address of the object for which the member function is called, and
-
-\item
-in a \tcode{constexpr} function, implicitly converting the resulting
-returned expression or \grammarterm{braced-init-list} to the
-return type of the function as if by copy-initialization.
-\end{itemize}
-
-Such substitution does not change the
-meaning. \enterexample
-\begin{codeblock}
-constexpr int f(void *) { return 0; }
-constexpr int f(...) { return 1; }
-constexpr int g1() { return f(0); }         // calls \tcode{f(void *)}
-constexpr int g2(int n) { return f(n); }    // calls \tcode{f(...)} even for \tcode{n == 0}
-constexpr int g3(int n) { return f(n*0); }  // calls \tcode{f(...)}
-
-namespace N {
-  constexpr int c = 5;
-  constexpr int h() { return c; }
-}
-constexpr int c = 0;
-constexpr int g4() { return N::h(); }       // value is \tcode{5}, \tcode{c} is not looked up again after the substitution
-\end{codeblock}
-\exitexample
-
-For a non-template, non-defaulted \tcode{constexpr} function, if no function
-argument values exist such that the function
-invocation substitution would produce a constant expression~(\ref{expr.const}), the
-program is ill-formed; no diagnostic required. For a non-template,
-non-defaulted, non-inheriting \tcode{constexpr} constructor, if no
-argument values exist such that after function invocation substitution, every constructor
-call and full-expression in the \grammarterm{mem-initializer}{s} would be a constant
-expression (including conversions), the program is ill-formed; no diagnostic required.
+For a non-template, non-defaulted
+\tcode{constexpr} function or a non-template, non-defaulted, non-inheriting
+\tcode{constexpr} constructor, if no argument values exist such that
+an invocation of the function or constructor could be an evaluated subexpression of a core
+constant expression~(\ref{expr.const}), the program is ill-formed; no diagnostic
+required.
 \enterexample
 \begin{codeblock}
 constexpr int f(bool b)
@@ -998,21 +946,16 @@ non-\tcode{constexpr} function in all respects except that a call to a \tcode{co
 function can appear in a constant expression.
 
 \pnum
-A \tcode{constexpr} specifier for a non-static member
-function that is not a constructor declares that member function to be
-\tcode{const}~(\ref{class.mfct.non-static}).
-\enternote The \tcode{constexpr} specifier has no
-other effect on the function type.\exitnote
-The keyword \tcode{const} is ignored if it appears in the \grammarterm{cv-qualifier-seq}
-of the function declarator of the declaration of such a member function.
+The \tcode{constexpr} specifier has no
+effect on the type of a \tcode{constexpr} function or a \tcode{constexpr} constructor.
 The class of
-which that function is a member shall be a literal
+which a \tcode{constexpr} function is a member shall be a literal
 type~(\ref{basic.types}). \enterexample
 \begin{codeblock}
 class debug_flag { 
 public: 
   explicit debug_flag(bool); 
-  constexpr bool is_on();       // error: \tcode{debug_flag} not 
+  constexpr bool is_on() const; // error: \tcode{debug_flag} not 
                                 // literal type 
 private: 
   bool flag; 
@@ -1035,10 +978,9 @@ If it is initialized by a constructor call,
 that call shall be a constant expression~(\ref{expr.const}).
 Otherwise,
 or if a \tcode{constexpr} specifier is used in a reference declaration,
-every full-expression that appears in its initializer shall be a constant expression. Each
+every full-expression that appears in its initializer shall be a constant expression. \enternote Each
 implicit conversion used in converting the initializer expressions and each constructor call
-used for the initialization shall be one of those allowed in a constant
-expression~(\ref{expr.const}).
+used for the initialization is part of such a full-expression. \exitnote
 \enterexample
 \begin{codeblock}
 struct pixel { 
