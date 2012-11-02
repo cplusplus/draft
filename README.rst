@@ -29,7 +29,16 @@ the source directory::
 
    ../tools/makexref
 
-To typeset the draft document:
+To typeset the draft document, from the ``source`` directory:
+
+#. run ``latexmk -pdf std``
+
+Or, if you can't use latexmk for some reason:
+
+#. run ``make rebuild``
+#. run ``make reindex``
+
+Or, if you can't use latexmk or Make for some reason:
 
 #. run ``pdflatex std`` until there are no more changed labels or changed tables
 #. run ``makeindex generalindex``
@@ -46,3 +55,5 @@ A great deal of gratitude goes out to Pete Becker for his amazing work
 in the original conversion of the C++ standard drafts to LaTeX, and
 his subsequent maintenance of the standard drafts up to C++11. Thank
 you Pete.
+
+Thanks to Walter Brown for suggesting the use of ``latexmk``.
