@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta content="text/html;charset=UTF-8" http-equiv="Content-Type"/>
+    <meta charset="UTF-8"/>
+    <title>Range arguments for container constructors and methods, with wording</title>
+<style type="text/css">
+body {color: #000000; background-color: #FFFFFF;}
+
+del {text-decoration: line-through; color: #8B0040;}
+ins {text-decoration: underline; color: #005100;}
+
+pre > code:only-child {display: inline-block; white-space: inherit}
+code {white-space: nowrap}
+code wbr {white-space: normal}
+
+/*
+.wording { max-width: 90ex; }
+.wording .sectnum { margin-right: 1em; }
+.wording .sectname { display: block; float: right;  }
+
+section.numbered { counter-reset: par-num; }
+.wording p:before, .wording dt:before {
+    content: counter(par-num) " "; counter-increment: par-num;
+    font-size: 80%; position: absolute; left: 2em}
+*/
+.wording td { border-top: thin solid black; border-bottom: thin solid black; }
+
+section.function { clear: both; }
+.attribute {margin-left: 2em}
+.attribute dt {float: left; font-style: italic; padding-right: 1ex}
+.attribute dd {margin-left: 0}
+.attribute li {clear: left}
+
+.docinfo {float: right}
+.docinfo p {margin: 0; text-align:right; font-style: italic}
+
+section {padding-left: 1em}
+section header {margin-left: -1em}
+
+h2, h3, h4, h5, h6 { margin-bottom: .75em }
+h5, h6 { font-size: 1em; }
+p {margin-top: .5em; margin-bottom: .5em}
+p:first-child, ul, ol {margin-top: 0}
+.todo dt:not(:first-child) {margin-top: .5em}
+p, li, dd, table {max-width: 80ex}
+
+table { border: double; margin: 1em; border-collapse: collapse; }
+td { text-align: left; }
+
+.example {display: inline-block; clear: both; margin-left: 1ex;
+          border: thin solid #0e0; background-color: #f8f8f8; padding: 1ex}
+
+div.note > *:first-child::before {content: "Note: "; display: inline; font-weight: bold}
+div.note {display: inline-block; margin-left: 1ex; border: thin solid #8f8;
+          padding: 1ex; background-color: #efe}
+
+:target {background-color: #fed}
+</style>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js" type="text/javascript"></script>
+<script type="text/javascript">//<![CDATA[
+$(function() {
+    var next_id = 0
+    function find_id(node) {
+        // Look down the first children of 'node' until we find one
+        // with an id. If we don't find one, give 'node' an id and
+        // return that.
+        var cur = node[0];
+        while (cur) {
+            if (cur.id) return cur.id;
+            if (cur.tagName == 'A' && cur.name)
+                return cur.name;
+            cur = cur.firstChild;
+        };
+        // No id.
+        node.attr('id', 'gensection-' + next_id++);
+        return node.attr('id');
+    };
+
+    // Put a table of contents in the #toc nav.
+
+    // This is a list of <ol> elements, where toc[N] is the list for
+    // the current sequence of <h(N+2)> tags. When a header of an
+    // existing level is encountered, all higher levels are popped,
+    // and an <li> is appended to the level
+    var toc = [$("<ol/>")];
+    $(':header').not('h1').each(function() {
+        var header = $(this);
+        // For each <hN> tag, add a link to the toc at the appropriate
+        // level.  When toc is one element too short, start a new list
+        var levels = {H2: 0, H3: 1, H4: 2, H5: 3, H6: 4};
+        var level = levels[this.tagName];
+        if (typeof level == 'undefined') {
+            throw 'Unexpected tag: ' + this.tagName;
+        }
+        // Truncate to the new level.
+        toc.splice(level + 1, toc.length);
+        if (toc.length < level) {
+            // Omit TOC entries for skipped header levels.
+            return;
+        }
+        if (toc.length == level) {
+            // Add a <ol> to the previous level's last <li> and push
+            // it into the array.
+            var ol = $('<ol/>')
+            toc[toc.length - 1].children().last().append(ol);
+            toc.push(ol);
+        }
+        var header_text = header.text();
+        toc[toc.length - 1].append(
+            $('<li/>').append($('<a href="#' + find_id(header) + '"/>')
+                              .text(header_text)));
+    });
+    $('#toc').append(toc[0]);
+})
+//]]></script>
+</head>
+<body>
+  <header>
+    <div class="docinfo">
+      <p>ISO/IEC JTC1 SC22 WG21 N3456=12-0146</p>
+      <p>Date: <time pubdate="">2012-11-03</time></p>
+      <address>
+        <p>Jeffrey Yasskin &lt;<a href="mailto:jyasskin@google.com">jyasskin@google.com</a>&gt;</p>
+      </address>
+    </div>
+    <h1>Range arguments for container constructors and methods, with wording</h1>
+  </header>
+  <nav id="toc"></nav>
+
+  <section>
+    <header><h2 id="overview">Overview</h2></header>
+    <p>The STL brought the notion of a <dfn>range</dfn> to C++, expressed as a
+    pair of iterators.  C++11 added the range-based for loop, which iterates
+    over a single object for which <code>begin(x)</code> and <code>end(x)</code>
+    return that pair of iterators.  The <a
+    href="http://www.boost.org/libs/range">Boost.Range</a> library extends this
+    to a full library of algorithms based on ranges as single objects. We'd like
+    to be able to experiment with such a library in a series of Technical
+    Specifications between now and C++17, but the LWG preference is that TSes
+    shouldn't change the definitions of any existing types, so we need to add a
+    minimal amount of range-object support to the C++14 standard library so that
+    range TSes can interoperate.  This paper attempts to add that support.</p>
+
+    <p>I drew inspiration from two places in adding this support.  First, the
+    range-based for loop ([stmt.ranged]) defines the minimal interface for a
+    range object:</p>
+    <ul>
+      <li><code>using std::begin; begin(range)</code> and <code>using std::end;
+      end(range)</code> return types that can initialize variables in the same
+      <code>auto</code>-typed declaration. (Note that [stmt.ranged] specifies
+      individual cases for arrays, objects with <code>.begin()</code> and
+      <code>.end()</code> members, and objects for which <code>begin()</code>
+      and <code>end()</code> can be found via ADL, but <code>std::begin()</code>
+      and <code>std::end()</code> include code for arrays and objects with
+      <code>.begin()</code> and <code>.end()</code> members, so this
+      library-oriented proposal simply relies on them.)</li>
+
+      <li>The type returned by <code>begin(range)</code> and
+      <code>end(range)</code> supports <code>operator*</code>,
+      <code>operator++</code>, and <code>operator!=</code> in the pattern
+      defined by Input Iterators.  This proposal slightly strengthens that into
+      a requirement that <code>begin(range)</code> and <code>end(range)</code>
+      actually return an Input Iterator type.</li>
+    </ul>
+
+    <p>Second, many container methods have an overload taking an
+    <code>initializer_list&lt;value_type></code> argument.  This proposal takes
+    that as a good indication of the methods that can usefully take a range
+    argument and adds such an overload parallel to each one of those.  This is
+    the same as the set of methods taking a templated Iterator pair except for
+    one <code>priority_queue</code> constructor.</p>
+  </section>
+
+  <section>
+    <header><h2 id="range-arg">The <code>Range</code> template argument</h2></header>
+
+    <p>There are many sorts of range types, so container methods taking ranges
+    either have to be templated, or we'd need to define a single range type with
+    a templated converting constructor.  I proposed such a type in <a
+    href="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2012/n3350.html">N3350</a>,
+    but the exact set of methods that the type needs is somewhat contentious, so
+    this paper proposes templating the methods instead.</p>
+
+    <p>A templated method could either take a <code>const Range&amp;</code> or a
+    <code>Range&amp;&amp;</code> (where <code>Range</code> is a template
+    argument).  Both of these can capture arguments that should implicitly
+    convert to the argument types of another overload of the same method, so we
+    need some <code>enable_if</code> logic for both.  <code>const
+    Range&amp;</code> would naturally leave <code>Container&amp;</code>
+    arguments for the <code>const Container&amp;</code> overload, but it would
+    incorrectly capture <code>DerivedFromContainer</code> arguments, just like
+    <code>Range&amp;&amp;</code> would.  <code>Range&amp;&amp;</code> lets us
+    allow library authors to move elements from rvalue arguments.  Because the
+    necessary <code>enable_if</code> logic seems similar in both cases, I chose
+    to take <code>Range&amp;&amp;</code>.</p>
+
+    <p><a href="#enable.if.spec">The <code>enable_if</code> logic is
+    specified</a> as:</p>
+    <blockquote><p>If &#x2026; are called with a type <code>Range</code> that
+    does not qualify as a range, or the value type of this range is not
+    convertible to <code>value_type</code>, then these functions and constructor
+    shall not participate in overload resolution.  If the constructor or
+    <code>operator=</code> are called with a type <code>Range</code> such that
+    <code>typename remove_cv&lt;<wbr/>typename
+    remove_reference&lt;<wbr/>Range<wbr/>>::type<wbr/>>::type</code> is the type
+    of the container or a type derived from the container type, this constructor
+    and function shall also not participate in overload
+    resolution.</p></blockquote>
+
+    <p>Even with this text, <em>range types that define an implicit conversion
+    to the container type with a non-default allocator, comparator, or hash
+    instance</em> are going to have strange behavior when a conversion is
+    requested.  With current language rules, it appears that copy-initialization
+    will call the conversion operator, but direct-initialization will call the
+    templated range constructor, losing any custom allocator, comparator, or
+    hash instance the conversion operator attempts to set.  It's possible to
+    work around this by explicitly passing them to the range constructor, but
+    it's unlikely users will know to do so.  I believe such types are rare
+    enough that this surprise is acceptable.</p>
+
+    <p>The proposed text also says that ranges passed as rvalues are "left in an
+    unspecified state after the call."  When a range is just a reference to
+    objects owned elsewhere, this text doesn't allow moving those objects, since
+    that leaves more than just the <em>range</em> in an unspecified state.
+    However, if the implementation can detect that the range owns the objects it
+    iterates over, this wording allows those objects to be moved.  I leave the
+    technique for detecting this as a QoI issue.  This wording isn't present for
+    the <code>std::string</code> range operations because <code>char</code>-like
+    types don't benefit from moving over copying.</p>
+  </section>
+
+  <section>
+    <header><h2 id="examples">Examples</h2></header>
+
+    <h3 id="boost.range.example">Using Boost.Range with standard containers</h3>
+    <p>Boost has a fairly extensive collection of range-based algorithms, but
+    they can't quite interoperate perfectly with standard containers because the
+    containers are missing appropriate constructors.  This paper allows the
+    following code (adapted from the <a
+    href="http://www.boost.org/doc/libs/1_51_0/libs/range/doc/html/range/reference/adaptors/reference/replaced.html">Boost.Range
+    docs</a>) to work:</p>
+
+<pre class="example"><code>#include &lt;boost/range/adaptor/replaced.hpp>
+#include &lt;boost/range/adaptor/reversed.hpp>
+#include &lt;boost/range/algorithm/copy.hpp>
+#include &lt;deque>
+#include &lt;iostream>
+#include &lt;vector>
+
+int main() {
+    using namespace boost::adaptors;
+
+    std::deque&lt;int> input{1,2,3,2,5,2,7,2,9};
+
+    std::vector&lt;int> output{
+      input | replaced(2, 10) | reversed};
+
+    boost::copy(output, std::ostream_iterator&lt;int>(std::cout, ","));
+}
+</code></pre>
+
+    <p>This prints "<samp>9,10,7,10,5,10,3,10,1,</samp>".</p>
+
+    <p>You'll note that this paper doesn't propose any new algorithm overloads
+    taking ranges, so the above example still needs to call
+    <code>boost::copy</code> instead of <code>std::copy</code>. That's because a
+    TS can add new functions in its own namespace, so we can go through several
+    revisions getting them exactly right, rather than needing to debate a whole
+    algorithms library for C++14.</p>
+
+    <h3 id="split.example"><a
+    href="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2012/n3430.html">N3430's
+    split()</a> without a conversion operator</h3>
+
+    <p>The primary discomfort the LWG had with the <code>split()</code> proposal
+    was that its implicit conversion operator to any container type was just a
+    hack around the lack of range support (<a
+    href="http://wiki.edg.com/twiki/bin/view/Wg21portland2012/LibraryWorkingGroup#Afternoon_AN2">Portland
+    discussion</a>).  This paper delivers enough range support to remove
+    <code>split()</code>'s conversion operator.</p>
+
+<pre class="example"><code>vector&lt;string> v{std::split("a,b,c", ",")};
+deque&lt;string> d{std::split("a,b,c", ",")};
+set&lt;string> s{std::split("a,b,c", ",")};
+list&lt;string> l{std::split("a,b,c", ",")};
+vector&lt;string_ref> v2{std::split("a,b,c", ",")};  // No data copied.
+assert(v.size() == 3);  // "a", "b", "c" </code></pre>
+
+<p>Conversion to either <code>string</code> or <code>string_ref</code> is
+accomplished by having <code>split()</code>'s result's iterator return proxy
+objects that are implicitly convertible to either type.  The <a
+href="#enable.if.spec"><code>enable_if</code> logic</a> specifically allows
+implicit conversions to the container's <code>value_type</code> so that this
+works.</p>
+
+  </section>
+
+
+  <hr/>
+
+  <section class="wording">
+    <header><h2 id="wording">Wording</h2></header>
+
+    <p>Wording changes are being maintained at <a
+    href="https://github.com/google/cxx-std-draft/compare/range-args">https://github.com/google/cxx-std-draft/compare/range-args</a>
+    and a snapshot of the changes is copied below.  An early implementation is
+    at <a
+    href="https://github.com/google/libcxx/compare/range-args">https://github.com/google/libcxx/compare/range-args</a>.
+    Patches and pull requests are welcome against both.</p>
+
+<h3>Add to the std::basic_string definition in [basic.string]</h3>
+<pre><code>    template&lt;class Range>
+      explicit basic_string(Range&&, const Allocator& = Allocator());
+    template&lt;class Range>
+      basic_string& operator=(Range&&);
+    template&lt;class Range>
+      basic_string& operator+=(Range&&);
+    template&lt;class Range>
+      basic_string& append(Range&&);
+    template&lt;class Range>
+      basic_string& assign(Range&&);
+    template&lt;class Range>
+      iterator insert(const_iterator p, Range&&);
+    template&lt;class Range>
+      basic_string& replace(const_iterator, const_iterator, Range&&);</code></pre>
+
+<h3>Add a paragraph to [string.require]</h3>
+<p>5 Constructors and member functions taking a Range template argument shall not participate in overload resolution unless Range is a range type (23.2.1) with a value type implicitly convertible to charT.</p>
+
+<h3>Add overloads to [string.cons]</h3>
+<pre><code>template&lt;typename Range>
+  explicit basic_string(Range&& range, const Allocator& a = Allocator());</code></pre>
+<p>16 Requires: range is a valid range.</p>
+<p>17 Effects: Same as basic_string(begin(range), end(range), a).</p>
+
+<pre><code>template&lt;typename Range>
+  basic_string& operator=(Range&& range);</code></pre>
+<p>31 Requires: range is a valid range.</p>
+<p>32 Effects: *this = basic_string(std::forward&lt;Range>(range)).</p>
+<p>33 Returns: *this.</p>
+
+<h3>Add an overload to [string::op+=]</h3>
+<pre><code>template&lt;class Range>
+  basic_string& operator+=(Range&& range);</code></pre>
+<p>9 Requires: range is a valid range.</p>
+<p>10 Effects: Calls append(std::forward&lt;Range>(range)).</p>
+<p>11 Returns: *this.</p>
+
+<h3>Add an overload to [string::append]</h3>
+<pre><code>template&lt;class Range>
+  basic_string& append(Range&& range);</code></pre>
+<p>21 Requires: range is a valid range.</p>
+<p>22 Effects: Calls append(begin(range), end(range)).</p>
+<p>23 Returns: *this.</p>
+
+<h3>Add an overload to [string::assign]</h3>
+<pre><code>template&lt;class Range>
+  basic_string& assign(Range&& range);</code></pre>
+<p>17 Requires: range is a valid range.</p>
+<p>18 Effects: Calls assign(begin(range), end(range)).</p>
+<p>19 Returns: *this.</p>
+
+<h3>Add an overload to [string::insert]</h3>
+<pre><code>template&lt;class Range>
+  iterator insert(const_iterator p, Range&& range);</code></pre>
+<p>29 Requires: range is a valid range.</p>
+<p>30 Effects: insert(p, begin(range), end(range)).</p>
+<p>31 Returns: An iterator which refers to the copy of the first inserted character, or p if range is empty.</p>
+
+<h3>Add an overload to [string::replace]</h3>
+<pre><code>template&lt;class Range>
+  basic_string& replace(const_iterator i1, const_iterator i2,
+                   Range&& range);</code></pre>
+<p>36 Requires: [begin(),i1), [i1,i2), and range are valid ranges.</p>
+<p>37 Effects: Calls replace(i1 - begin(), i2 - i1, begin(range), end(range)).</p>
+<p>38 Returns: *this.</p>
+
+
+<h3>Add a section "23.2.1 Range requirements [container.requirements.range]"</h3>
+
+<p>1 Ranges are objects which refer to a sequence of other objects using a pair of iterators accessed by begin() and end() functions. Ranges may or may not contain and own these objects.</p>
+<p>2 In Table 96, R denotes a range class that refers to objects of type T. a denotes an lvalue of type R.</p>
+
+<table>
+<caption>Table 96 &#x2014; Range requirements</caption>
+<tr><th>Expression</th><th>Return type</th></tr>
+<tr><td>using std::begin; begin(a)</td><td>input iterator type whose value type is T</td></tr>
+<tr><td>using std::end; end(a)</td><td>input iterator type whose value type is T</td></tr>
+</table>
+
+<p>3 In a context where namespace std is an associated namespace, begin(a) returns an iterator referring to the first element in the range. end(a) returns an iterator which is the past-the-end value for the range. A type is known as a range type if common_type&lt;decltype(begin(a)), decltype(end(a))>::type is an InputIterator type (24.2.3). This type is known as the iterator type of the range a. The value type of this iterator is also the value type of the range. [Note: These requirements are intended to match the requirements on _RangeT in the range-based for loop (6.5.4). &#x2014; end note ]</p>
+
+<p>4 a is a valid range if and only if [begin(a),end(a)) is a valid range.</p>
+
+<p>5 A range a is empty if and only if begin(a) == end(a).</p>
+
+<h3>Modify [sequence.reqmts]p3</h3>
+<p>3 In Tables 101 and 102, X denotes a sequence container class, a denotes a value of X containing elements of type T, A denotes X::allocator_type if it exists and std::allocator&lt;T> if it doesn’t, i and j denote iterators satisfying input iterator requirements and refer to elements implicitly convertible to value_type, [i, j) denotes a valid range, <ins>r denotes a valid range (23.2.1) whose value type is implicitly convertible to value_type, </ins>il designates an object of type initializer_list&lt;value_type>, n denotes a value of X::size_type, p denotes a valid const iterator to a, q denotes a valid dereferenceable const iterator to a, [q1, q2) denotes a valid range of const iterators in a, t denotes an lvalue or a const rvalue of X::value_- type, and rv denotes a non-const rvalue of X::value_type. Args denotes a template parameter pack; args denotes a function parameter pack with the pattern Args&&.</p>
+
+<h3>Add rows to Table 101 — Sequence container requirements (in addition to container)</h3>
+
+<table>
+  <tr><th>Expression</th><th>Return type</th><th>Assertion/note<br/>pre-/post-condition</th></tr>
+  <tr><td>X(r);</td><td></td><td>Equivalent to X(begin(r), end(r))</td></tr>
+<tr><td>a = r;</td>
+<td>X&</td><td>Requires: T is CopyInsertable into X and CopyAssignable. Assigns the range
+[begin(r),end(r)) into a. All existing elements of a are either assigned to or destroyed.
+Returns: *this.</td></tr>
+<tr><td>a.insert(p, r);</td><td>iterator</td><td>a.insert(p, begin(r), end(r)).</td></tr>
+<tr><td>a.assign(r)</td><td>void</td><td>a.assign(begin(r), end(r)).</td></tr>
+</table>
+
+<h3 id="enable.if.spec">Add a bullet to [sequence.reqmts]p13</h3>
+<ul>
+<li>If the constructor
+<pre><code>template &lt;class Range>
+explicit X(Range&& range,
+  const allocator_type& alloc = allocator_type())</code></pre>
+or the member functions of the forms:
+<pre><code>template &lt;class Range> // such as insert()
+rt fx1(const_iterator p, Range&& range);
+template &lt;class Range> // such as append(), assign()
+rt fx2(Range&& range);
+template &lt;class Range> // such as replace()
+rt fx3(const_iterator i1, const_iterator i2, Range&& range);</code></pre>
+are called with a type Range that does not qualify as a range (23.2.1), or the value type of this range is not convertible to value_type, then these functions and constructor shall not participate in overload resolution. If the constructor or operator= are called with a type Range such that typename remove_cv&lt;typename remove_reference&lt;Range>::type>::type is the type of the container or a type derived
+from the container type, this constructor and function shall also not participate in overload resolution.
+Further, if the range is passed as an rvalue, it is left in an unspecified state after the call. [Footnote: This allows implementations to detect arguments that are containers and move, instead of copying, their contents. — end footnote]</li>
+</ul>
+
+<h3>Modify [associative.reqmts]p8</h3>
+<p>8 In Table 103, X denotes an associative container class, a denotes a value of X, a_uniq denotes a value of X when X supports unique keys, a_eq denotes a value of X when X supports multiple keys, u denotes an identifier, i and j satisfy input iterator requirements and refer to elements implicitly convertible to value_type, [i,j) denotes a valid range, p denotes a valid const iterator to a, q denotes a valid dereferenceable const iterator to a, [q1, q2) denotes a valid range of const iterators in a, <ins>r denotes a valid range (23.2.1) whose value type is implicitly convertible to value_type, </ins>il designates an object of type initializer_list&lt;value_type>, t denotes a value of X::value_type, k denotes a value of X::key_type and c denotes a value of type X::key_compare. A denotes the storage allocator used by X, if any, or std::allocator&lt;X::value_type> otherwise, and m denotes an allocator of a type convertible to A.</p>
+
+<h3>Add rows to Table 103 — Associative container requirements (in addition to container)</h3>
+<table>
+  <tr><th>Expression</th><th>Return type</th><th>Assertion/note<br/>pre-/post-condition</th><th>Complexity</th></tr>
+<tr><td>X(r);</td><td></td><td>Same as X(begin(r), end(r)).</td><td>same as X(begin(r), end(r)).</td></tr>
+<tr><td>a = r</td><td>X&</td>
+<td>Requires: value_type is CopyInsertable into X and CopyAssignable.
+Effects: Assigns the range [begin(r),end(r)) into a. All existing elements of a are either assigned to or destroyed.</td>
+<td>NlogN in general (where N has the value distance(begin(r), end(r)) + a.size()); linear if [begin(r),end(r)) is sorted with value_comp().</td></tr>
+<tr><td>a.insert(r)</td><td>void</td><td>Equivalent to a.insert(begin(r),
+end(r)).</td><td></td></tr>
+</table>
+
+<h3>Add a paragraph [associative.reqmts]p9</h3>
+
+<p>9 For every associative container defined in this Clause, if the constructor</p>
+      <pre><code>template &lt;class Range>
+      explicit X(Range&& range,
+        const Compare& = Compare(),
+        const Allocator& alloc = Allocator())</code></pre>
+<p>or the member functions of the form:</p>
+<pre><code>template &lt;class Range> // such as insert(), operator=() rt fx2(Range&& range);</code></pre>
+<p>are called with a type Range that does not qualify as a range (23.2.1), or the value type of this range is not convertible to value_type, then these functions and constructor shall not participate in overload resolution. If the constructor or operator= are called with a type Range such that typename remove_cv&lt;typename remove_reference&lt;Range>::type>::type is the type of the container or a type derived from the container type, this constructor and function shall also not participate in overload resolution. Further, if the range is passed as an rvalue, it is left in an unspecified state after the call. [Footnote: This allows implementations to detect arguments that are containers and move, instead of copying, their contents. — end footnote]</p>
+
+<h3>Modify [unord.req]p11</h3>
+
+<p>11 In table 104: X is an unordered associative container class, a is an object of type X, b is a possibly const object of type X, a_uniq is an object of type X when X supports unique keys, a_eq is an object of type X when X supports equivalent keys, i and j are input iterators that refer to value_type, [i, j) is a valid range, p and q2 are valid const iterators to a, q and q1 are valid dereferenceable const iterators to a, [q1, q2) is a valid range in a, <ins>r denotes a valid range (23.2.1) whose value type is implicitly convertible to value_type, </ins>il designates an object of type initializer_list&lt;value_type>, t is a value of type X::value_type, k is a value of type key_type, hf is a possibly const value of type hasher, eq is a possibly const value of type key_equal, n is a value of type size_type, and z is a value of type float.</p>
+
+<h3>Add rows to Table 104 — Unordered associative container requirements (in addition to container)</h3>
+<table>
+  <tr><th>Expression</th><th>Return type</th><th>Assertion/note<br/>pre-/post-condition</th><th>Complexity</th></tr>
+<tr><td>X(r)</td><td>X</td><td>Same as X(begin(r), end(r)).</td><td>Same as X(begin(r), end(r)).</td></tr>
+<tr><td>a = r</td><td>X&</td>
+<td>Requires: value_type is CopyInsertable into X and CopyAssignable.
+Effects: Assigns the range [begin(r),end(r)) into a. All existing elements of a are either assigned to or destroyed.</td>
+<td>Same as a = X(r).</td></tr>
+<tr><td>a.insert(r)</td><td>void</td><td>Same as a.insert(begin(r), end(r)).</td><td>Same as a.insert( begin(r),
+end(r)).</td></tr>
+</table>
+
+<h3>Add a paragraph [unord.req]p12</h3>
+
+<p>12 For every unordered associative container defined in this Clause, if the constructor</p>
+<pre><code>template &lt;class Range>
+explicit X(Range&& range,
+  size_type = see below,
+  const hasher& hf = hasher(),
+  const key_equal& eql = key_equal(),
+  const allocator_type& a = allocator_type())</code></pre>
+<p>or the member functions of the form:</p>
+<pre><code>template &lt;class Range> // such as insert(), operator=()
+rt fx2(Range&& range);</code></pre>
+<p>are called with a type Range that does not qualify as a range (23.2.1), or the value type of this range is not convertible to value_type, then these functions and constructor shall not participate in overload resolution. If the constructor or operator= are called with a type Range such that typename remove_cv&lt;typename remove_reference&lt;Range>::type>::type is the type of the container or a type derived from the container type, this constructor and function shall also not participate in overload resolution. Further, if the range is passed as an rvalue, it is left in an unspecified state after the call. [Footnote: This allows implementations to detect arguments that are containers and move, instead of copying, their contents. — end footnote]</p>
+
+<h3>Add to the std::deque definition in [deque.overview]</h3>
+<pre><code>    template &lt;class Range>
+      explicit deque(Range&&, const Allocator& = Allocator());
+    template &lt;class Range>
+      deque& operator=(Range&&);
+    template &lt;class Range>
+      void assign(Range&&);
+    template &lt;class Range>
+      iterator insert(const_iterator position, Range&&);
+</code></pre>
+
+<h3>Add an insert overload to [deque.modifiers]</h3>
+<pre><code>template &lt;class Range>
+  iterator insert(const_iterator position, Range&&);</code></pre>
+
+
+<h3>Add to the std::forward_list definition in [forwardlist.overview]</h3>
+<pre><code>    template &lt;class Range>
+      explicit forward_list(Range&&, const Allocator& = Allocator());
+    template &lt;class Range>
+      forward_list& operator=(Range&&);
+    template &lt;class Range>
+      void assign(Range&&);
+    template &lt;class Range>
+      iterator insert_after(const_iterator position, Range&& range);</code></pre>
+
+<h3>Add an insert_after overload to [forwardlist.modifiers]</h3>
+
+<pre><code>template &lt;class Range>
+  iterator insert_after(const_iterator position, Range&& range);</code></pre>
+<p>16 Remarks: This signature shall not participate in overload resolution unless Range is a range type whose value type is implicitly convertible to value_type. If the range is passed as an rvalue, it is left in an unspecified state after the call.</p>
+<p>17 Effects: insert_after(p, begin(range), end(range)).</p>
+<p>18 Returns: An iterator pointing to the last inserted element or position if range is empty.</p>
+
+
+<h3>Add to the std::list definition in [list.overview]</h3>
+<pre><code>    template &lt;class Range>
+      explicit list(Range&&, const Allocator& = Allocator());
+    template &lt;class Range>
+      list& operator=(Range&&);
+    template &lt;class Range>
+      void assign(Range&&);
+    template &lt;class Range>
+      iterator insert(const_iterator position, Range&& range);</code></pre>
+
+<h3>Add an insert overload to [list.modifiers]</h3>
+<pre><code>template &lt;class Range>
+  iterator insert(const_iterator position, Range&&);</code></pre>
+
+<h3>Add to the std::vector definition in [vector.overview]</h3>
+<pre><code>    template &lt;class Range>
+      explicit vector(Range&&, const Allocator& = Allocator());
+    template &lt;class Range>
+      vector& operator=(Range&&);
+    template &lt;class Range>
+      void assign(Range&&);
+    template &lt;class Range>
+      iterator   insert(const_iterator position, Range&& range);</code></pre>
+
+<h3>Add an insert overload to [vector.modifiers]</h3>
+<pre><code>template &lt;class Range>
+  iterator insert(const_iterator position, Range&&);</code></pre>
+
+<h3>Add to the std::vector&lt;bool> definition in [vector.bool]</h3>
+<pre><code>    template &lt;class Range>
+      vector(Range&&, const Allocator& = Allocator()));
+    template &lt;class Range>
+      vector operator=(Range&&);
+    template &lt;class Range>
+      void assign(Range&&);
+    template &lt;class Range>
+        iterator insert(const_iterator position, Range&& range);</code></pre>
+
+<h3>Add to the std::map definition in [map.overview]</h3>
+<pre><code>    template &lt;class Range>
+      explicit map(Range&&,
+        const Compare& = Compare(),
+        const Allocator& = Allocator());
+    template &lt;class Range>
+      map& operator=(Range&&);
+    template &lt;class Range>
+      void insert(Range&&);</code></pre>
+
+<h3>Add to the std::multimap definition in [multimap.overview]</h3>
+<pre><code>    template &lt;class Range>
+      explicit multimap(Range&&,
+        const Compare& = Compare(),
+        const Allocator& = Allocator());
+    template &lt;class Range>
+      multimap& operator=(Range&&);
+    template &lt;class Range> void insert(Range&&);</code></pre>
+
+
+<h3>Add to the std::set definition in [set.overview]</h3>
+<pre><code>    template &lt;class Range>
+      explicit set(Range&&,
+        const Compare& = Compare(),
+        const Allocator& = Allocator());
+    template &lt;class Range>
+      set& operator=(Range&&);
+    template &lt;class Range>
+      void insert(Range&&);</code></pre>
+
+<h3>Add to the std::multiset definition in [multiset.overview]</h3>
+<pre><code>    template &lt;class Range>
+      explicit multiset(Range&&,
+        const Compare& = Compare(),
+        const Allocator& = Allocator());
+    template &lt;class Range>
+      multiset& operator=(Range&&);
+    template &lt;class Range>
+      void insert(Range&&);</code></pre>
+
+<h3>Add to the std::unordered_map definition in [unord.map.overview]</h3>
+<pre><code>    template &lt;class Range>
+      explicit unordered_map(Range&&,
+        size_type = see below,
+        const hasher& hf = hasher(),
+        const key_equal& eql = key_equal(),
+        const allocator_type& a = allocator_type());
+    template &lt;class Range>
+      unordered_map& operator=(Range&&);
+    template &lt;class Range> void insert(Range&&);</code></pre>
+
+<h3>Add to the std::unordered_multimap definition in [unord.multimap.overview]</h3>
+<pre><code>    template &lt;class Range>
+      explicit unordered_multimap(Range&&,
+        size_type = see below,
+        const hasher& hf = hasher(),
+        const key_equal& eql = key_equal(),
+        const allocator_type& a = allocator_type());
+    template &lt;class Range>
+      unordered_multimap& operator=(Range&&);
+    template &lt;class Range> void insert(Range&&);</code></pre>
+
+<h3>Add to the std::unordered_set definition in [unord.set.overview]</h3>
+<pre><code>    template &lt;class Range>
+      explicit unordered_set(Range&&,
+        size_type = see below,
+        const hasher& hf = hasher(),
+        const key_equal& eql = key_equal(),
+        const allocator_type& a = allocator_type());
+    template &lt;class Range>
+      unordered_set& operator=(Range&&);
+    template &lt;class Range> void insert(Range&&);</code></pre>
+
+<h3>Add to the std::unordered_multiset definition in [unord.multiset.overview]</h3>
+<pre><code>    template &lt;class Range>
+      explicit unordered_multiset(Range&&,
+        size_type = see below,
+        const hasher& hf = hasher(),
+        const key_equal& eql = key_equal(),
+        const allocator_type& a = allocator_type());
+    template &lt;class Range>
+      unordered_multiset& operator=(Range&&);
+    template &lt;class Range> void insert(Range&&);</code></pre>
+
+
+  </section>
+
+</body>
+</html>
