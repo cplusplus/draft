@@ -162,17 +162,8 @@ Declarators have the syntax
 
 \begin{bnf}
 \nontermdef{declarator-id}\br
-    \terminal{...}\opt id-expression\br
-    nested-name-specifier\opt class-name
+    \terminal{...}\opt id-expression
 \end{bnf}
-
-\indextext{class~name}%
-A
-\grammarterm{class-name}
-has special meaning in a declaration of the class of that name
-and when qualified by that name using the scope resolution operator
-\tcode{::}
-(\ref{expr.prim}, \ref{class.ctor}, \ref{class.dtor}).
 
 \pnum
 The optional \grammarterm{attribute-specifier-seq} in a
@@ -845,7 +836,7 @@ A reference shall be initialized to refer to a valid object or function.
 \indextext{reference!null}%
 in particular, a null reference cannot exist in a well-defined program,
 because the only way to create such a reference would be to bind it to
-the ``object'' obtained by dereferencing a null pointer,
+the ``object'' obtained by indirection through a null pointer,
 which causes undefined behavior.
 As described in~\ref{class.bit}, a reference cannot be bound directly
 to a bit-field.
@@ -1024,7 +1015,8 @@ a function type or an abstract class type.
 \indextext{declaration!array}%
 If the
 \grammarterm{constant-expression}
-(\ref{expr.const}) is present, it shall be an integral constant expression and
+(\ref{expr.const}) is present, it shall be a converted constant
+expression of type \tcode{std\colcol{}size_t} and
 its value shall be greater than zero.
 The constant expression specifies the
 \indextext{array!bound}%
@@ -1566,7 +1558,8 @@ to functions.
 Types shall not be defined in return or parameter types.
 The type of a parameter or the return type for a function
 definition shall not be an incomplete class type (possibly
-cv-qualified) unless the function definition is nested
+cv-qualified) unless the function is
+deleted~(\ref{dcl.fct.def.delete}) or the definition is nested
 within the
 \grammarterm{member-specification}
 for that class (including definitions in nested classes
@@ -1681,7 +1674,7 @@ IFUNC*  fpif(int);
 or
 
 \begin{codeblock}
-auto fpif(int)->int(*)(int)
+auto fpif(int)->int(*)(int);
 \end{codeblock}
 
 A \grammarterm{trailing-return-type} is most useful for a type that would be more complicated to specify before the \grammarterm{declarator-id}:
@@ -2150,7 +2143,7 @@ void print(int a, int) {
 \pnum
 In the \grammarterm{function-body}, a
 \grammarterm{function-local predefined variable} denotes a block-scope object of static
-storage duration that is implicitly defined (see~\ref{basic.scope.local}).
+storage duration that is implicitly defined (see~\ref{basic.scope.block}).
 
 \pnum
 The function-local predefined variable \tcode{__func__} is
@@ -2426,6 +2419,10 @@ Default arguments are more restricted; see~\ref{dcl.fct.default}.
 The order of initialization of variables with static storage duration is described in~\ref{basic.start}
 and~\ref{stmt.dcl}.
 \exitnote
+
+\pnum
+A declaration of a block-scope variable with external or internal
+linkage that has an \grammarterm{initializer} is ill-formed.
 
 \pnum
 \indextext{initialization!static object@\tcode{static} object}%
@@ -2984,15 +2981,9 @@ and leaves the rest zero.
 \exitexample
 
 \pnum
-In a declaration of the form
-
-\begin{codeblock}
-T x = { a };
-\end{codeblock}
-
-braces can be elided in an
+Braces can be elided in an
 \grammarterm{initializer-list}
-as follows.\footnote{Braces cannot be elided in other uses of list-initialization.}
+as follows.
 If the
 \grammarterm{initializer-list}
 begins with a left brace,
@@ -3291,13 +3282,6 @@ and
 \textit{cv1}
 is the same cv-qualification as, or greater cv-qualification than,
 \textit{cv2}.
-For purposes of overload resolution, cases for which
-\textit{cv1}
-is greater cv-qualification than
-\textit{cv2}
-are identified as
-\grammarterm{reference-compatible with added qualification}
-(see~\ref{over.ics.rank}).
 In all cases where the reference-related or reference-compatible relationship
 of two types is used to establish the validity of a reference binding, and
 \tcode{T1}
@@ -3475,6 +3459,7 @@ List-initialization can be used
 \item as the initializer in a variable definition~(\ref{dcl.init})
 \item as the initializer in a new expression~(\ref{expr.new})
 \item in a return statement~(\ref{stmt.return})
+\item as a \grammarterm{for-range-initializer}~(\ref{stmt.iter})
 \item as a function argument~(\ref{expr.call})
 \item as a subscript~(\ref{expr.sub})
 \item as an argument to a constructor invocation~(\ref{dcl.init},~\ref{expr.type.conv})
@@ -3634,7 +3619,7 @@ A a2 { 1.2 };                       // error: narrowing
 struct B {
   B(std::initializer_list<int>);
 };
-B b1 { 1, 2 };                      // creates initializer_list<int> and calls constructor
+B b1 { 1, 2 };                      // creates \tcode{initializer_list<int>} and calls constructor
 B b2 { 1, 2.0 };                    // error: narrowing
 struct C {
   C(int i, double j);
@@ -3664,7 +3649,9 @@ call, even though ordinarily there are no sequencing constraints on the
 arguments of a call. \exitnote
 
 \pnum
-An object of type \tcode{std::initializer_list<E>} is constructed from an initializer list as if the implementation allocated an array of $N$ elements of type \tcode{E}, where $N$ is the number of elements in the initializer list. Each element of that array is copy-initialized with the corresponding element of the initializer list, and the \tcode{std::initializer_list<E>} object is constructed to refer to that array. If a narrowing conversion is required to initialize any of the elements, the program is ill-formed.\enterexample
+An object of type \tcode{std::initializer_list<E>} is constructed from
+an initializer list as if the implementation allocated a temporary array of $N$
+elements of type \tcode{const E}, where $N$ is the number of elements in the initializer list. Each element of that array is copy-initialized with the corresponding element of the initializer list, and the \tcode{std::initializer_list<E>} object is constructed to refer to that array. If a narrowing conversion is required to initialize any of the elements, the program is ill-formed.\enterexample
 \begin{codeblock}
 struct X {
   X(std::initializer_list<double> v);
@@ -3675,14 +3662,18 @@ X x{ 1,2,3 };
 The initialization will be implemented in a way roughly equivalent to this:
 
 \begin{codeblock}
-double __a[3] = {double{1}, double{2}, double{3}};
+const double __a[3] = {double{1}, double{2}, double{3}};
 X x(std::initializer_list<double>(__a, __a+3));
 \end{codeblock}
 
 assuming that the implementation can construct an \tcode{initializer_list} object with a pair of pointers. \exitexample
 
 \pnum
-The lifetime of the array is the same as that of the \tcode{initializer_list} object. \enterexample
+The array has the same lifetime as any other temporary
+object~(\ref{class.temporary}), except that initializing an
+\tcode{initializer_list} object from the array extends the lifetime of
+the array exactly like binding a reference to a temporary.
+\enterexample
 
 \begin{codeblock}
 typedef std::complex<double> cmplx;
@@ -3692,9 +3683,25 @@ void f() {
   std::vector<cmplx> v2{ 1, 2, 3 };
   std::initializer_list<int> i3 = { 1, 2, 3 };
 }
+
+struct A {
+  std::initializer_list<int> i4;
+  A() : i4{ 1, 2, 3 } {}  // creates an \tcode{A} with a dangling reference
+};
 \end{codeblock}
 
-For \tcode{v1} and \tcode{v2}, the \tcode{initializer_list} object and array created for \tcode{\{ 1, 2, 3 \}} have full-expression lifetime. For \tcode{i3}, the \tcode{initializer_list} object and array have automatic lifetime. \exitexample \enternote The implementation is free to allocate the array in read-only memory if an explicit array with the same initializer could be so allocated. \exitnote
+For \tcode{v1} and \tcode{v2}, the \tcode{initializer_list} object
+is a parameter in a function call, so the array created for
+\tcode{\{ 1, 2, 3 \}} has full-expression lifetime.
+For \tcode{i3}, the \tcode{initializer_list} object is a variable,
+so the array persists for the lifetime of the variable.
+For \tcode{i4}, the \tcode{initializer_list} object is initialized in
+a constructor's \grammarterm{ctor-initializer}, so the array persists
+only until the constructor exits, and so any use of the elements of
+\tcode{i4} after the constructor exits produces undefined behavior.
+\exitexample
+\enternote
+The implementation is free to allocate the array in read-only memory if an explicit array with the same initializer could be so allocated. \exitnote
 
 \pnum
 A
@@ -3718,8 +3725,7 @@ original type, or
 
 \item from an integer type or unscoped enumeration type to an integer type that cannot
 represent all the values of the original type, except where the source is a constant
-expression and the actual value after conversion will fit into the target type and will
-produce the original value when converted back to the original type.
+expression whose value after integral promotions will fit into the target type.
 \end{itemize}
 
 \enternote As indicated above, such conversions are not allowed at the top level in

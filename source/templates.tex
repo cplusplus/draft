@@ -174,6 +174,8 @@ are used to refer to non-type, non-template parameters and arguments.}
 A storage class shall not be specified in a
 \grammarterm{template-parameter}
 declaration.
+Types shall not be defined in a \grammarterm{template-parameter}
+declaration.
 \enternote
 A template parameter may be a class template.
 For example,
@@ -414,7 +416,7 @@ default argument~(\ref{temp.deduct}).
 \begin{codeblock}
 template<class T1 = int, class T2> class B;   // error
 
-// \tcode{U} cannot be neither deduced from the \grammarterm{parameter-type-list} nor specified
+// \tcode{U} can be neither deduced from the \grammarterm{parameter-type-list} nor specified
 template<class... T, class... U> void f() { } // error
 template<class... T, class U> void g() { }    // error
 \end{codeblock}
@@ -504,7 +506,7 @@ template <class... Types> class Tuple;                // \tcode{Types} is a temp
 template <class T, int... Dims> struct multi_array;   // \tcode{Dims} is a non-type template parameter pack
                                                       // but not a pack expansion
 template<class... T> struct value_holder {
-  template<T... Values> apply { };                    // \tcode{Values} is a non-type template parameter pack
+  template<T... Values> struct apply { };             // \tcode{Values} is a non-type template parameter pack
                                                       // and a pack expansion
 };
 template<class... T, T... Values> struct static_array;// error: \tcode{Values} expands template type parameter
@@ -990,7 +992,10 @@ a constant expression that evaluates to a null member pointer
 value~(\ref{conv.mem});
 or
 \item
-a pointer to member expressed as described in~\ref{expr.unary.op}.
+a pointer to member expressed as described in~\ref{expr.unary.op};
+or
+\item
+an address constant expression of type \tcode{std::nullptr_t}.
 \end{itemize}
 
 \pnum
@@ -2586,12 +2591,24 @@ if two function definitions containing the expressions would satisfy
 the one definition rule~(\ref{basic.def.odr}), except that the tokens used
 to name the template parameters may differ as long as a token used to
 name a template parameter in one expression is replaced by another token
-that names the same template parameter in the other expression.
+that names the same template parameter in the other expression. For
+determining whether two dependent names (\ref{temp.dep}) are
+equivalent, only the name itself is considered, not the result of name
+lookup in the context of the template. If multiple declarations of the
+same function template differ in the result of this name lookup, the
+result for the first declaration is used.
 \enterexample
 
 \begin{codeblock}
 template <int I, int J> void f(A<I+J>);         // \#1
 template <int K, int L> void f(A<K+L>);         // same as \#1
+
+template <class T> decltype(g(T())) h();
+int g(int);
+template <class T> decltype(g(T())) h()         // redeclaration of \tcode{h()} uses the earlier lookup
+  { return g(T()); }                            // ...although the lookup here does find \tcode{g(int)}
+int i = h<int>();                               // template argument substitution fails; \tcode{g(int)}
+                                                // was not in scope at the first declaration of \tcode{h()}
 \end{codeblock}
 \exitexample
 Two expressions involving template parameters that are not equivalent are
@@ -2689,12 +2706,14 @@ template parameter (including template parameter packs~(\ref{temp.variadic})
 thereof) synthesize a unique type, value, or class template
 respectively and substitute it for each occurrence of that parameter
 in the function type of the template.
-If only one of the function templates is a non-static member, that function
+If only one of the function templates is a non-static member of some
+class \tcode{A}, that function
 template is considered to have a new first parameter inserted in its function
-parameter list. The new parameter is of type ``reference to \cv\ \tcode{A},'' where
-\cv\ are
-the \cv-qualifiers of the function template (if any) and \tcode{A} is the class of
-which the function template is a member. \enternote This allows a non-static
+parameter list. Given \cv{} as the cv-qualifiers of the function
+template (if any), the new parameter is of type ``rvalue reference to
+\cv{} \tcode{A}'' if the optional \grammarterm{ref-qualifier} of the
+function template is \tcode{\&\&}, or of type ``lvalue reference to
+\cv{} \tcode{A}'' otherwise. \enternote This allows a non-static
 member to be ordered with respect to a nonmember function and for the results
 to be equivalent to the ordering of two equivalent nonmembers. \exitnote
 \enterexample
@@ -3413,9 +3432,9 @@ postfix-expression \terminal{(} expression-list\opt \terminal{)}
 where the
 \grammarterm{postfix-expression}
 is an
-\grammarterm{id-expression},
+\grammarterm{unqualified-id},
 the
-\grammarterm{id-expression}
+\grammarterm{unqualified-id}
 denotes a
 \indextext{name!dependent}%
 \term{dependent name}
@@ -3432,7 +3451,7 @@ any of the expressions in the
 is a type-dependent expression~(\ref{temp.dep.expr}), or
 
 \item
-if the \grammarterm{unqualified-id} of the \grammarterm{id-expression}
+if the \grammarterm{unqualified-id}
 is a \grammarterm{template-id} in which any of the template arguments depends
 on a template parameter.
 \end{itemize}
@@ -4104,15 +4123,14 @@ the program is ill-formed, no diagnostic required.
 
 \pnum
 \indextext{functions!candidate}%
-For a function call that depends on a template parameter,
+For a function call where the \grammarterm{postfix-expression} is a
+dependent name,
 the candidate functions are found using the usual lookup
-rules~(\ref{basic.lookup.unqual}, \ref{basic.lookup.argdep},
-~\ref{basic.lookup.qual}) except that:
+rules~(\ref{basic.lookup.unqual}, \ref{basic.lookup.argdep}) except that:
 
 \begin{itemize}
 \item
-For the part of the lookup using unqualified name lookup~(\ref{basic.lookup.unqual})
-or qualified name lookup~(\ref{basic.lookup.qual}),
+For the part of the lookup using unqualified name lookup~(\ref{basic.lookup.unqual}),
 only function declarations
 from the template definition context are found.
 \item
@@ -4122,7 +4140,6 @@ definition context or the template instantiation context are found.
 \end{itemize}
 
 If
-the function name is an \grammarterm{unqualified-id} and
 the call would be ill-formed or would find a better match had the lookup
 within the associated namespaces considered all the function declarations with
 external linkage introduced in those namespaces in all translation units,
@@ -5613,9 +5630,25 @@ type and in template parameter declarations. The expressions include not only
 constant expressions such as those that appear in array bounds or as nontype
 template arguments but also general expressions (i.e., non-constant expressions)
 inside \tcode{sizeof}, \tcode{decltype}, and other contexts that allow non-constant
-expressions. \enternote The equivalent substitution in exception specifications is
+expressions. The substitution proceeds in lexical order and stops when
+a condition that causes deduction to fail is encountered. \enternote The equivalent substitution in exception specifications is
 done only when the function is instantiated, at which point a program is ill-formed
-if the substitution results in an invalid type or expression. \exitnote
+if the substitution results in an invalid type or
+expression. \exitnote
+\enterexample
+\begin{codeblock}
+template <class T> struct A { using X = typename T::X; };
+template <class T> typename T::X f(typename A<T>::X);
+template <class T> void f(...) { }
+template <class T> auto g(typename A<T>::X) -> typename T::X;
+template <class T> void g(...) { }
+
+void h() {
+  f<int>(0); // OK, substituting return type causes deduction to fail
+  g<int>(0); // error, substituting parameter type instantiates \tcode{A<int>}
+}
+\end{codeblock}
+\exitexample
 
 \pnum
 If a substitution results in an invalid type or expression, type deduction fails. An
@@ -5806,18 +5839,23 @@ remaining argument of the call is compared with the type \tcode{P}
 of the \grammarterm{declarator-id} of the function parameter pack.
 Each comparison deduces template arguments for subsequent positions in
 the template parameter packs expanded by the function parameter pack.
-For a function parameter pack that does not occur at the end of the 
-\grammarterm{parameter-declaration-list}, the type of the parameter pack is a non-deduced context.
+When a function parameter pack appears in a non-deduced
+context~(\ref{temp.deduct.type}), the type of that parameter pack is
+never deduced.
 \enterexample
 
 \begin{codeblock}
 template<class ... Types> void f(Types& ...);
 template<class T1, class ... Types> void g(T1, Types ...);
+template<class T1, class ... Types> void g1(Types ..., T1);
 
 void h(int x, float& y) {
   const int z = x;
-  f(x, y, z);       // \tcode{Types} is deduced to \tcode{int}, \tcode{float}, \tcode{const int}
-  g(x, y, z);       // \tcode{T1} is deduced to \tcode{int}; \tcode{Types} is deduced to \tcode{float}, \tcode{int}
+  f(x, y, z);                  // \tcode{Types} is deduced to \tcode{int}, \tcode{float}, \tcode{const int}
+  g(x, y, z);                  // \tcode{T1} is deduced to \tcode{int}; \tcode{Types} is deduced to \tcode{float}, \tcode{int}
+  g1(x, y, z);                 // error: \tcode{Types} is not deduced
+  g1<int, int, int>(x, y, z);  // OK, no deduction occurs
+
 }
 \end{codeblock}
 
@@ -6025,11 +6063,11 @@ Template argument deduction is done by comparing the return type of
 the
 conversion function template
 (call it
-\tcode{P}; see~\ref{dcl.init}, \ref{over.match.conv}, and \ref{over.match.ref}
-for the determination of that type)
+\tcode{P})
 with the type that is
 required as the result of the conversion (call it
-\tcode{A})
+\tcode{A}; see~\ref{dcl.init}, \ref{over.match.conv}, and \ref{over.match.ref}
+for the determination of that type)
 as described in~\ref{temp.deduct.type}.
 
 \pnum
@@ -6184,7 +6222,7 @@ for which the function call has arguments.\footnote{Default arguments
 are not considered to be arguments in this context; they only become arguments
 after a function has been selected.}
 \item
-In the context of a call to a conversion operator, the return types of
+In the context of a call to a conversion function, the return types of
 the conversion function templates are used.
 \item
 In other contexts~(\ref{temp.func.order}) the function template's function
@@ -6428,6 +6466,8 @@ The
 \grammarterm{nested-name-specifier}
 of a type that was specified using a
 \grammarterm{qualified-id}.
+\item
+The \grammarterm{expression} of a \grammarterm{decltype-specifier}.
 \item
 A non-type template argument or an array bound in which a subexpression
 references a template parameter.
