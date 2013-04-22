@@ -757,7 +757,7 @@ explicit specialization can differ from the template declaration with respect to
 Function parameters cannot be declared \tcode{constexpr}.\exitnote
 \enterexample
 \begin{codeblock}
-constexpr int square(int x);    // OK: declaration
+constexpr void square(int &x);  // OK: declaration
 constexpr int bufsz = 1024;     // OK: definition
 constexpr struct pixel {        // error: \tcode{pixel} is a type
   int x;
@@ -765,14 +765,13 @@ constexpr struct pixel {        // error: \tcode{pixel} is a type
   constexpr pixel(int);         // OK: declaration
 }; 
 constexpr pixel::pixel(int a)
-  : x(square(a)), y(square(a))  // OK: definition
-  { }
+  : x(a), y(x)                  // OK: definition
+  { square(x); }
 constexpr pixel small(2);       // error: \tcode{square} not defined, so \tcode{small(2)}
                                 // not constant~(\ref{expr.const}) so \tcode{constexpr} not satisfied
 
-constexpr int square(int x) {   // OK: definition
+constexpr void square(int &x) { // OK: definition
   x *= x;
-  return x;
 }
 constexpr pixel large(4);       // OK: \tcode{square} defined
 int next(constexpr int x) {     // error: not for parameters
@@ -815,11 +814,13 @@ a \grammarterm{compound-statement}
 that does not contain
 
 \begin{itemize}
-\item \grammarterm{asm-definition}{s},
-\item \tcode{goto} statements,
-\item \grammarterm{try-block}{s}, or
-\item \grammarterm{simple-declaration}{s} that define variables of static
-or thread storage duration or for which no initialization is performed.
+\item an \grammarterm{asm-definition},
+\item a \tcode{goto} statement,
+\item a \grammarterm{try-block}, or
+\item a definition of a variable
+of non-literal type or
+of static or thread storage duration or
+for which no initialization is performed.
 \end{itemize}
 
 \end{itemize}
@@ -842,6 +843,13 @@ constexpr int first(int n) {
 constexpr int uninit() {
   int a;                        // error: variable is uninitialized
   return a;
+}
+constexpr int prev(int x)
+  { return --x; }               // OK
+constexpr int g(int x, int n) { // OK
+  int r = 1;
+  while (--n > 0) r *= x;
+  return r;
 }
 \end{codeblock}
 \exitexample
@@ -868,14 +876,7 @@ In addition, either its \grammarterm{function-body} shall be
 \begin{itemize}
 \item
 either its \grammarterm{function-body} shall be \tcode{= default}, or the \grammarterm{compound-statement} of its \grammarterm{function-body}
-shall not contain
-\begin{itemize}
-\item \grammarterm{asm-definition}{s},
-\item \tcode{goto} statements,
-\item \grammarterm{try-block}{s}, or
-\item \grammarterm{simple-declaration}{s} that define variables of static
-or thread storage duration or for which no initialization is performed.
-\end{itemize}
+shall satisfy the constraints for a \grammarterm{function-body} of a constexpr function;
 
 \item
 every non-variant non-static data member and base class sub-object
@@ -902,8 +903,12 @@ private:
 \exitexample
 
 \pnum
-For a \tcode{constexpr} function or a \tcode{constexpr} constructor, if no function
-argument values exist such that an invocation of the function would be a core
+For a
+% CORE ISSUE 1358: non-template, non-defaulted
+\tcode{constexpr} function or a
+% CORE ISSUE 1358: non-template, non-defaulted, non-inheriting
+\tcode{constexpr} constructor, if no argument values exist such that
+an invocation of the function or constructor could be an evaluated subexpression of a core
 constant expression~(\ref{expr.const}), the program is ill-formed; no diagnostic
 required.
 \enterexample
@@ -930,9 +935,7 @@ or member function of a class template
 would fail to satisfy the requirements for a \tcode{constexpr}
 function or \tcode{constexpr} constructor,
 that specialization is not a \tcode{constexpr} function or \tcode{constexpr}
-constructor. \enternote
-If the function is a member function it will still be \tcode{const} as described below.
-\exitnote
+constructor.
 If no specialization of the template would yield a \tcode{constexpr} function
 or \tcode{constexpr} constructor, the program is ill-formed; no diagnostic
 required.
@@ -943,21 +946,16 @@ non-\tcode{constexpr} function in all respects except that a call to a \tcode{co
 function can appear in a constant expression.
 
 \pnum
-A \tcode{constexpr} specifier for a non-static member
-function that is not a constructor declares that member function to be
-\tcode{const}~(\ref{class.mfct.non-static}).
-\enternote The \tcode{constexpr} specifier has no
-other effect on the function type.\exitnote
-The keyword \tcode{const} is ignored if it appears in the \grammarterm{cv-qualifier-seq}
-of the function declarator of the declaration of such a member function.
+The \tcode{constexpr} specifier has no
+effect on the type of a \tcode{constexpr} function or a \tcode{constexpr} constructor.
 The class of
-which that function is a member shall be a literal
+which a \tcode{constexpr} function is a member shall be a literal
 type~(\ref{basic.types}). \enterexample
 \begin{codeblock}
 class debug_flag { 
 public: 
   explicit debug_flag(bool); 
-  constexpr bool is_on();       // error: \tcode{debug_flag} not 
+  constexpr bool is_on() const; // error: \tcode{debug_flag} not 
                                 // literal type 
 private: 
   bool flag; 
@@ -982,6 +980,9 @@ Otherwise,
 or if a \tcode{constexpr} specifier is used in a reference declaration,
 every full-expression that appears in its initializer shall be a constant
 expression~(\ref{expr.const}).
+\enternote Each implicit conversion used in converting the initializer
+expressions and each constructor call used for the initialization is
+part of such a full-expression. \exitnote
 \enterexample
 \begin{codeblock}
 struct pixel { 
