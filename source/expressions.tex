@@ -604,9 +604,21 @@ void abssort(float *x, unsigned N) {
 
 \begin{bnf}
 \nontermdef{capture}\br
+    simple-capture\br
+    init-capture
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{simple-capture}\br
     identifier\br
     \terminal{\&} identifier\br
     \terminal{this}
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{init-capture}\br
+    identifier initializer\br
+    \terminal{\&} identifier initializer
 \end{bnf}
 
 \begin{bnf}
@@ -727,11 +739,14 @@ struct S1 {
 
 \pnum
 If a \grammarterm{lambda-capture} includes a \grammarterm{capture-default} that
-is \tcode{\&}, the identifiers in the \grammarterm{lambda-capture} shall not be preceded
+is \tcode{\&}, no identifier in a \grammarterm{simple-capture} of that
+\grammarterm{lambda-capture} shall be preceded
 by \tcode{\&}. If a \grammarterm{lambda-capture} includes a
-\grammarterm{capture-default} that is \tcode{=}, the \grammarterm{lambda-capture} shall
-not contain \tcode{this} and each identifier it contains shall be preceded by
-\tcode{\&}. An identifier or \tcode{this} shall not appear more than once in a
+\grammarterm{capture-default} that is \tcode{=}, each
+\grammarterm{simple-capture} of that \grammarterm{lambda-capture} shall
+be of the form ``\tcode{\&} \grammarterm{identifier}''. Ignoring appearances in
+\grammarterm{initializer}{s} of \grammarterm{init-capture}{s}, an identifier or
+\tcode{this} shall not appear more than once in a
 \grammarterm{lambda-capture}. \enterexample
 
 \begin{codeblock}
@@ -748,24 +763,56 @@ void S2::f(int i) {
 \pnum
 A \grammarterm{lambda-expression} whose smallest enclosing scope is a block
 scope~(\ref{basic.scope.block}) is a \defn{local lambda expression}; any other
-\grammarterm{lambda-expression} shall not have a \grammarterm{capture-list} in its
+\grammarterm{lambda-expression} shall not have a \grammarterm{capture-default} or
+\grammarterm{simple-capture} in its
 \grammarterm{lambda-introducer}. The \defn{reaching scope} of a local lambda expression
 is the set of enclosing scopes up to and including the innermost enclosing function and
 its parameters. \enternote This reaching scope includes any intervening
 \grammarterm{lambda-expression}{s}. \exitnote
 
 \pnum
-The \grammarterm{identifiers} in a \grammarterm{capture-list} are looked up using the
+The \grammarterm{identifier} in a \grammarterm{simple-capture} is looked up using the
 usual rules for unqualified name lookup~(\ref{basic.lookup.unqual}); each such lookup
 shall find a variable with automatic storage duration declared in
 the reaching scope of the local lambda expression. An entity (i.e. a variable or
-\tcode{this}) is said to be \defn{explicitly captured} if it appears in the
-\grammarterm{lambda-expression}'s \grammarterm{capture-list}.
+\tcode{this}) is said to be \defn{explicitly captured} if it is found by this
+process.
 
 \pnum
-If a \grammarterm{lambda-expression} has an associated \grammarterm{capture-default} and
+For every \grammarterm{init-capture} a non-static data member named by the
+\grammarterm{identifier} of the \grammarterm{init-capture} is declared in the closure type.
+This member is not a bit-field and not \tcode{mutable}.
+The type of that member corresponds to the type of a hypothetical variable
+declaration of
+the form ``\tcode{auto} \grammarterm{init-capture} \tcode{;}'', except that the
+variable name (i.e., the \grammarterm{identifier} of the \grammarterm{init-capture}) is
+replaced by a unique identifier.
+\enternote
+This enables an \grammarterm{init-capture} like
+``\tcode{x = std::move(x)}''; the second ``\tcode{x}'' must bind to a
+declaration in the surrounding context.
+\exitnote
+No entity is captured by an \grammarterm{init-capture}.  Within the
+\grammarterm{lambda-expression}{s} \grammarterm{lambda-declarator} and
+\grammarterm{compound-statement},
+the \grammarterm{identifier} in the \grammarterm{init-capture} hides any declaration
+of the same name in scopes enclosing the \grammarterm{lambda-expression}.
+\enterexample
+\begin{codeblock}
+int x = 4;
+auto y = [&r = x, x = x+1]()->int {
+            r += 2;
+            return x+2;
+         }();  // Updates \tcode{::x} to 6, and initializes \tcode{y} to 7.
+\end{codeblock}
+\exitexample
+
+\pnum
+If a \grammarterm{lambda-expression} has an associated \grammarterm{capture-default}, and
 its \grammarterm{compound-statement} odr-uses~(\ref{basic.def.odr}) \tcode{this} or a
-variable with automatic storage duration and the odr-used entity is not explicitly
+variable with automatic storage duration (this excludes any \grammarterm{id-expression}
+that has been found to refer to an \grammarterm{init-capture}{'s} associated
+non-static data member), and the odr-used entity is not explicitly
 captured, then the odr-used entity is said to be \defn{implicitly captured}; such
 entities shall be declared within the reaching scope of the lambda expression.
 \enternote The implicit capture of an entity by a nested
@@ -949,7 +996,9 @@ implicitly-declared destructor~(\ref{class.dtor}).
 \pnum
 When the \grammarterm{lambda-expression} is evaluated, the entities that are
 captured by copy are used to direct-initialize each corresponding non-static data member
-of the resulting closure object. (For array members, the array elements are
+of the resulting closure object, and the non-static data members corresponding to the
+\grammarterm{init-capture}{s} are initialized as indicated by the corresponding
+\grammarterm{initializer} (which may be copy- or direct-initialization). (For array members, the array elements are
 direct-initialized in increasing subscript order.) These initializations are performed
 in the (unspecified) order in which the non-static data members are declared. \enternote
 This ensures that the destructions will occur in the reverse order of the constructions.
@@ -962,7 +1011,9 @@ after the lifetime of the entity has ended is likely to result in undefined beha
 \exitnote
 
 \pnum
-A \grammarterm{capture} followed by an ellipsis is a pack expansion~(\ref{temp.variadic}).
+A \grammarterm{simple-capture} followed by an ellipsis is a pack
+expansion~(\ref{temp.variadic}). An \grammarterm{init-capture} followed by an
+ellipsis is ill-formed.
 \enterexample
 \begin{codeblock}
 template<class... Args>
