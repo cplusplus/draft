@@ -678,28 +678,135 @@ auto x3 = []()->auto&& { return j; }; // OK: return type is \tcode{int\&}
 \exitexample
 
 \pnum
-The closure type for a \grammarterm{lambda-expression} has a public
+The closure type for a non-generic \grammarterm{lambda-expression} has a public
 \tcode{inline} function call operator~(\ref{over.call}) whose parameters and return type
 are described by the \grammarterm{lambda-expression}'s
 \grammarterm{parameter-declaration-clause} and \grammarterm{trailing-return-type}
-respectively. This function call operator is declared
+respectively.
+For a generic lambda, the closure type has a public inline function call
+operator member template~(\ref{temp.mem}) whose
+\grammarterm{template-parameter-list} consists of one invented type
+\grammarterm{template-parameter} for each occurrence of \tcode{auto} in the
+lambda's \grammarterm{parameter-declaration-clause}, in order of appearance.
+The invented type \grammarterm{template-parameter} is a parameter pack if
+the corresponding \grammarterm{parameter-declaration} declares a function
+parameter pack~(\ref{dcl.fct}). The return type and function parameters of the
+function call operator template are derived from the
+\grammarterm{lambda-expression}{'s} \grammarterm{trailing-return-type} and
+\grammarterm{parameter-declaration-clause} by replacing each occurrence of
+\tcode{auto} in the \grammarterm{decl-specifier}{s} of the
+\grammarterm{parameter-declaration-clause} with the name of the corresponding
+invented \grammarterm{template-parameter}.
+\enterexample
+\begin{codeblock}
+  auto glambda  = [](auto a, auto&& b) { return a < b; };
+  bool b = glambda(3, 3.14);                                  // OK
+  auto vglambda = [](auto printer) {
+     return [=](auto&& ... ts) {                              // OK: \tcode{ts} is a function parameter pack
+         printer(std::forward<decltype(ts)>(ts)...);
+
+         return [=]() {
+           printer(ts ...);
+         };
+     };
+  };
+  auto p = vglambda( [](auto v1, auto v2, auto v3)
+                         { std::cout << v1 << v2 << v3; } );
+  auto q = p(1, 'a', 3.14);                                   // OK: outputs \tcode{1a3.14}
+  q();                                                        // OK: outputs \tcode{1a3.14}
+\end{codeblock}
+\exitexample
+This function call operator or operator template is declared
 \tcode{const}~(\ref{class.mfct.non-static}) if and only if the
 \grammarterm{lambda-expression}'s \grammarterm{parameter-declaration-clause} is not
 followed by \tcode{mutable}. It is neither virtual nor declared \tcode{volatile}. Any
 \grammarterm{exception-specification} specified on a \grammarterm{lambda-expression}
-applies to the corresponding function call operator.
+applies to the corresponding function call operator or operator template.
 An \grammarterm{attribute-specifier-seq} in a \grammarterm{lambda-declarator} appertains
-to the type of the corresponding function call operator. \enternote Names referenced in
+to the type of the corresponding function call operator or operator template.
+\enternote Names referenced in
 the \grammarterm{lambda-declarator} are looked up in the context in which the
 \grammarterm{lambda-expression} appears. \exitnote
 
 \pnum
-The closure type for a \grammarterm{lambda-expression} with no \grammarterm{lambda-capture}
+The closure type for a non-generic \grammarterm{lambda-expression} with no
+\grammarterm{lambda-capture}
 has a public non-virtual non-explicit const conversion function to pointer to
 function with \Cpp language linkage~(\ref{dcl.link}) having
 the same parameter and return types as the closure type's function call operator. The
 value returned by this conversion function shall be the address of a function that, when
 invoked, has the same effect as invoking the closure type's function call operator.
+For a generic lambda with no \grammarterm{lambda-capture}, the closure type has a
+public non-virtual non-explicit \tcode{const} conversion function template to
+pointer to function. The conversion function template has the same invented
+\grammarterm{template-parameter-list}, and the pointer to function has the same
+parameter types, as the function call operator template.  The return type of
+the pointer to function shall behave as if it were a
+\grammarterm{decltype-specifier} denoting the return type of the corresponding
+function call operator template specialization.
+\enternote If the generic lambda has no \grammarterm{trailing-return-type} or
+the \grammarterm{trailing-return-type} contains a placeholder type, return type
+deduction of the corresponding function call operator template specialization
+has to be done. The corresponding specialization is that instantiation of the
+function call operator template with the same template arguments as those
+deduced for the conversion function template.  Consider the following:
+\begin{codeblock}
+auto glambda = [](auto a) { return a; };
+int (*fp)(int) = glambda;
+\end{codeblock}
+The behavior of the conversion function of \tcode{glambda} above is like
+that of the following conversion function:
+\begin{codeblock}
+struct Closure {
+  template<class T> auto operator()(T t) const { ... }
+  template<class T> static auto lambda_call_operator_invoker(T a) {
+    // forwards execution to operator()(a) and therefore has
+    // the same return type deduced
+    ...
+  }
+  template<class T> using fptr_t =
+     decltype(lambda_call_operator_invoker(declval<T>())) (*)(T);
+
+  template<class T> operator fptr_t<T>() const
+    { return &lambda_call_operator_invoker; }
+};
+\end{codeblock}
+\exitnote
+\enterexample
+\begin{codeblock}
+void f1(int (*)(int))   { }
+void f2(char (*)(int))  { }
+
+void g(int (*)(int))    { }  // \#1
+void g(char (*)(char))  { }  // \#2
+
+void h(int (*)(int))    { }  // \#3
+void h(char (*)(int))   { }  // \#4
+
+auto glambda = [](auto a) { return a; };
+f1(glambda);  // OK
+f2(glambda);  // error: ID is not convertible
+g(glambda);   // error: ambiguous
+h(glambda);   // OK: calls \#3 since it is convertible from ID
+int& (*fpi)(int*) = [](auto* a) -> auto& { return *a; }; // OK
+\end{codeblock}
+\exitexample
+The value returned by any given specialization of this conversion function
+template shall be the address of a function that, when invoked, has the same
+effect as invoking the generic lambda's corresponding function call operator
+template specialization.
+\enternote
+This will result in the implicit instantiation of the generic lambda's body.
+The instantiated generic lambda's return type and parameter types shall match
+the return type and parameter types of the pointer to function.
+\exitnote
+\enterexample
+\begin{codeblock}
+auto GL = [](auto a) { std::cout << a; return a; };
+int (*GL_int)(int) = GL;  // OK: through conversion function template
+GL_int(3);                // OK: same as \tcode{GL(3)}
+\end{codeblock}
+\exitexample
 
 \pnum
 The \grammarterm{lambda-expression}'s \grammarterm{compound-statement} yields the
@@ -795,12 +902,38 @@ auto y = [&r = x, x = x+1]()->int {
 \exitexample
 
 \pnum
-If a \grammarterm{lambda-expression} has an associated \grammarterm{capture-default}, and
-its \grammarterm{compound-statement} odr-uses~(\ref{basic.def.odr}) \tcode{this} or a
-variable with automatic storage duration (this excludes any \grammarterm{id-expression}
+A \grammarterm{lambda-expression} with an associated
+\grammarterm{capture-default} that does not explicitly capture \tcode{this} or
+a variable with automatic storage duration (this excludes any \grammarterm{id-expression}
 that has been found to refer to an \grammarterm{init-capture}{'s} associated
-non-static data member), and the odr-used entity is not explicitly
-captured, then the odr-used entity is said to be \defn{implicitly captured}; such
+\indextext{implicit capture!definition of}%
+non-static data member), is said to \term{implicitly capture} the entity (i.e.,
+\tcode{this} or a variable) if the \grammarterm{compound-statement}:
+\begin{itemize}
+\item odr-uses~(\ref{basic.def.odr}) the entity, or
+\item names the entity in a potentially-evaluated
+expression~(\ref{basic.def.odr}) where the enclosing full-expression depends on
+a generic lambda parameter declared within the reaching scope of the
+\grammarterm{lambda-expression}.
+\end{itemize}
+\enterexample
+\begin{codeblock}
+void f(int, const int (&)[2] = {})    { }   // \#1
+void f(const int&, const int (&)[1])  { }   // \#2
+void test() {
+  const int x = 17;
+  auto g = [](auto a) {
+    f(x);  // OK: calls \#1, does not capture \tcode{x}
+  };
+
+  auto g2 = [=](auto a) {
+    int selector[sizeof(a) == 1 ? 1 : 2]{};
+    f(x, selector);  // OK: is a dependent expression, so captures \tcode{x}
+  };
+}
+\end{codeblock}
+\exitexample
+All such implicitly captured
 entities shall be declared within the reaching scope of the lambda expression.
 \enternote The implicit capture of an entity by a nested
 \grammarterm{lambda-expression} can cause its implicit capture by the containing
@@ -812,7 +945,8 @@ An entity is \defn{captured} if it is captured explicitly or implicitly. An enti
 captured by a \grammarterm{lambda-expression} is odr-used~(\ref{basic.def.odr}) in the scope
 containing the \grammarterm{lambda-expression}. If \tcode{this} is captured by a local
 lambda expression, its nearest enclosing function shall be a non-static member function.
-If a \grammarterm{lambda-expression} odr-uses~(\ref{basic.def.odr}) \tcode{this} or a
+If a \grammarterm{lambda-expression} or an instantiation of the function call
+operator template of a generic lambda odr-uses~(\ref{basic.def.odr}) \tcode{this} or a
 variable with automatic storage duration from its reaching scope, that
 entity shall be captured by the \grammarterm{lambda-expression}. If a
 \grammarterm{lambda-expression} captures an entity and that entity is not defined or
