@@ -4144,27 +4144,21 @@ during translation.\exitnote
 \end{bnf}
 
 \pnum
-A \grammarterm{conditional-expression} is a
-\term{core constant expression}
-unless it involves one of the following as a potentially evaluated
-subexpression~(\ref{basic.def.odr}), but 
-subexpressions of logical AND~(\ref{expr.log.and}),
-logical OR~(\ref{expr.log.or}), and conditional~(\ref{expr.cond})
-operations that are not evaluated are not considered 
-\enternote An overloaded operator invokes a function.\exitnote:
+A \grammarterm{conditional-expression} \tcode{e} is a \term{core constant expression}
+unless the evaluation of \tcode{e}, following the rules of the abstract
+machine~(\ref{intro.execution}), would evaluate one of the following expressions:
 
 \begin{itemize}
 \item
-\tcode{this}~(\ref{expr.prim.general})
-\enternote when evaluating a constant expression, function invocation
-substitution~(\ref{dcl.constexpr}) replaces each occurrence of
-\tcode{this} in a \tcode{constexpr} member function with a pointer to
-the class object. \exitnote;
+\tcode{this}~(\ref{expr.prim.general}), except in a \tcode{constexpr}
+function or a \tcode{constexpr} constructor that is being evaluated as part
+of \tcode{e};
 
 \item
 an invocation of a function other than
-a \tcode{constexpr} constructor for a literal class or
-a \tcode{constexpr} function
+a \tcode{constexpr} constructor for a literal class,
+a \tcode{constexpr} function,
+or an implicit invocation of a trivial destructor~(\ref{class.dtor})
 \enternote Overload resolution~(\ref{over.match})
 is applied as usual \exitnote;
 
@@ -4173,44 +4167,8 @@ an invocation of an undefined \tcode{constexpr} function or an
 undefined \tcode{constexpr} constructor;
 
 \item
-an invocation of a \tcode{constexpr} function with arguments that, when
-substituted by function invocation substitution~(\ref{dcl.constexpr}),
-do not
-produce a core constant expression; \enterexample
-\begin{codeblock}
-constexpr const int* addr(const int& ir) { return &ir; }  // OK
-static const int x = 5;
-constexpr const int* xp = addr(x);  // OK: \tcode{(const int*)\&(const int\&)x} is an
-                                    // address constant expression
-constexpr const int* tp = addr(5);  // error, initializer for \tcode{constexpr} variable not a constant
-                                    // expression; \tcode{(const int*)\&(const int\&)5} is not a constant
-                                    // expression because it takes the address of a temporary
-\end{codeblock}
-\exitexample
-
-\item
-an invocation of a \tcode{constexpr} constructor with arguments that, when substituted
-by function invocation substitution~(\ref{dcl.constexpr}), do not
-produce all core constant
-expressions for the constructor calls and full-expressions in the
-\grammarterm{mem-initializer}{s} (including conversions); \enterexample
-\begin{codeblock}
-int x;                              // not constant
-struct A {
-  constexpr A(bool b) : m(b?42:x) { }
-  int m;
-};
-constexpr int v = A(true).m;        // OK: constructor call initializes
-                                    // \tcode{m} with the value \tcode{42} after substitution
-constexpr int w = A(false).m;       // error: initializer for \tcode{m} is
-                                    // \tcode{x}, which is non-constant
-\end{codeblock}
-\exitexample
-
-\item
-an invocation of a \tcode{constexpr} function or a \tcode{constexpr}
-constructor that would exceed the implementation-defined recursion limits
-(see Annex~\ref{implimits});
+an expression that would exceed the implementation-defined
+limits (see Annex~\ref{implimits});
 
 \item
 an operation that would have undefined behavior \enternote including,
@@ -4235,18 +4193,19 @@ it is applied to
   objects. \exitnote, or
 
   \item
-  a non-volatile glvalue of literal type that refers to a non-volatile object
+  a non-volatile glvalue that refers to a non-volatile object
   defined with \tcode{constexpr}, or that refers to a sub-object
   of such an object, or
 
   \item
-  a non-volatile glvalue of literal type that refers to a non-volatile
-  temporary object whose lifetime has not ended, initialized with a core
-  constant expression;
+  a non-volatile glvalue of literal type that refers to a non-volatile object
+  whose lifetime began within the evalution of \tcode{e};
 \end{itemize}
 
 \item
-an lvalue-to-rvalue conversion~(\ref{conv.lval}) that is applied to a glvalue
+an lvalue-to-rvalue conversion~(\ref{conv.lval}) or
+modification~(\ref{expr.ass}, \ref{expr.post.incr}, \ref{expr.pre.incr})
+that is applied to a glvalue
 that refers to a non-active member of a union or a subobject thereof;
 
 \item
@@ -4259,8 +4218,8 @@ unless the reference has a preceding initialization and either
   it is initialized with a constant expression or
 
   \item
-  it is a non-static data member of a temporary object whose lifetime
-  has not ended and is initialized with a core constant expression;
+  it is a non-static data member of an object whose lifetime
+  began within the evaluation of \tcode{e};
 \end{itemize}
 
 \item
@@ -4276,7 +4235,11 @@ a \tcode{reinterpret_cast}~(\ref{expr.reinterpret.cast});
 a pseudo-destructor call~(\ref{expr.pseudo});
 
 \item
-increment or decrement operations~(\ref{expr.post.incr}, \ref{expr.pre.incr});
+modification of an object~(\ref{expr.ass}, \ref{expr.post.incr},
+\ref{expr.pre.incr})
+unless it is applied to a non-volatile lvalue of literal type
+that refers to a non-volatile object
+whose lifetime began within the evaluation of \tcode{e};
 
 \item
 a typeid expression~(\ref{expr.typeid}) whose operand
@@ -4290,14 +4253,55 @@ a \grammarterm{delete-expression}~(\ref{expr.delete});
 
 \item
 a relational~(\ref{expr.rel}) or equality~(\ref{expr.eq})
-operator where the result is unspecified;
-
-\item
-an assignment or a compound assignment~(\ref{expr.ass}); or
+operator where the result is unspecified; or
 
 \item
 a \grammarterm{throw-expression}~(\ref{except.throw}).
 \end{itemize}
+
+\enterexample
+\begin{codeblock}
+int x;                              // not constant
+struct A {
+  constexpr A(bool b) : m(b?42:x) { }
+  int m;
+};
+constexpr int v = A(true).m;        // OK: constructor call initializes
+                                    // \tcode{m} with the value \tcode{42}
+constexpr int w = A(false).m;       // error: initializer for \tcode{m} is
+                                    // \tcode{x}, which is non-constant
+
+constexpr int f1(int k) {
+  constexpr int x = k;              // error: \tcode{x} is not initialized by a
+                                    // constant expression because lifetime of \tcode{k}
+                                    // began outside the initializer of \tcode{x}
+  return x;
+}
+constexpr int f2(int k) {
+  int x = k;                        // OK: not required to be a constant expression
+                                    // because \tcode{x} is not constexpr
+  return x;
+}
+
+constexpr int incr(int &n) {
+  return ++n;
+}
+constexpr int g(int k) {
+  constexpr int x = incr(k);        // error: \tcode{incr(k)} is not a core constant
+                                    // expression because lifetime of \tcode{k}
+                                    // began outside the expression \tcode{incr(k)}
+  return x;
+}
+constexpr int h(int k) {
+  int x = incr(k);                  // OK: \tcode{incr(k)} is not required to be a core
+                                    // constant expression
+  return x;
+}
+constexpr int y = h(1);             // OK: initializes \tcode{y} with the value \tcode{2}
+                                    // \tcode{h(1)} is a core constant expression because
+                                    // the lifetime of \tcode{k} begins inside \tcode{h(1)}
+\end{codeblock}
+\exitexample
 
 \pnum
 An \term{integral constant expression} is an expression of integral or
@@ -4325,21 +4329,24 @@ arguments~(\ref{temp.arg}).
 \exitnote
 
 \pnum
-A \term{literal constant expression} is a prvalue core constant
-expression of literal type, but not pointer type (after conversions as
-required by the context). For a literal constant expression of array
-or class type, each subobject of its value shall have been initialized
-by a constant expression. 
-A \term{reference constant expression} is an lvalue core constant
-expression that designates an object with static storage duration or a
-function. An \term{address constant expression} is a prvalue core
-constant expression (after conversions as required by the context) of
-type \tcode{std::nullptr_t} or of
-pointer type that evaluates to the address of an object with static
-storage duration, to the address of a function, or to a null pointer 
-value. Collectively, literal constant expressions, reference constant 
-expressions, and address constant expressions are called 
-\term{constant expressions}.
+A \term{constant expression} is either
+a glvalue core constant expression whose value refers to an object with static
+storage duration or to a function, or
+a prvalue core constant expression whose value is an object where, for that
+object and its subobjects:
+
+\begin{itemize}
+  \item
+  each non-static data member of reference type refers to an object with static
+  storage duration or to a function, and
+
+  \item
+  if the object or subobject is of pointer type, it contains
+  the address of an object with static storage duration,
+  the address past the end of such an object~(\ref{expr.add}),
+  the address of a function,
+  or a null pointer value.
+\end{itemize}
 
 \pnum
 \enternote Although in some contexts constant expressions must be evaluated during program
