@@ -862,6 +862,18 @@ namespace std {
 }
 \end{codeblock}
 
+\synopsis{Header \tcode{<shared_mutex>} synopsis}
+\indexlibrary{\idxhdr{shared_mutex}}%
+
+\begin{codeblock}
+namespace std {
+  class shared_mutex;
+  template <class Mutex> class shared_lock;
+  template <class Mutex>
+    void swap(shared_lock<Mutex>& x, shared_lock<Mutex>& y) noexcept;
+}
+\end{codeblock}
+
 \rSec2[thread.mutex.requirements]{Mutex requirements}
 
 \rSec3[thread.mutex.requirements.general]{In general}
@@ -879,7 +891,8 @@ recursive and non-recursive mutexes are supplied.
 
 \pnum
 The \defn{mutex types} are the standard library types \tcode{std::mutex},
-\tcode{std::recursive_mutex}, \tcode{std::timed_mutex}, and \tcode{std::recursive_timed_mutex}.
+\tcode{std::recursive_mutex}, \tcode{std::timed_mutex}, \tcode{std::recursive_timed_mutex},
+and \tcode{std::shared_mutex}.
 They shall meet the requirements set out in this section. In this description, \tcode{m}
 denotes an object of a mutex type.
 
@@ -1119,8 +1132,9 @@ The behavior of a program is undefined if:
 \rSec3[thread.timedmutex.requirements]{Timed mutex types}
 
 \pnum
-The \defn{timed mutex types} are the standard library types \tcode{std::timed_mutex} and
-\tcode{std::recursive_timed_mutex}. They shall meet the requirements set out below.
+The \defn{timed mutex types} are the standard library types \tcode{std::timed_mutex},
+\tcode{std::recursive_timed_mutex}, and \tcode{std::shared_mutex}. They shall
+meet the requirements set out below.
 In this description, \tcode{m} denotes an object of a mutex type,
 \tcode{rel_time} denotes an object of an
 instantiation of \tcode{duration}~(\ref{time.duration}), and \tcode{abs_time} denotes an
@@ -1306,6 +1320,238 @@ The behavior of a program is undefined if:
 \begin{itemize}
 \item it destroys a \tcode{recursive_timed_mutex} object owned by any thread, or
 \item a thread terminates while owning a \tcode{recursive_timed_mutex} object.
+\end{itemize}
+
+
+\rSec3[thread.sharedmutex.requirements]{Shared mutex types}
+
+\pnum
+The standard library type \tcode{std::shared_mutex} is a
+\term{shared mutex type}. Shared mutex types shall meet the requirements of
+timed mutex types~(\ref{thread.timedmutex.requirements}), and additionally
+shall meet the requirements set out below. In this description, \tcode{m}
+denotes an object of a mutex type, \tcode{rel_type} denotes an object of an
+instantiation of \tcode{duration}~(\ref{time.duration}), and \tcode{abs_time}
+denotes an object of an instantiation of \tcode{time_point}~(\ref{time.point}).
+
+\pnum
+In addition to the exclusive lock ownership mode specified
+in~\ref{thread.mutex.requirements.mutex}, shared mutex types provide a
+\term{shared lock} ownership mode. Multiple execution agents can
+simultaneously hold a shared lock ownership of a shared mutex type. But no
+execution agent shall hold a shared lock while another execution agent holds an
+exclusive lock on the same shared mutex type, and vice-versa. The maximum
+number of execution agents which can share a shared lock on a single shared
+mutex type is unspecified, but shall be at least 10000. If more than the
+maximum number of execution agents attempt to obtain a shared lock, the
+excess execution agents shall block until the number of shared locks are
+reduced below the maximum amount by other execution agents releasing their
+shared lock.
+
+\pnum
+The expression \tcode{m.lock_shared()} shall be well-formed and have the
+following semantics:
+
+\begin{itemdescr}
+\pnum
+\requires The calling thread has no ownership of the mutex.
+
+\pnum
+\effects Blocks the calling thread until shared ownership of the mutex can be obtained for the calling thread.
+
+\pnum
+\postcondition The calling thread has a shared lock on the mutex.
+
+\pnum
+\returntype \tcode{void}.
+
+\pnum
+\sync Prior \tcode{unlock()} operations on the same object shall synchronize with ~(\ref{intro.multithread}) this operation.
+
+\pnum
+\throws system_error when an exception is required ~(\ref{thread.req.exception}).
+
+\pnum
+\errors
+\begin{itemize}
+\item \tcode{operation_not_permitted} --- if the thread does not have the privilege to perform the operation.
+\item \tcode{resource_deadlock_would_occur} --- if the implementation detects that a deadlock would occur.
+\item \tcode{device_or_resource_busy} --- if the mutex is already locked and blocking is not possible.
+\end{itemize}
+\end{itemdescr}
+
+\pnum
+The expression \tcode{m.unlock_shared()} shall be well-formed and have the following semantics:
+
+\begin{itemdescr}
+\pnum
+\requires The calling thread shall hold a shared lock on the mutex.
+
+\pnum
+\effects Releases a shared lock on the mutex held by the calling thread.
+
+\pnum
+\returntype \tcode{void}.
+
+\pnum
+\sync This operation synchronizes with~(\ref{intro.multithread}) subsequent
+\tcode{lock()} operations that obtain ownership on the same object.
+
+\pnum
+\throws Nothing.
+\end{itemdescr}
+
+\pnum
+The expression \tcode{m.try_lock_shared()} shall be well-formed and have the following semantics:
+
+\begin{itemdescr}
+\pnum
+\requires The calling thread has no ownership of the mutex.
+
+\pnum
+\effects Attempts to obtain shared ownership of the mutex for the calling
+thread without blocking. If shared ownership is not obtained, there is no
+effect and \tcode{try_lock_shared()} immediately returns. An implementation
+may fail to obtain the lock even if it is not held by any other thread.
+
+\pnum
+\returntype \tcode{bool}.
+
+\pnum
+\returns \tcode{true} if the shared ownership lock was acquired, \tcode{false}
+otherwise.
+
+\pnum
+\sync If \tcode{try_lock_shared()} returns \tcode{true}, prior \tcode{unlock()}
+operations on the same object synchronize with ~(\ref{intro.multithread}) this
+operation.
+
+\pnum
+\throws Nothing.
+\end{itemdescr}
+
+\pnum
+The expression \tcode{m.try_lock_shared_for(rel_time)} shall be well-formed and
+have the following semantics:
+
+\begin{itemdescr}
+\pnum
+\requires The calling thread has no ownership of the mutex.
+
+\pnum
+\effects If the tick \tcode{period} of \tcode{rel_time} is not exactly
+convertible to the native tick \tcode{period}, the \tcode{duration} shall be
+rounded up to the nearest native tick \tcode{period}. Attempts to obtain
+shared lock ownership for the calling thread within the relative
+timeout~(\ref{thread.req.timing}) specified by \tcode{rel_time}. If the time
+specified by \tcode{rel_time} is less than or equal to \tcode{rel_time.zero()},
+the function attempts to obtain ownership without blocking (as if by calling
+\tcode{try_lock_shared()}). The function shall return within the timeout
+specified by \tcode{rel_time} only if it has obtained shared ownership of the
+mutex object. \enternote As with \tcode{try_lock()}, there is no guarantee that
+ownership will be obtained if the lock is available, but implementations are
+expected to make a strong effort to do so. \exitnote
+
+\pnum
+\returntype \tcode{bool}.
+
+\pnum
+\returns \tcode{true} if the shared lock was acquired, \tcode{false} otherwise.
+
+\pnum
+\sync If \tcode{try_lock_shared_for()} returns \tcode{true}, prior
+\tcode{unlock()} operations on the same object synchronize
+with~(\ref{intro.multithread}) this operation.
+
+\pnum
+\throws Nothing.
+\end{itemdescr}
+
+\pnum
+The expression \tcode{m.try_lock_shared_until(abs_time)} shall be well-formed
+and have the following semantics:
+
+\begin{itemdescr}
+\pnum
+\requires The calling thread has no ownership of the mutex.
+
+\pnum
+\effects The function attempts to obtain shared ownership of the mutex. If
+\tcode{abs_time} has already passed, the function attempts to obtain shared
+ownership without blocking (as if by calling \tcode{try_lock_shared()}). The
+function shall return before the absolute timeout~(\ref{thread.req.timing})
+specified by \tcode{abs_time} only if it has obtained shared ownership of the
+mutex object. \enternote As with \tcode{try_lock()}, there is no guarantee that
+ownership will be obtained if the lock is available, but implementations are
+expected to make a strong effort to do so. \exitnote
+
+\pnum
+\returntype \tcode{bool}.
+
+\pnum
+\returns \tcode{true} if the shared lock was acquired, \tcode{false} otherwise.
+
+\pnum
+\sync If \tcode{try_lock_shared_until()} returns \tcode{true}, prior
+\tcode{unlock()} operations on the same object synchronize
+with~(\ref{intro.multithread}) this operation.
+
+\pnum
+\throws Nothing.
+\end{itemdescr}
+
+\rSec4[thread.sharedmutex.class]{Class \tcode{shared_mutex}}
+
+\begin{codeblock}
+namespace std {
+
+class shared_mutex {
+public:
+  shared_mutex();
+  ~shared_mutex();
+
+  shared_mutex(const shared_mutex&) = delete;
+  shared_mutex& operator=(const shared_mutex&) = delete;
+
+  // Exclusive ownership
+  void lock();  // blocking
+  bool try_lock();
+  template <class Rep, class Period>
+    bool try_lock_for(const chrono::duration<Rep, Period>& rel_time);
+  template <class Clock, class Duration>
+    bool try_lock_until(const chrono::time_point<Clock, Duration>& abs_time);
+  void unlock();
+
+  // Shared ownership
+  void lock_shared();  // blocking
+  bool try_lock_shared();
+  template <class Rep, class Period>
+    bool
+    try_lock_shared_for(const chrono::duration<Rep, Period>& rel_time);
+  template <class Clock, class Duration>
+    bool
+    try_lock_shared_until(const chrono::time_point<Clock, Duration>& abs_time);
+  void unlock_shared();
+};
+
+}
+\end{codeblock}
+
+\pnum
+The class \tcode{shared_mutex} provides a non-recursive mutex with shared
+ownership semantics.
+
+\pnum
+The class \tcode{shared_mutex} shall satisfy all of the \tcode{SharedMutex}
+requirements~(\ref{thread.sharedmutex.requirements}). It shall be a
+standard-layout class (Clause~\ref{class}).
+
+\pnum
+The behavior of a program is undefined if:
+\begin{itemize}
+\item it destroys a \tcode{shared_mutex} object owned by any thread,
+\item a thread attempts to recursively gain any ownership of a \tcode{shared_mutex}.
+\item a thread terminates while possessing any ownership of a \tcode{shared_mutex}.
 \end{itemize}
 
 \rSec2[thread.lock]{Locks}
@@ -1843,6 +2089,429 @@ mutex_type *mutex() const noexcept;
 
 \begin{itemdescr}
 \pnum\returns \tcode{pm}
+\end{itemdescr}
+
+\rSec3[thread.lock.shared]{Class template \tcode{shared_lock}}
+
+\begin{codeblock}
+namespace std {
+
+template <class Mutex>
+class shared_lock {
+public:
+  typedef Mutex mutex_type;
+
+  // Shared locking
+  shared_lock() noexcept;
+  explicit shared_lock(mutex_type& m);  // blocking
+  shared_lock(mutex_type& m, defer_lock_t) noexcept;
+  shared_lock(mutex_type& m, try_to_lock_t);
+  shared_lock(mutex_type& m, adopt_lock_t);
+  template <class Clock, class Duration>
+    shared_lock(mutex_type& m,
+                const chrono::time_point<Clock, Duration>& abs_time);
+  template <class Rep, class Period>
+    shared_lock(mutex_type& m,
+                const chrono::duration<Rep, Period>& rel_time);
+  ~shared_lock();
+
+  shared_lock(shared_lock const&) = delete;
+  shared_lock& operator=(shared_lock const&) = delete;
+
+  shared_lock(shared_lock&& u) noexcept;
+  shared_lock& operator=(shared_lock&& u) noexcept;
+
+  void lock();  // blocking
+  bool try_lock();
+  template <class Rep, class Period>
+    bool try_lock_for(const chrono::duration<Rep, Period>& rel_time);
+  template <class Clock, class Duration>
+    bool try_lock_until(const chrono::time_point<Clock, Duration>& abs_time);
+  void unlock();
+
+  // Setters
+  void swap(shared_lock& u) noexcept;
+  mutex_type* release() noexcept;
+
+  // Getters
+  bool owns_lock() const noexcept;
+  explicit operator bool () const noexcept;
+  mutex_type* mutex() const noexcept;
+
+private:
+  mutex_type* pm; // \expos
+  bool owns;      // \expos
+};
+
+template <class Mutex>
+  void swap(shared_lock<Mutex>& x, shared_lock<Mutex>& y) noexcept;
+
+}  // std
+\end{codeblock}
+
+\pnum
+An object of type \tcode{shared_lock} controls the shared ownership of a
+lockable object within a scope. Shared ownership of the lockable object may be
+acquired at construction or after construction, and may be transferred, after
+acquisition, to another \tcode{shared_lock} object. Objects of type
+\tcode{shared_lock} are not copyable but are movable. The behavior of a program
+is undefined if the contained pointer \tcode{pm} is not null and the lockable
+object pointed to by \tcode{pm} does not exist for the entire remaining
+lifetime~(\ref{basic.life}) of the \tcode{shared_lock} object. The supplied
+\tcode{Mutex} type shall meet the shared mutex
+requirements~(\ref{thread.sharedmutex.requirements}).
+
+\pnum
+\enternote \tcode{shared_lock<Mutex>} meets the \tcode{TimedLockable}
+requirements~(\ref{thread.req.lockable.timed}). \exitnote
+
+\rSec4[thread.lock.shared.cons]{\tcode{shared_lock} constructors, destructor, and assignment}
+
+\indexlibrary{\idxcode{shared_lock}!constructor}%
+\begin{itemdecl}
+shared_lock() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Constructs an object of type \tcode{shared_lock}.
+
+\pnum
+\postconditions \tcode{pm == nullptr} and \tcode{owns == false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{shared_lock}!constructor}%
+\begin{itemdecl}
+explicit shared_lock(mutex_type& m);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires The calling thread does not own the mutex for any ownership mode.
+
+\pnum
+\effects Constructs an object of type \tcode{shared_lock} and calls \tcode{m.lock_shared()}.
+
+\pnum
+\postconditions \tcode{pm == \&m} and \tcode{owns == true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{shared_lock}!constructor}%
+\begin{itemdecl}
+shared_lock(mutex_type& m, defer_lock_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Constructs an object of type \tcode{shared_lock}.
+
+\pnum
+\postconditions \tcode{pm == \&m} and \tcode{owns == false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{shared_lock}!constructor}%
+\begin{itemdecl}
+shared_lock(mutex_type& m, try_to_lock_t);
+\end{itemdecl}
+\pnum
+\requires The calling thread does not own the mutex for any ownership mode.
+
+\pnum
+\effects Constructs an object of type \tcode{shared_lock} and calls \tcode{m.try_lock_shared()}.
+
+\pnum
+\postconditions \tcode{pm == \&m} and \tcode{owns == res} where \tcode{res} is the
+value returned by the call to \tcode{m.try_lock_shared()}.
+
+\indexlibrary{\idxcode{shared_lock}!constructor}%
+\begin{itemdecl}
+shared_lock(mutex_type& m, adopt_lock_t);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires The calling thread has shared ownership of the mutex.
+
+\pnum
+\effects Constructs an object of type \tcode{shared_lock}.
+
+\pnum
+\postconditions \tcode{pm == \&m} and \tcode{owns == true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{shared_lock}!constructor}%
+\begin{itemdecl}
+template <class Clock, class Duration>
+  shared_lock(mutex_type& m,
+              const chrono::time_point<Clock, Duration>& abs_time);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires The calling thread does not own the mutex for any ownership mode.
+
+\pnum
+\effects Constructs an object of type \tcode{shared_lock} and calls
+\tcode{m.try_lock_shared_until(abs_time)}.
+
+\pnum
+\postconditions \tcode{pm == \&m} and \tcode{owns == res} where \tcode{res}
+is the value returned by the call to \tcode{m.try_lock_shared_until(abs_time)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{shared_lock}!constructor}%
+\begin{itemdecl}
+template <class Rep, class Period>
+  shared_lock(mutex_type& m,
+              const chrono::duration<Rep, Period>& rel_time);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires The calling thread does not own the mutex for any ownership mode.
+
+\pnum
+\effects Constructs an object of type \tcode{shared_lock} and calls
+\tcode{m.try_lock_shared_for(rel_time)}.
+
+\pnum
+\postconditions \tcode{pm == \&m} and \tcode{owns == res} where \tcode{res} is
+the value returned by the call to \tcode{m.try_lock_shared_for(rel_time)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{shared_lock}!destructor}%
+\begin{itemdecl}
+~shared_lock();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects If \tcode{owns} calls \tcode{pm->unlock_shared()}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{shared_lock}!constructor}%
+\begin{itemdecl}
+shared_lock(shared_lock&& sl) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\postconditions \tcode{pm == \&sl_p.pm} and \tcode{owns == sl_p.owns} (where
+\tcode{sl_p} is the state of \tcode{sl} just prior to this construction),
+\tcode{sl.pm == nullptr} and \tcode{sl.owns == false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{shared_lock}!\idxcode{operator=}}%
+\begin{itemdecl}
+shared_lock& operator=(shared_lock&& sl) noexcept;
+\end{itemdecl}
+\pnum
+\effects If \tcode{owns} calls \tcode{pm->unlock_shared()}.
+
+\begin{itemdescr}
+\pnum
+\postconditions \tcode{pm == \&sl_p.pm} and \tcode{owns == sl_p.owns} (where
+\tcode{sl_p} is the state of \tcode{sl} just prior to this assignment),
+\tcode{sl.pm == nullptr} and \tcode{sl.owns == false}.
+\end{itemdescr}
+
+\rSec4[thread.lock.shared.locking]{\tcode{shared_lock} locking}
+
+\indexlibrary{\idxcode{shared_lock}!\idxcode{lock}}%
+\indexlibrary{\idxcode{lock}!\idxcode{shared_lock}}%
+\begin{itemdecl}
+void lock();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects \tcode{pm->lock_shared()}.
+
+\pnum
+\postconditions \tcode{owns == true}.
+
+\pnum
+\throws Any exception thrown by \tcode{pm->lock_shared()}.
+\tcode{system_error} if an exception is required~(\ref{thread.req.exception}).
+\tcode{system_error} with an error condition of
+\tcode{operation_not_permitted} if \tcode{pm} is \tcode{nullptr}.
+\tcode{system_error} with an error condition of
+\tcode{resource_deadlock_would_occur} if on entry \tcode{owns} is \tcode{true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{shared_lock}!\idxcode{try_lock}}%
+\indexlibrary{\idxcode{try_lock}!\idxcode{shared_lock}}%
+\begin{itemdecl}
+bool try_lock();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects \tcode{pm->try_lock_shared()}.
+
+\pnum
+\returns The value returned by the call to \tcode{pm->try_lock_shared()}.
+
+\pnum
+\postconditions \tcode{owns == res}, where \tcode{res} is the value returned by
+the call to \tcode{pm->try_lock_shared()}.
+
+\pnum
+\throws Any exception thrown by \tcode{pm->try_lock_shared()}.
+\tcode{system_error} if an exception is required~(\ref{thread.req.exception}).
+\tcode{system_error} with an error condition of
+\tcode{operation_not_permitted} if \tcode{pm} is \tcode{nullptr}.
+\tcode{system_error} with an error condition of
+\tcode{resource_deadlock_would_occur} if on entry \tcode{owns} is \tcode{true}.
+
+\end{itemdescr}
+
+\indexlibrary{\idxcode{shared_lock}!\idxcode{try_lock_until}}%
+\indexlibrary{\idxcode{try_lock_until}!\idxcode{shared_lock}}%
+\begin{itemdecl}
+template <class Clock, class Duration>
+  bool
+  try_lock_until(const chrono::time_point<Clock, Duration>& abs_time);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects \tcode{pm->try_lock_shared_until(abs_time)}.
+
+\pnum
+\returns The value returned by the call to
+\tcode{pm->try_lock_shared_until(abs_time)}.
+
+\pnum
+\postconditions \tcode{owns == res}, where \tcode{res} is the value returned by
+the call to \tcode{pm->try_lock_shared_until(abs_time)}.
+
+\pnum
+\throws Any exception thrown by \tcode{pm->try_lock_shared_until(abs_time)}.
+\tcode{system_error} if an exception is required~(\ref{thread.req.exception}).
+\tcode{system_error} with an error condition of
+\tcode{operation_not_permitted} if \tcode{pm} is \tcode{nullptr}.
+\tcode{system_error} with an error condition of
+\tcode{resource_deadlock_would_occur} if on entry \tcode{owns} is \tcode{true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{shared_lock}!\idxcode{try_lock_for}}%
+\indexlibrary{\idxcode{try_lock_for}!\idxcode{shared_lock}}%
+\begin{itemdecl}
+template <class Rep, class Period>
+  bool try_lock_for(const chrono::duration<Rep, Period>& rel_time);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects \tcode{pm->try_lock_shared_for(rel_time)}.
+
+\pnum
+\returns The value returned by the call to \tcode{pm->try_lock_shared_for(rel_time)}.
+
+\pnum
+\postconditions \tcode{owns == res}, where \tcode{res} is the value returned by the call to \tcode{pm->try_lock_shared_for(rel_time)}.
+
+\pnum
+\throws Any exception thrown by \tcode{pm->try_lock_shared_for(rel_time)}. \tcode{system_error} if an exception is required ~(\ref{thread.req.exception}). \tcode{system_error} with an error condition of \tcode{operation_not_permitted} if \tcode{pm} is \tcode{nullptr}. \tcode{system_error} with an error condition of \tcode{resource_deadlock_would_occur} if on entry \tcode{owns} is \tcode{true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{shared_lock}!\idxcode{unlock}}%
+\indexlibrary{\idxcode{unlock}!\idxcode{shared_lock}}%
+\begin{itemdecl}
+void unlock();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects \tcode{pm->unlock_shared()}.
+
+\pnum
+\postconditions \tcode{owns == false}.
+
+\pnum
+\throws \tcode{system_error} when an exception is required ~(\ref{thread.req.exception}).
+
+\pnum
+\errors
+\begin{itemize}
+\item \tcode{operation_not_permitted} --- if on entry \tcode{owns} is
+\tcode{false}.
+\end{itemize}
+\end{itemdescr}
+
+\rSec4[thread.lock.shared.mod]{\tcode{shared_lock} modifiers}
+
+\indexlibrary{\idxcode{shared_lock}!\idxcode{swap}}%
+\indexlibrary{\idxcode{swap}!\idxcode{shared_lock}}%
+\begin{itemdecl}
+void swap(shared_lock& sl) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Swaps the data members of \tcode{*this} and \tcode{sl}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{shared_lock}!\idxcode{release}}%
+\indexlibrary{\idxcode{release}!\idxcode{shared_lock}}%
+\begin{itemdecl}
+mutex_type* release() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns The previous value of \tcode{pm}.
+
+\pnum
+\postconditions \tcode{pm == nullptr} and \tcode{owns == false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{shared_lock}!\idxcode{swap}}%
+\indexlibrary{\idxcode{swap}!\idxcode{shared_lock}}%
+\begin{itemdecl}
+template <class Mutex>
+  void swap(shared_lock<Mutex>& x, shared_lock<Mutex>& y) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects \tcode{x.swap(y)}.
+\end{itemdescr}
+
+\rSec4[thread.lock.shared.obs]{\tcode{shared_lock} observers}
+
+\indexlibrary{\idxcode{shared_lock}!\idxcode{owns_lock}}%
+\indexlibrary{\idxcode{owns_lock}!\idxcode{shared_lock}}%
+\begin{itemdecl}
+bool owns_lock() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{owns}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{shared_lock}!\idxcode{operator bool}}%
+\indexlibrary{\idxcode{operator bool}!\idxcode{shared_lock}}%
+\begin{itemdecl}
+explicit operator bool () const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{owns}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{shared_lock}!\idxcode{mutex}}%
+\indexlibrary{\idxcode{mutex}!\idxcode{shared_lock}}%
+\begin{itemdecl}
+mutex_type* mutex() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{pm}.
 \end{itemdescr}
 
 \rSec2[thread.lock.algorithm]{Generic locking algorithms}
