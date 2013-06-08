@@ -382,15 +382,6 @@ The \tcode{extern} keyword can also be used in
 \exitnote
 
 \pnum
-\indextext{\idxcode{const}!linkage~of}%
-\indextext{specifier!missing storage~class}%
-A name declared in a namespace scope without a
-\grammarterm{storage-class-specifier} has external linkage unless it has
-internal linkage because of a previous declaration and provided it is
-not declared \tcode{const}. Objects declared \tcode{const} and not
-explicitly declared \tcode{extern} have internal linkage.
-
-\pnum
 The linkages implied by successive declarations for a given entity shall
 agree. That is, within a given scope, each declaration declaring the
 same variable name or the same overloading of a function name shall imply
@@ -621,6 +612,9 @@ using cell = pair<void*, cell*>;    // ill-formed
 \exitexample
 
 \pnum
+A \grammarterm{typedef-name} shall not name an array of runtime bound.
+
+\pnum
 \indextext{redefinition!\idxcode{typedef}}%
 In a given non-class scope, a \tcode{typedef} specifier can be used to
 redefine the name of any type declared in that scope to refer to the
@@ -745,11 +739,12 @@ see~\ref{class.friend}.
 
 \pnum
 The \tcode{constexpr} specifier shall be applied only to the definition of
-a variable,
+a variable or variable template,
 the declaration of a
 function or function template, or the declaration of a static
 data member of a literal type~(\ref{basic.types}).
-If any declaration of a function or function template has \tcode{constexpr} specifier,
+If any declaration of a function, function template, or variable template has
+a \tcode{constexpr} specifier,
 then all its declarations shall contain the \tcode{constexpr} specifier. \enternote An
 explicit specialization can differ from the template declaration with respect to the
 \tcode{constexpr} specifier. \exitnote
@@ -757,7 +752,7 @@ explicit specialization can differ from the template declaration with respect to
 Function parameters cannot be declared \tcode{constexpr}.\exitnote
 \enterexample
 \begin{codeblock}
-constexpr int square(int x);    // OK: declaration
+constexpr void square(int &x);  // OK: declaration
 constexpr int bufsz = 1024;     // OK: definition
 constexpr struct pixel {        // error: \tcode{pixel} is a type
   int x;
@@ -765,13 +760,13 @@ constexpr struct pixel {        // error: \tcode{pixel} is a type
   constexpr pixel(int);         // OK: declaration
 }; 
 constexpr pixel::pixel(int a)
-  : x(square(a)), y(square(a))  // OK: definition
-  { }
+  : x(a), y(x)                  // OK: definition
+  { square(x); }
 constexpr pixel small(2);       // error: \tcode{square} not defined, so \tcode{small(2)}
                                 // not constant~(\ref{expr.const}) so \tcode{constexpr} not satisfied
 
-constexpr int square(int x) {   // OK: definition
-  return x * x;
+constexpr void square(int &x) { // OK: definition
+  x *= x;
 }
 constexpr pixel large(4);       // OK: \tcode{square} defined
 int next(constexpr int x) {     // error: not for parameters
@@ -811,16 +806,16 @@ each of its parameter types shall be a literal type;
 its \grammarterm{function-body} shall be
 \tcode{= delete}, \tcode{= default}, or
 a \grammarterm{compound-statement}
-that contains only
+that does not contain
 
 \begin{itemize}
-\item null statements,
-\item \grammarterm{static_assert-declaration}{s}
-\item \tcode{typedef} declarations and \grammarterm{alias-declaration}{s} that
-do not define classes or enumerations,
-\item \grammarterm{using-declaration}{s},
-\item \grammarterm{using-directive}{s},
-\item and exactly one return statement.
+\item an \grammarterm{asm-definition},
+\item a \tcode{goto} statement,
+\item a \grammarterm{try-block}, or
+\item a definition of a variable
+of non-literal type or
+of static or thread storage duration or
+for which no initialization is performed.
 \end{itemize}
 
 \end{itemize}
@@ -831,13 +826,22 @@ constexpr int square(int x)
   { return x * x; }             // OK
 constexpr long long_max() 
   { return 2147483647; }        // OK
-constexpr int abs(int x) 
-  { return x < 0 ? -x : x; }    // OK 
-constexpr void f(int x)         // error: return type is \tcode{void}
-  { /* ... */ }
+constexpr int abs(int x) {
+  if (x < 0)
+    x = -x;
+  return x;                     // OK
+}
+constexpr int first(int n) {
+  static int value = n;         // error: variable has static storage duration
+  return value;
+}
+constexpr int uninit() {
+  int a;                        // error: variable is uninitialized
+  return a;
+}
 constexpr int prev(int x)
-  { return --x; }               // error: use of decrement
-constexpr int g(int x, int n) { // error: body not just ``return expr''
+  { return --x; }               // OK
+constexpr int g(int x, int n) { // OK
   int r = 1;
   while (--n > 0) r *= x;
   return r;
@@ -867,16 +871,8 @@ In addition, either its \grammarterm{function-body} shall be
 \begin{itemize}
 \item
 either its \grammarterm{function-body} shall be \tcode{= default}, or the \grammarterm{compound-statement} of its \grammarterm{function-body}
-shall contain only
-
-\begin{itemize}
-\item null statements,
-\item \grammarterm{static_assert-declaration}{s}
-\item \tcode{typedef} declarations and \grammarterm{alias-declaration}{s} that
-do not define classes or enumerations,
-\item \grammarterm{using-declaration}{s},
-\item and \grammarterm{using-directive}{s};
-\end{itemize}
+shall satisfy the constraints for a \grammarterm{function-body} of a
+\tcode{constexpr} function;
 
 \item
 every non-variant non-static data member and base class sub-object
@@ -889,13 +885,7 @@ shall be initialized;
 
 \item
 every constructor involved in initializing non-static
-data members and base class sub-objects shall be a \tcode{constexpr} constructor;
-
-\item
-every \grammarterm{assignment-expression} that is an \grammarterm{initializer-clause}
-appearing directly or indirectly within a \grammarterm{brace-or-equal-initializer}
-for a non-static data member that is not named by a \grammarterm{mem-initializer-id}
-shall be a constant expression.
+data members and base class sub-objects shall be a \tcode{constexpr} constructor.
 \end{itemize}
 
 \enterexample
@@ -903,63 +893,18 @@ shall be a constant expression.
 struct Length { 
   explicit constexpr Length(int i = 0) : val(i) { }
 private: 
-    int val; 
+  int val; 
 }; 
 \end{codeblock}
 \exitexample
 
 \pnum
-\indexdefn{function invocation substitution}\term{Function invocation substitution}
-for a call of a \tcode{constexpr} function or
-of a \tcode{constexpr} constructor means:
-
-\begin{itemize}
-
-\item
-implicitly converting each argument to the corresponding parameter
-type as if by copy-initialization,\footnote{The resulting converted
-value will include an lvalue-to-rvalue conversion~(\ref{conv.lval}) if
-the corresponding copy-initialization requires one.}
-
-\item
-substituting that converted expression for each use of the corresponding parameter in the
-\grammarterm{function-body},
-
-\item
-in a member function, substituting for each use of
-\tcode{this}~(\ref{class.this}) a prvalue pointer whose value is the
-address of the object for which the member function is called, and
-
-\item
-in a \tcode{constexpr} function, implicitly converting the resulting
-returned expression or \grammarterm{braced-init-list} to the
-return type of the function as if by copy-initialization.
-\end{itemize}
-
-Such substitution does not change the
-meaning. \enterexample
-\begin{codeblock}
-constexpr int f(void *) { return 0; }
-constexpr int f(...) { return 1; }
-constexpr int g1() { return f(0); }         // calls \tcode{f(void *)}
-constexpr int g2(int n) { return f(n); }    // calls \tcode{f(...)} even for \tcode{n == 0}
-constexpr int g3(int n) { return f(n*0); }  // calls \tcode{f(...)}
-
-namespace N {
-  constexpr int c = 5;
-  constexpr int h() { return c; }
-}
-constexpr int c = 0;
-constexpr int g4() { return N::h(); }       // value is \tcode{5}, \tcode{c} is not looked up again after the substitution
-\end{codeblock}
-\exitexample
-
-For a \tcode{constexpr} function, if no function argument values exist such that the function
-invocation substitution would produce a constant expression~(\ref{expr.const}), the
-program is ill-formed; no diagnostic required. For a \tcode{constexpr} constructor, if no
-argument values exist such that after function invocation substitution, every constructor
-call and full-expression in the \grammarterm{mem-initializer}{s} would be a constant
-expression (including conversions), the program is ill-formed; no diagnostic required.
+For a non-template, non-defaulted
+\tcode{constexpr} function or a non-template, non-defaulted, non-inheriting
+\tcode{constexpr} constructor, if no argument values exist such that
+an invocation of the function or constructor could be an evaluated subexpression of a core
+constant expression~(\ref{expr.const}), the program is ill-formed; no diagnostic
+required.
 \enterexample
 \begin{codeblock}
 constexpr int f(bool b)
@@ -987,12 +932,12 @@ template
 or member function of a class template
 would fail to satisfy the requirements for a \tcode{constexpr}
 function or \tcode{constexpr} constructor,
-that specialization is not a \tcode{constexpr} function or \tcode{constexpr}
-constructor. \enternote
-If the function is a member function it will still be \tcode{const} as described below.
-\exitnote
-If no specialization of the template would yield a \tcode{constexpr} function
-or \tcode{constexpr} constructor, the program is ill-formed; no diagnostic
+that specialization is still a \tcode{constexpr} function or \tcode{constexpr}
+constructor, even though a call to such a function cannot appear in a constant
+expression. If no specialization of the template would satisfy the
+requirements for a \tcode{constexpr} function or \tcode{constexpr} constructor
+when considered as a non-template function or constructor, the template is
+ill-formed; no diagnostic
 required.
 
 \pnum
@@ -1001,21 +946,16 @@ non-\tcode{constexpr} function in all respects except that a call to a \tcode{co
 function can appear in a constant expression.
 
 \pnum
-A \tcode{constexpr} specifier for a non-static member
-function that is not a constructor declares that member function to be
-\tcode{const}~(\ref{class.mfct.non-static}).
-\enternote The \tcode{constexpr} specifier has no
-other effect on the function type.\exitnote
-The keyword \tcode{const} is ignored if it appears in the \grammarterm{cv-qualifier-seq}
-of the function declarator of the declaration of such a member function.
+The \tcode{constexpr} specifier has no
+effect on the type of a \tcode{constexpr} function or a \tcode{constexpr} constructor.
 The class of
-which that function is a member shall be a literal
+which a \tcode{constexpr} function is a member shall be a literal
 type~(\ref{basic.types}). \enterexample
 \begin{codeblock}
 class debug_flag { 
 public: 
   explicit debug_flag(bool); 
-  constexpr bool is_on();       // error: \tcode{debug_flag} not 
+  constexpr bool is_on() const; // error: \tcode{debug_flag} not 
                                 // literal type 
 private: 
   bool flag; 
@@ -1038,10 +978,9 @@ If it is initialized by a constructor call,
 that call shall be a constant expression~(\ref{expr.const}).
 Otherwise,
 or if a \tcode{constexpr} specifier is used in a reference declaration,
-every full-expression that appears in its initializer shall be a constant expression. Each
+every full-expression that appears in its initializer shall be a constant expression. \enternote Each
 implicit conversion used in converting the initializer expressions and each constructor call
-used for the initialization shall be one of those allowed in a constant
-expression~(\ref{expr.const}).
+used for the initialization is part of such a full-expression. \exitnote
 \enterexample
 \begin{codeblock}
 struct pixel { 
@@ -1154,7 +1093,8 @@ and
 
 \pnum
 There are two \grammarterm{cv-qualifiers}, \tcode{const} and
-\tcode{volatile}. If a \grammarterm{cv-qualifier} appears in a
+\tcode{volatile}. Each \grammarterm{cv-qualifier} shall appear at most once in
+a \grammarterm{cv-qualifier-seq}. If a \grammarterm{cv-qualifier} appears in a
 \grammarterm{decl-specifier-seq}, the \grammarterm{init-declarator-list} of
 the declaration shall not be empty.
 \enternote
@@ -1232,6 +1172,8 @@ p->x.j = 99;                    // undefined: modifies a \tcode{const} member
 \exitexample
 
 \pnum
+What constitutes an access to an object that has volatile-qualified type is
+implementation-defined.
 If an attempt is made to refer to an object defined with a
 volatile-qualified type through the use of a glvalue with a
 non-volatile-qualified type, the program behavior is undefined.
@@ -1243,6 +1185,8 @@ non-volatile-qualified type, the program behavior is undefined.
 \tcode{volatile} is a hint to the implementation to avoid aggressive
 optimization involving the object because the value of the object might
 be changed by means undetectable by an implementation.
+Furthermore, for some implementations, \tcode{volatile} might indicate that
+special hardware instructions are required to access the object.
 See~\ref{intro.execution} for detailed semantics. In general, the
 semantics of \tcode{volatile} are intended to be the same in \Cpp as
 they are in C.
@@ -1285,7 +1229,8 @@ The simple type specifiers are
 
 \begin{bnf}
 \nontermdef{decltype-specifier}\br
-  \terminal{decltype} \terminal{(} expression \terminal{)}
+  \terminal{decltype} \terminal{(} expression \terminal{)}\br
+  \terminal{decltype} \terminal{(} \terminal{auto} \terminal{)}
 \end{bnf}
 
 \pnum
@@ -1310,7 +1255,8 @@ The \tcode{auto} specifier is a placeholder for a type to be
 deduced~(\ref{dcl.spec.auto}).
 The other
 \grammarterm{simple-type-specifier}{s}
-specify either a previously-declared user-defined type or one of the
+specify either a previously-declared type, a type determined from an
+expression, or one of the
 fundamental types~(\ref{basic.fundamental}).
 Table~\ref{tab:simple.type.specifiers}
  summarizes the valid combinations of
@@ -1376,11 +1322,13 @@ objects and bit-fields to be signed; it is redundant in other contexts.
 
 \pnum
 \indextext{type~specifier!\idxcode{decltype}}%
-The type denoted by \tcode{decltype(e)} is defined as follows:
+For an expression \tcode{e}, the type denoted by \tcode{decltype(e)} is defined as follows:
 \begin{itemize}
-\item if \tcode{e} is an unparenthesized \grammarterm{id-expression} or
-an unparenthesized
-class
+\item if \tcode{e} has type ``array of runtime bound'', the program is
+ill-formed
+
+\item otherwise, if \tcode{e} is an unparenthesized
+\grammarterm{id-expression} or an unparenthesized class
 member access~(\ref{expr.ref}), \tcode{decltype(e)} is the
 type of the entity named by \tcode{e}. If there is no such entity, or
 if \tcode{e} names a set of overloaded functions, the program is
@@ -1411,6 +1359,10 @@ decltype(a->x) x3;              // type is \tcode{double}
 decltype((a->x)) x4 = x3;       // type is \tcode{const double\&}
 \end{codeblock}
 \exitexample
+\enternote
+The rules for determining types involving \tcode{decltype(auto)} are specified
+in~\ref{dcl.spec.auto}.
+\exitnote
 
 \pnum
 \enternote in the case where the operand of a \grammarterm{decltype-specifier}
@@ -1540,23 +1492,42 @@ enum E x = E::a;                // OK
 \indextext{type specifier!\idxcode{auto}}
 
 \pnum
-The \tcode{auto} \grammarterm{type-specifier} signifies that the type of
-a variable being declared shall be deduced from its
-initializer or that a function declarator shall include a
-\grammarterm{trailing-return-type}{}.
+The \tcode{auto} and \tcode{decltype(auto)} \grammarterm{type-specifier}{s}
+designate a placeholder type that will be replaced later, either by deduction
+from an initializer or by explicit specification with a
+\grammarterm{trailing-return-type}{}. The \tcode{auto}
+\grammarterm{type-specifier} is also used to signify that a lambda is a
+generic lambda.
 
 \pnum
-The \tcode{auto} \grammarterm{type-specifier} may appear with a function declarator with
-a \grammarterm{trailing-return-type}~(\ref{dcl.fct}) in any context where such a
-declarator is valid.
+The placeholder type can appear with a function declarator in the
+\grammarterm{decl-specifier-seq}, \grammarterm{type-specifier-seq},
+\grammarterm{conversion-function-id}, or \grammarterm{trailing-return-type},
+in any context where such a declarator is valid. If the function declarator
+includes a \grammarterm{trailing-return-type}~(\ref{dcl.fct}), that specifies
+the declared return type of the function. If the declared return type of the
+function contains a placeholder type, the return type of the function is
+deduced from \tcode{return} statements in the body of the function, if any.
 
 \pnum
-Otherwise, the type of the variable is deduced from its initializer. The name of the
-variable being declared shall not appear in the initializer expression. This use of
-\tcode{auto} is allowed when declaring variables in a block~(\ref{stmt.block}), in
+If the \tcode{auto} \grammarterm{type-specifier} appears as one of the
+\grammarterm{decl-specifier}{s} in the \grammarterm{decl-specifier-seq} of a
+\grammarterm{parameter-declaration} of a \grammarterm{lambda-expression}, the
+\indextext{generic lambda!definition of}%
+lambda is a \term{generic lambda}~(\ref{expr.prim.lambda}). \enterexample
+\begin{codeblock}
+auto glambda = [](int i, auto a) { return i; }; // OK: a generic lambda
+\end{codeblock}
+\exitexample
+
+\pnum
+The type of a variable declared using \tcode{auto} or \tcode{decltype(auto)} is
+deduced from its initializer. This use is allowed when declaring variables in a
+block~(\ref{stmt.block}), in
 namespace scope~(\ref{basic.scope.namespace}), and in a
 \nonterminal{for-init-statement}~(\ref{stmt.for}).
-\tcode{auto} shall appear as one of the \grammarterm{decl-specifier}{s} in the
+\tcode{auto} or \tcode{decltype(auto)} shall appear as one of the
+\grammarterm{decl-specifier}{s} in the
 \grammarterm{decl-specifier-seq} and the
 \grammarterm{decl-specifier-seq}
 shall be followed by one or more \grammarterm{init-declarator}{s}, each of which shall
@@ -1576,11 +1547,14 @@ auto x = 5;                 // OK: \tcode{x} has type \tcode{int}
 const auto *v = &x, u = 6;  // OK: \tcode{v} has type \tcode{const int*}, \tcode{u} has type \tcode{const int}
 static auto y = 0.0;        // OK: \tcode{y} has type \tcode{double}
 auto int r;                 // error: auto is not a \grammarterm{storage-class-specifier}
+auto f() -> int;            // OK: \tcode{f} returns \tcode{int}
+auto g() { return 0.0; }    // OK: \tcode{g} returns \tcode{double}
+auto h();                   // OK: \tcode{h}'s return type will be deduced when it is defined
 \end{codeblock}
 \exitexample
 
 \pnum
-The \tcode{auto} \nonterminal{type-specifier} can also be used in declaring a variable in
+A placeholder type can also be used in declaring a variable in
 the \nonterminal{condition} of a selection statement~(\ref{stmt.select}) or an iteration
 statement~(\ref{stmt.iter}), in the \nonterminal{type-specifier-seq} in 
 the \nonterminal{new-type-id} or \nonterminal{type-id} of a
@@ -1590,23 +1564,32 @@ the \nonterminal{new-type-id} or \nonterminal{type-id} of a
 \nonterminal{member-specification} of a class definition~(\ref{class.static.data}).
 
 \pnum
-A program that uses \tcode{auto} in a context not explicitly allowed in
-this section is ill-formed.
+A program that uses \tcode{auto} or \tcode{decltype(auto)} in a context not
+explicitly allowed in this section is ill-formed.
 
 \pnum
-Once the type of a \nonterminal{declarator-id} has been determined according
-to~\ref{dcl.meaning}, the type of the declared variable using the
-\nonterminal{declarator-id} is determined from the type of its initializer
-using the rules for template argument deduction. Let \tcode{T} be the type that
-has been determined for a variable identifier \tcode{d}. Obtain \tcode{P} from
+When a variable declared using a placeholder type is initialized, or a
+\tcode{return} statement occurs in a function declared with a return type that
+contains a placeholder type, the deduced return type or variable type is
+determined from the type of its initializer. In the case of a \tcode{return}
+with no operand, the initializer is considered to be \tcode{void()}.
+Let \tcode{T} be the declared type of the variable or return type of the
+function.
+If the placeholder is the \tcode{auto} \grammarterm{type-specifier}, the
+deduced type is determined using the rules for template argument deduction.
+If the deduction is for a \tcode{return} statement and the initializer is a
+\grammarterm{braced-init-list}~(\ref{dcl.init.list}), the program is
+ill-formed. Otherwise, obtain \tcode{P} from
 \tcode{T} by replacing the occurrences of \tcode{auto} with either a new
 invented type template parameter \tcode{U} or, if the initializer is a
-\grammarterm{braced-init-list}~(\ref{dcl.init.list}), with
-\tcode{std::initializer_list<U>}. The type deduced for the variable \tcode{d}
-is then the deduced \tcode{A} determined using the rules of template argument
-deduction from a function call~(\ref{temp.deduct.call}), where \tcode{P} is a
-function template parameter type and the initializer for \tcode{d} is the
+\grammarterm{braced-init-list}, with
+\tcode{std::initializer_list<U>}. Deduce a value for \tcode{U} using the rules
+of template argument deduction from a function call~(\ref{temp.deduct.call}),
+where \tcode{P} is a
+function template parameter type and the initializer is the
 corresponding argument. If the deduction fails, the declaration is ill-formed.
+Otherwise, the type deduced for the variable or return type is obtained by
+substituting the deduced \tcode{U} into \tcode{P}.
 \enterexample
 \begin{codeblock}
 auto x1 = { 1, 2 };         // \tcode{decltype(x1)} is \tcode{std::initializer_list<int>}
@@ -1627,13 +1610,33 @@ template <class U> void f(const U& u);
 \end{codeblock}
 \exitexample
 
+If the placeholder is the \tcode{decltype(auto)} \grammarterm{type-specifier},
+the declared type of the variable or return type of the function shall be the
+placeholder alone. The type deduced for the variable or return type is
+determined as described in~\ref{dcl.type.simple}, as though the initializer had
+been the operand of the \tcode{decltype}. \enterexample
+\begin{codeblock}
+int i;
+int&& f();
+auto           x3a = i;        // \tcode{decltype(x3a)} is \tcode{int}
+decltype(auto) x3d = i;        // \tcode{decltype(x3d)} is \tcode{int}
+auto           x4a = (i);      // \tcode{decltype(x4a)} is \tcode{int}
+decltype(auto) x4d = (i);      // \tcode{decltype(x4d)} is \tcode{int\&}
+auto           x5a = f();      // \tcode{decltype(x5a)} is \tcode{int}
+decltype(auto) x5d = f();      // \tcode{decltype(x5d)} is \tcode{int\&\&}
+auto           x6a = { 1, 2 }; // \tcode{decltype(x6a)} is \tcode{std::initializer_list<int>}
+decltype(auto) x6d = { 1, 2 }; // error, \tcode{\{ 1, 2 \}} is not an expression
+auto          *x7a = &i;       // \tcode{decltype(x7a)} is \tcode{int*}
+decltype(auto)*x7d = &i;       // error, declared type is not plain \tcode{decltype(auto)}
+\end{codeblock}
+\exitexample
+
 \pnum
 If the \grammarterm{init-declarator-list} contains more than one
 \grammarterm{init-declarator}, they shall all form declarations of
 variables. The type of each declared variable is determined as
-described above, and if the type that replaces the occurrence of
-\tcode{auto} is not the same in each deduction, the program is
-ill-formed.
+described above, and if the type that replaces the placeholder type is not the
+same in each deduction, the program is ill-formed.
 
 \enterexample
 \begin{codeblock}
@@ -1642,6 +1645,110 @@ auto a = 5, b = { 1, 2 };   // error: different types for \tcode{auto}
 \end{codeblock}
 \exitexample%
 \indextext{specifier|)}
+
+\pnum
+If a function with a declared return type that contains a placeholder type has
+multiple \tcode{return} statements, the return type is deduced for each
+\tcode{return} statement. If the type deduced is not the same in each
+deduction, the program is ill-formed.
+
+\pnum
+If a function with a declared return type that uses a placeholder type has no
+\tcode{return} statements, the return type is deduced as though from a
+\tcode{return} statement with no operand at the closing brace of the function
+body.
+\enterexample
+\begin{codeblock}
+auto  f() { } // OK, return type is \tcode{void}
+auto* g() { } // error, cannot deduce \tcode{auto*} from \tcode{void()}
+\end{codeblock}
+\exitexample
+
+\pnum
+If the type of an entity with an undeduced placeholder type is needed to
+determine the type of an expression, the program is ill-formed. Once a
+\tcode{return} statement has been seen in a function, however, the return type deduced
+from that statement can be used in the rest of the function, including in other
+\tcode{return} statements.
+\enterexample
+\begin{codeblock}
+auto n = n;            // error, \tcode{n}'s type is unknown
+auto f();
+void g() { &f; }       // error, \tcode{f}'s return type is unknown
+auto sum(int i) {
+  if (i == 1)
+    return i;          // \tcode{sum}'s return type is \tcode{int}
+  else
+    return sum(i-1)+i; // OK, \tcode{sum}'s return type has been deduced
+}
+\end{codeblock}
+\exitexample
+
+\pnum
+Return type deduction for a function template with a placeholder in its
+declared type occurs when the definition is instantiated even if the function
+body contains a \tcode{return} statement with a non-type-dependent operand.
+\enternote Therefore, any use of a specialization of the function template will
+cause an implicit instantiation. Any errors that arise from this instantiation
+are not in the immediate context of the function type and can result in the
+program being ill-formed. \exitnote
+\enterexample
+\begin{codeblock}
+template <class T> auto f(T t) { return t; }  // return type deduced at instantiation time
+typedef decltype(f(1)) fint_t;                // instantiates \tcode{f<int>} to deduce return type
+template<class T> auto f(T* t) { return *t; }
+void g() { int (*p)(int*) = &f; }             // instantiates both \tcode{f}s to determine return types,
+                                              // chooses second
+\end{codeblock}
+\exitexample
+
+\pnum
+Redeclarations or specializations of a function or function template with a
+declared return type that uses a placeholder type shall also use that
+placeholder, not a deduced type.
+\enterexample
+\begin{codeblock}
+auto f();
+auto f() { return 42; } // return type is \tcode{int}
+auto f();               // OK
+int f();                // error, cannot be overloaded with \tcode{auto f()}
+decltype(auto) f();     // error, \tcode{auto} and \tcode{decltype(auto)} don't match
+
+template <typename T> auto g(T t) { return t; } // \#1
+template auto g(int);                           // OK, return type is \tcode{int}
+template char g(char);                          // error, no matching template
+template<> auto g(double);                      // OK, forward declaration with unknown return type
+
+template <class T> T g(T t) { return t; } // OK, not functionally equivalent to \#1
+template char g(char);                    // OK, now there is a matching template
+template auto g(float);                   // still matches \#1
+
+void h() { return g(42); } // error, ambiguous
+
+template <typename T> struct A {
+  friend T frf(T);
+};
+auto frf(int i) { return i; } // not a friend of \tcode{A<int>}
+\end{codeblock}
+\exitexample
+
+\pnum
+A function declared with a return type that uses a placeholder type shall not
+be \tcode{virtual}~(\ref{class.virtual}).
+
+\pnum
+An explicit instantiation declaration~(\ref{temp.explicit}) does not cause the
+instantiation of an entity declared using a placeholder type, but it also does
+not prevent that entity from being instantiated as needed to determine its
+type.
+\enterexample
+\begin{codeblock}
+template <typename T> auto f(T t) { return t; }
+extern template auto f(int); // does not instantiate \tcode{f<int>}
+int (*p)(int) = f;           // instantiates \tcode{f<int>} to determine its return type, but an explicit
+                             // instantiation definition is still required somewhere in the program
+\end{codeblock}
+\exitexample
 
 \rSec1[dcl.enum]{Enumeration declarations}%
 \indextext{enumeration}%
@@ -1808,6 +1915,14 @@ in that type, in which case the type is an unspecified integral type
 sufficient to contain the incremented value. If no such type exists, the program
 is ill-formed.
 \end{itemize}
+
+\pnum
+An enumeration whose underlying type is fixed is an incomplete type from its
+point of declaration~(\ref{basic.scope.pdecl}) to immediately after its
+\grammarterm{enum-base} (if any), at which point it becomes a complete type.
+An enumeration whose underlying type is not fixed is an incomplete type from
+its point of declaration to immediately after the closing \tcode{\}} of its
+\grammarterm{enum-specifier}, at which point it becomes a complete type.
 
 \pnum
 \indextext{type!enumeration underlying}%
@@ -2195,11 +2310,12 @@ Every name first declared in a namespace is a member of that namespace.
 If a \tcode{friend} declaration in a non-local class first declares a
 class, function, class template or function template\footnote{this implies that the name of the class or function is unqualified.}
 the friend is a member of the innermost enclosing
-namespace. The name of the friend is not found by 
-unqualified lookup~(\ref{basic.lookup.unqual}) or by qualified
-lookup~(\ref{basic.lookup.qual})
-until a matching declaration is provided in that namespace scope (either
-before or after the class definition granting friendship). If a friend
+namespace. The \tcode{friend} declaration does not by itself make the name
+visible to unqualified lookup~(\ref{basic.lookup.unqual}) or qualified
+lookup~(\ref{basic.lookup.qual}). \enternote The name of the friend will be
+visible in its namespace if a matching declaration is provided at namespace
+scope (either before or after the class definition granting friendship).
+\exitnote If a friend
 function or function template is called, its name may be found by the
 name lookup that considers functions from namespaces and classes
 associated with the types of the function
@@ -2623,7 +2739,7 @@ the derived class override and/or hide member functions and member
 function templates with the same name,
 parameter-type-list~(\ref{dcl.fct}), cv-qualification, and \grammarterm{ref-qualifier} (if any) in a base
 class (rather than conflicting).
-\enternote For \grammarterm{using-declarations} that name a constructor, see~\ref{class.inhctor}. \exitnote
+\enternote For \grammarterm{using-declaration}{s} that name a constructor, see~\ref{class.inhctor}. \exitnote
 \enterexample
 
 \begin{codeblock}
@@ -3350,10 +3466,15 @@ void f() {
 An \grammarterm{alignment-specifier}
 may be applied to a variable
 or to a class data member, but it shall not be applied to a bit-field, a function
-parameter, the formal parameter of a catch clause~(\ref{except.handle}), or a variable
+parameter, an \grammarterm{exception-declaration}~(\ref{except.handle}), or a variable
 declared with the \tcode{register} storage class specifier.
-An \grammarterm{alignment-specifier}
-may also be applied to the declaration of a class or enumeration type.
+An \grammarterm{alignment-specifier} may also be applied to the declaration or
+definition of a class (in an
+\grammarterm{elaborated-type-specifier}~(\ref{dcl.type.elab}) or
+\grammarterm{class-head} (Clause~\ref{class}), respectively) and to the
+declaration or definition of an enumeration (in an
+\grammarterm{opaque-enum-declaration} or \grammarterm{enum-head},
+respectively~(\ref{dcl.enum})).
 An \grammarterm{alignment-specifier} with an ellipsis is a pack expansion~(\ref{temp.variadic}).
 
 \pnum
@@ -3523,14 +3644,14 @@ int foo_array[10][10];
   return foo_head[i].load(memory_order_consume);
 }
 
-[[carries_dependency]] int g(int* x, int* y) {
+int g(int* x, int* y [[carries_dependency]]) {
   return kill_dependency(foo_array[*x][*y]);
 }
 
 /* Translation unit B. */
 
 [[carries_dependency]] struct foo* f(int i);
-[[carries_dependency]] int* g(int* x, int* y);
+int g(int* x, int* y [[carries_dependency]]);
 
 int c = 3;
 
@@ -3551,8 +3672,8 @@ need not constrain ordering upon return from \tcode{f}. Implementations of
 hardware memory ordering instructions (a.k.a. fences).
 
 \pnum
-Function \tcode{g}'s second argument has a \tcode{carries_dependency} attribute,
-but its first argument does not. Therefore, function \tcode{h}'s first call to
+Function \tcode{g}'s second parameter has a \tcode{carries_dependency} attribute,
+but its first parameter does not. Therefore, function \tcode{h}'s first call to
 \tcode{g} carries a dependency into \tcode{g}, but its second call does not. The
 implementation might need to insert a fence prior to the second call to
 \tcode{g}.

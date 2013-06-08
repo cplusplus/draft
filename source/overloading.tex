@@ -643,6 +643,11 @@ In such a case, the
 candidate functions generated from each function template are combined
 with the set of non-template candidate functions.
 
+\pnum
+A defaulted move constructor or assignment operator~(\ref{class.copy}) that is
+defined as deleted is excluded from the set of candidate functions in all
+contexts.
+
 \rSec3[over.match.call]{Function call syntax}%
 \indextext{overloading!resolution!function call syntax|(}
 
@@ -941,9 +946,9 @@ String operator + (const String&, const String&);
 
 void f(void) {
  const char* p= "one" + "two";  // ill-formed because neither
-                                // operand has user-defined type
+                                // operand has class or enumeration type
  int I = 1 + 1;                 // Always evaluates to \tcode{2} even if
-                                // user-defined types exist which
+                                // class or enumeration types exist that
                                 // would perform the operation.
 }
 \end{codeblock}
@@ -1205,7 +1210,8 @@ When initializing a temporary to be bound to the first parameter of a
 constructor
 that takes a reference to possibly \cv-qualified \tcode{T} as its first argument,
 called with a single argument in the context of
-direct-initialization, explicit conversion functions are also considered.
+direct-initialization of an object of type ``\textit{cv2} \tcode{T}'', explicit
+conversion functions are also considered.
 Those that are not hidden within
 \tcode{S}
 and yield a type whose cv-unqualified version is the same type as
@@ -1315,9 +1321,10 @@ and its base classes are considered.
 Those non-explicit conversion functions that are not hidden within
 \tcode{S}
 and yield type ``lvalue reference to \textit{cv2} \tcode{T2}''
-(when \ref{dcl.init.ref} requires an lvalue result) or ``\nonterminal{cv2} \tcode{T2}''
-or ``rvalue reference to \nonterminal{cv2} \tcode{T2}'' (when \ref{dcl.init.ref}
-requires an rvalue result),
+(when initializing an lvalue reference or an rvalue reference to function) or
+``\nonterminal{cv2} \tcode{T2}''
+or ``rvalue reference to \nonterminal{cv2} \tcode{T2}'' (when initializing an
+rvalue reference or an lvalue reference to function),
 where ``\textit{cv1} \tcode{T}'' is reference-compatible~(\ref{dcl.init.ref})
 with ``\textit{cv2} \tcode{T2}'',
 are candidate functions. For direct-initialization, those explicit
@@ -1517,6 +1524,26 @@ int i = a;                      // \tcode{a.operator int()} followed by no conve
 float x = a;                    // ambiguous: both possibilities require conversions,
                                 // and neither is better than the other
 \end{codeblock}
+\exitexample
+or, if not that,
+
+\item the context is an initialization by conversion function for direct
+reference binding (\ref{over.match.ref}) of a reference to function type, the
+return type of \tcode{F1} is the same kind of reference (i.e. lvalue or rvalue)
+as the reference being initialized, and the return type of \tcode{F2} is not
+\enterexample
+
+\begin{codeblock}
+template <class T> struct A {
+  operator T&();        // \#1
+  operator T&&();       // \#2
+};
+typedef int Fn();
+A<Fn> a;
+Fn& lf = a;             // calls \#1
+Fn&& rf = a;            // calls \#2
+\end{codeblock}
+
 \exitexample
 or, if not that,
 
@@ -2016,10 +2043,12 @@ this will only occur as the underlying type of a reference parameter.}
 and all the elements
 of the initializer list can be implicitly converted to \tcode{X}, the implicit
 conversion sequence is the worst conversion necessary to convert an element of
-the list to \tcode{X}. This conversion can be a user-defined conversion even in
+the list to \tcode{X}, or if the initializer list has no elements, the identity
+conversion. This conversion can be a user-defined conversion even in
 the context of a call to an initializer-list constructor. \enterexample
 \begin{codeblock}
 void f(std::initializer_list<int>);
+f( {} );                    // OK: \tcode{f(initializer_list<int>)} identity conversion
 f( {1,2,3} );               // OK: \tcode{f(initializer_list<int>)} identity conversion
 f( {'a','b'} );             // OK: \tcode{f(initializer_list<int>)} integral promotion
 f( {1.0} );                 // error: narrowing
@@ -2214,27 +2243,6 @@ and
 have the same rank and are distinguishable by the rules
 in the paragraph below,
 or, if not that,
-\item
-\tcode{S1}
-and
-\tcode{S2}
-differ only in their qualification conversion and yield similar types
-\tcode{T1}
-and
-\tcode{T2}~(\ref{conv.qual}), respectively, and the cv-qualification signature of type
-\tcode{T1}
-is a proper subset of the cv-qualification signature of type
-\tcode{T2}.
-\enterexample
-
-\begin{codeblock}
-int f(const int *);
-int f(int *);
-int i;
-int j = f(&i);                  // calls \tcode{f(int*)}
-\end{codeblock}
-\exitexample
-or, if not that,
 
 \item \tcode{S1} and \tcode{S2} are reference bindings~(\ref{dcl.init.ref}) and
 neither refers to an implicit object parameter of a non-static member function
@@ -2281,6 +2289,29 @@ void g();
 int i1 = f(g);                  // calls \#1
 \end{codeblock}
 \exitexample
+or, if not that,
+
+\item
+\tcode{S1}
+and
+\tcode{S2}
+differ only in their qualification conversion and yield similar types
+\tcode{T1}
+and
+\tcode{T2}~(\ref{conv.qual}), respectively, and the cv-qualification signature of type
+\tcode{T1}
+is a proper subset of the cv-qualification signature of type
+\tcode{T2}.
+\enterexample
+
+\begin{codeblock}
+int f(const int *);
+int f(int *);
+int i;
+int j = f(&i);                  // calls \tcode{f(int*)}
+\end{codeblock}
+\exitexample
+or, if not that,
 
 \item
 \tcode{S1}
@@ -2520,7 +2551,8 @@ The target can be
 
 \begin{itemize}
 \item
-an object or reference being initialized~(\ref{dcl.init}, \ref{dcl.init.ref}),
+an object or reference being initialized~(\ref{dcl.init}, \ref{dcl.init.ref},
+\ref{dcl.init.list}),
 \item
 the left side of an assignment~(\ref{expr.ass}),
 \item
@@ -3050,7 +3082,7 @@ implements the prefix and postfix
 \tcode{++}
 operator.
 If this function is a member function with no parameters, or a non-member
-function with one parameter of class or enumeration type,
+function with one parameter,
 it defines the prefix increment operator
 \tcode{++}
 for objects of that type.
@@ -3111,11 +3143,17 @@ are handled analogously.
 
 \begin{bnf}
 \nontermdef{literal-operator-id}\br
-    \terminal{operator} \terminal{""} identifier
+    \terminal{operator} string-literal identifier\br
+    \terminal{operator} user-defined-string-literal
 \end{bnf}
 
 \pnum
-The \grammarterm{identifier} in a \grammarterm{literal-operator-id} is called a
+The \grammarterm{string-literal} or \grammarterm{user-defined-string-literal}
+in a \grammarterm{literal-operator-id} shall have no
+\grammarterm{encoding-prefix} and shall contain no characters other than the
+implicit terminating \tcode{'\textbackslash 0'}.
+The \grammarterm{ud-suffix} of the \grammarterm{user-defined-string-literal} or
+the \grammarterm{identifier} in a \grammarterm{literal-operator-id} is called a
 \term{literal suffix identifier}.
 \enternote some literal suffix identifiers are reserved for future standardization;
 see~\ref{usrlit.suffix}. \exitnote
@@ -3148,6 +3186,9 @@ const char16_t*, std::size_t
 const char32_t*, std::size_t
 \end{codeblock}
 
+If a parameter has a default argument~(\ref{dcl.fct.default}), the program is
+ill-formed.
+
 \pnum
 A \term{raw literal operator} is a literal operator with a single parameter
 whose type is \tcode{const char*}.
@@ -3178,12 +3219,11 @@ taken, etc. \exitnote
 void operator "" _km(long double);                  // OK
 string operator "" _i18n(const char*, std::size_t); // OK
 template <char...> double operator "" _\u03C0();    // OK: UCN for lowercase pi
-float operator ""E(const char*);                    // error: \tcode{""E} (with no intervening space)
-                                                    // is a single token
-float operator " " B(const char*);                  // error: non-adjacent quotes
+float operator ""E(const char*);                    // OK
+float operator " " B(const char*);                  // error: non-empty \grammarterm{string-literal}
 string operator "" 5X(const char*, std::size_t);    // error: invalid literal suffix identifier
 double operator "" _miles(double);                  // error: invalid \grammarterm{parameter-declaration-clause}
-template <char...> int operator "" j(const char*);  // error: invalid \grammarterm{parameter-declaration-clause}
+template <char...> int operator "" _j(const char*); // error: invalid \grammarterm{parameter-declaration-clause}
 \end{codeblock}
 \exitexample%
 \indextext{overloading!operator|)}
@@ -3426,8 +3466,8 @@ std::ptrdiff_t   operator-(@\term{T}@, @\term{T}@);
 \end{codeblock}
 
 \pnum
-For every \term{T}, where \term{T} is an enumeration type, a pointer type, or
-\tcode{std::nullptr_t}, there exist candidate operator functions of the form
+For every \term{T}, where \term{T} is an enumeration type or a pointer type,
+there exist candidate operator functions of the form
 
 \begin{codeblock}
 bool    operator<(@\term{T}@, @\term{T}@);
@@ -3439,8 +3479,8 @@ bool    operator!=(@\term{T}@, @\term{T}@);
 \end{codeblock}
 
 \pnum
-For every pointer to member type \term{T} there exist candidate operator functions of
-the form
+For every pointer to member type \term{T} or type \tcode{std::nullptr_t} there
+exist candidate operator functions of the form
 
 \begin{codeblock}
 bool    operator==(@\term{T}@, @\term{T}@);
