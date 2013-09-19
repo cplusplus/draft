@@ -10,6 +10,7 @@
 #include <regex>
 #include <sstream>
 #include <string>
+#include <vector>
 
 class counter {
 public:
@@ -100,18 +101,18 @@ void process(std::string filename, counter& count)
     } else if (regex_search(line, results, rSec)) {
       auto level = results.str(1)[0] - '0';
       auto shortname = results.str(2);
-      auto description = results.str(3);
+      auto longname = results.str(3);
 
       count.bump(level);
 
-      show(count, shortname, description);
+      show(count, shortname, longname);
     } else if (regex_search(line, results, annex)) {
       auto shortname = results.str(2);
-      auto description = results.str(3);
+      auto longname = results.str(3);
 
       count.annex();
 
-      show(count, shortname, description);
+      show(count, shortname, longname);
     }
   }
 }
