@@ -87,9 +87,9 @@ void process(std::string filename, counter& count)
   // We assume below that there is only one of these per source line.
   // In the current draft, they're sometimes followed by comments, so
   // we use regex_search() instead of regex_match() to be robust.
-  std::regex include{"\\\\include\\{(.*)\\}"},
-             rSec{"\\\\rSec([0-9])\\[(.*)\\]\\{(.*)\\}"},
-             annex{"\\\\(inf|norm)annex\\{(.*)\\}\\{(.*)\\}"};
+  std::regex include{"^\\\\include\\{(.*)\\}"},
+             rSec{"^\\\\rSec([0-9])\\[(.*)\\]\\{(.*)\\}"},
+             annex{"^\\\\(inf|norm)annex\\{(.*)\\}\\{(.*)\\}"};
 
   std::string line;
   while (getline(file, line)) {
