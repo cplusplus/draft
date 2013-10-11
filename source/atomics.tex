@@ -312,45 +312,10 @@ only for the fences themselves. Fences cannot, in general, be used to restore se
 consistency for atomic operations with weaker ordering specifications. \exitnote
 
 \pnum
-An atomic store shall only store a value that has been computed from constants and
-program input values by a finite sequence of program evaluations, such that each
-evaluation observes the values of variables as computed by the last prior assignment in
-the sequence. The ordering of evaluations in this sequence shall be such that:
+Implementations should ensure that no ``out-of-thin-air'' values are computed that
+circularly depend on their own computation.
 
-\begin{itemize}
-\item if an evaluation \textit{B} observes a value computed by \textit{A} in a
-different thread, then \textit{B} does not happen before \textit{A}, and
-
-\item if an evaluation \textit{A} is included in the sequence, then every
-evaluation that assigns to the same variable and happens before \textit{A} is
-included.
-\end{itemize}
-
-\pnum
-\enternote The second requirement disallows ``out-of-thin-air'' or ``speculative'' stores of atomics when relaxed atomics are used. Since unordered operations are involved, evaluations may appear in this sequence out of thread order. For example, with \tcode{x} and \tcode{y} initially zero,
-
-\begin{codeblock}
-// Thread 1:
-r1 = y.load(memory_order_relaxed);
-x.store(r1, memory_order_relaxed);
-\end{codeblock}
-
-\begin{codeblock}
-// Thread 2:
-r2 = x.load(memory_order_relaxed);
-y.store(42, memory_order_relaxed);
-\end{codeblock}
-
-is allowed to produce \tcode{r1 = r2 = 42}. The sequence of evaluations justifying this consists of:
-
-\begin{codeblock}
-y.store(42, memory_order_relaxed);
-r1 = y.load(memory_order_relaxed);
-x.store(r1, memory_order_relaxed);
-r2 = x.load(memory_order_relaxed);
-\end{codeblock}
-
-On the other hand,
+\enternote For example, with \tcode{x} and \tcode{y} initially zero,
 
 \begin{codeblock}
 // Thread 1:
@@ -364,19 +329,20 @@ r2 = x.load(memory_order_relaxed);
 y.store(r2, memory_order_relaxed);
 \end{codeblock}
 
-may not produce \tcode{r1 = r2 = 42}, since there is no sequence of evaluations that
-results in the computation of 42. In the absence of ``relaxed'' operations and
-read-modify-write operations with weaker than \tcode{memory_order_acq_rel} ordering, the
-second requirement has no impact.\exitnote
+should not produce \tcode{r1 == r2 == 42}, since the store of 42 to \tcode{y} is only
+possible if the store to \tcode{x} stores \tcode{42}, which circularly depends on the
+store to \tcode{y} storing \tcode{42}. Note that without this restriction, such an
+execution is possible.
+\exitnote
 
 \pnum
-\enternote The requirements do allow \tcode{r1 == r2 == 42} in the following example,
-with \tcode{x} and \tcode{y} initially zero:
+\enternote The recommendation similarly disallows \tcode{r1 == r2 == 42} in the
+following example, with \tcode{x} and \tcode{y} again initially zero:
 
 \begin{codeblock}
 // Thread 1:
 r1 = x.load(memory_order_relaxed);
-if (r1 == 42) y.store(r1, memory_order_relaxed);
+if (r1 == 42) y.store(42, memory_order_relaxed);
 \end{codeblock}
 
 \begin{codeblock}
@@ -385,7 +351,7 @@ r2 = y.load(memory_order_relaxed);
 if (r2 == 42) x.store(42, memory_order_relaxed);
 \end{codeblock}
 
-However, implementations should not allow such behavior.\exitnote
+\exitnote
 
 \pnum
 Atomic read-modify-write operations shall always read the last value
