@@ -312,45 +312,10 @@ only for the fences themselves. Fences cannot, in general, be used to restore se
 consistency for atomic operations with weaker ordering specifications. \exitnote
 
 \pnum
-An atomic store shall only store a value that has been computed from constants and
-program input values by a finite sequence of program evaluations, such that each
-evaluation observes the values of variables as computed by the last prior assignment in
-the sequence. The ordering of evaluations in this sequence shall be such that:
+Implementations should ensure that no ``out-of-thin-air'' values are computed that
+circularly depend on their own computation.
 
-\begin{itemize}
-\item if an evaluation \textit{B} observes a value computed by \textit{A} in a
-different thread, then \textit{B} does not happen before \textit{A}, and
-
-\item if an evaluation \textit{A} is included in the sequence, then every
-evaluation that assigns to the same variable and happens before \textit{A} is
-included.
-\end{itemize}
-
-\pnum
-\enternote The second requirement disallows ``out-of-thin-air'' or ``speculative'' stores of atomics when relaxed atomics are used. Since unordered operations are involved, evaluations may appear in this sequence out of thread order. For example, with \tcode{x} and \tcode{y} initially zero,
-
-\begin{codeblock}
-// Thread 1:
-r1 = y.load(memory_order_relaxed);
-x.store(r1, memory_order_relaxed);
-\end{codeblock}
-
-\begin{codeblock}
-// Thread 2:
-r2 = x.load(memory_order_relaxed);
-y.store(42, memory_order_relaxed);
-\end{codeblock}
-
-is allowed to produce \tcode{r1 = r2 = 42}. The sequence of evaluations justifying this consists of:
-
-\begin{codeblock}
-y.store(42, memory_order_relaxed);
-r1 = y.load(memory_order_relaxed);
-x.store(r1, memory_order_relaxed);
-r2 = x.load(memory_order_relaxed);
-\end{codeblock}
-
-On the other hand,
+\enternote For example, with \tcode{x} and \tcode{y} initially zero,
 
 \begin{codeblock}
 // Thread 1:
@@ -364,19 +329,20 @@ r2 = x.load(memory_order_relaxed);
 y.store(r2, memory_order_relaxed);
 \end{codeblock}
 
-may not produce \tcode{r1 = r2 = 42}, since there is no sequence of evaluations that
-results in the computation of 42. In the absence of ``relaxed'' operations and
-read-modify-write operations with weaker than \tcode{memory_order_acq_rel} ordering, the
-second requirement has no impact.\exitnote
+should not produce \tcode{r1 == r2 == 42}, since the store of 42 to \tcode{y} is only
+possible if the store to \tcode{x} stores \tcode{42}, which circularly depends on the
+store to \tcode{y} storing \tcode{42}. Note that without this restriction, such an
+execution is possible.
+\exitnote
 
 \pnum
-\enternote The requirements do allow \tcode{r1 == r2 == 42} in the following example,
-with \tcode{x} and \tcode{y} initially zero:
+\enternote The recommendation similarly disallows \tcode{r1 == r2 == 42} in the
+following example, with \tcode{x} and \tcode{y} again initially zero:
 
 \begin{codeblock}
 // Thread 1:
 r1 = x.load(memory_order_relaxed);
-if (r1 == 42) y.store(r1, memory_order_relaxed);
+if (r1 == 42) y.store(42, memory_order_relaxed);
 \end{codeblock}
 
 \begin{codeblock}
@@ -385,7 +351,7 @@ r2 = y.load(memory_order_relaxed);
 if (r2 == 42) x.store(42, memory_order_relaxed);
 \end{codeblock}
 
-However, implementations should not allow such behavior.\exitnote
+\exitnote
 
 \pnum
 Atomic read-modify-write operations shall always read the last value
@@ -824,8 +790,8 @@ atomic<int> v = ATOMIC_VAR_INIT(5);
 \indexlibrary{\idxcode{atomic type}!\idxcode{atomic_is_lock_free}}%
 \indexlibrary{\idxcode{atomic_is_lock_free}!\idxcode{atomic type}}%
 \begin{itemdecl}
-bool atomic_is_lock_free(const volatile @\textit{A}@ *object) noexcept;
-bool atomic_is_lock_free(const @\textit{A}@ *object) noexcept;
+bool atomic_is_lock_free(const volatile @\textit{A}@* object) noexcept;
+bool atomic_is_lock_free(const @\textit{A}@* object) noexcept;
 bool @\textit{A}@::is_lock_free() const volatile noexcept;
 bool @\textit{A}@::is_lock_free() const noexcept;
 \end{itemdecl}
@@ -836,8 +802,8 @@ bool @\textit{A}@::is_lock_free() const noexcept;
 \end{itemdescr}
 
 \begin{itemdecl}
-void atomic_init(volatile @\textit{A}@ *object, @\textit{C}@ desired) noexcept;
-void atomic_init(@\textit{A}@ *object, @\textit{C}@ desired) noexcept;
+void atomic_init(volatile @\textit{A}@* object, @\textit{C}@ desired) noexcept;
+void atomic_init(@\textit{A}@* object, @\textit{C}@ desired) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -864,7 +830,7 @@ a data race.
 \begin{itemdecl}
 void atomic_store(volatile @\textit{A}@* object, @\textit{C}@ desired) noexcept;
 void atomic_store(@\textit{A}@* object, @\textit{C}@ desired) noexcept;
-void atomic_store_explicit(volatile @\textit{A}@ *object, @\textit{C}@ desired, memory_order order) noexcept;
+void atomic_store_explicit(volatile @\textit{A}@* object, @\textit{C}@ desired, memory_order order) noexcept;
 void atomic_store_explicit(@\textit{A}@* object, @\textit{C}@ desired, memory_order order) noexcept;
 void @\textit{A}@::store(@\textit{C}@ desired, memory_order order = memory_order_seq_cst) volatile noexcept;
 void @\textit{A}@::store(@\textit{C}@ desired, memory_order order = memory_order_seq_cst) noexcept;
@@ -1123,9 +1089,9 @@ The following operations perform arithmetic computations. The key, operator, and
 \indexlibrary{\idxcode{atomic type}!\idxcode{fetch_}}%
 \indexlibrary{\idxcode{fetch_}!\idxcode{atomic type}}%
 \begin{itemdecl}
-@\textit{C}@ atomic_fetch_@\textit{key}@(volatile @\textit{A}@ *object, @\textit{M}@ operand) noexcept;
+@\textit{C}@ atomic_fetch_@\textit{key}@(volatile @\textit{A}@* object, @\textit{M}@ operand) noexcept;
 @\textit{C}@ atomic_fetch_@\textit{key}@(@\textit{A}@* object, @\textit{M}@ operand) noexcept;
-@\textit{C}@ atomic_fetch_@\textit{key}@_explicit(volatile @\textit{A}@ *object, @\textit{M}@ operand, memory_order order) noexcept;
+@\textit{C}@ atomic_fetch_@\textit{key}@_explicit(volatile @\textit{A}@* object, @\textit{M}@ operand, memory_order order) noexcept;
 @\textit{C}@ atomic_fetch_@\textit{key}@_explicit(@\textit{A}@* object, @\textit{M}@ operand, memory_order order) noexcept;
 @\textit{C}@ @\textit{A}@::fetch_@\textit{key}@(@\textit{M}@ operand, memory_order order = memory_order_seq_cst) volatile noexcept;
 @\textit{C}@ @\textit{A}@::fetch_@\textit{key}@(@\textit{M}@ operand, memory_order order = memory_order_seq_cst) noexcept;
@@ -1261,21 +1227,22 @@ The \tcode{atomic_flag} type shall have standard layout. It shall have a trivial
 
 \pnum
 The macro \tcode{ATOMIC_FLAG_INIT} shall be defined in such a way that it can be used to initialize an object of type \tcode{atomic_flag} to the
-clear state. For a static-duration object, that initialization shall be static. It is unspecified whether an
-uninitialized \tcode{atomic_flag} object has an initial state of set or clear.\enterexample
-
+clear state. The macro can be used in the form:
 \begin{codeblock}
 atomic_flag guard = ATOMIC_FLAG_INIT;
 \end{codeblock}
-\exitexample
+It is unspecified whether the macro can be used in other initialization contexts.
+For a complete static-duration object, that initialization shall be static.
+Unless initialized with \tcode{ATOMIC_FLAG_INIT}, it is unspecified whether an
+\tcode{atomic_flag} object has an initial state of set or clear.
 
 \indexlibrary{\idxcode{atomic_flag_test_and_set}}%
 \indexlibrary{\idxcode{atomic_flag_test_and_set_explicit}}%
 \begin{itemdecl}
-bool atomic_flag_test_and_set(volatile atomic_flag *object) noexcept;
-bool atomic_flag_test_and_set(atomic_flag *object) noexcept;
-bool atomic_flag_test_and_set_explicit(volatile atomic_flag *object, memory_order order) noexcept;
-bool atomic_flag_test_and_set_explicit(atomic_flag *object, memory_order order) noexcept;
+bool atomic_flag_test_and_set(volatile atomic_flag* object) noexcept;
+bool atomic_flag_test_and_set(atomic_flag* object) noexcept;
+bool atomic_flag_test_and_set_explicit(volatile atomic_flag* object, memory_order order) noexcept;
+bool atomic_flag_test_and_set_explicit(atomic_flag* object, memory_order order) noexcept;
 bool atomic_flag::test_and_set(memory_order order = memory_order_seq_cst) volatile noexcept;
 bool atomic_flag::test_and_set(memory_order order = memory_order_seq_cst) noexcept;
 \end{itemdecl}
@@ -1293,10 +1260,10 @@ bool atomic_flag::test_and_set(memory_order order = memory_order_seq_cst) noexce
 \indexlibrary{\idxcode{atomic_flag}!\idxcode{clear}}%
 \indexlibrary{\idxcode{clear}!\idxcode{atomic_flag}}%
 \begin{itemdecl}
-void atomic_flag_clear(volatile atomic_flag *object) noexcept;
-void atomic_flag_clear(atomic_flag *object) noexcept;
-void atomic_flag_clear_explicit(volatile atomic_flag *object, memory_order order) noexcept;
-void atomic_flag_clear_explicit(atomic_flag *object, memory_order order) noexcept;
+void atomic_flag_clear(volatile atomic_flag* object) noexcept;
+void atomic_flag_clear(atomic_flag* object) noexcept;
+void atomic_flag_clear_explicit(volatile atomic_flag* object, memory_order order) noexcept;
+void atomic_flag_clear_explicit(atomic_flag* object, memory_order order) noexcept;
 void atomic_flag::clear(memory_order order = memory_order_seq_cst) volatile noexcept;
 void atomic_flag::clear(memory_order order = memory_order_seq_cst) noexcept;
 \end{itemdecl}
@@ -1373,7 +1340,7 @@ extern "C" void atomic_signal_fence(memory_order order) noexcept;
 
 \begin{itemdescr}
 \pnum
-\effects equivalent to \tcode{atomic_thread_fence(order)}, except that
+\effects Equivalent to \tcode{atomic_thread_fence(order)}, except that
 the resulting ordering constraints are established only between a thread and a
 signal handler executed in the same thread.
 

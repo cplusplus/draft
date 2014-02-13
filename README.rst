@@ -7,9 +7,43 @@ standard. These sources should not be considered an ISO publication,
 nor should documents generated from them unless officially adopted by
 the C++ working group (ISO/IEC JTC1/SC22/WG21).
 
+Get involved:
+
+- `How to submit an editorial issue <https://github.com/cplusplus/draft/wiki/How-to-submit-an-editorial-issue>`_
+- `How to tell if an issue is editorial <https://github.com/cplusplus/draft/wiki/How-to-tell-if-an-issue-is-editorial>`_
+- `How to submit a new issue/defect report <http://isocpp.org/std/submit-a-library-issue>`_ for non-editorial issues
+
+More information about the C++ standard can be found at `isocpp.org <http://isocpp.org/std>`_.
+
 ------------
 Instructions
 ------------
+
+To typeset the draft document, from the ``source`` directory:
+
+#. run ``latexmk -pdf std``
+
+That's it! You should now have an ``std.pdf`` containing the typeset draft.
+
+Alternative instructions
+========================
+
+If you can't use latexmk for some reason, you can use the Makefiles instead:
+
+#. run ``make rebuild``
+#. run ``make reindex``
+
+If you can't use latexmk or make for some reason, you can run LaTeX manually instead:
+
+#. run ``pdflatex std`` until there are no more changed labels or changed tables
+#. run ``makeindex generalindex``
+#. run ``makeindex libraryindex``
+#. run ``makeindex grammarindex``
+#. run ``makeindex impldefindex``
+#. run ``pdflatex std`` twice more.
+
+Generated input files
+=====================
 
 To regenerate figures from .dot files, run::
 
@@ -28,24 +62,6 @@ To regenerate the cross-references appendix, run the following from
 the source directory::
 
    ../tools/makexref
-
-To typeset the draft document, from the ``source`` directory:
-
-#. run ``latexmk -pdf std``
-
-Or, if you can't use latexmk for some reason:
-
-#. run ``make rebuild``
-#. run ``make reindex``
-
-Or, if you can't use latexmk or Make for some reason:
-
-#. run ``pdflatex std`` until there are no more changed labels or changed tables
-#. run ``makeindex generalindex``
-#. run ``makeindex libraryindex``
-#. run ``makeindex grammarindex``
-#. run ``makeindex impldefindex``
-#. run ``pdflatex std`` twice more.
 
 ----------------
 Acknowledgements
