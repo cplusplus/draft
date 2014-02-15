@@ -19,9 +19,9 @@ More information about the C++ standard can be found at `isocpp.org <http://isoc
 Getting Started on Mac OS X
 ---------------------------
 
-Install the `MacTeX distribution <http://tug.org/mactex/>`.
+Install the `MacTeX distribution <http://tug.org/mactex/>`_.
 
-If you are on a slow network, you'll want to get the `BasicTeX package <http://tug.org/mactex/morepackages.html>` instead,
+If you are on a slow network, you'll want to get the `BasicTeX package <http://tug.org/mactex/morepackages.html>`_ instead,
 then run the following command to install the other packages that the draft requires:
 
    sudo tlmgr install latexmk isodate substr relsize ulem fixme rsfs
