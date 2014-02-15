@@ -3,7 +3,7 @@
 # Supports the kind of HTML markup used by the Core Working Group.
 #
 # To use this, run something like
-#   gsed < cwg-active.html > out.html
+#   gsed -f addmarkup.sed < cwg-active.html > out.html
 #
 # Note: requires GNU sed. On Mac OS X, "brew install gnu-sed" if you have Homebrew.
 
@@ -34,7 +34,7 @@ s,\[<I>Footnote:</I>,<span class="latex">\\footnote{</span>,g
 s,&#8212;<I>end footnote</I>],<span class="latex">}</span>,g
 
 # References
-s,([0-9.]\+ \[\([a-z.]\+\)\]),<span class="latex">~\\ref{\1}</span>,g
+s,([0-9.]\+ \[\([a-z.]\+\)\]),<span class="latex">~(\\ref{\1})</span>,g
 
 # I generated this list with
 #  cat ../source/grammar.tex  | grep nontermdef | sed 's,\\nontermdef{\([a-z_0-9-]*\)}.*,\1,' | tr '\n' '|'
