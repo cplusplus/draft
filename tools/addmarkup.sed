@@ -37,8 +37,8 @@ s,&#8212;<I>end footnote</I>],<span class="latex">}</span>,g
 s,([0-9.]\+ \[\([a-z.]\+\)\]),<span class="latex">~(\\ref{\1})</span>,g
 
 # Code blocks
-s,<PRE>,<span class="latex">\begin{codeblock}</span><PRE>,g
-s,</PRE>,</PRE><span class="latex">\end{codeblock}</span>,g
+s,<PRE>,<span class="latex">\\begin{codeblock}</span><PRE>,g
+s,</PRE>,</PRE><span class="latex">\\end{codeblock}</span>,g
 
 # Grammar terms
 # I generated this list with
