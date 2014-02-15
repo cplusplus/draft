@@ -2980,12 +2980,53 @@ function~(\ref{new.delete.single}, \ref{new.delete.array}). When it does so,
 the storage is instead provided by the implementation or provided by extending
 the allocation of another \grammarterm{new-expression}. The implementation may
 extend the allocation of a \grammarterm{new-expression} \tcode{e1} to provide
-storage for a \grammarterm{new-expression} \tcode{e2} if the lifetime of the
-object allocated by \tcode{e1} strictly contains the lifetime of the object
-allocated by \tcode{e2}, \tcode{e1} and \tcode{e2} would invoke the same
-replaceable global allocation function, and, for a throwing allocation
-function, exceptions in \tcode{e1} and \tcode{e2} would be first caught in the
-same handler.
+storage for a \grammarterm{new-expression} \tcode{e2} if the
+following would be true were the allocation not extended:
+
+\begin{itemize}
+\item the evaluation of \tcode{e1} is sequenced before the evaluation of
+\tcode{e2}, and
+
+\item \tcode{e2} is evaluated whenever \tcode{e1} obtains storage, and
+
+\item both \tcode{e1} and \tcode{e2} invoke the same replaceable global
+allocation function, and
+
+\item if the allocation function invoked by \tcode{e1} and \tcode{e2} is
+throwing, any exceptions thrown in the evaluation of either \tcode{e1} or
+\tcode{e2} would be first caught in the same handler, and
+
+\item the pointer values produced by \tcode{e1} and \tcode{e2} are operands to
+evaluated \grammarterm{delete-expression}{s}, and
+
+\item the evaluation of \tcode{e2} is sequenced before the evaluation of the
+\grammarterm{delete-expression} whose operand is the pointer value produced
+by \tcode{e1}.
+\end{itemize}
+
+\enterexample
+\begin{codeblock}
+  void mergeable(int x) {
+    // These heap allocations are safe for merging:
+    std::unique_ptr<char[]> a{new (std::nothrow) char[8]};
+    std::unique_ptr<char[]> b{new (std::nothrow) char[8]};
+    std::unique_ptr<char[]> c{new (std::nothrow) char[x]};
+
+    g(a.get(), b.get(), c.get());
+  }
+
+  void unmergeable(int x) {
+    std::unique_ptr<char[]> a{new char[8]};
+    try {
+      // Merging this allocation would change its catch handler.
+      std::unique_ptr<char[]> b{new char[x]};
+    } catch (const std::bad_alloc& e) {
+      std::cerr << "Allocation failed: " << e.what() << std::endl;
+      throw;
+    }
+  }
+\end{codeblock}
+\exitexample
 
 \pnum
 When a \grammarterm{new-expression} calls an allocation function and that
@@ -3298,11 +3339,21 @@ null pointer value, then:
 \begin{itemize}
 \item
 If the allocation call for the \grammarterm{new-expression} for the object to
-be deleted was not omitted~(\ref{expr.new}), the
+be deleted was not omitted and the allocation was not extended~(\ref{expr.new}), the
 \grammarterm{delete-expression} shall call a deallocation
 function~(\ref{basic.stc.dynamic.deallocation}). The value returned from the
 allocation call of the \grammarterm{new-expression} shall be passed as the
 first argument to the deallocation function.
+
+\item
+Otherwise, if the allocation was extended or was provided by extending the
+allocation of another \grammarterm{new-expression}, and the
+\grammarterm{delete-expression} for every other pointer value produced by a
+\grammarterm{new-expression} that had storage provided by the extended
+\grammarterm{new-expression} has been evaluated, the
+\grammarterm{delete-expression} shall call a deallocation function. The value
+returned from the allocation call of the extended \grammarterm{new-expression}
+shall be passed as the first argument to the deallocation function.
 
 \item
 Otherwise, the \grammarterm{delete-expression} will not call a
