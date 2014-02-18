@@ -7,6 +7,9 @@
 #
 # Note: requires GNU sed. On Mac OS X, "brew install gnu-sed" if you have Homebrew.
 
+# Skip headings
+/^<H3>.*<\/H3>$/I b
+
 # Add the stylesheet
 s,<HEAD>,<HEAD><style type="text/css">.latex {color: #444444; background: #dddddd; font-family: monospace; }</style>,i
 
