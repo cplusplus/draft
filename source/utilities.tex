@@ -839,13 +839,10 @@ a \Cpp program may contain:
 
 \indexlibrary{\idxcode{tuple_size}}%
 \begin{itemdecl}
-tuple_size<pair<T1, T2> >::value
+template <class T1, class T2>
+struct tuple_size<pair<T1, T2>>
+  : integral_constant<size_t, 2> { };
 \end{itemdecl}
-\begin{itemdescr}
-\pnum\returns Integral constant expression.
-
-\pnum\textit{Value:} 2.
-\end{itemdescr}
 
 \indexlibrary{\idxcode{tuple_element}}%
 \begin{itemdecl}
@@ -1006,7 +1003,7 @@ namespace std {
     constexpr tuple<Types&&...> forward_as_tuple(Types&&...) noexcept;
 
   template<class... Types>
-    tuple<Types&...> tie(Types&...) noexcept;
+    constexpr tuple<Types&...> tie(Types&...) noexcept;
 
   template <class... Tuples>
     constexpr tuple<@\textit{Ctypes}@...> tuple_cat(Tuples&&...);
@@ -1591,7 +1588,7 @@ not store the result in a named variable).
 \indexlibrary{\idxcode{tuple}!\idxcode{tie}}%
 \begin{itemdecl}
 template<class... Types>
-  tuple<Types&...> tie(Types&... t) noexcept;
+  constexpr tuple<Types&...> tie(Types&... t) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -1658,6 +1655,18 @@ pack \tcode{Tuples} that support the \tcode{tuple}-like protocol, such as
 
 \rSec3[tuple.helper]{Tuple helper classes}
 
+\indexlibrary{\idxcode{tuple_size}!in~general}%
+\begin{itemdecl}
+template <class T> struct tuple_size;
+\end{itemdecl}
+
+\begin{itemdescr}
+\remarks All specializations of \tcode{tuple_size<T>} shall meet the
+\tcode{UnaryTypeTrait} requirements~(\ref{meta.rqmts}) with a
+\tcode{BaseCharacteristic} of \tcode{integral_constant<size_t, N>}
+for some \tcode{N}.
+\end{itemdescr}
+
 \indexlibrary{\idxcode{tuple_size}}%
 \begin{itemdecl}
 template <class... Types>
@@ -1697,7 +1706,7 @@ Let \term{TS} denote \tcode{tuple_size<T>} of the \cv-unqualified type \tcode{T}
 of the three templates shall meet the \tcode{UnaryTypeTrait} requirements~(\ref{meta.rqmts})
 with a \tcode{BaseCharacteristic} of
 \begin{codeblock}
-integral_constant<remove_cv_t<decltype(TS::value)>, TS::value>
+integral_constant<size_t, TS::value>
 \end{codeblock}
 \end{itemdescr}
 
@@ -1987,13 +1996,13 @@ sequence can be deduced and used in a pack expansion.
 
 \begin{codeblock}
 template<class F, class Tuple, std::size_t... I>
-  auto apply_impl(F&& f, Tuple&& t, index_sequence<I...>) {
+  decltype(auto) apply_impl(F&& f, Tuple&& t, index_sequence<I...>) {
     return std::forward<F>(f)(std::get<I>(std::forward<Tuple>(t))...);
   }
 
 template<class F, class Tuple>
-  auto apply(F&& f, Tuple&& t) {
-    using Indices = make_index_sequence<std::tuple_size<Tuple>::value>;
+  decltype(auto) apply(F&& f, Tuple&& t) {
+    using Indices = make_index_sequence<std::tuple_size<std::decay_t<Tuple>>::value>;
     return apply_impl(std::forward<F>(f), std::forward<Tuple>(t), Indices());
   }
 \end{codeblock}
@@ -6300,6 +6309,8 @@ namespace std {
     template<class Y> weak_ptr(shared_ptr<Y> const& r) noexcept;
     weak_ptr(weak_ptr const& r) noexcept;
     template<class Y> weak_ptr(weak_ptr<Y> const& r) noexcept;
+    weak_ptr(weak_ptr&& r) noexcept;
+    template<class Y> weak_ptr(weak_ptr<Y>&& r) noexcept;
 
     // \ref{util.smartptr.weak.dest}, destructor
     ~weak_ptr();
@@ -6308,6 +6319,8 @@ namespace std {
     weak_ptr& operator=(weak_ptr const& r) noexcept;
     template<class Y> weak_ptr& operator=(weak_ptr<Y> const& r) noexcept;
     template<class Y> weak_ptr& operator=(shared_ptr<Y> const& r) noexcept;
+    weak_ptr& operator=(weak_ptr&& r) noexcept;
+    template<class Y> weak_ptr& operator=(weak_ptr<Y>&& r) noexcept;    
 
     // \ref{util.smartptr.weak.mod}, modifiers
     void swap(weak_ptr& r) noexcept;
@@ -6364,6 +6377,22 @@ with \tcode{r} and stores a copy of the pointer stored in \tcode{r}.
 \pnum\postconditions  \tcode{use_count() == r.use_count()}.
 \end{itemdescr}
 
+\indexlibrary{\idxcode{weak_ptr}!constructor}%
+\begin{itemdecl}
+weak_ptr(weak_ptr&& r) noexcept;
+template<class Y> weak_ptr(weak_ptr<Y>&& r) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum\remark The second constructor shall not participate in overload resolution unless
+\tcode{Y*} is implicitly convertible to \tcode{T*}.
+
+\pnum\effects Move-constructs a \tcode{weak_ptr} instance from \tcode{r}.
+
+\pnum\postconditions \tcode{*this} shall contain the old value of \tcode{r}.
+\tcode{r} shall be empty. \tcode{r.use_count() == 0}.
+\end{itemdescr}
+
 \rSec4[util.smartptr.weak.dest]{\tcode{weak_ptr} destructor}
 
 \indexlibrary{\idxcode{weak_ptr}!destructor}%
@@ -6391,6 +6420,21 @@ template<class Y> weak_ptr& operator=(const shared_ptr<Y>& r) noexcept;
 
 \pnum\notes  The implementation may meet the effects (and the
 implied guarantees) via different means, without creating a temporary.
+
+\pnum\returns  \tcode{*this}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{weak_ptr}!\idxcode{operator=}}%
+\indexlibrary{\idxcode{operator=}!\idxcode{weak_ptr}}%
+\begin{itemdecl}
+weak_ptr& operator=(weak_ptr&& r) noexcept;
+template<class Y> weak_ptr& operator=(weak_ptr<Y>&& r) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum\effects  Equivalent to \tcode{weak_ptr(std::move(r)).swap(*this)}.
+
+\pnum\returns  \tcode{*this}.
 \end{itemdescr}
 
 \rSec4[util.smartptr.weak.mod]{\tcode{weak_ptr} modifiers}
@@ -6450,7 +6494,7 @@ shared_ptr<T> lock() const noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
-\pnum\returns  \tcode{expired() ? shared_ptr<T>() : shared_ptr<T>(*this)}.
+\pnum\returns  \tcode{expired() ? shared_ptr<T>() : shared_ptr<T>(*this)}, executed atomically.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{owner_before}!\idxcode{shared_ptr}}%
@@ -9163,8 +9207,8 @@ namespace std {
     static constexpr T value = v;
     typedef T value_type;
     typedef integral_constant<T,v> type;
-    constexpr operator value_type() const { return value; }
-    constexpr value_type operator()() const { return value; }
+    constexpr operator value_type() const noexcept { return value; }
+    constexpr value_type operator()() const noexcept { return value; }
   };
   typedef integral_constant<bool, true> true_type;
   typedef integral_constant<bool, false> false_type;
@@ -9704,6 +9748,10 @@ properties of types at compile time.
  0; otherwise, the bound~(\ref{dcl.array}) of the \tcode{I}'th dimension of
 \tcode{T}, where indexing of \tcode{I} is zero-based \\
 \end{libreqtab2a}
+
+\pnum
+Each of these templates shall be a \tcode{UnaryTypeTrait}~(\ref{meta.rqmts}) with a
+\tcode{BaseCharacteristic} of \tcode{integral_constant<size_t, Value>}.
 
 \pnum
 \enterexample
