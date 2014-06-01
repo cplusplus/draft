@@ -1,3 +1,4 @@
+%!TEX root = std.tex
 \rSec0[expr]{Expressions}
 
 %gram: \rSec1[gram.expr]{Expressions}
@@ -631,14 +632,23 @@ void abssort(float* x, unsigned N) {
 The evaluation of a \grammarterm{lambda-expression} results in a prvalue
 temporary~(\ref{class.temporary}). This temporary is called the \defn{closure object}. A
 \grammarterm{lambda-expression} shall not appear in an unevaluated operand
-(Clause~\ref{expr}). \enternote A closure object behaves like a function
+(Clause~\ref{expr}), in a \grammarterm{template-argument},
+in an \grammarterm{alias-declaration},
+in a typedef declaration, or in the declaration of a function or function
+template outside its function body and default arguments.
+\enternote
+The intention is to prevent lambdas from appearing in a signature.
+\exitnote
+\enternote
+A closure object behaves like a function
 object~(\ref{function.objects}).\exitnote
 
 \pnum
 The type of the \grammarterm{lambda-expression} (which is also the type of the
 closure object) is a unique, unnamed non-union class type --- called the \defn{closure
-type} --- whose properties are described below. This class type is not an
-aggregate~(\ref{dcl.init.aggr}). The closure type is declared in the smallest block
+type} --- whose properties are described below. This class type is neither an
+aggregate~(\ref{dcl.init.aggr}) nor a literal type~(\ref{basic.types}).
+The closure type is declared in the smallest block
 scope, class scope, or namespace scope that contains the corresponding
 \grammarterm{lambda-expression}. \enternote This determines the set of namespaces and
 classes associated with the closure type~(\ref{basic.lookup.argdep}). The parameter
@@ -830,6 +840,9 @@ struct S1 {
 };
 \end{codeblock}
 \exitexample
+Further, a variable \tcode{__func__} is implicitly defined at the beginning of
+the \grammarterm{compound-statement} of the \grammarterm{lambda-expression},
+with semantics as described in~\ref{dcl.fct.def.general}.
 
 \pnum
 If a \grammarterm{lambda-capture} includes a \grammarterm{capture-default} that
@@ -867,30 +880,31 @@ its parameters. \enternote This reaching scope includes any intervening
 \pnum
 The \grammarterm{identifier} in a \grammarterm{simple-capture} is looked up using the
 usual rules for unqualified name lookup~(\ref{basic.lookup.unqual}); each such lookup
-shall find a variable with automatic storage duration declared in
-the reaching scope of the local lambda expression. An entity (i.e. a variable or
-\tcode{this}) is said to be \defn{explicitly captured} if it is found by this
-process.
+shall find an entity.  An entity that is designated by a
+\grammarterm{simple-capture}
+is said to be \defn{explicitly captured}, and shall be \tcode{this} or
+a variable with automatic storage duration declared in
+the reaching scope of the local lambda expression.
 
 \pnum
-For every \grammarterm{init-capture} a non-static data member named by the
-\grammarterm{identifier} of the \grammarterm{init-capture} is declared in the closure type.
-This member is not a bit-field and not \tcode{mutable}.
-The type of that member corresponds to the type of a hypothetical variable
-declaration of
-the form ``\tcode{auto} \grammarterm{init-capture} \tcode{;}'', except that the
-variable name (i.e., the \grammarterm{identifier} of the \grammarterm{init-capture}) is
-replaced by a unique identifier.
+An \grammarterm{init-capture} behaves as if it declares and explicitly captures a
+variable of
+the form ``\tcode{auto} \grammarterm{init-capture} \tcode{;}''
+whose declarative region is the \grammarterm{lambda-expression}'s
+\grammarterm{compound-statement}, except that:
+\begin{itemize}
+\item if the capture is by copy (see below), the non-static data member
+declared for the capture and the variable are treated as two different ways
+of referring to the same object, which has the lifetime of the non-static
+data member, and no additional copy and destruction is performed, and
+\item if the capture is by reference, the variable's lifetime ends when the
+closure object's lifetime ends.
+\end{itemize}
 \enternote
 This enables an \grammarterm{init-capture} like
 ``\tcode{x = std::move(x)}''; the second ``\tcode{x}'' must bind to a
 declaration in the surrounding context.
 \exitnote
-No entity is captured by an \grammarterm{init-capture}.  Within the
-\grammarterm{lambda-expression}{s} \grammarterm{lambda-declarator} and
-\grammarterm{compound-statement},
-the \grammarterm{identifier} in the \grammarterm{init-capture} hides any declaration
-of the same name in scopes enclosing the \grammarterm{lambda-expression}.
 \enterexample
 \begin{codeblock}
 int x = 4;
@@ -1004,18 +1018,21 @@ void f2() {
 \pnum
 An entity is \indexdefn{captured!by copy}\term{captured by copy} if it is implicitly captured and the
 \grammarterm{capture-default} is \tcode{=} or if it is explicitly captured with a
-capture that does not include an \tcode{\&}. For each entity captured by copy, an
+capture that is not of the form \tcode{\&} \grammarterm{identifier} or
+\tcode{\&} \grammarterm{identifier} \grammarterm{initializer}.
+For each entity captured by copy, an
 unnamed non-static data member is declared in the closure type. The declaration order of
 these members is unspecified. The type of such a data member is the type of the
 corresponding captured entity if the entity is not a reference to an object, or the
 referenced type otherwise. \enternote If the captured entity is a reference to a
 function, the corresponding data member is also a reference to a function. \exitnote
+A member of an anonymous union shall not be captured by copy.
 
 \pnum
 An entity is \indexdefn{captured!by reference}\term{captured by reference} if it is implicitly or explicitly
 captured but not captured by copy. It is unspecified whether additional unnamed
 non-static data members are declared in the closure type for entities captured by
-reference.
+reference. A member of an anonymous union shall not be captured by reference.
 
 \pnum
 If a \grammarterm{lambda-expression} \tcode{m2} captures an entity and that entity is
@@ -1052,7 +1069,8 @@ std::cout << a << b << c;
 
 
 \pnum
-Every \grammarterm{id-expression} that is an odr-use~(\ref{basic.def.odr}) of an
+Every \grammarterm{id-expression} within the \grammarterm{compound-statement} of a
+\grammarterm{lambda-expression} that is an odr-use~(\ref{basic.def.odr}) of an
 entity captured by copy is transformed into an access to the corresponding unnamed data
 member of the closure type.
 \enternote An \grammarterm{id-expression} that is not an odr-use refers to
@@ -1961,10 +1979,11 @@ static_cast<D&>(br);            // produces lvalue to the original \tcode{d} obj
 \exitexample 
 
 \pnum
-A glvalue of type ``\cvqual{cv1} \tcode{T1}'' can be cast to type ``rvalue
+A glvalue, class prvalue, or array prvalue
+of type ``\cvqual{cv1} \tcode{T1}'' can be cast to type ``rvalue
 reference to \cvqual{cv2} \tcode{T2}'' if ``\cvqual{cv2} \tcode{T2}'' is
 reference-compatible with ``\cvqual{cv1}
-\tcode{T1}''~(\ref{dcl.init.ref}). If the glvalue is not a bit-field,
+\tcode{T1}''~(\ref{dcl.init.ref}). If the value is not a bit-field,
 the result refers to the object or the specified base class subobject
 thereof; otherwise, the lvalue-to-rvalue conversion~(\ref{conv.lval})
 is applied to the bit-field and the resulting prvalue is used as the
@@ -2051,7 +2070,7 @@ an enumeration type. The value is unchanged if the original value is
 within the range of the enumeration values~(\ref{dcl.enum}). Otherwise,
 the resulting value is unspecified (and might not be
 in that range).
-A value of floating-point type can also be converted to an enumeration type.
+A value of floating-point type can also be explicitly converted to an enumeration type.
 The resulting value is the same as converting the original value to the
 underlying type of the enumeration~(\ref{conv.fpint}), and subsequently to
 the enumeration type.
@@ -2979,12 +2998,53 @@ function~(\ref{new.delete.single}, \ref{new.delete.array}). When it does so,
 the storage is instead provided by the implementation or provided by extending
 the allocation of another \grammarterm{new-expression}. The implementation may
 extend the allocation of a \grammarterm{new-expression} \tcode{e1} to provide
-storage for a \grammarterm{new-expression} \tcode{e2} if the lifetime of the
-object allocated by \tcode{e1} strictly contains the lifetime of the object
-allocated by \tcode{e2}, \tcode{e1} and \tcode{e2} would invoke the same
-replaceable global allocation function, and, for a throwing allocation
-function, exceptions in \tcode{e1} and \tcode{e2} would be first caught in the
-same handler.
+storage for a \grammarterm{new-expression} \tcode{e2} if the
+following would be true were the allocation not extended:
+
+\begin{itemize}
+\item the evaluation of \tcode{e1} is sequenced before the evaluation of
+\tcode{e2}, and
+
+\item \tcode{e2} is evaluated whenever \tcode{e1} obtains storage, and
+
+\item both \tcode{e1} and \tcode{e2} invoke the same replaceable global
+allocation function, and
+
+\item if the allocation function invoked by \tcode{e1} and \tcode{e2} is
+throwing, any exceptions thrown in the evaluation of either \tcode{e1} or
+\tcode{e2} would be first caught in the same handler, and
+
+\item the pointer values produced by \tcode{e1} and \tcode{e2} are operands to
+evaluated \grammarterm{delete-expression}{s}, and
+
+\item the evaluation of \tcode{e2} is sequenced before the evaluation of the
+\grammarterm{delete-expression} whose operand is the pointer value produced
+by \tcode{e1}.
+\end{itemize}
+
+\enterexample
+\begin{codeblock}
+  void mergeable(int x) {
+    // These heap allocations are safe for merging:
+    std::unique_ptr<char[]> a{new (std::nothrow) char[8]};
+    std::unique_ptr<char[]> b{new (std::nothrow) char[8]};
+    std::unique_ptr<char[]> c{new (std::nothrow) char[x]};
+
+    g(a.get(), b.get(), c.get());
+  }
+
+  void unmergeable(int x) {
+    std::unique_ptr<char[]> a{new char[8]};
+    try {
+      // Merging this allocation would change its catch handler.
+      std::unique_ptr<char[]> b{new char[x]};
+    } catch (const std::bad_alloc& e) {
+      std::cerr << "Allocation failed: " << e.what() << std::endl;
+      throw;
+    }
+  }
+\end{codeblock}
+\exitexample
 
 \pnum
 When a \grammarterm{new-expression} calls an allocation function and that
@@ -3096,8 +3156,8 @@ initializes that object as follows:
 
 \begin{itemize}
 \item If the \grammarterm{new-initializer} is omitted, the object is
-default-initialized~(\ref{dcl.init}); if no initialization is performed, the
-object has indeterminate value.
+default-initialized~(\ref{dcl.init}). \enternote If no initialization
+is performed, the object has an indeterminate value. \exitnote
 
 \item Otherwise, the \grammarterm{new-initializer} is interpreted according to
 the initialization rules of~\ref{dcl.init} for direct-initialization.
@@ -3297,11 +3357,21 @@ null pointer value, then:
 \begin{itemize}
 \item
 If the allocation call for the \grammarterm{new-expression} for the object to
-be deleted was not omitted~(\ref{expr.new}), the
+be deleted was not omitted and the allocation was not extended~(\ref{expr.new}), the
 \grammarterm{delete-expression} shall call a deallocation
 function~(\ref{basic.stc.dynamic.deallocation}). The value returned from the
 allocation call of the \grammarterm{new-expression} shall be passed as the
 first argument to the deallocation function.
+
+\item
+Otherwise, if the allocation was extended or was provided by extending the
+allocation of another \grammarterm{new-expression}, and the
+\grammarterm{delete-expression} for every other pointer value produced by a
+\grammarterm{new-expression} that had storage provided by the extended
+\grammarterm{new-expression} has been evaluated, the
+\grammarterm{delete-expression} shall call a deallocation function. The value
+returned from the allocation call of the extended \grammarterm{new-expression}
+shall be passed as the first argument to the deallocation function.
 
 \item
 Otherwise, the \grammarterm{delete-expression} will not call a
@@ -3963,7 +4033,24 @@ compare unequal.
 If either is a pointer to a virtual member function, the result is unspecified.
 
 \item
-Two pointers to members compare equal if they would refer to the same member of
+If one refers to a member of class \tcode{C1} and the other refers to a member
+of a different class \tcode{C2}, where neither is a base class of the other,
+the result is unspecified.
+\enterexample
+\begin{codeblock}
+struct A {};
+struct B : A { int x; };
+struct C : A { int x; };
+
+int A::*bx = (int(A::*))&B::x;
+int A::*cx = (int(A::*))&C::x;
+
+bool b1 = (bx == cx);   // unspecified
+\end{codeblock}
+\exitexample
+
+\item
+Otherwise, two pointers to members compare equal if they would refer to the same member of
 the same most derived object~(\ref{intro.object}) or the same subobject if
 indirection with a hypothetical object of the associated
 class type were performed, otherwise they compare unequal.
@@ -3983,6 +4070,7 @@ int (R::*pr)() = pb;
 int (D::*pdl)() = pl;
 int (D::*pdr)() = pr;
 bool x = (pdl == pdr);          // \tcode{false}
+bool y = (pb == pl);            // \tcode{true}
 \end{codeblock}
 \exitexample
 \end{itemize}
@@ -4523,6 +4611,13 @@ unless the reference has a preceding initialization and either
   it is a non-static data member of an object whose lifetime
   began within the evaluation of \tcode{e};
 \end{itemize}
+
+\item
+in a \grammarterm{lambda-expression},
+a reference to \tcode{this} or to a variable with
+automatic storage duration defined outside that
+\grammarterm{lambda-expression}, where
+the reference would be an odr-use~(\ref{basic.def.odr}, \ref{expr.prim.lambda});
 
 \item
 a conversion from type \cv{} \tcode{void *} to a pointer-to-object type;

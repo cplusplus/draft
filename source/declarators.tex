@@ -1,3 +1,4 @@
+%!TEX root = std.tex
 \rSec0[dcl.decl]{Declarators}%
 \indextext{declarator|(}
 
@@ -1894,7 +1895,10 @@ Except for member functions of class templates, the
 default arguments in a member function definition that appears
 outside of the class definition
 are added to the set of default arguments provided by the
-member function declaration in the class definition.
+member function declaration in the class definition;
+the program is ill-formed if a default constructor~(\ref{class.ctor}),
+copy or move constructor, or copy or move assignment operator~(\ref{class.copy})
+is so declared.
 Default arguments for a member function of a class template
 shall be specified on the initial declaration of the member
 function within the class template.
@@ -1941,7 +1945,8 @@ class A {
 
 \pnum
 \indextext{argument!evaluation~of default}%
-Default arguments are evaluated each time the function is called.
+A default argument is evaluated each time the function is called
+with no argument for the corresponding parameter.
 The order of evaluation of function arguments is
 unspecified.
 \indextext{arguments!implementation-defined order~of~evaluation~of function}%
@@ -2207,10 +2212,7 @@ declared, and
 \pnum
 An explicitly-defaulted function may be declared
 \tcode{constexpr} only if it would have been implicitly declared as
-\tcode{constexpr},
-and may have an explicit \grammarterm{exception-specification} only if it is
-compatible~(\ref{except.spec}) with the \grammarterm{exception-specification}
-on the implicit declaration. If
+\tcode{constexpr}. If
 a function is explicitly defaulted on its first declaration,
 
 \begin{itemize}
@@ -2221,13 +2223,23 @@ as if it had been implicitly declared~(\ref{except.spec}).
 \end{itemize}
 
 \pnum
+If a function that is explicitly defaulted has an explicit
+\grammarterm{exception-specification} that is not compatible~(\ref{except.spec})
+with the \grammarterm{exception-specification} on the implicit declaration, then
+
+\begin{itemize}
+\item if the function is explicitly defaulted on its first declaration, it is defined as deleted;
+\item otherwise, the program is ill-formed.
+\end{itemize}
+
+\pnum
 \enterexample
 \begin{codeblock}
 struct S {
   constexpr S() = default;                  // ill-formed: implicit \tcode{S()} is not \tcode{constexpr}
   S(int a = 0) = default;                   // ill-formed: default argument
   void operator=(const S&) = default;       // ill-formed: non-matching return type
-  ~S() throw(int) = default;                // ill-formed: exception specification does not match
+  ~S() throw(int) = default;                // deleted: exception specification does not match
 private:
   int i;
   S(S&);                                    // OK: private copy constructor
@@ -2600,12 +2612,55 @@ is permitted in certain other initialization contexts (\ref{expr.new},
 \exitnote
 
 \pnum
-If no initializer is specified for an object, the object is default-initialized;
-if no initialization is performed, an object
-with automatic or dynamic storage duration
-has indeterminate value.
+\indextext{value!indeterminate}%
+\indextext{indeterminate~value}%
+If no initializer is specified for an object, the object is default-initialized.
+When storage for an object with automatic or dynamic storage duration
+is obtained, the object has an \term{indeterminate value}, and if
+no initialization is performed for the object, that object retains an
+indeterminate value until that value is replaced~(\ref{expr.ass}).
 \enternote Objects with static or thread storage duration are zero-initialized,
 see~\ref{basic.start.init}. \exitnote
+If an indeterminate value is produced by an evaluation, the behavior is
+undefined except in the following cases:
+
+\begin{itemize}
+\item
+If an indeterminate value of unsigned narrow character
+type~(\ref{basic.fundamental}) is produced by the evaluation of:
+\begin{itemize}
+\item the second or third operand of a conditional expression~(\ref{expr.cond}),
+\item the right operand of a comma expression~(\ref{expr.comma}),
+\item the operand of a cast or conversion to an unsigned narrow character
+type~(\ref{conv.integral}, \ref{expr.type.conv}, \ref{expr.static.cast},
+\ref{expr.cast}), or
+\item a discarded-value expression (Clause~\ref{expr}),
+\end{itemize}
+then the result of the operation is an indeterminate value.
+
+\item
+If an indeterminate value of unsigned narrow character
+type is produced by the evaluation of the right
+operand of a simple assignment operator~(\ref{expr.ass}) whose first operand
+is an lvalue of unsigned narrow character type, an indeterminate value replaces
+the value of the object referred to by the left operand.
+
+\item
+If an indeterminate value of unsigned narrow character type is produced by the
+evaluation of the initialization expression when initializing an object of
+unsigned narrow character type, that object is initialized to an indeterminate
+value.
+\end{itemize}
+\enterexample
+\begin{codeblock}
+  int f(bool b) {
+    unsigned char c;
+    unsigned char d = c; // OK, \tcode{d} has an indeterminate value
+    int e = d;           // undefined behavior
+    return b ? d : 0;    // undefined behavior if \tcode{b} is \tcode{true}
+  }
+\end{codeblock}
+\exitexample
 
 \pnum
 \indextext{initialization!class~member}%
@@ -3413,21 +3468,50 @@ int&& rri2 = X();                   // error: lvalue-to-rvalue conversion applie
 \exitexample
 
 \item
-Otherwise, a temporary of type ``\nonterminal{cv1} \tcode{T1}'' is created and
-initialized from the initializer expression using the rules
-for a non-reference copy-initialization (\ref{dcl.init}).
+Otherwise:
+\begin{itemize}
+\item
+If \tcode{T1} is a class type, user-defined conversions are considered
+using the rules for copy-initialization of an object of type 
+``\nonterminal{cv1} \tcode{T1}'' by
+user-defined conversion (\ref{dcl.init}, \ref{over.match.copy});
+the program is ill-formed if the corresponding non-reference
+copy-initialization would be ill-formed. The result of the call to the
+conversion function, as described for the non-reference
+copy-initialization, is then used to direct-initialize the reference.
+The program is ill-formed if the direct-initialization does not result
+in a direct binding or if it involves a user-defined conversion.
+\item
+If \tcode{T1} is a non-class type,
+a temporary of type ``\nonterminal{cv1} \tcode{T1}'' is created and
+copy-initialized~(\ref{dcl.init}) from the initializer expression.
 The reference is then bound to the temporary.
+\end{itemize}
+
 If
 \tcode{T1}
 is reference-related to
-\tcode{T2},
+\tcode{T2}:
+\begin{itemize}
+\item
 \textit{cv1}
 shall be the same cv-qualification as, or greater cv-qualification than,
-\textit{cv2}.
-If \tcode{T1} is reference-related to \tcode{T2} and the reference is an rvalue reference,
+\textit{cv2}; and
+\item
+if the reference is an rvalue reference,
 the initializer expression shall not be an lvalue.
+\end{itemize}
+
 \enterexample
 \begin{codeblock}
+struct Banana { };
+struct Enigma { operator const Banana(); };
+void enigmatic() {
+  typedef const Banana ConstBanana;
+  Banana &&banana1 = ConstBanana(); // ill-formed
+  Banana &&banana2 = Enigma();      // ill-formed
+}
+
 const double& rcd2 = 2;         // \tcode{rcd2} refers to temporary with value \tcode{2.0}
 double&& rrd = 2;               // \tcode{rrd} refers to temporary with value \tcode{2.0}
 const volatile int cvi = 1;
@@ -3499,7 +3583,7 @@ parameters or else all other parameters have default arguments (\ref{dcl.fct.def
 list-initialization~(\ref{over.match.list}). Passing an initializer list as the argument
 to the constructor template \tcode{template<class T> C(T)} of a class \tcode{C} does not
 create an initializer-list constructor, because an initializer list argument causes the 
-orresponding parameter to be a non-deduced context~(\ref{temp.deduct.call}). \exitnote
+corresponding parameter to be a non-deduced context~(\ref{temp.deduct.call}). \exitnote
 The template
 \tcode{std::initializer_list} is not predefined; if the header
 \tcode{<initializer_list>} is not included prior to a use of

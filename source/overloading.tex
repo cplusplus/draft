@@ -1,3 +1,4 @@
+%!TEX root = std.tex
 \rSec0[over]{Overloading}%
 \indextext{overloading|(}
 
@@ -1095,10 +1096,25 @@ void m() {
 % USA _136/_28 L6899 USA core-756/734/682 over.match.oper
 \pnum
 If a built-in candidate is selected by overload resolution, the
-operands are converted to the types of the corresponding parameters
-of the selected operation function.
+operands of class type are converted to the types of the corresponding parameters
+of the selected operation function, except that the second standard conversion
+sequence of a user-defined conversion sequence~(\ref{over.ics.user}) is not applied.
 Then the operator is treated as the corresponding
 built-in operator and interpreted according to Clause~\ref{expr}.
+\enterexample
+\begin{codeblock}
+struct X {
+  operator double();
+};
+
+struct Y {
+  operator int*();
+};
+
+int *a = Y() + 100.0;      // error: pointer arithmetic requires integral operand
+int *b = Y() + X();        // error: pointer arithmetic requires integral operand
+\end{codeblock}
+\exitexample
 
 \pnum
 The second operand of operator
@@ -1188,6 +1204,9 @@ conversion can be invoked to convert an initializer expression to the
 type of the object being initialized.
 Overload resolution is used
 to select the user-defined conversion to be invoked.
+\enternote The conversion performed for indirect binding to a reference to a possibly
+cv-qualified class type is determined in terms of a corresponding non-reference
+copy-initialization. \exitnote
 Assuming that
 ``\textit{cv1} \tcode{T}'' is the type of the object being initialized, with
 \tcode{T}
@@ -1707,14 +1726,39 @@ an
 \end{itemize}
 
 \pnum
-However, when considering the argument of a constructor or user-defined conversion function
-that is a candidate by~\ref{over.match.ctor} when invoked for the copying/moving of the
-temporary in the second step of a class copy-initialization, by~\ref{over.match.list} when passing
-the initializer list as a single argument or when the initializer list has exactly one element and a
-conversion to some class \tcode{X} or reference to (possibly cv-qualified) \tcode{X} is considered
-for the first parameter of a constructor of \tcode{X}, or by~\ref{over.match.copy},
-\ref{over.match.conv}, or \ref{over.match.ref} in all cases, only standard conversion sequences and
-ellipsis conversion sequences are considered.
+However, if the target is
+\begin{itemize}
+\item the first parameter of a constructor or
+\item the implicit object parameter of a user-defined conversion function
+\end{itemize}
+and the constructor or user-defined conversion function is a candidate by
+\begin{itemize}
+\item \ref{over.match.ctor}, when the argument is the temporary in the second
+step of a class copy-initialization,
+\item \ref{over.match.copy}, \ref{over.match.conv}, or \ref{over.match.ref}
+(in all cases), or
+\item the second phase of \ref{over.match.list} when the initializer list
+has exactly one element, and the target is the first parameter of a constructor
+of class \tcode{X}, and the conversion is to \tcode{X} or reference to
+(possibly cv-qualified) \tcode{X},
+\end{itemize}
+user-defined conversion sequences are not considered.
+\enternote
+These rules prevent more than one user-defined conversion from being
+applied during overload resolution, thereby avoiding infinite recursion.
+\exitnote
+\enterexample
+\begin{codeblock}
+  struct Y { Y(int); };
+  struct A { operator int(); };
+  Y y1 = A();  // error: \tcode{A::operator int()} is not a candidate
+
+  struct X { };
+  struct B { operator X(); };
+  B b;
+  X x({b});    // error: \tcode{B::operator X()} is not a candidate
+\end{codeblock}
+\exitexample
 
 \pnum
 For the case where the parameter type is a reference, see~\ref{over.ics.ref}.
@@ -2067,7 +2111,8 @@ h({ 1, 2, 3 });             // OK: identity conversion
 \exitexample
 
 \pnum
-Otherwise, if the parameter type is ``array of N \tcode{X}''\footnote{Since there are
+Otherwise, if the parameter type is ``array of \tcode{N} \tcode{X}''\footnote{
+Since there are
 no parameters of array type, this will only occur as the underlying type of a reference
 parameter.}, if the initializer list has exactly \tcode{N} elements or if it has fewer
 than \tcode{N} elements and \tcode{X} is default-constructible, and if all the elements
@@ -2098,7 +2143,7 @@ struct B {
 };
 void g(B);
 g( {'a', 'b'} );            // OK: \tcode{g(B(int,double))} user-defined conversion
-g( {1.0, 1,0} );            // error: narrowing
+g( {1.0, 1.0} );            // error: narrowing
 
 void f(B);
 f( {'a', 'b'} );            // error: ambiguous \tcode{f(A)} or \tcode{f(B)}
@@ -3241,11 +3286,15 @@ taken, etc. \exitnote
 void operator "" _km(long double);                  // OK
 string operator "" _i18n(const char*, std::size_t); // OK
 template <char...> double operator "" _\u03C0();    // OK: UCN for lowercase pi
-float operator ""E(const char*);                    // OK, but reserved~(\ref{usrlit.suffix})
+float operator ""_e(const char*);                   // OK
+float operator ""E(const char*);                    // error: reserved literal suffix~(\ref{usrlit.suffix}, \ref{lex.ext})
+double operator""_Bq(double);                       // OK: does not use the reserved name \tcode{_Bq}~(\ref{global.names})
+double operator"" _Bq(double);                      // uses the reserved name \tcode{_Bq}~(\ref{global.names})
 float operator " " B(const char*);                  // error: non-empty \grammarterm{string-literal}
 string operator "" 5X(const char*, std::size_t);    // error: invalid literal suffix identifier
 double operator "" _miles(double);                  // error: invalid \grammarterm{parameter-declaration-clause}
 template <char...> int operator "" _j(const char*); // error: invalid \grammarterm{parameter-declaration-clause}
+extern "C" void operator "" _m(long double);        // error: C language linkage
 \end{codeblock}
 \exitexample%
 \indextext{overloading!operator|)}
