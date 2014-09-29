@@ -849,7 +849,8 @@ all declarations, including the definition, of any function
 that overrides that virtual function in any derived class
 shall only allow exceptions that are allowed by the
 \grammarterm{exception-specification}
-of the base class virtual function.
+of the base class virtual function,
+unless the overriding function is defined as deleted.
 \enterexample
 \begin{codeblock}
 struct B {
@@ -1026,45 +1027,173 @@ An
 is not considered part of a function's type.
 
 \pnum
-An inheriting constructor~(\ref{class.inhctor}) and an implicitly declared
-special member function (Clause~\ref{special}) have an
-\grammarterm{exception-specification}.
-If
-\tcode{f}
-is an inheriting constructor or an implicitly declared default constructor,
-copy constructor,
-move constructor,
-destructor,
-copy assignment operator,
-or move assignment operator,
-its implicit
-\grammarterm{exception-specification} specifies
-the
-\grammarterm{type-id}
-\tcode{T}
-if and only if
-\tcode{T}
-is allowed by the \grammarterm{exception-specification} of a function directly
-invoked by \tcode{f}'s
-implicit
-definition;
-\tcode{f}
-allows all exceptions if any function it directly invokes allows all
-exceptions, and
-\tcode{f}
-has the \grammarterm{exception-specification} \tcode{noexcept(true)} if every function it directly invokes allows no
-exceptions.
-\enternote It follows that \tcode{f} has the
-\grammarterm{exception-specification} \tcode{noexcept(true)} if it
-invokes no other functions.
+A \defn{potential exception} of a given context is either a type that might be
+thrown as an exception or a pseudo-type, denoted by ``any'', that
+represents the situation where an exception of an arbitrary type might
+be thrown. A subexpression \tcode{e1} of an expression \tcode{e} is an
+\defn{immediate subexpression} if there is no subexpression \tcode{e2} of \tcode{e}
+such that \tcode{e1} is a subexpression of \tcode{e2}.
+
+\pnum
+The \defn{set of potential exceptions of a function, function pointer, or
+member function pointer} \tcode{f} is defined as follows:
+\begin{itemize}
+\item
+If the declaration of \tcode{f} has a non-throwing
+\grammarterm{exception-specification}, the set is empty.
+\item
+Otherwise, if the declaration of \tcode{f} has a
+\grammarterm{dynamic-exception-specification}, the set consists of
+every type in that \grammarterm{dynamic-exception-specification}.
+\item
+Otherwise, the set consists of the pseudo-type ``any''.
+\end{itemize}
+
+\pnum
+The \defn{set of potential exceptions of an expression} \tcode{e} is empty
+if \tcode{e} is a core constant expression (\ref{expr.const}).
+Otherwise, it is the union of the sets of potential exceptions of
+the immediate subexpressions of \tcode{e},
+including default argument expressions used in a function call,
+combined with a set \placeholder{S} defined by the form of \tcode{e}, as follows:
+
+\begin{itemize}
+\item
+If \tcode{e} is a function call (\ref{expr.call}):
+\begin{itemize}
+\item
+If its \grammarterm{postfix-expression} is a (possibly parenthesized)
+\grammarterm{id-expression}~(\ref{expr.prim.general}), class member access
+(\ref{expr.ref}), or pointer-to-member operation~(\ref{expr.mptr.oper})
+whose \grammarterm{cast-expression} is an \grammarterm{id-expression},
+\placeholder{S} is the set of potential exceptions of the entity selected by the
+contained \grammarterm{id-expression} (after overload resolution, if applicable).
+\item
+Otherwise, \placeholder{S} contains the pseudo-type ``any''.
+\end{itemize}
+
+\item
+If \tcode{e} implicitly invokes a function (such as an overloaded operator,
+an allocation function in a \grammarterm{new-expression}, or a destructor
+if \tcode{e} is a full-expression~(\ref{intro.execution})),
+\placeholder{S} is the set of potential exceptions of the function.
+\item
+if \tcode{e} is a \grammarterm{throw-expression}~(\ref{except.throw}),
+\placeholder{S} consists of the type of the exception object that would be
+initialized by the operand, if present, or the pseudo-type ``any'' otherwise.
+\item
+if \tcode{e} is a \tcode{dynamic_cast} expression that casts to a reference type and
+requires a run-time check~(\ref{expr.dynamic.cast}),
+\placeholder{S} consists of the type \tcode{std::bad_cast}.
+\item
+if \tcode{e} is a \tcode{typeid} expression applied to a glvalue expression whose
+type is a polymorphic class type (\ref{expr.typeid}),
+\placeholder{S} consists of the type \tcode{std::bad_typeid}.
+\item
+if \tcode{e} is a \grammarterm{new-expression} with a non-constant
+\grammarterm{expression} in the \grammarterm{noptr-new-declarator}~(\ref{expr.new}),
+\placeholder{S} consists of the type \tcode{std::bad_array_new_length}.
+\end{itemize}
+
+\enterexample
+Given the following declarations
+\begin{codeblock}
+  void f() throw(int); 
+  void g();  
+  struct A { A(); };
+  struct B { B() noexcept; };
+  struct D() { D() throw (double); };
+\end{codeblock}
+the set of potential exceptions for some sample expressions is:
+\begin{itemize}
+\item
+for \tcode{f()}, the set consists of \tcode{int};
+\item
+for \tcode{g()}, the set consists of ``any'';
+\item
+for \tcode{new A}, the set consists of ``any'';
+\item
+for \tcode{B()}, the set is empty;
+\item
+for \tcode{new D}, the set consists of ``any'' and \tcode{double}.
+\end{itemize}
+\exitexample
+
+\pnum
+Given a member function \tcode{f} of some class \tcode{X}, where \tcode{f} is
+an inheriting constructor~(\ref{class.inhctor}) or an implicitly-declared special
+member function,
+the \defn{set of potential exceptions of the implicitly-declared member function} \tcode{f}
+consists of all the members from the following sets:
+
+\begin{itemize}
+\item
+if \tcode{f} is a constructor,
+\begin{itemize}
+\item
+the sets of potential exceptions of the constructor invocations
+\begin{itemize}
+\item
+for \tcode{X}'s non-variant non-static data members,
+\item
+for \tcode{X}'s direct base classes, and
+\item
+if \tcode{X} is non-abstract (\ref{class.abstract}), for \tcode{X}'s virtual base
+classes,
+\end{itemize}
+(including default argument expressions used in such invocations) as selected
+by overload resolution for the implicit definition of \tcode{f} (\ref{class.ctor}).
+\enternote
+Even though destructors for fully-constructed subobjects are invoked
+when an exception is thrown during the execution of a constructor (\ref{except.ctor}), their \grammarterm{exception-specification}s do not contribute to the
+\grammarterm{exception-specification} of the constructor, because
+an exception thrown from such a destructor could never escape the constructor
+(\ref{except.throw}, \ref{except.terminate}).
 \exitnote
+\item
+the sets of potential exceptions of the initialization of non-static data members
+from \grammarterm{brace-or-equal-initializer}{s} that are not ignored (\ref{class.base.init});
+\end{itemize}
+
+\item
+if \tcode{f} is an assignment operator, the sets of potential exceptions of
+the assignment operator invocations for \tcode{X}'s non-variant non-static
+data members and for \tcode{X}'s direct base classes (including default
+argument expressions used in such invocations), as selected by overload resolution
+for the implicit definition of \tcode{f} (\ref{class.copy});
+
+\item
+if \tcode{f} is a destructor, the sets of potential exceptions of the
+destructor invocations for \tcode{X}'s non-variant non-static data members
+and for \tcode{X}'s virtual and direct base classes.
+\end{itemize}
+
+\pnum
+An inheriting constructor~(\ref{class.inhctor}) and an implicitly-declared
+special member function (Clause~\ref{special}) are considered to have an
+implicit \grammarterm{exception-specification}, as follows, where \tcode{f} is
+the member function and \placeholder{S} is the set of potential exceptions of the
+implicitly-declared member function \tcode{f}:
+\begin{itemize}
+\item
+if \placeholder{S} contains the pseudo-type ``any'', the implicit
+\grammarterm{exception-specification} is \tcode{noexcept(false)};
+\item
+otherwise, if \placeholder{S} contains at least one type, the implicit
+\grammarterm{exception-specification} specifies each type \tcode{T}
+contained in \placeholder{S};
+\item
+otherwise, the implicit \grammarterm{exception-specification} is
+\tcode{noexcept(true)}.
+\end{itemize}
+    
 \enternote An instantiation of an inheriting constructor template has
 an implied \grammarterm{exception-specification} as if it were a non-template
 inheriting constructor.\exitnote
 \enterexample
 \begin{codeblock}
 struct A {
-  A();
+  A(int = (A(5), 0)) noexcept;
   A(const A&) throw();
   A(A&&) throw();
   ~A() throw(X);
@@ -1072,11 +1201,13 @@ struct A {
 struct B {
   B() throw();
   B(const B&) = default; // Declaration of \tcode{B::B(const B\&) noexcept(true)}
-  B(B&&) throw(Y);
+  B(B&&, int = (throw Y(), 0)) noexcept;
   ~B() throw(Y);
 };
+int n = 7;
 struct D : public A, public B {
-    // Implicit declaration of \tcode{D::D();}
+    int * p = new (std::nothrow) int[n];
+    // Implicit declaration of \tcode{D::D() throw(X, std::bad_array_new_length);}
     // Implicit declaration of \tcode{D::D(const D\&) noexcept(true);}
     // Implicit declaration of \tcode{D::D(D\&\&) throw(Y);}
     // Implicit declaration of \tcode{D::\~D() throw(X, Y);}
