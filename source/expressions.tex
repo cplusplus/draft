@@ -1130,6 +1130,12 @@ The closure type associated with a \grammarterm{lambda-expression} has an
 implicitly-declared destructor~(\ref{class.dtor}).
 
 \pnum
+A member of a closure type shall not be
+explicitly instantiated~(\ref{temp.inst}),
+explicitly specialized~(\ref{temp.explicit}), or
+named in a \tcode{friend} declaration~(\ref{class.friend}).
+
+\pnum
 When the \grammarterm{lambda-expression} is evaluated, the entities that are
 captured by copy are used to direct-initialize each corresponding non-static data member
 of the resulting closure object, and the non-static data members corresponding to the
@@ -1203,7 +1209,7 @@ Postfix expressions group left-to-right.
 \nontermdef{pseudo-destructor-name}\br
     nested-name-specifier\opt type-name \terminal{::\,\tilde} type-name\br
     nested-name-specifier \terminal{template} simple-template-id \terminal{::\,\tilde} type-name\br
-    nested-name-specifier\opt \terminal{\tilde} type-name\br
+    \terminal{\tilde} type-name\br
     \terminal{\tilde} decltype-specifier
 \end{bnf}
 
@@ -1698,7 +1704,11 @@ lvalue-to-rvalue conversion and the side effect associated with any
 single postfix ++ operator.
 \exitnote
 The result is a prvalue. The type of the result is the cv-unqualified
-version of the type of the operand. See also~\ref{expr.add}
+version of the type of the operand.
+If the operand is a bit-field that cannot represent the incremented value, the
+resulting value of the bit-field is
+\impldef{value of bit-field that cannot represent!incremented value}.
+See also~\ref{expr.add}
 and~\ref{expr.ass}.
 
 \pnum
@@ -2065,10 +2075,9 @@ value to the floating-point type.
 \indextext{enumeration~type!conversion~to}%
 \indextext{enumeration~type!\idxcode{static_cast}!conversion~to}%
 A value of integral or enumeration type can be explicitly converted to
-an enumeration type. The value is unchanged if the original value is
+a complete enumeration type. The value is unchanged if the original value is
 within the range of the enumeration values~(\ref{dcl.enum}). Otherwise,
-the resulting value is unspecified (and might not be
-in that range).
+the behavior is undefined.
 A value of floating-point type can also be explicitly converted to an enumeration type.
 The resulting value is the same as converting the original value to the
 underlying type of the enumeration~(\ref{conv.fpint}), and subsequently to
@@ -2526,7 +2535,7 @@ The result of each of the following unary operators is a prvalue.
 \indextext{expression!pointer~to~member constant}%
 The result of the unary \tcode{\&} operator is a pointer to its operand.
 The operand shall be an lvalue or a \grammarterm{qualified-id}.
-If the operand is a \grammarterm{qualified-id} naming a non-static member \tcode{m}
+If the operand is a \grammarterm{qualified-id} naming a non-static or variant member \tcode{m}
 of some class \tcode{C} with type \tcode{T}, the result has type ``pointer to member
 of class \tcode{C} of type \tcode{T}'' and is a prvalue designating \tcode{C::m}.
 Otherwise, if the type of the expression is \tcode{T}, the result has type ``pointer to
@@ -2534,12 +2543,21 @@ Otherwise, if the type of the expression is \tcode{T}, the result has type ``poi
 or a pointer to the designated function. \enternote In particular, the address of an
 object of type ``\cv\ \tcode{T}'' is ``pointer to \cv\ \tcode{T}'', with the same
 cv-qualification. \exitnote
+For purposes of pointer arithmetic~(\ref{expr.add}) and
+comparison~(\ref{expr.rel}, \ref{expr.eq}),
+an object that is not an array element whose
+address is taken in this way is considered to belong to an array with one
+element of type \tcode{T}.
 \enterexample 
 
 \begin{codeblock}
 struct A { int i; };
 struct B : A { };
 ... &B::i ...       // has type \tcode{int A::*}
+int a;
+int* p1 = &a;
+int* p2 = p1 + 1;   // defined behavior
+bool b = p2 > p1;   // defined behavior, with value \tcode{true}
 \end{codeblock}
 \exitexample 
 \enternote 
@@ -2814,7 +2832,7 @@ returns a pointer to the object created. If it is an array, the
 the array.
 
 \pnum
-If the \tcode{auto} \nonterminal{type-specifier} appears in the
+If a placeholder type~(\ref{dcl.spec.auto}) appears in the
 \nonterminal{type-specifier-seq} of a \nonterminal{new-type-id} or
 \nonterminal{type-id} of a \nonterminal{new-expression},
 the \nonterminal{new-expression} shall contain a
@@ -3130,7 +3148,11 @@ declared with a non-throwing \grammarterm{exception-specification},
 it returns null to indicate failure to allocate storage
 and a non-null pointer otherwise.
 \exitnote 
-If the allocation function returns null, initialization shall not be
+If the allocation function is a reserved placement allocation
+function~(\ref{new.delete.placement}) that returns null,
+the behavior is undefined.
+Otherwise,
+if the allocation function returns null, initialization shall not be
 done, the deallocation function shall not be called, and the value of
 the \grammarterm{new-expression} shall be null.
 
@@ -3466,27 +3488,9 @@ The result of the \tcode{noexcept} operator is a constant of type \tcode{bool}
 and is a prvalue.
 
 \pnum
-The result of the \tcode{noexcept} operator is \tcode{false} if in a
-potentially-evaluated context the \grammarterm{expression} would contain
-
-\begin{itemize}
-\item a potentially-evaluated call\footnote{This includes implicit calls such as
-the call to an allocation function in a \grammarterm{new-expression}.}
-to a function, member function, function pointer, or member function pointer
-that does not have a non-throwing \grammarterm{exception-specification}~(\ref{except.spec}),
-unless the call is a constant expression~(\ref{expr.const}),
-
-\item a potentially-evaluated \grammarterm{throw-expression}~(\ref{except.throw}),
-
-\item a potentially-evaluated \tcode{dynamic_cast} expression
-\tcode{dynamic_cast<T>(v)}, where \tcode{T} is a reference type,
-that requires a run-time check~(\ref{expr.dynamic.cast}), or
-
-\item a potentially-evaluated \tcode{typeid} expression~(\ref{expr.typeid}) applied to
-a glvalue expression whose type is a polymorphic class type~(\ref{class.virtual}).
-\end{itemize}
-
-Otherwise, the result is \tcode{true}.%
+The result of the \tcode{noexcept} operator is \tcode{true} if
+the set of potential exceptions of the expression~(\ref{except.spec})
+is empty, and \tcode{false} otherwise.%
 \indextext{expression!unary|)}
 
 \rSec1[expr.cast]{Explicit type conversion (cast notation)}%
@@ -3775,14 +3779,11 @@ from the subtraction of the second operand from the first.
 
 \pnum
 \indextext{arithmetic!pointer}%
-For the purposes of these operators, a pointer to a nonarray object
-behaves the same as a pointer to the first element of an array of length
-one with the type of the object as its element type.
-
-\pnum
 When an expression that has integral type is added to or subtracted from
 a pointer, the result has the type of the pointer operand. If the
-pointer operand points to an element of an array object, and the array
+pointer operand points to an element of an array object%
+\footnote{An object that is not an array element is considered to belong to a
+single-element array for this purpose; see~\ref{expr.unary.op}.}, and the array
 is large enough, the result points to an element offset from the
 original element such that the difference of the subscripts of the
 resulting and original array elements equals the integral expression. In
@@ -3948,7 +3949,10 @@ them to their composite pointer type (Clause~\ref{expr}).
 After conversions, the operands shall have the same type.
 
 \pnum
-Comparing pointers to objects is defined as follows:
+Comparing pointers to objects%
+\footnote{An object that is not an array element is considered to belong to a
+single-element array for this purpose; see~\ref{expr.unary.op}.}
+is defined as follows:
 
 \begin{itemize}
 \item If two pointers point to different elements of the same array, or to
@@ -4237,6 +4241,8 @@ one of the following shall hold:
 \item The second or the third operand (but not both) is a (possibly
 parenthesized) \grammarterm{throw-expression}~(\ref{except.throw}); the result
 is of the type and value category of the other.
+The \grammarterm{conditional-expression}
+is a bit-field if that operand is a bit-field.
 
 \item Both the second and the third operands have type \tcode{void}; the
 result is of type \tcode{void} and is a prvalue. \enternote This
@@ -4279,13 +4285,16 @@ the conversion is applied, \tcode{E1} is changed to a prvalue of type
 \tcode{T2} by copy-initializing a temporary of type \tcode{T2} from
 \tcode{E1} and using that temporary as the converted operand.
 
-\item Otherwise (i.e., if \tcode{E1} or \tcode{E2} has a nonclass type,
+\item Otherwise (if \tcode{E1} or \tcode{E2} has a non-class type,
 or if they both have class types but the underlying classes are not
-either the same or one a base class of the other): \tcode{E1} can be
+the same and neither is a base class of the other): \tcode{E1} can be
 converted to match \tcode{E2} if \tcode{E1} can be implicitly converted
-to the type that expression \tcode{E2} would have if \tcode{E2} were
-converted to a prvalue (or the type it has,
-if \tcode{E2} is a prvalue).
+to the type that \tcode{E2} would have
+after applying the
+lvalue-to-rvalue~(\ref{conv.lval}),
+array-to-pointer~(\ref{conv.array}), and
+function-to-pointer~(\ref{conv.func})
+standard conversions.
 \end{itemize}
 \end{itemize}
 
@@ -4423,9 +4432,10 @@ initialization~(\ref{dcl.init},~\ref{class.ctor},~\ref{class.init},~\ref{class.c
 
 \pnum
 \indextext{reference!assignment~to}%
-When the left operand of an assignment operator denotes a reference to
-\tcode{T}, the operation assigns to the object of type \tcode{T} denoted
-by the reference.
+When the left operand of an assignment operator
+is a bit-field that cannot represent the value of the expression, the
+resulting value of the bit-field is
+\impldef{value of bit-field that cannot represent!assigned value}.
 
 \pnum
 The behavior of an expression of the form \tcode{E1} \term{op}\tcode{=}
@@ -4578,10 +4588,12 @@ it is applied to
 \begin{itemize}
   \item
   a non-volatile glvalue of integral or enumeration type that refers
-  to a non-volatile const object with a preceding initialization,
-  initialized with a constant expression \enternote a string
-  literal~(\ref{lex.string}) corresponds to an array of such 
-  objects. \exitnote, or
+  to a complete non-volatile const object with a preceding initialization,
+  initialized with a constant expression, or
+
+  \item
+  a non-volatile glvalue that refers to a subobject of a string
+  literal~(\ref{lex.string}), or
 
   \item
   a non-volatile glvalue that refers to a non-volatile object
@@ -4728,15 +4740,15 @@ arguments~(\ref{temp.arg}).
 
 \pnum
 A \term{constant expression} is either
-a glvalue core constant expression whose value refers to an object with static
-storage duration or to a function, or
+a glvalue core constant expression whose value refers to
+an entity that is a permitted result of a constant expression (as defined below), or
 a prvalue core constant expression whose value is an object where, for that
 object and its subobjects:
 
 \begin{itemize}
   \item
-  each non-static data member of reference type refers to an object with static
-  storage duration or to a function, and
+  each non-static data member of reference type refers to
+  an entity that is a permitted result of a constant expression, and
 
   \item
   if the object or subobject is of pointer type, it contains
@@ -4745,6 +4757,11 @@ object and its subobjects:
   the address of a function,
   or a null pointer value.
 \end{itemize}
+\indextext{constant expression!permitted result of}%
+An entity is a \term{permitted result of a constant expression} if it is an
+object with static storage duration that is either not a temporary object or is
+a temporary object whose value satisfies the above constraints, or it is a
+function.
 
 \pnum
 \enternote Since this International Standard

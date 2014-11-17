@@ -1559,19 +1559,6 @@ and returning
 \exitexample
 
 \pnum
-If the type of a parameter includes a type of the form
-``pointer to array of unknown bound of \tcode{T}'' or
-``reference to array of unknown bound of \tcode{T},''
-the program is ill-formed.\footnote{This excludes parameters of type
-``\nonterminal{ptr-arr-seq} \tcode{T2}'' where \tcode{T2} is
-``pointer to array of unknown bound of \tcode{T}'' and where
-\nonterminal{ptr-arr-seq} means any sequence of ``pointer to'' and
-``array of'' derived declarator types.
-This exclusion applies to the parameters of the function,
-and if a parameter is a pointer to function
-or pointer to member function then to its
-parameters also, etc.
-}
 \indextext{function~return~type|see{return~type}}%
 \indextext{return~type}%
 Functions shall not have a return type of type array or function,
@@ -1582,13 +1569,11 @@ to functions.
 \pnum
 Types shall not be defined in return or parameter types.
 The type of a parameter or the return type for a function
-definition shall not be an incomplete class type (possibly
-cv-qualified) unless the function is
-deleted~(\ref{dcl.fct.def.delete}) or the definition is nested
-within the
-\grammarterm{member-specification}
-for that class (including definitions in nested classes
-defined within the class).
+definition shall not be an incomplete
+(possibly cv-qualified) class type
+in the context of the function definition
+unless the function is
+deleted~(\ref{dcl.fct.def.delete}).
 
 \pnum
 \indextext{typedef!function}%
@@ -1779,7 +1764,9 @@ respectively.
 \pnum
 A default argument shall be specified only in the
 \grammarterm{parameter-declaration-clause}
-of a function declaration or in a
+of a function declaration
+or \grammarterm{lambda-declarator}
+or in a
 \grammarterm{template-parameter}
 (\ref{temp.param});
 in the latter case, the \grammarterm{initializer-clause} shall be an
@@ -2139,10 +2126,10 @@ A
 is used only in a constructor; see~\ref{class.ctor} and~\ref{class.init}.
 
 \pnum
-A
-\grammarterm{cv-qualifier-seq} or a \grammarterm{ref-qualifier} (or both)
-can be part of a non-static member function declaration, non-static member function definition,
-or pointer to member function only~(\ref{dcl.fct}); see~\ref{class.this}.
+\enternote
+A \grammarterm{cv-qualifier-seq} affects the type of \tcode{this}
+in the body of a member function; see~\ref{dcl.ref}.
+\exitnote
 
 \pnum
 \enternote
@@ -2213,7 +2200,7 @@ declared, and
 \end{itemize}
 
 \pnum
-An explicitly-defaulted function may be declared
+An explicitly-defaulted function that is not defined as deleted may be declared
 \tcode{constexpr} only if it would have been implicitly declared as
 \tcode{constexpr}. If
 a function is explicitly defaulted on its first declaration,
@@ -2684,10 +2671,6 @@ int X::b = a;       // \tcode{X::b = X::a}
 \exitexample
 
 \pnum
-The form of initialization (using parentheses or
-\tcode{=})
-is generally insignificant, but does matter when the initializer or the entity
-being initialized has a class type; see below.
 If the entity being initialized does not have class type, the
 \grammarterm{expression-list} in a
 parenthesized initializer shall be a single expression.
@@ -2695,16 +2678,13 @@ parenthesized initializer shall be a single expression.
 \pnum
 \indextext{initialization!copy}%
 \indextext{initialization!direct}%
-The initialization that occurs in the form
-
-\begin{codeblock}
-T x = a;
-\end{codeblock}
-
+The initialization that occurs in the \tcode{=} form of a
+\grammarterm{brace-or-equal-initializer} or
+\grammarterm{condition} (\ref{stmt.select}),
 as well as in argument passing, function return,
 throwing an exception (\ref{except.throw}),
 handling an exception (\ref{except.handle}),
-and aggregate member initialization~(\ref{dcl.init.aggr})
+and aggregate member initialization~(\ref{dcl.init.aggr}),
 is called
 \defn{copy-initialization}.
 \enternote Copy-initialization may invoke a move~(\ref{class.copy}). \exitnote
@@ -2723,7 +2703,8 @@ expressions (\ref{expr.new}),
 \tcode{static_cast}
 expressions (\ref{expr.static.cast}),
 functional notation type conversions (\ref{expr.type.conv}),
-and base and member initializers (\ref{class.base.init})
+\grammarterm{mem-initializers} (\ref{class.base.init}), and
+the \grammarterm{braced-init-list} form of a \grammarterm{condition}
 is called
 \grammarterm{direct-initialization}.
 
@@ -2812,6 +2793,9 @@ the destination type;
 no user-defined conversions are considered.
 If the conversion cannot
 be done, the initialization is ill-formed.
+When initializing a bit-field with a value that it cannot represent, the
+resulting value of the bit-field is
+\impldef{value of bit-field that cannot represent!initializer}.
 \indextext{initialization!\idxcode{const}}%
 \enternote
 An expression of type
@@ -3445,9 +3429,7 @@ reference-compatible with ``\cvqual{cv3} \tcode{T3}'' (see~\ref{over.match.ref})
 
 then the reference is bound to the value of the initializer expression in the first
 case and to the result of the conversion in the second case (or, in either case, to
-an appropriate base class subobject). In the second case, if the reference is an
-rvalue reference and the second standard conversion sequence of the user-defined
-conversion sequence includes an lvalue-to-rvalue conversion, the program is ill-formed.
+an appropriate base class subobject).
 
 \enterexample
 
@@ -3465,8 +3447,6 @@ const A& r = x;                     // bound to the \tcode{A} subobject of the r
 int i2 = 42;
 int&& rri = static_cast<int&&>(i2); // bound directly to \tcode{i2}
 B&& rrb = x;                        // bound directly to the result of \tcode{operator B}
-int&& rri2 = X();                   // error: lvalue-to-rvalue conversion applied to the
-                                    // result of \tcode{operator int\&}
 \end{codeblock}
 \exitexample
 
@@ -3474,18 +3454,20 @@ int&& rri2 = X();                   // error: lvalue-to-rvalue conversion applie
 Otherwise:
 \begin{itemize}
 \item
-If \tcode{T1} is a class type, user-defined conversions are considered
+If \tcode{T1} or \tcode{T2} is a class type and
+\tcode{T1} is not reference-related to \tcode{T2},
+user-defined conversions are considered
 using the rules for copy-initialization of an object of type 
 ``\nonterminal{cv1} \tcode{T1}'' by
-user-defined conversion (\ref{dcl.init}, \ref{over.match.copy});
+user-defined conversion
+(\ref{dcl.init}, \ref{over.match.copy}, \ref{over.match.conv});
 the program is ill-formed if the corresponding non-reference
 copy-initialization would be ill-formed. The result of the call to the
 conversion function, as described for the non-reference
 copy-initialization, is then used to direct-initialize the reference.
-The program is ill-formed if the direct-initialization does not result
-in a direct binding or if it involves a user-defined conversion.
+For this direct-initialization, user-defined conversions are not considered.
 \item
-If \tcode{T1} is a non-class type,
+Otherwise,
 a temporary of type ``\nonterminal{cv1} \tcode{T1}'' is created and
 copy-initialized~(\ref{dcl.init}) from the initializer expression.
 The reference is then bound to the temporary.
@@ -3509,18 +3491,25 @@ the initializer expression shall not be an lvalue.
 \begin{codeblock}
 struct Banana { };
 struct Enigma { operator const Banana(); };
+struct Alaska { operator Banana&(); };
 void enigmatic() {
   typedef const Banana ConstBanana;
   Banana &&banana1 = ConstBanana(); // ill-formed
   Banana &&banana2 = Enigma();      // ill-formed
+  Banana &&banana3 = Alaska();      // ill-formed
 }
 
 const double& rcd2 = 2;         // \tcode{rcd2} refers to temporary with value \tcode{2.0}
 double&& rrd = 2;               // \tcode{rrd} refers to temporary with value \tcode{2.0}
 const volatile int cvi = 1;
 const int& r2 = cvi;            // error: type qualifiers dropped
+struct A { operator volatile int&(); } a;
+const int& r3 = a;              // error: type qualifiers dropped
+                                // from result of conversion function
 double d2 = 1.0;
-double&& rrd2 = d2;             // error: copying lvalue of related type
+double&& rrd2 = d2;             // error: initializer is lvalue of related type
+struct X { operator int&(); };
+int&& rri2 = X();               // error: result of conversion function is lvalue of related type
 int i3 = 2;
 double&& rrd3 = i3;             // \tcode{rrd3} refers to temporary with value \tcode{2.0}
 \end{codeblock}
@@ -3596,7 +3585,19 @@ named~(\ref{dcl.spec.auto}) --- the program is ill-formed.
 \pnum
 List-initialization of an object or reference of type \tcode{T} is defined as follows:
 \begin{itemize}
-\item If \tcode{T} is an aggregate, aggregate initialization is
+
+\item If \tcode{T} is a class type and the initializer list has a single element
+of type \cvqual{cv} \tcode{U},
+where \tcode{U} is \tcode{T} or a class derived from \tcode{T},
+the object is initialized from that element (by copy-initialization for
+copy-list-initialization, or by direct-initialization for
+direct-list-initialization).
+
+\item Otherwise, if \tcode{T} is a character array and the initializer list has a
+single element that is an appropriately-typed string literal~(\ref{dcl.init.string}),
+initialization is performed as described in that section.
+
+\item Otherwise, if \tcode{T} is an aggregate, aggregate initialization is
 performed~(\ref{dcl.init.aggr}).
 
 \enterexample
@@ -3669,7 +3670,9 @@ S s3 { };                           // OK: invoke \#2
 the initializer list has a single element of type \tcode{E} and either
 \tcode{T} is not a reference type or its referenced type is
 reference-related to \tcode{E}, the object or reference is initialized
-from that element; if a narrowing conversion (see below) is required
+from that element (by copy-initialization for copy-list-initialization,
+or by direct-initialization for direct-list-initialization);
+if a narrowing conversion (see below) is required
 to convert the element to \tcode{T}, the program is ill-formed.
 
 \enterexample
