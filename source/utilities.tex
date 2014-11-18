@@ -3437,8 +3437,7 @@ Otherwise, the function does nothing.
 \requires
 
 \begin{itemize}
-\item \tcode{alignment} shall be a fundamental alignment value or an
-extended alignment value supported by the implementation in this context
+\item \tcode{alignment} shall be a power of two
 
 \item \tcode{ptr} shall point to contiguous storage of at least
 \tcode{space} bytes
@@ -5747,6 +5746,9 @@ template <class Y, class D> shared_ptr(unique_ptr<Y, D>&& r);
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum\remark This constructor shall not participate in overload resolution
+unless \tcode{unique_ptr<Y, D>::pointer} is convertible to \tcode{T*}.
+
 \pnum
 \effects Equivalent to \tcode{shared_ptr(r.release(), r.get_deleter())} when
 \tcode{D} is not a reference type, otherwise \tcode{shared_ptr(r.release(),
@@ -6275,7 +6277,8 @@ template<class D, class T> D* get_deleter(const shared_ptr<T>& p) noexcept;
 
 \begin{itemdescr}
 \pnum\returns  If \tcode{p} \textit{owns} a deleter \tcode{d} of type cv-unqualified
-\tcode{D}, returns \tcode{\&d}; otherwise returns \tcode{nullptr}. The returned
+\tcode{D}, returns \tcode{std:addressof(d)}; otherwise returns \tcode{nullptr}.
+The returned
 pointer remains valid as long as there exists a \tcode{shared_ptr} instance
 that owns \tcode{d}. \enternote It is unspecified whether the pointer
 remains valid longer than that. This can happen if the implementation doesn't destroy
@@ -7120,13 +7123,13 @@ namespace std {
     void swap(function<R(ArgTypes...)>&, function<R(ArgTypes...)>&);
 
   template<class R, class... ArgTypes>
-    bool operator==(const function<R(ArgTypes...)>&, nullptr_t);
+    bool operator==(const function<R(ArgTypes...)>&, nullptr_t) noexcept;
   template<class R, class... ArgTypes>
-    bool operator==(nullptr_t, const function<R(ArgTypes...)>&);
+    bool operator==(nullptr_t, const function<R(ArgTypes...)>&) noexcept;
   template<class R, class... ArgTypes>
-    bool operator!=(const function<R(ArgTypes...)>&, nullptr_t);
+    bool operator!=(const function<R(ArgTypes...)>&, nullptr_t) noexcept;
   template<class R, class... ArgTypes>
-    bool operator!=(nullptr_t, const function<R(ArgTypes...)>&);
+    bool operator!=(nullptr_t, const function<R(ArgTypes...)>&) noexcept;
 
   // \ref{unord.hash}, hash function primary template:
   template <class T> struct hash;
@@ -8506,7 +8509,7 @@ namespace std {
 
     function& operator=(const function&);
     function& operator=(function&&);
-    function& operator=(nullptr_t);
+    function& operator=(nullptr_t) noexcept;
     template<class F> function& operator=(F&&);
     template<class F> function& operator=(reference_wrapper<F>) noexcept;
 
@@ -8715,7 +8718,7 @@ with the target of \tcode{f}.
 \indexlibrary{\idxcode{function}!\idxcode{operator=}}%
 \indexlibrary{\idxcode{operator=}!\idxcode{function}}%
 \begin{itemdecl}
-function& operator=(nullptr_t);
+function& operator=(nullptr_t) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -10150,7 +10153,8 @@ assert((is_same<remove_all_extents_t<int[][3]>, int>::value));
  shall equal \tcode{F}. \\ \rowsep
 
  \tcode{template <class... T>} \tcode{struct common_type;} & &
- The member typedef \tcode{type} shall be defined as set out below. All types in
+ The member typedef \tcode{type} shall be defined or omitted as specified below.
+If it is omitted, there shall be no member \tcode{type}. All types in
 the parameter pack \tcode{T} shall be complete or (possibly \cv) \tcode{void}. A
 program may specialize this trait if at least one template parameter in the
 specialization is a user-defined type. \enternote Such specializations are
@@ -10159,7 +10163,7 @@ needed when only explicit conversions are desired among the template arguments.
 
 \tcode{template <class T>}\br
  \tcode{struct underlying_type;}  &
- \tcode{T} shall be an enumeration type~(\ref{dcl.enum}) &
+ \tcode{T} shall be a complete enumeration type~(\ref{dcl.enum}) &
  The member typedef \tcode{type} shall name the underlying type
  of \tcode{T}. \\ \rowsep
 
@@ -10204,26 +10208,29 @@ It is \impldef{support for extended alignment} whether any extended alignment is
 supported~(\ref{basic.align}).
 
 \pnum
-The nested typedef \tcode{common_type::type} shall be defined as follows:
+For the \tcode{common_type} trait applied to a parameter pack \tcode{T} of types,
+the member \tcode{type} shall be either defined or not present as follows:
 
-\begin{codeblock}
-template <class ...T> struct common_type;
+\begin{itemize}
+\item If \tcode{sizeof...(T)} is zero, there shall be no member \tcode{type}.
 
-template <class T>
-struct common_type<T> {
-  typedef decay_t<T> type;
-};
+\item If \tcode{sizeof...(T)} is one, let \tcode{T0} denote the sole type
+in the pack \tcode{T}. The member typedef \tcode{type} shall denote the same
+type as \tcode{decay_t<T0>}.
 
-template <class T, class U>
-struct common_type<T, U> {
-  typedef decay_t<decltype(true ? declval<T>() : declval<U>())> type;
-};
-
-template <class T, class U, class... V>
-struct common_type<T, U, V...> {
-  typedef common_type_t<common_type_t<T, U>, V...> type;
-};
-\end{codeblock}
+\item If \tcode{sizeof...(T)} is greater than one,
+let \tcode{T1}, \tcode{T2}, and \tcode{R}, respectively,
+denote the first, second, and (pack of) remaining types comprising \tcode{T}.
+\enternote \tcode{sizeof...(R)} may be zero. \exitnote
+Let \tcode{C} denote the type, if any,
+of an unevaluated conditional expression~(\ref{expr.cond})
+whose first operand is an arbitrary value of type \tcode{bool},
+whose second operand is an xvalue of type \tcode{T1}, and
+whose third operand is an xvalue of type \tcode{T2}.
+If there is such a type \tcode{C}, the member typedef \tcode{type}
+shall denote the same type, if any, as \tcode{common_type_t<C,R...>}.
+Otherwise, there shall be no member \tcode{type}.
+\end{itemize}
 
 \pnum
 \enterexample
