@@ -4502,16 +4502,32 @@ void operator()(T* ptr) const;
 namespace std {
   template <class T> struct default_delete<T[]> {
     constexpr default_delete() noexcept = default;
-    void operator()(T*) const;
-    template <class U> void operator()(U*) const = delete;
+    template <class U> default_delete(const default_delete<U[]>&) noexcept;
+    template <class U> void operator()(U* ptr) const;
   };
 }
 \end{codeblock}
 
+\indexlibrary{\idxcode{default_delete}!\idxcode{default_delete}}
+\begin{itemdecl}
+template <class U> default_delete(const default_delete<U[]>& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+constructs a \tcode{default_delete} object from another \tcode{default_delete<U[]>} object.
+
+\pnum
+\notes
+This constructor shall not participate in overload resolution unless \tcode{U(*)[]} is
+convertible to \tcode{T(*)[]}.
+\end{itemdescr}
+
 \indexlibrary{\idxcode{operator()}!\idxcode{default_delete}}
 \indexlibrary{\idxcode{default_delete}!\idxcode{operator()}}
 \begin{itemdecl}
-void operator()(T* ptr) const;
+template <class U> void operator()(U* ptr) const;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -4520,7 +4536,9 @@ void operator()(T* ptr) const;
 calls \tcode{delete[]} on \tcode{ptr}.
 
 \pnum
-\notes If T is an incomplete type, the program is ill-formed.
+\notes If U is an incomplete type, the program is ill-formed.
+This function shall not participate in overload resolution
+unless \tcode{U(*)[]} is convertible to \tcode{T(*)[]}.
 \end{itemdescr}
 
 \rSec3[unique.ptr.single]{\tcode{unique_ptr} for single objects}
@@ -4592,7 +4610,7 @@ the requirements of \tcode{Destructible} (Table~\ref{destructible}).
 If the \grammarterm{qualified-id} \tcode{remove_reference_t<D>::pointer} is valid and denotes a
 type~(\ref{temp.deduct}), then \tcode{unique_ptr<T,
 D>::pointer} shall be a synonym for \tcode{remove_reference_t<D>::pointer}. Otherwise
-\tcode{unique_ptr<T, D>::pointer} shall be a synonym for \tcode{T*}. The type \tcode{unique_ptr<T,
+\tcode{unique_ptr<T, D>::pointer} shall be a synonym for \tcode{element_type*}. The type \tcode{unique_ptr<T,
 D>::pointer} shall
 satisfy the requirements of \tcode{NullablePointer} (\ref{nullablepointer.requirements}).
 
@@ -5055,10 +5073,12 @@ namespace std {
 
     // \ref{unique.ptr.runtime.ctor}, constructors
     constexpr unique_ptr() noexcept;
-    explicit unique_ptr(pointer p) noexcept;
-    unique_ptr(pointer p, @\seebelow@ d) noexcept;
-    unique_ptr(pointer p, @\seebelow@ d) noexcept;
+    template <class U> explicit unique_ptr(U p) noexcept;
+    template <class U> unique_ptr(U p, @\seebelow@ d) noexcept;
+    template <class U> unique_ptr(U p, @\seebelow@ d) noexcept;
     unique_ptr(unique_ptr&& u) noexcept;
+    template <class U, class E>
+      unique_ptr(unique_ptr<U, E>&& u) noexcept;
     constexpr unique_ptr(nullptr_t) noexcept : unique_ptr() { }
 
     // destructor
@@ -5066,6 +5086,8 @@ namespace std {
 
     // assignment
     unique_ptr& operator=(unique_ptr&& u) noexcept;
+    template <class U, class E>
+      unique_ptr& operator=(unique_ptr<U, E>&& u) noexcept;
     unique_ptr& operator=(nullptr_t) noexcept;
 
     // \ref{unique.ptr.runtime.observers}, observers
@@ -5077,9 +5099,8 @@ namespace std {
 
     // \ref{unique.ptr.runtime.modifiers} modifiers
     pointer release() noexcept;
-    void reset(pointer p = pointer()) noexcept;
-    void reset(nullptr_t) noexcept;
-    template <class U> void reset(U) = delete;
+    template <class U> void reset(U p) noexcept;
+    void reset(nullptr_t = nullptr) noexcept;
     void swap(unique_ptr& u) noexcept;
 
     // disable copy from lvalue
@@ -5095,8 +5116,10 @@ interface.
 
 \begin{itemize}
 \item Conversions between different types of
-\tcode{unique_ptr<T[], D>} or to or from the non-array forms of
-\tcode{unique_ptr} produce an ill-formed program.
+\tcode{unique_ptr<T[], D>}
+that would be disallowed for the corresponding pointer-to-array types,
+and conversions to or from the non-array forms of
+\tcode{unique_ptr}, produce an ill-formed program.
 
 \item Pointers to types derived from \tcode{T} are
 rejected by the constructors, and by \tcode{reset}.
@@ -5110,8 +5133,8 @@ rejected by the constructors, and by \tcode{reset}.
 \end{itemize}
 
 \pnum
-Descriptions are provided below only for member functions that
-have behavior different from the primary template.
+Descriptions are provided below only for members that
+differ from the primary template.
 
 \pnum
 The template argument \tcode{T} shall be a complete type.
@@ -5120,16 +5143,81 @@ The template argument \tcode{T} shall be a complete type.
 
 \indexlibrary{\idxcode{unique_ptr}!constructor}%
 \begin{itemdecl}
-explicit unique_ptr(pointer p) noexcept;
-unique_ptr(pointer p, @\seebelow@ d) noexcept;
-unique_ptr(pointer p, @\seebelow@ d) noexcept;
+template <class U> explicit unique_ptr(U p) noexcept;
+template <class U> unique_ptr(U p, @\seebelow@ d) noexcept;
+template <class U> unique_ptr(U p, @\seebelow@ d) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
-These constructors behave the same as in the primary template
-except that they do not accept pointer types which are convertible
-to \tcode{pointer}. \enternote One implementation technique
-is to create private templated overloads of these members. \exitnote
+\pnum
+These constructors behave the same as
+the constructors that take a \tcode{pointer} parameter
+in the primary template
+except that they
+shall not participate in overload resolution unless either
+
+\begin{itemize}
+\item \tcode{U} is the same type as \tcode{pointer}, or
+\item \tcode{pointer} is the same type as \tcode{element_type*},
+      \tcode{U} is a pointer type \tcode{V*}, and
+      \tcode{V(*)[]} is convertible to \tcode{element_type(*)[]}.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{unique_ptr}!constructor}%
+\begin{itemdecl}
+template <class U, class E>
+  unique_ptr(unique_ptr<U, E>&& u) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+This constructor behaves the same as in the primary template,
+except that it shall not participate in overload resolution
+unless all of the following conditions hold,
+where \tcode{UP} is \tcode{unique_ptr<U, E>}:
+
+\begin{itemize}
+\item \tcode{U} is an array type, and
+\item \tcode{pointer} is the same type as {element_type*}, and
+\item \tcode{UP::pointer} is the same type as \tcode{UP::element_type*}, and
+\item \tcode{UP::element_type(*)[]} is convertible to \tcode{element_type(*)[]}, and
+\item either \tcode{D} is a reference type and \tcode{E} is the same type as \tcode{D},
+      or \tcode{D} is not a reference type and \tcode{E} is implicitly convertible to \tcode{D}.
+\end{itemize}
+
+\enternote
+this replaces the overload-resolution specification of the primary template
+\exitnote
+\end{itemdescr}
+
+\rSec4[unique.ptr.runtime.asgn]{\tcode{unique_ptr} assignment}
+
+\indexlibrary{\idxcode{unique_ptr}!\idxcode{operator=}}%
+\begin{itemdecl}
+template <class U, class E>
+  unique_ptr& operator=(unique_ptr<U,E>&& u)noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+This operator behaves the same as in the primary template,
+except that it shall not participate in overload resolution
+unless all of the following conditions hold,
+where \tcode{UP} is \tcode{unique_ptr<U, E>}:
+
+\begin{itemize}
+\item \tcode{U} is an array type, and
+\item \tcode{pointer} is the same type as \tcode{element_type*}, and
+\item \tcode{UP::pointer} is the same type as \tcode{UP::element_type*}, and
+\item \tcode{UP::element_type(*)[]} is convertible to \tcode{element_type(*)[]}, and
+\item either \tcode{D} is a reference type and \tcode{E} is the same type as \tcode{D},
+      or \tcode{D} is not a reference type and \tcode{E} is implicitly convertible to \tcode{D}.
+\end{itemize}
+
+\enternote
+this replaces the overload-resolution specification of the primary template
+\exitnote
 \end{itemdescr}
 
 \rSec4[unique.ptr.runtime.observers]{\tcode{unique_ptr} observers}
@@ -5155,12 +5243,33 @@ the stored pointer points.
 \indexlibrary{\idxcode{reset}!\idxcode{unique_ptr}}
 \indexlibrary{\idxcode{unique_ptr}!\idxcode{reset}}
 \begin{itemdecl}
-void reset(nullptr_t p) noexcept;
+void reset(nullptr_t p = nullptr) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects Equivalent to \tcode{reset(pointer())}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{reset}!\idxcode{unique_ptr}}
+\indexlibrary{\idxcode{unique_ptr}!\idxcode{reset}}
+\begin{itemdecl}
+template <class U> void reset(U p) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+This function behaves the same as
+the \tcode{reset} member of the primary template,
+except that it shall not participate in overload resolution
+unless either
+
+\begin{itemize}
+\item \tcode{U} is the same type as \tcode{pointer}, or
+\item \tcode{pointer} is the same type as \tcode{element_type*},
+      \tcode{U} is a pointer type \tcode{V*}, and
+      \tcode{V(*)[]} is convertible to \tcode{element_type(*)[]}.
+\end{itemize}
 \end{itemdescr}
 
 \rSec3[unique.ptr.create]{\tcode{unique_ptr} creation}
