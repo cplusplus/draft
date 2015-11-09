@@ -54,11 +54,15 @@ is itself linear.
 \exitexample
 
 \pnum
-For the components affected by this subclause that declare an \tcode{allocator_type}, objects
-stored in these components shall be constructed using
-the \tcode{allocator_traits<allocator_type>::construct} function and destroyed using the
-\tcode{allocator_traits<allocator_type>::destroy}
-function~(\ref{allocator.traits.members}). These functions are called only for the
+For the components affected by this subclause that declare an \tcode{allocator_type},
+objects stored in these components shall be constructed using the
+\tcode{allocator_traits<allocator_type>::rebind_traits<U>::construct} function
+and destroyed using the
+\tcode{allocator_traits<allocator_type>::rebind_traits<U>::destroy}
+function~(\ref{allocator.traits.members}),
+where \tcode{U} is either \tcode{allocator_type::value_type} or
+an internal type used by the container.
+These functions are called only for the
 container's element type, not for internal types used by the container. \enternote This
 means, for example, that a node-based container might need to construct nodes containing
 aligned buffers and call \tcode{construct} to place the element into the buffer.
@@ -316,8 +320,9 @@ All other constructors for these container types take a
 \enternote If an invocation of a constructor uses the default value of an optional
 allocator argument, then the \tcode{Allocator} type must support value initialization.
 \exitnote
-A copy of this allocator is used for any memory allocation performed, by these
-constructors and by all member functions, during the lifetime of each container object
+A copy of this allocator is used for any memory allocation and element construction
+performed, by these constructors and by all member functions,
+during the lifetime of each container object
 or until the allocator is replaced. The allocator may be replaced only via assignment or
 \tcode{swap()}. Allocator replacement is performed by
 copy assignment, move assignment, or swapping of the allocator only if
@@ -508,14 +513,14 @@ All of the containers defined in this Clause and in~(\ref{basic.string}) except 
 meet the additional requirements of an allocator-aware container, as described in
 Table~\ref{tab:containers.allocatoraware}.
 
-Given a container type \tcode{X} having an \tcode{allocator_type}
-identical to \tcode{A} and a
-\tcode{value_type} identical to \tcode{T} and given
-an lvalue \tcode{m} of type \tcode{A}, a
-pointer \tcode{p} of type \tcode{T*},
-an expression \tcode{v} of type (possibly const) \tcode{T}, and
-an rvalue \tcode{rv} of type
-\tcode{T}, the following terms are defined. If \tcode{X}
+Given an allocator type \tcode{A}
+and given a container type \tcode{X} having a \tcode{value_type} identical to \tcode{T}
+and an \tcode{allocator_type} identical to \tcode{allocator_traits<A>::rebind_alloc<T>}
+and given an lvalue \tcode{m} of type \tcode{A},
+a pointer \tcode{p} of type \tcode{T*},
+an expression \tcode{v} of type (possibly \tcode{const}) \tcode{T},
+and an rvalue \tcode{rv} of type \tcode{T},
+the following terms are defined. If \tcode{X}
 is not allocator-aware, the terms below are defined as if \tcode{A} were
 \tcode{std::allocator<T>} --- no allocator object needs to be created
 and user specializations of \tcode{std::allocator<T>} are not instantiated:
@@ -548,7 +553,7 @@ allocator_traits<A>::construct(m, p, rv)
 \end{codeblock}
 and its evaluation causes the following postcondition to hold: The value
 of \tcode{*p} is equivalent to the value of \tcode{rv} before the evaluation.
-\enternote rv remains a valid object. Its state is unspecified \exitnote
+\enternote \tcode{rv} remains a valid object. Its state is unspecified \exitnote
 
 \item
 \tcode{T} is \defnx{\tcode{CopyInsertable} into \tcode{X}}
@@ -582,10 +587,12 @@ allocator_traits<A>::destroy(m, p)
 \end{itemize}
 
 \enternote
-A container calls \tcode{allocator_traits<A>::construct(m, p, args)} to construct an element
-at \tcode{p} using \tcode{args}. The default \tcode{construct} in \tcode{std::allocator} will
-call \tcode{::new((void*)p) T(args)}, but specialized allocators may choose a different
-definition.
+A container calls \tcode{allocator_traits<A>::construct(m, p, args)}
+to construct an element at \tcode{p} using \tcode{args},
+with \tcode{m == get_allocator()}.
+The default \tcode{construct} in \tcode{std::allocator} will
+call \tcode{::new((void*)p) T(args)},
+but specialized allocators may choose a different definition.
 \exitnote
 
 \pnum
@@ -2300,7 +2307,7 @@ the number of elements erased.
 %
 \tcode{a.rehash(n)}
 & \tcode{void}
-& Post: \tcode{a.bucket_count() > a.size() / a.max_load_factor()} and
+& Post: \tcode{a.bucket_count() >= a.size() / a.max_load_factor()} and
         \tcode{a.bucket_count() >= n}.%
     \indextext{unordered associative containers!\idxcode{rehash}}%
     \indextext{\idxcode{rehash}!unordered associative containers}%
@@ -2364,7 +2371,7 @@ elements that are not erased.
 \indextext{unordered associative containers!iterator invalidation}%
 \indextext{unordered associative containers!requirements}%
 The \tcode{insert} and \tcode{emplace} members shall not affect the validity of iterators if
-\tcode{(N+n) < z * B}, where \tcode{N} is the number of elements in
+\tcode{(N+n) <= z * B}, where \tcode{N} is the number of elements in
 the container prior to the insert operation, \tcode{n} is the
 number of elements inserted, \tcode{B} is the container's bucket count, and
 \tcode{z} is the container's maximum load factor.
@@ -2440,6 +2447,8 @@ namespace std {
     constexpr T&& get(array<T, N>&&) noexcept;
   template <size_t I, class T, size_t N>
     constexpr const T& get(const array<T, N>&) noexcept;
+  template <size_t I, class T, size_t N>
+    constexpr const T&& get(const array<T, N>&&) noexcept;
 }
 \end{codeblock}
 
@@ -2800,34 +2809,12 @@ tuple_element<I, array<T, N> >::type
 \begin{itemdecl}
 template <size_t I, class T, size_t N>
   constexpr T& get(array<T, N>& a) noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\requires \tcode{I < N}. The program is ill-formed if \tcode{I} is out of bounds.
-
-\pnum
-\returns  A reference to the \tcode{I}th element of \tcode{a},
-where indexing is zero-based.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{array}!\idxcode{get}}%
-\indexlibrary{\idxcode{get}!\idxcode{array}}%
-\begin{itemdecl}
 template <size_t I, class T, size_t N>
   constexpr T&& get(array<T, N>&& a) noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to \tcode{return std::move(get<I>(a));}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{array}!\idxcode{get}}%
-\indexlibrary{\idxcode{get}!\idxcode{array}}%
-\begin{itemdecl}
 template <size_t I, class T, size_t N>
   constexpr const T& get(const array<T, N>& a) noexcept;
+template <size_t I, class T, size_t N>
+  constexpr const T&& get(const array<T, N>&& a) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -2835,7 +2822,7 @@ template <size_t I, class T, size_t N>
 \requires \tcode{I < N}. The program is ill-formed if \tcode{I} is out of bounds.
 
 \pnum
-\returns A const reference to the \tcode{I}th element of \tcode{a},
+\returns A reference to the \tcode{I}th element of \tcode{a},
 where indexing is zero-based.
 \end{itemdescr}
 
@@ -3195,8 +3182,8 @@ iterator and all iterators and references to all the elements of the deque.
 
 \pnum
 \complexity
-The number of calls to the destructor is the same as the
-number of elements erased, but the number of calls to the assignment operator is
+The number of calls to the destructor of \tcode{T} is the same as the
+number of elements erased, but the number of calls to the assignment operator of \tcode{T} is
 no more than the lesser of the number of elements before the erased elements and the number of elements after the erased elements.
 
 \pnum
@@ -5123,7 +5110,7 @@ Invalidates iterators and references at or after the point of the erase.
 \pnum
 \complexity
 The destructor of \tcode{T} is called the number of times equal to the
-number of the elements erased, but the move assignment operator
+number of the elements erased, but the assignment operator
 of \tcode{T} is called the number of times equal to the number of
 elements in the vector after the erased elements.
 
@@ -5753,24 +5740,7 @@ T& operator[](const key_type& x);
 \begin{itemdescr}
 \pnum
 \effects
-If there is no key equivalent to \tcode{x} in the map, inserts
-\tcode{value_type(x, T())}
-into the map.
-
-\pnum
-\requires \tcode{key_type} shall be
-\tcode{CopyInsertable} and \tcode{mapped_type} shall be
-\tcode{DefaultInsertable} into \tcode{*this}.
-
-\pnum
-\returns
-A reference to the
-\tcode{mapped_type}
-corresponding to \tcode{x} in
-\tcode{*this}.
-
-\pnum
-\complexity Logarithmic.
+Equivalent to \tcode{return try_emplace(x).first->second;}
 \end{itemdescr}
 
 \indexlibrary{\idxcode{operator[]}!\idxcode{map}}%
@@ -5781,23 +5751,7 @@ T& operator[](key_type&& x);
 \begin{itemdescr}
 \pnum
 \effects
-If there is no key equivalent to \tcode{x} in the map, inserts
-\tcode{value_type(std::move(x), T())}
-into the map.
-
-\pnum
-\requires \tcode{mapped_type} shall be
-\tcode{DefaultInsertable} into \tcode{*this}.
-
-\pnum
-\returns
-A reference to the
-\tcode{mapped_type}
-corresponding to \tcode{x} in
-\tcode{*this}.
-
-\pnum
-\complexity Logarithmic.
+Equivalent to \tcode{return try_emplace(move(x)).first->second;}
 \end{itemdescr}
 
 \indexlibrary{\idxcode{at}!\idxcode{map}}%
@@ -7203,30 +7157,23 @@ for the first form, or from the range
 \indextext{\idxcode{unordered_map}!element access}%
 \begin{itemdecl}
 mapped_type& operator[](const key_type& k);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to \tcode{return try_emplace(k).first->second;}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{unordered_map}!\idxcode{operator[]}}%
+\indexlibrary{\idxcode{operator[]}!\idxcode{unordered_map}}%
+\indextext{\idxcode{unordered_map}!element access}%
+\begin{itemdecl}
 mapped_type& operator[](key_type&& k);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
-\requires \tcode{mapped_type} shall be \tcode{DefaultInsertable} into \tcode{*this}.
-For the first operator, \tcode{key_type} shall be \tcode{CopyInsertable} into \tcode{*this}.
-For the second operator, \tcode{key_type} shall be \tcode{MoveConstructible}.
-
-\pnum
-\effects If the \tcode{unordered_map} does not already contain
-an element whose key is equivalent to \tcode{\textit{k}}, the first operator inserts
-the value
-\tcode{value_type(k, mapped_type())}
-and the second operator inserts the value
-\tcode{value_type(std::move(k), mapped_type())}.
-
-
-\pnum
-\returns A reference to \tcode{x.second}, where \tcode{x}
-is the (unique) element whose key is equivalent to \tcode{\textit{k}}.
-
-\pnum
-\complexity Average case \bigoh{1}, worst case \bigoh{\tcode{size()}}.
+\effects Equivalent to \tcode{return try_emplace(move(k)).first->second;}
 \end{itemdescr}
 
 \indexlibrary{\idxcode{unordered_map}!\idxcode{at}}%
