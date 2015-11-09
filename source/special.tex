@@ -2027,6 +2027,112 @@ public:
 \exitexample%
 \indextext{initialization!class~object|)}
 
+\rSec2[class.inhctor.init]{Initialization by inherited constructor}%
+\indextext{initialization!by~inherited~constructor}
+
+\pnum
+When a constructor for type \tcode{B} is invoked
+to initialize an object of a different type \tcode{D}
+(that is, when the constructor was inherited~(\ref{namespace.udecl}),
+initialization proceeds as if a defaulted default constructor
+were used to initialize the \tcode{D} object and
+each base class subobject from which the constructor was inherited,
+except that the \tcode{B} subobject is initialized
+by the invocation of the inherited constructor.
+The complete initialization is considered to be a single function call;
+in particular, the initialization of the inherited constructor's parameters
+is sequenced before the initialization of any part of the \tcode{D} object.
+\enterexample
+\begin{codeblock}
+struct B1 {
+  B1(int, ...) { }
+};
+
+struct B2 {
+  B2(double) { }
+};
+
+int get();
+
+struct D1 : B1 {
+  using B1::B1;  // inherits \tcode{B1(int, ...)}
+  int x;
+  int y = get();
+};
+
+void test() {
+  D1 d(2, 3, 4); // OK: \tcode{B1} is initialized by calling \tcode{B1(2, 3, 4)},
+                 // then \tcode{d.x} is default-initialized (no initialization is performed),
+                 // then \tcode{d.y} is initialized by calling \tcode{get()}
+  D1 e;          // error: \tcode{D1} has no default constructor
+}
+
+struct D2 : B2 {
+  using B2::B2;
+  B1 b;
+};
+
+D2 f(1.0);       // error: \tcode{B1} has no default constructor
+
+struct W { W(int); };
+struct X : virtual W { using W::W; X() = delete; };
+struct Y : X { using X::X; };
+struct Z : Y, virtual W { using Y::Y; };
+Z z(0); // OK: initialization of \tcode{Y} does not invoke default constructor of \tcode{X}
+
+template<class T> struct Log : T {
+  using T::T;    // inherits all constructors from class \tcode{T}
+  ~Log() { std::clog << "Destroying wrapper" << std::endl; }
+};
+\end{codeblock}
+Class template \tcode{Log} wraps any class and forwards all of its constructors,
+while writing a message to the standard log
+whenever an object of class \tcode{Log} is destroyed.
+\exitexample
+
+\pnum
+If the constructor was inherited from multiple base class subobjects
+of type \tcode{B}, the program is ill-formed.
+\enterexample
+\begin{codeblock}
+struct A { A(int); };
+struct B : A { using A::A; };
+
+struct C1 : B { using B::B; };
+struct C2 : B { using B::B; };
+
+struct D1 : C1, C2 {
+  using C1::C1;
+  using C2::C2;
+};
+
+struct V1 : virtual B { using B::B; };
+struct V2 : virtual B { using B::B; };
+
+struct D2 : V1, V2 {
+  using V1::V1;
+  using V2::V2;
+};
+
+D1 d1(0); // ill-formed: ambiguous
+D2 d2(0); // OK: initializes virtual \tcode{B} base class, which initializes the \tcode{A} base class
+          // then initializes the \tcode{V1} and \tcode{V2} base classes as if by a defaulted default constructor
+
+struct M { M(); M(int); };
+struct N : M { using M::M; };
+struct O : M {};
+struct P : N, O {};
+P p(0); // OK: use \tcode{M(0)} to initialize \tcode{N}{'s} base class,
+        // use \tcode{M()} to initialize \tcode{O}{'s} base class
+\end{codeblock}
+\exitexample
+
+\pnum
+When an object is initialized by an inheriting constructor,
+the principal constructor~(\ref{class.base.init},~\ref{except.ctor})
+for the object is considered to have completed execution
+when the initialization of all subobjects is complete.
+
 \rSec1[class.cdtor]{Construction and destruction}%
 \indextext{construction|(}%
 \indextext{destruction|(}
@@ -3096,218 +3202,3 @@ Thing f(bool b) {
 Thing t2 = f(false);            // OK: \tcode{Thing(Thing\&\&)} used (or elided) to construct t2
 \end{codeblock}
 \exitexample
-
-\rSec1[class.inhctor]{Inheriting constructors}%
-\indextext{constructor!inheriting|(}
-
-\pnum
-A \grammarterm{using-declaration}~(\ref{namespace.udecl}) that names a
-constructor implicitly declares a set of \term{inheriting constructors}.
-The \term{candidate set of inherited constructors} from the class \tcode{X}
-named in the \grammarterm{using-declaration} consists of actual constructors and
-notional constructors that result from the transformation of defaulted
-parameters and ellipsis parameter specifications as follows:
-
-\begin{itemize}
-\item for each non-template constructor of \tcode{X},
-the constructor that results from
-omitting any ellipsis parameter specification, and
-\item for each non-template constructor of \tcode{X}
-that has at least one parameter with a default argument,
-the set of constructors that results from
-omitting any ellipsis parameter specification and
-successively omitting parameters with a default argument
-from the end of the parameter-type-list, and
-\item for each constructor template of \tcode{X},
-the constructor template that results from
-omitting any ellipsis parameter specification, and
-\item for each constructor template of \tcode{X}
-that has at least one parameter with a default argument,
-the set of constructor templates that results from
-omitting any ellipsis parameter specification and
-successively omitting parameters with a default argument
-from the end of the parameter-type-list.
-\end{itemize}
-
-\pnum
-The \term{constructor characteristics} of a constructor or constructor template are
-
-\begin{itemize}
-\item the template parameter list~(\ref{temp.param}), if any,
-\item the parameter-type-list~(\ref{dcl.fct}), and
-\item absence or presence of \tcode{explicit}~(\ref{class.conv.ctor}).
-\end{itemize}
-
-\pnum
-For each non-template constructor in the candidate set of inherited constructors other
-than a constructor having no parameters or a copy/move constructor having a single parameter,
-a constructor is implicitly declared with the same constructor characteristics unless
-there is a user-declared constructor with the same signature in the complete class where the
-\grammarterm{using-declaration} appears or the constructor would be a default, copy, or move
-constructor for that class. Similarly, for each constructor template in the
-candidate set of inherited constructors, a constructor template is implicitly declared
-with the same constructor characteristics unless there is an equivalent user-declared
-constructor template~(\ref{temp.over.link}) in the complete class where the \grammarterm{using-declaration}
-appears. \enternote Default arguments are not inherited. An
-exception specification is implied as specified
-in~\ref{except.spec}.\exitnote
-
-\pnum
-A constructor so declared has the same access as the corresponding constructor
-in \tcode{X}.
-It is \tcode{constexpr} if the user-written constructor (see below)
-would satisfy the requirements of a
-\tcode{constexpr} constructor~(\ref{dcl.constexpr}).
-It is deleted if the corresponding constructor in \tcode{X} is
-deleted~(\ref{dcl.fct.def.delete})
-or if a defaulted default constructor~(\ref{class.ctor}) would be deleted,
-except that the construction of the direct base
-class \tcode{X} is not considered in the determination.
-An inheriting constructor shall not be explicitly
-instantiated~(\ref{temp.explicit}) or explicitly specialized~(\ref{temp.expl.spec}).
-
-\pnum
-\enternote Default and copy/move constructors may be implicitly declared as specified in~\ref{class.ctor} and~\ref{class.copy}. \exitnote
-
-\pnum \enterexample
-
-\begin{codeblock}
-struct B1 {
-  B1(int);
-};
-
-struct B2 {
-  B2(int = 13, int = 42);
-};
-
-struct D1 : B1 {
-  using B1::B1;
-};
-
-struct D2 : B2 {
-  using B2::B2;
-};
-\end{codeblock}
-
-The candidate set of inherited constructors in \tcode{D1} for \tcode{B1} is
-
-\begin{itemize}
-\item \tcode{B1(const B1\&)}
-\item \tcode{B1(B1\&\&)}
-\item \tcode{B1(int)}
-\end{itemize}
-
-The set of constructors present in \tcode{D1} is
-
-\begin{itemize}
-\item \tcode{D1()}, implicitly-declared default constructor, ill-formed if odr-used
-\item \tcode{D1(const D1\&)}, implicitly-declared copy constructor, not inherited
-\item \tcode{D1(D1\&\&)}, implicitly-declared move constructor, not inherited
-\item \tcode{D1(int)}, implicitly-declared inheriting constructor
-\end{itemize}
-
-The candidate set of inherited constructors in \tcode{D2} for \tcode{B2} is
-
-\begin{itemize}
-\item \tcode{B2(const B2\&)}
-\item \tcode{B2(B2\&\&)}
-\item \tcode{B2(int = 13, int = 42)}
-\item \tcode{B2(int = 13)}
-\item \tcode{B2()}
-\end{itemize}
-
-The set of constructors present in \tcode{D2} is
-
-\begin{itemize}
-\item \tcode{D2()}, implicitly-declared default constructor, not inherited
-\item \tcode{D2(const D2\&)}, implicitly-declared copy constructor, not inherited
-\item \tcode{D2(D2\&\&)}, implicitly-declared move constructor, not inherited
-\item \tcode{D2(int, int)}, implicitly-declared inheriting constructor
-\item \tcode{D2(int)}, implicitly-declared inheriting constructor
-\end{itemize}
-\exitexample
-
-\pnum
-\enternote If two \grammarterm{using-declaration}{s} declare inheriting constructors with the same
-signatures, the program is ill-formed~(\ref{class.mem}, \ref{over.load}), because an
-implicitly-declared constructor introduced by the first \grammarterm{using-declaration} is not a
-user-declared constructor and thus does not preclude another declaration of a constructor with the
-same signature by a subsequent \grammarterm{using-declaration}. \enterexample
-
-\begin{codeblock}
-struct B1 {
-  B1(int);
-};
-
-struct B2 {
-  B2(int);
-};
-
-struct D1 : B1, B2 {
-  using B1::B1;
-  using B2::B2;     
-};                  // ill-formed: attempts to declare D1(int) twice
-
-struct D2 : B1, B2 {
-  using B1::B1;
-  using B2::B2;
-  D2(int);          // OK: user declaration supersedes both implicit declarations
-};
-\end{codeblock}
-\exitexample \exitnote
-
-\pnum
-An inheriting constructor for a class is implicitly defined when
-it is odr-used~(\ref{basic.def.odr}) to
-create an object of its class type~(\ref{intro.object}). An implicitly-defined inheriting
-constructor performs the set of initializations of the class that would be performed by a
-user-written \tcode{inline} constructor for that class with a \grammarterm{mem-initializer-list}
-whose only \grammarterm{mem-initializer} has a \grammarterm{mem-initializer-id} that names the base
-class denoted in the \grammarterm{nested-name-specifier} of the
-\grammarterm{using-declaration} and an \grammarterm{expression-list} as specified below, and where
-the \grammarterm{compound-statement} in its function body is empty~(\ref{class.base.init}). If that
-user-written constructor would be ill-formed, the program is ill-formed. Each
-\grammarterm{expression} in the \grammarterm{expression-list} is of the form
-\tcode{static_cast<T\&\&>(p)}, where \tcode{p} is the name of the corresponding constructor
-parameter and \tcode{T} is the declared type of \tcode{p}.
-
-\pnum
-\enterexample
-
-\begin{codeblock}
-struct B1 {
-  B1(int) { }
-};
-
-struct B2 {
-  B2(double) { }
-};
-
-struct D1 : B1 {
-  using B1::B1;     // implicitly declares \tcode{D1(int)}
-  int x;
-};
-
-void test() {
-  D1 d(6);          // OK: \tcode{d.x} is not initialized
-  D1 e;             // error: \tcode{D1} has no default constructor
-}
-
-struct D2 : B2 {
-  using B2::B2;     // OK: implicitly declares \tcode{D2(double)}
-  B1 b;
-};
-
-D2 f(1.0);          // error: B1 has no default constructor
-
-template< class T >
-struct D : T {
-  using T::T;       // declares all constructors from class T
-  ~D() { std::clog << "Destroying wrapper" << std::endl; }
-};
-\end{codeblock}
-
-Class template \tcode{D} wraps any class and forwards all of its constructors,
-while writing a message to the standard log whenever an object of class
-\tcode{D} is destroyed. \exitexample%
-\indextext{constructor!inheriting|)}
