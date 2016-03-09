@@ -76,6 +76,10 @@ If an expression initially has the type ``reference to
 \tcode{T} prior to any further analysis. The expression designates the
 object or function denoted by the reference, and the expression
 is an lvalue or an xvalue, depending on the expression.
+\enternote 
+Before the lifetime of the reference has started or after it has ended,
+the behavior is undefined (see~\ref{basic.life}).
+\exitnote 
 
 \pnum
 If a prvalue initially has the type ``\cv{} \tcode{T}'', where
@@ -1038,10 +1042,10 @@ capture that is not of the form \tcode{\&} \grammarterm{identifier} or
 \tcode{\&} \grammarterm{identifier} \grammarterm{initializer}.
 For each entity captured by copy, an
 unnamed non-static data member is declared in the closure type. The declaration order of
-these members is unspecified. The type of such a data member is the type of the
-corresponding captured entity if the entity is not a reference to an object, or the
-referenced type otherwise. \enternote If the captured entity is a reference to a
-function, the corresponding data member is also a reference to a function. \exitnote
+these members is unspecified. The type of such a data member is
+the referenced type if the entity is a reference to an object,
+an lvalue reference to the referenced function type if the entity is a reference to a function, or
+the type of the corresponding captured entity otherwise.
 A member of an anonymous union shall not be captured by copy.
 
 \pnum
@@ -2037,14 +2041,15 @@ away constness~(\ref{expr.const.cast}).
 \indextext{cast!reference}%
 An lvalue of type ``\cvqual{cv1} \tcode{B}'', where \tcode{B} is a class
 type, can be cast to type ``reference to \cvqual{cv2} \tcode{D}'', where
-\tcode{D} is a class derived (Clause~\ref{class.derived}) from
-\tcode{B}, if a valid standard conversion from ``pointer to \tcode{D}''
-to ``pointer to \tcode{B}'' exists~(\ref{conv.ptr}), \cvqual{cv2} is the
+\tcode{D} is a class derived (Clause~\ref{class.derived}) from \tcode{B},
+if \cvqual{cv2} is the
 same cv-qualification as, or greater cv-qualification than,
-\cvqual{cv1}, and \tcode{B} is neither a virtual base class of \tcode{D}
-nor a base class of a virtual base class of \tcode{D}. The result has
-type ``\cvqual{cv2} \tcode{D}''. An xvalue of type
-``\cvqual{cv1} \tcode{B}'' may be cast to type ``rvalue reference to
+\cvqual{cv1}. If \tcode{B} is a virtual base class of \tcode{D}
+or a base class of a virtual base class of \tcode{D},
+or if no valid standard conversion from ``pointer to \tcode{D}''
+to ``pointer to \tcode{B}'' exists~(\ref{conv.ptr}), the program is ill-formed.
+An xvalue of type
+``\cvqual{cv1} \tcode{B}'' can be cast to type ``rvalue reference to
 \cvqual{cv2} \tcode{D}'' with the same constraints as for an lvalue of
 type ``\cvqual{cv1} \tcode{B}''. If the object
 of type ``\cvqual{cv1} \tcode{B}'' is actually a subobject of an object
@@ -2077,14 +2082,24 @@ ambiguous~(\ref{class.member.lookup}) base class of \tcode{T1},
 a program that necessitates such a cast is ill-formed.
 
 \pnum
-An expression \tcode{e} can be explicitly converted to a type
-\tcode{T} using a \tcode{static_cast} of the form
-\tcode{static_cast<T>(e)} if the declaration \tcode{T t(e);} is
-well-formed, for some invented temporary variable
-\tcode{t}~(\ref{dcl.init}). The effect of such an explicit conversion is
-the same as performing the declaration and initialization and then using
-the temporary variable as the result of the conversion. The expression
-\tcode{e} is used as a glvalue if and
+An expression \tcode{e} can be explicitly converted to a type \tcode{T}
+if there is an implicit conversion sequence~(\ref{over.best.ics})
+from \tcode{e} to \tcode{T}, or
+if overload resolution for a direct-initialization~(\ref{dcl.init})
+of an object or reference of type \tcode{T} from \tcode{e}
+would find at least one viable function~(\ref{over.match.viable}). 
+The effect of such an explicit conversion is
+the same as performing the declaration and initialization
+\begin{codeblock}
+ T t(e);
+\end{codeblock}
+for some invented temporary variable \tcode{t}~(\ref{dcl.init})
+and then using the temporary variable as the result of the conversion.
+\enternote 
+The conversion is ill-formed when attempting to convert an
+expression of class type to an inaccessible or ambiguous base class.
+\exitnote 
+The expression \tcode{e} is used as a glvalue if and
 only if the initialization uses it as a glvalue.
 
 \pnum
@@ -2165,12 +2180,14 @@ the enumeration type.
 A prvalue of type ``pointer to \cvqual{cv1} \tcode{B}'', where \tcode{B}
 is a class type, can be converted to a prvalue of type ``pointer to
 \cvqual{cv2} \tcode{D}'', where \tcode{D} is a class derived
-(Clause~\ref{class.derived}) from \tcode{B}, if a valid standard
-conversion from ``pointer to \tcode{D}'' to ``pointer to \tcode{B}''
-exists~(\ref{conv.ptr}), \cvqual{cv2} is the same cv-qualification as,
-or greater cv-qualification than, \cvqual{cv1}, and \tcode{B} is neither
-a virtual base class of \tcode{D} nor a base class of a virtual base
-class of \tcode{D}. The null pointer value~(\ref{conv.ptr}) is converted
+(Clause~\ref{class.derived}) from \tcode{B},
+if \cvqual{cv2} is the same cv-qualification as,
+or greater cv-qualification than, \cvqual{cv1}.
+If \tcode{B} is a virtual base class of \tcode{D} or
+a base class of a virtual base class of \tcode{D}, or
+if no valid standard conversion from ``pointer to \tcode{D}''
+to ``pointer to \tcode{B}'' exists~(\ref{conv.ptr}), the program is ill-formed. 
+The null pointer value~(\ref{conv.ptr}) is converted
 to the null pointer value of the destination type. If the prvalue of type
 ``pointer to \cvqual{cv1} \tcode{B}'' points to a \tcode{B} that is
 actually a subobject of an object of type \tcode{D}, the resulting
@@ -2181,14 +2198,16 @@ behavior is undefined.
 \indextext{cast!pointer-to-member}%
 A prvalue of type ``pointer to member of \tcode{D} of type \cvqual{cv1}
 \tcode{T}'' can be converted to a prvalue of type ``pointer to member of
-\tcode{B}'' of type \cvqual{cv2} \tcode{T}, where \tcode{B} is a base
-class (Clause~\ref{class.derived}) of \tcode{D}, if a valid standard
-conversion from ``pointer to member of \tcode{B} of type \tcode{T}'' to
-``pointer to member of \tcode{D} of type \tcode{T}''
-exists~(\ref{conv.mem}), and \cvqual{cv2} is the same cv-qualification
+\tcode{B} of type \cvqual{cv2} \tcode{T}'', where \tcode{B} is a base
+class (Clause~\ref{class.derived}) of \tcode{D},
+if \cvqual{cv2} is the same cv-qualification
 as, or greater cv-qualification than, \cvqual{cv1}.\footnote{Function types
 (including those used in pointer to member function
 types) are never cv-qualified; see~\ref{dcl.fct}.}
+If no valid standard conversion
+from ``pointer to member of \tcode{B} of type \tcode{T}''
+to ``pointer to member of \tcode{D} of type \tcode{T}''
+exists~(\ref{conv.mem}), the program is ill-formed.
 The null member pointer value~(\ref{conv.mem}) is converted to the null
 member pointer value of the destination type. If class \tcode{B}
 contains the original member, or is a base or derived class of the class
@@ -2999,12 +3018,25 @@ terminating \tcode{'\textbackslash 0'} in a string literal~(\ref{lex.string})) e
 number of elements to initialize.
 \end{itemize}
 
-If the \grammarterm{expression}, after converting to \tcode{std::size_t}, is a
-core constant expression and the expression is erroneous, the program is
-ill-formed. Otherwise, a \grammarterm{new-expression} with an erroneous
-expression does not call an allocation function and terminates by throwing an
+If the \grammarterm{expression} is erroneous after converting to \tcode{std::size_t}:
+\begin{itemize}
+\item
+if the \grammarterm{expression} is a core constant expression,
+the program is ill-formed;
+\item
+otherwise, an allocation function is not called; instead
+\begin{itemize}
+\item
+if the allocation function that would have been called
+has a non-throwing exception specification~(\ref{except.spec}),
+the value of the \grammarterm{new-expression}
+is the null pointer value of the required result type;
+\item
+otherwise, the \grammarterm{new-expression} terminates by throwing an
 exception of a type that would match a handler~(\ref{except.handle}) of type
 \tcode{std::bad_array_new_length}~(\ref{new.badlength}).
+\end{itemize}
+\end{itemize}
 When the value of the \grammarterm{expression} is zero, the allocation
 function is called to allocate an array with no elements.
 
@@ -4700,6 +4732,12 @@ an invocation of an undefined \tcode{constexpr} function or an
 undefined \tcode{constexpr} constructor;
 
 \item
+an invocation of an instantiated \tcode{constexpr} function or
+\tcode{constexpr} constructor that fails to satisfy the requirements
+for a \tcode{constexpr} function or
+\tcode{constexpr} constructor~(\ref{dcl.constexpr});
+
+\item
 an expression that would exceed the implementation-defined
 limits (see Annex~\ref{implimits});
 
@@ -4755,8 +4793,7 @@ unless the reference has a preceding initialization and either
   it is initialized with a constant expression or
 
   \item
-  it is a non-static data member of an object whose lifetime
-  began within the evaluation of \tcode{e};
+  its lifetime began within the evaluation of \tcode{e};
 \end{itemize}
 
 \item
@@ -4893,26 +4930,37 @@ fixed~(\ref{dcl.enum}), as array bounds~(\ref{dcl.array}), and
 as non-type template
 arguments~(\ref{temp.arg}). 
 \exitnote
+\indextext{contextually converted constant expression of type \tcode{bool}|see{conversion, contextual}}%
+\indextext{conversion!contextual to constant expression of type \tcode{bool}}%
+A \term{contextually converted constant expression of type \tcode{bool}} is
+an expression, contextually converted to \tcode{bool}~(Clause\ref{conv}),
+where the converted expression is a constant expression and
+the conversion sequence contains only the conversions above.
 
 \pnum
 \indextext{expression!constant}%
 A \term{constant expression} is either
 a glvalue core constant expression whose value refers to
 an entity that is a permitted result of a constant expression (as defined below), or
-a prvalue core constant expression whose value is an object where, for that
-object and its subobjects:
+a prvalue core constant expression whose value
+satisfies the following constraints:
 
 \begin{itemize}
   \item
+  if the value is an object of class type,
   each non-static data member of reference type refers to
-  an entity that is a permitted result of a constant expression, and
+  an entity that is a permitted result of a constant expression,
 
   \item
-  if the object or subobject is of pointer type, it contains
+  if the value is of pointer type, it contains
   the address of an object with static storage duration,
   the address past the end of such an object~(\ref{expr.add}),
   the address of a function,
-  or a null pointer value.
+  or a null pointer value, and
+
+  \item
+  if the value is an object of class or array type,
+  each subobject satisfies these constraints for the value.
 \end{itemize}
 An entity is a
 \defnx{permitted result of a constant expression}{constant expression!permitted result~of}

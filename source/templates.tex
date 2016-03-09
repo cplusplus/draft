@@ -404,7 +404,7 @@ template<class T1 = int, class T2 = int> class A;
 \pnum
 If a
 \grammarterm{template-parameter}
-of a class template or alias template has a default
+of a class template, variable template, or alias template has a default
 \grammarterm{template-argument},
 each subsequent
 \grammarterm{template-parameter}
@@ -412,7 +412,8 @@ shall either have a default
 \grammarterm{template-argument}
 supplied
 or be a template parameter pack. If a \grammarterm{template-parameter}
-of a primary class template or alias template is a template parameter pack, it shall be the last
+of a primary class template, primary variable template, or alias template
+is a template parameter pack, it shall be the last
 \grammarterm{template-parameter}.
 A template parameter pack of a function template shall not be followed by
 another
@@ -950,24 +951,6 @@ void f() {
 A template type argument may be an incomplete type~(\ref{basic.types}).
 \exitnote
 
-\pnum
-If a declaration acquires a function type through a type dependent on a
-\grammarterm{template-parameter}
-and this causes a declaration that does not use the
-syntactic form of a function declarator to have function type,
-the program is ill-formed.
-\enterexample
-
-\begin{codeblock}
-template<class T> struct A {
-  static T t;
-};
-typedef int function();
-A<function> a;                  // ill-formed: would declare \tcode{A<function>::t}
-                                // as a static member function
-\end{codeblock}
-\exitexample
-
 \rSec2[temp.arg.nontype]{Template non-type arguments}
 
 \pnum
@@ -1254,10 +1237,12 @@ declares \tcode{y} and \tcode{z} to be of the same type.
 \exitexample
 
 \pnum
-If an expression $e$ involves a template parameter, \tcode{decltype($e$)}
+If an expression $e$ is type-dependent~(\ref{temp.dep.expr}),
+\tcode{decltype($e$)}
 denotes a unique dependent type. Two such \grammarterm{decltype-specifier}{s}
 refer to the same type only if their \grammarterm{expression}{s} are
-equivalent~(\ref{temp.over.link}). \enternote however, it may be aliased,
+equivalent~(\ref{temp.over.link}).
+\enternote however, such a type may be aliased,
 e.g., by a \grammarterm{typedef-name}. \exitnote
 
 \rSec1[temp.decls]{Template declarations}
@@ -2274,17 +2259,17 @@ the following restrictions apply:
 
 \begin{itemize}
 \item
-A partially specialized non-type argument expression shall not involve
-a template parameter of the partial specialization except when the argument
-expression is a simple
-\grammarterm{identifier}.
+Each \grammarterm{template-parameter} shall appear at least once
+in the \grammarterm{template-id} outside a non-deduced context.
 \enterexample
 \begin{codeblock}
 template <int I, int J> struct A {};
-template <int I> struct A<I+5, I*2> {}; // error
+template <int I> struct A<I+5, I*2> {};     // error
 
-template <int I, int J> struct B {};
-template <int I> struct B<I, I> {};     // OK
+template <int I> struct A<I, I> {};         // OK
+
+template <int I, int J, int K> struct B {};
+template <int I> struct B<I, I*2, 2> {};    // OK
 \end{codeblock}
 \exitexample
 \item
@@ -2302,10 +2287,6 @@ template< int X > class A<X,&array> { };            // error
 \end{codeblock}
 
 \exitexample
-\item
-The argument list of the specialization shall not be identical to the
-implicit argument list of the primary template.
-
 \item
 The specialization shall be more specialized than the primary
 template~(\ref{temp.class.order}).
@@ -4087,11 +4068,9 @@ is value-dependent if:
 
 \begin{itemize}
 \item
-it is a name declared with a dependent type,
+it is type-dependent,
 \item
 it is the name of a non-type template parameter,
-\item
-it names a member of an unknown specialization,
 \item
 it names a static data member that is a dependent member of the current
 instantiation and is not initialized in a \grammarterm{member-declarator},
@@ -4475,6 +4454,22 @@ of type
 \tcode{char*}.
 \exitexample
 
+\pnum
+If a function declaration acquired its function type through
+a dependent type~(\ref{temp.dep.type}) without using the syntactic form of
+a function declarator, the program is ill-formed.
+\enterexample
+
+\begin{codeblock}
+template<class T> struct A {
+  static T t;
+};
+typedef int function();
+A<function> a;                  // ill-formed: would declare \tcode{A<function>::t}
+                                // as a static member function
+\end{codeblock}
+\exitexample
+
 \rSec2[temp.inst]{Implicit instantiation}
 
 \pnum
@@ -4487,7 +4482,42 @@ specialization is referenced in a context that requires a completely-defined
 object type or when the completeness of the class type affects the semantics
 of the program.
 \enternote
-Within a template declaration, a local class or enumeration and the members of
+In particular, if the semantics of an expression depend on the member or
+base class lists of a class template specialization, the class template
+specialization is implicitly generated. For instance, deleting a pointer
+to class type depends on whether or not the class declares a destructor,
+and a conversion between pointers to class type depends on the
+inheritance relationship between the two classes involved.
+\exitnote
+\enterexample
+\begin{codeblock}
+template<class T> class B { /* ... */ };
+template<class T> class D : public B<T> { /* ... */ };
+
+void f(void*);
+void f(B<int>*);
+
+void g(D<int>* p, D<char>* pp, D<double>* ppp) {
+  f(p);            // instantiation of \tcode{D<int>} required: call \tcode{f(B<int>*)}
+  B<char>* q = pp; // instantiation of \tcode{D<char>} required:
+                   // convert \tcode{D<char>*} to \tcode{B<char>*}
+  delete ppp;      // instantiation of \tcode{D<double>} required
+}
+\end{codeblock}
+\exitexample
+If a class template has been declared, but not defined,
+at the point of instantiation~(\ref{temp.point}),
+the instantiation yields an incomplete class type~(\ref{basic.types}).
+\enterexample
+\begin{codeblock}
+template<class T> class X;
+
+X<char> ch;      // error: incomplete type \tcode{X<char>}
+\end{codeblock}
+\exitexample
+\enternote
+Within a template declaration,
+a local class~(\ref{class.local}) or enumeration and the members of
 a local class are never considered to be entities that can be separately
 instantiated (this includes their default arguments,
 \grammarterm{exception-specification}{s}, and non-static data member
@@ -4582,41 +4612,9 @@ variable template is implicitly instantiated when the variable template is
 referenced in a context that requires the value of the default argument.
 
 \pnum
-A class template specialization is implicitly instantiated if the
-class type is used in a context that requires a completely-defined
-object type or if the completeness of the class type might affect the
-semantics of the program.
-\enternote
-In particular, if the semantics of an expression depend on the member
-or base class lists of a class template specialization, the class
-template specialization is implicitly generated. For instance,
-deleting a pointer to class type depends on whether or not the class
-declares a destructor, and conversion between pointer to class types
-depends on the inheritance relationship between the two classes
-involved.
-\exitnote
-\enterexample
-
-\begin{codeblock}
-template<class T> class B { /* ... */ };
-template<class T> class D : public B<T> { /* ... */ };
-
-void f(void*);
-void f(B<int>*);
-
-void g(D<int>* p, D<char>* pp, D<double>* ppp) {
-  f(p);             // instantiation of \tcode{D<int>} required: call \tcode{f(B<int>*)}
-  B<char>* q = pp;  // instantiation of \tcode{D<char>} required:
-                    // convert \tcode{D<char>*} to \tcode{B<char>*}
-  delete ppp;       // instantiation of \tcode{D<double>} required
-}
-\end{codeblock}
-\exitexample
-
-\pnum
-If the overload resolution process can determine the correct function to
-call without instantiating a class template definition, it is unspecified
-whether that instantiation actually takes place.
+If the function selected by overload resolution~(\ref{over.match})
+can be determined without instantiating a class template definition,
+it is unspecified whether that instantiation actually takes place.
 \enterexample
 
 \begin{codeblock}
@@ -4634,22 +4632,6 @@ void g(S<int>& sr) {
 };
 \end{codeblock}
 \exitexample
-
-\pnum
-If an implicit instantiation of a class template specialization is required and
-the template is declared but not defined, the program is ill-formed.
-\enterexample
-
-\begin{codeblock}
-template<class T> class X;
-
-X<char> ch;         // error: definition of \tcode{X} required
-\end{codeblock}
-\exitexample
-
-\pnum
-The implicit instantiation of a class template does not cause any static data
-members of that class to be implicitly instantiated.
 
 \pnum
 If a function template or a member function template specialization is used in
@@ -5073,7 +5055,7 @@ types will be sorted by functions generated from the template.
 \pnum
 An explicit specialization shall be declared in a namespace enclosing the specialized template.
 An explicit specialization
-whose \grammarterm{declarator-id} is not qualified
+whose \grammarterm{declarator-id} or \grammarterm{class-head-name} is not qualified
 shall be declared in the nearest enclosing namespace of the template,
 or, if the namespace is inline~(\ref{namespace.def}), any namespace from its enclosing namespace set.
 Such a declaration may also be a definition.
@@ -6099,11 +6081,13 @@ template<class T, int N> void n(T const(&)[N], T);
 n({{1},{2},{3}},Aggr());    // OK, \tcode{T} is \tcode{Aggr}, \tcode{N} is \tcode{3}
 \end{codeblock}
 \exitexample
-For a function parameter pack that occurs at the end of the \grammarterm{parameter-declaration-list},
-the type \tcode{A} of each
-remaining argument of the call is compared with the type \tcode{P}
-of the \grammarterm{declarator-id} of the function parameter pack.
-Each comparison deduces template arguments for subsequent positions in
+For a function parameter pack that occurs at the end
+of the \grammarterm{parameter-declaration-list},
+deduction is performed for each remaining argument of the call,
+taking the type \tcode{P}
+of the \grammarterm{declarator-id} of the function parameter pack
+as the corresponding function template parameter type.
+Each deduction deduces template arguments for subsequent positions in
 the template parameter packs expanded by the function parameter pack.
 When a function parameter pack appears in a non-deduced
 context~(\ref{temp.deduct.type}), the type of that parameter pack is

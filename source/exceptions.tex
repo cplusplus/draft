@@ -362,10 +362,39 @@ propagate out of the destructor.
 \exitnote
 
 \pnum
-The destructor is invoked for each automatic object of class type constructed
+The destructor is invoked for each automatic object of class type constructed,
+but not yet destroyed,
 since the try block was entered.
-The automatic objects are destroyed in the reverse order of the completion
+If an exception is thrown during the destruction of temporaries or
+local variables for a \tcode{return} statement~(\ref{stmt.return}),
+the destructor for the returned object (if any) is also invoked.
+The objects are destroyed in the reverse order of the completion
 of their construction.
+\enterexample
+\begin{codeblock}
+struct A { };
+
+struct Y { ~Y() noexcept(false) { throw 0; } };
+
+A f() {
+  try {
+    A a;
+    Y y;
+    A b;
+    return {};   // \#1
+  } catch (...) {
+  }
+  return {};     // \#2
+}
+\end{codeblock}
+At \#1, the returned object of type \tcode{A} is constructed.
+Then, the local variable \tcode{b} is destroyed~(\ref{stmt.jump}).
+Next, the local variable \tcode{y} is destroyed,
+causing stack unwinding,
+resulting in the destruction of the returned object,
+followed by the destruction of the local variable \tcode{a}.
+Finally, the returned object is constructed again at \#2.
+\exitexample
 
 \pnum
 For an object of class type
@@ -690,8 +719,8 @@ or implicitly.
 
 \indextext{exception specification!noexcept!constant expression and}%
 In a \grammarterm{noexcept-specification}, the \grammarterm{constant-expression},
-if supplied, shall be a constant expression~(\ref{expr.const}) that is contextually
-converted to \tcode{bool} (Clause~\ref{conv}).
+if supplied, shall be a contextually converted constant expression
+of type \tcode{bool}~(\ref{expr.const}).
 A \tcode{(} token that follows \tcode{noexcept} is part of the
 \grammarterm{noexcept-specification} and does not commence an
 initializer~(\ref{dcl.init}).
@@ -904,24 +933,13 @@ see~\ref{dcl.fct}.
 \exitnote
 
 \pnum
-A \defn{potential exception} of a given context is either a type that might be
-thrown as an exception or a pseudo-type, denoted by ``any'', that
-represents the situation where an exception of an arbitrary type might
-be thrown. A subexpression \tcode{e1} of an expression \tcode{e} is an
+The \defn{set of potential exceptions} of a given context is
+a set of types that might be thrown as an exception;
+the (conceptual) set of all types is used to denote that an exception of
+arbitrary type might be thrown.
+A subexpression \tcode{e1} of an expression \tcode{e} is an
 \defn{immediate subexpression} if there is no subexpression \tcode{e2} of \tcode{e}
 such that \tcode{e1} is a subexpression of \tcode{e2}.
-
-\pnum
-The \defn{set of potential exceptions of a function, function pointer, or
-member function pointer} \tcode{f} is defined as follows:
-\begin{itemize}
-\item
-If the exception specification of \tcode{f} is the set of all types,
-the set consists of the pseudo-type ``any''.
-\item
-Otherwise, the set consists of
-every type in the exception specification of \tcode{f}.
-\end{itemize}
 
 \pnum
 The \defn{set of potential exceptions of an expression} \tcode{e} is empty
@@ -940,7 +958,8 @@ If its \grammarterm{postfix-expression} is a (possibly parenthesized)
 \grammarterm{id-expression}~(\ref{expr.prim.general}), class member access
 (\ref{expr.ref}), or pointer-to-member operation~(\ref{expr.mptr.oper})
 whose \grammarterm{cast-expression} is an \grammarterm{id-expression},
-\placeholder{S} is the set of potential exceptions of the entity selected by the
+\placeholder{S} is the set of types in the exception specification
+of the entity selected by the
 contained \grammarterm{id-expression} (after overload resolution, if applicable).
 \item
 Otherwise, if the \grammarterm{postfix-expression} has type
@@ -948,14 +967,26 @@ Otherwise, if the \grammarterm{postfix-expression} has type
 ``pointer to \tcode{noexcept} function'',
 \placeholder{S} is the empty set.
 \item
-Otherwise, \placeholder{S} contains the pseudo-type ``any''.
+Otherwise, \placeholder{S} is the set of all types.
 \end{itemize}
 
 \item
-If \tcode{e} implicitly invokes a function (such as an overloaded operator,
-an allocation function in a \grammarterm{new-expression}, or a destructor
-if \tcode{e} is a full-expression~(\ref{intro.execution})),
-\placeholder{S} is the set of potential exceptions of the function.
+If \tcode{e} implicitly invokes one or more functions
+(such as an overloaded operator,
+an allocation function in a \grammarterm{new-expression},
+or a destructor if \tcode{e} is a full-expression~(\ref{intro.execution})),
+\placeholder{S} is the union of:
+\begin{itemize}
+\item
+the sets of types in the exception specifications of all such functions, and
+\item
+if \tcode{e} is a \grammarterm{new-expression}
+with a non-constant \grammarterm{expression}
+in the \grammarterm{noptr-new-declarator}~(\ref{expr.new})
+and the allocation function selected for \tcode{e}
+has a non-empty set of potential exceptions,
+the set containing \tcode{std::bad_array_new_length}.
+\end{itemize}
 \item
 If \tcode{e} initializes an object of type \tcode{D} using an inherited
 constructor for a class of type \tcode{B}~(\ref{class.inhctor.init}),
@@ -969,7 +1000,7 @@ the initialization of non-static data members from
 \item
 If \tcode{e} is a \grammarterm{throw-expression}~(\ref{expr.throw}),
 \placeholder{S} consists of the type of the exception object that would be
-initialized by the operand, if present, or the pseudo-type ``any'' otherwise.
+initialized by the operand, if present, or is the set of all types otherwise.
 \item
 If \tcode{e} is a \tcode{dynamic_cast} expression that casts to a reference type and
 requires a run-time check~(\ref{expr.dynamic.cast}),
@@ -978,10 +1009,6 @@ requires a run-time check~(\ref{expr.dynamic.cast}),
 If \tcode{e} is a \tcode{typeid} expression applied to a glvalue expression whose
 type is a polymorphic class type (\ref{expr.typeid}),
 \placeholder{S} consists of the type \tcode{std::bad_typeid}.
-\item
-If \tcode{e} is a \grammarterm{new-expression} with a non-constant
-\grammarterm{expression} in the \grammarterm{noptr-new-declarator}~(\ref{expr.new}),
-\placeholder{S} consists of the type \tcode{std::bad_array_new_length}.
 \end{itemize}
 
 \enterexample
@@ -998,13 +1025,13 @@ the set of potential exceptions for some sample expressions is:
 \item
 for \tcode{f()}, the set consists of \tcode{int};
 \item
-for \tcode{g()}, the set consists of ``any'';
+for \tcode{g()}, the set is the set of all types;
 \item
-for \tcode{new A}, the set consists of ``any'';
+for \tcode{new A}, the set is the set of all types;
 \item
 for \tcode{B()}, the set is empty;
 \item
-for \tcode{new D}, the set consists of ``any'' and \tcode{double}.
+for \tcode{new D}, the set is the set of all types.
 \end{itemize}
 \exitexample
 
@@ -1014,8 +1041,8 @@ where the function's type is declared to be \tcode{T},
 is instead considered to be of type ``\tcode{noexcept} \tcode{T}''.
 
 \pnum
-Given an implicitly-declared special member function \tcode{f} of some class \tcode{X},
-the \defn{set of potential exceptions of the implicitly-declared special member function} \tcode{f}
+An implicitly-declared special member function \tcode{f} of some class \tcode{X}
+is considered to have an implicit exception specification that
 consists of all the members from the following sets:
 
 \begin{itemize}
@@ -1061,21 +1088,6 @@ destructor invocations for \tcode{X}'s non-variant non-static data members
 and for \tcode{X}'s virtual and direct base classes.
 \end{itemize}
 
-\pnum
-An implicitly-declared special member function (Clause~\ref{special})
-is considered to have an
-implicit exception specification, as follows, where
-\placeholder{S} is the set of potential exceptions of the
-implicitly-declared special member function:
-\begin{itemize}
-\item
-if \placeholder{S} contains the pseudo-type ``any'',
-the implicit exception specification is the set of all types;
-\item
-otherwise, the implicit exception specification
-contains all the types in \placeholder{S}.
-\end{itemize}
-
 \enterexample
 \begin{codeblock}
 struct A {
@@ -1093,10 +1105,16 @@ struct B {
 int n = 7;
 struct D : public A, public B {
     int * p = new (std::nothrow) int[n];
-    // exception specification of \tcode{D::D()} contains \tcode{X} and \tcode{std::bad_array_new_length}
+    // exception specification of \tcode{D::D()} contains \tcode{X}
     // exception specification of \tcode{D::D(const D\&)} contains no types
     // exception specification of \tcode{D::D(D\&\&)} contains \tcode{Y}
     // exception specification of \tcode{D::\~D()} contains \tcode{X} and \tcode{Y}
+};
+struct exp : std::bad_alloc {};
+void *operator new[](size_t) throw(exp);
+struct E : public A {
+  int * p = new int[n];
+  // exception specification of \tcode{E::E()} contains \tcode{X}, \tcode{exp}, and \tcode{std::bad_array_new_length}
 };
 \end{codeblock}
 
@@ -1359,5 +1377,5 @@ If the exception is rethrown~(\ref{expr.throw}),
 it is considered uncaught from the point of rethrow
 until the rethrown exception is caught again.
 The function \tcode{std::uncaught_exceptions()}~(\ref{uncaught.exceptions})
-returns the number of uncaught exceptions.%
+returns the number of uncaught exceptions in the current thread.%
 \indextext{exception handling|)}
