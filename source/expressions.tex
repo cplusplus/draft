@@ -625,6 +625,7 @@ void abssort(float* x, unsigned N) {
     identifier\br
     \terminal{\&} identifier\br
     \terminal{this}
+    \terminal{* this}
 \end{bnf}
 
 \begin{bnf}
@@ -939,7 +940,10 @@ is \tcode{\&}, no identifier in a \grammarterm{simple-capture} of that
 by \tcode{\&}. If a \grammarterm{lambda-capture} includes a
 \grammarterm{capture-default} that is \tcode{=}, each
 \grammarterm{simple-capture} of that \grammarterm{lambda-capture} shall
-be of the form ``\tcode{\&} \grammarterm{identifier}''. Ignoring appearances in
+be of the form ``\tcode{\&} \grammarterm{identifier}'' or ``\tcode{* this}''.
+\enternote The form \tcode{[\&,this]} is redundant but accepted
+for compatibility with ISO \Cpp14. \exitnote
+Ignoring appearances in
 \grammarterm{initializer}{s} of \grammarterm{init-capture}{s}, an identifier or
 \tcode{this} shall not appear more than once in a
 \grammarterm{lambda-capture}. \enterexample
@@ -947,10 +951,12 @@ be of the form ``\tcode{\&} \grammarterm{identifier}''. Ignoring appearances in
 \begin{codeblock}
 struct S2 { void f(int i); };
 void S2::f(int i) {
-  [&, i]{ };    // OK
-  [&, &i]{ };   // error: \tcode{i} preceded by \tcode{\&} when \tcode{\&} is the default
-  [=, this]{ }; // error: \tcode{this} when \tcode{=} is the default
-  [i, i]{ };    // error: \tcode{i} repeated
+  [&, i]{ };        // OK
+  [&, &i]{ };       // error: \tcode{i} preceded by \tcode{\&} when \tcode{\&} is the default
+  [=, *this]{ };    // OK
+  [=, this]{ };     // error: \tcode{this} when \tcode{=} is the default
+  [i, i]{ };        // error: \tcode{i} repeated
+  [this, *this]{ }; // error: \tcode{this} appears twice
 }
 \end{codeblock}
 \exitexample
@@ -970,7 +976,9 @@ The \grammarterm{identifier} in a \grammarterm{simple-capture} is looked up usin
 usual rules for unqualified name lookup~(\ref{basic.lookup.unqual}); each such lookup
 shall find an entity.  An entity that is designated by a
 \grammarterm{simple-capture}
-is said to be \defn{explicitly captured}, and shall be \tcode{this} or
+is said to be \defn{explicitly captured}, and shall be \tcode{*this}
+(when the \grammarterm{simple-capture}
+is ``\tcode{this}'' or ``\tcode{* this}'') or
 a variable with automatic storage duration declared in
 the reaching scope of the local lambda expression.
 
@@ -1005,15 +1013,17 @@ auto y = [&r = x, x = x+1]()->int {
 
 \pnum
 A \grammarterm{lambda-expression} with an associated
-\grammarterm{capture-default} that does not explicitly capture \tcode{this} or
+\grammarterm{capture-default} that does not explicitly capture \tcode{*this} or
 a variable with automatic storage duration (this excludes any \grammarterm{id-expression}
 that has been found to refer to an \grammarterm{init-capture}{'s} associated
 \indextext{implicit capture!definition of}%
 non-static data member), is said to \defnx{implicitly capture}{capture!implicit}
 the entity (i.e.,
-\tcode{this} or a variable) if the \grammarterm{compound-statement}:
+\tcode{*this} or a variable) if the \grammarterm{compound-statement}:
 \begin{itemize}
-\item odr-uses~(\ref{basic.def.odr}) the entity, or
+\item odr-uses~(\ref{basic.def.odr}) the entity (in the case of a variable),
+\item odr-uses~(\ref{basic.def.odr}) \tcode{this}
+(in the case of the object designated by \tcode{*this}), or
 \item names the entity in a potentially-evaluated
 expression~(\ref{basic.def.odr}) where the enclosing full-expression depends on
 a generic lambda parameter declared within the reaching scope of the
@@ -1046,7 +1056,7 @@ in implicit capture. \exitnote
 \pnum
 An entity is \defn{captured} if it is captured explicitly or implicitly. An entity
 captured by a \grammarterm{lambda-expression} is odr-used~(\ref{basic.def.odr}) in the scope
-containing the \grammarterm{lambda-expression}. If \tcode{this} is captured by a local
+containing the \grammarterm{lambda-expression}. If \tcode{*this} is captured by a local
 lambda expression, its nearest enclosing function shall be a non-static member function.
 If a \grammarterm{lambda-expression} or an instantiation of the function call
 operator template of a generic lambda odr-uses~(\ref{basic.def.odr}) \tcode{this} or a
@@ -1085,6 +1095,22 @@ void f1(int i) {
     }
   };
 }
+
+struct s2 {
+  double ohseven = .007;
+  auto f() {
+    return [this] {
+      return [*this] {
+          return ohseven; // OK
+      }
+    }();
+  }
+  auto g() {
+    return [] {
+      return [*this] { }; // error: \tcode{*this} not captured by outer \grammarterm{lambda-expression}
+    }();
+  }
+};
 \end{codeblock}
 \exitexample
 
@@ -1105,10 +1131,18 @@ void f2() {
 \exitexample
 
 \pnum
-An entity is \defnx{captured by copy}{captured!by~copy} if it is implicitly captured and the
-\grammarterm{capture-default} is \tcode{=} or if it is explicitly captured with a
-capture that is not of the form \tcode{\&} \grammarterm{identifier} or
+An entity is \defnx{captured by copy}{captured!by~copy} if
+\begin{itemize}
+\item
+it is implicitly captured,
+the \grammarterm{capture-default} is \tcode{=}, and
+the captured entity is not \tcode{*this}, or
+\item
+it is explicitly captured with a capture that is not of the form
+\tcode{this},
+\tcode{\&} \grammarterm{identifier}, or
 \tcode{\&} \grammarterm{identifier} \grammarterm{initializer}.
+\end{itemize}
 For each entity captured by copy, an
 unnamed non-static data member is declared in the closure type. The declaration order of
 these members is unspecified. The type of such a data member is
@@ -1116,6 +1150,32 @@ the referenced type if the entity is a reference to an object,
 an lvalue reference to the referenced function type if the entity is a reference to a function, or
 the type of the corresponding captured entity otherwise.
 A member of an anonymous union shall not be captured by copy.
+
+\pnum
+Every \grammarterm{id-expression} within the \grammarterm{compound-statement} of a
+\grammarterm{lambda-expression} that is an odr-use~(\ref{basic.def.odr}) of an
+entity captured by copy is transformed into an access to the corresponding unnamed data
+member of the closure type.
+\enternote An \grammarterm{id-expression} that is not an odr-use refers to
+the original entity, never to a member of the closure type. Furthermore, such
+an \grammarterm{id-expression} does not cause the implicit capture of the
+entity. \exitnote
+If \tcode{*this} is captured by copy, each odr-use of \tcode{this} is
+transformed into a pointer to the corresponding unnamed data member of the closure type,
+cast~(\ref{expr.cast}) to the type of \tcode{this}. \enternote The cast ensures that the
+transformed expression is a prvalue. \exitnote \enterexample
+\begin{codeblock}
+void f(const int*);
+void g() {
+  const int N = 10;
+  [=] {
+    int arr[N];             // OK: not an odr-use, refers to automatic variable
+    f(&N);                  // OK: causes \tcode{N} to be captured; \tcode{\&N} points to the
+                            // corresponding member of the closure type
+  };
+}
+\end{codeblock}
+\exitexample
 
 \pnum
 An entity is \defnx{captured by reference}{captured!by~reference} if it is implicitly or explicitly
@@ -1161,33 +1221,6 @@ auto m1 = [a, &b, &c]() mutable {
 a = 2; b = 2; c = 2;
 m1();
 std::cout << a << b << c;
-\end{codeblock}
-\exitexample
-
-
-\pnum
-Every \grammarterm{id-expression} within the \grammarterm{compound-statement} of a
-\grammarterm{lambda-expression} that is an odr-use~(\ref{basic.def.odr}) of an
-entity captured by copy is transformed into an access to the corresponding unnamed data
-member of the closure type.
-\enternote An \grammarterm{id-expression} that is not an odr-use refers to
-the original entity, never to a member of the closure type. Furthermore, such
-an \grammarterm{id-expression} does not cause the implicit capture of the
-entity. \exitnote
-If \tcode{this} is captured, each odr-use of \tcode{this} is
-transformed into an access to the corresponding unnamed data member of the closure type,
-cast~(\ref{expr.cast}) to the type of \tcode{this}. \enternote The cast ensures that the
-transformed expression is a prvalue. \exitnote \enterexample
-\begin{codeblock}
-void f(const int*);
-void g() {
-  const int N = 10;
-  [=] {
-    int arr[N];             // OK: not an odr-use, refers to automatic variable
-    f(&N);                  // OK: causes \tcode{N} to be captured; \tcode{\&N} points to the
-                            // corresponding member of the closure type
-  };
-}
 \end{codeblock}
 \exitexample
 
