@@ -635,9 +635,40 @@ void abssort(float* x, unsigned N) {
 
 \begin{bnf}
 \nontermdef{lambda-declarator}\br
-    \terminal{(} parameter-declaration-clause \terminal{)} \terminal{mutable}\opt\br
+    \terminal{(} parameter-declaration-clause \terminal{)} decl-specifier-seq\opt\br
     \hspace*{\bnfindentinc}exception-specification\opt attribute-specifier-seq\opt trailing-return-type\opt
 \end{bnf}
+
+\pnum
+In the \grammarterm{decl-specifier-seq} of the \grammarterm{lambda-declarator},
+each \grammarterm{decl-specifier}
+shall either be \tcode{mutable} or \tcode{constexpr}.
+\enterexample
+\begin{codeblock}
+auto monoid = [](auto v) { return [=] { return v; }; };
+auto add = [](auto m1) constexpr {
+  auto ret = m1();
+  return [=](auto m2) mutable {
+    auto m1val = m1();
+    auto plus = [=](auto m2val) mutable constexpr
+                   { return m1val += m2val; };
+    ret = plus(m2());
+    return monoid(ret);
+  };
+};
+constexpr auto zero = monoid(0);
+constexpr auto one = monoid(1);
+static_assert(add(one)(zero)() == one()); // OK
+
+// Since \tcode{two} below is not declared \tcode{constexpr}, an evaluation of its \tcode{constexpr} member function call operator
+// cannot perform an lvalue-to-rvalue conversion on one of its subobjects (that represents its capture)
+// in a constant expression.
+auto two = monoid(2);
+assert(two() == 2); // OK, not a constant expression.
+static_assert(add(one)(one)() == two()); // ill-formed: \tcode{two()} is not a constant expression
+static_assert(add(one)(one)() == monoid(2)()); // OK
+\end{codeblock}
+\exitexample
 
 \pnum
 The evaluation of a \grammarterm{lambda-expression} results in a prvalue
@@ -656,9 +687,10 @@ object~(\ref{function.objects}).\exitnote
 
 \pnum
 The type of the \grammarterm{lambda-expression} (which is also the type of the
-closure object) is a unique, unnamed non-union class type --- called the \defn{closure
-type} --- whose properties are described below. This class type is neither an
-aggregate~(\ref{dcl.init.aggr}) nor a literal type~(\ref{basic.types}).
+closure object) is a unique, unnamed non-union class type
+--- called the \defn{closure type} ---
+whose properties are described below.
+This class type is not an aggregate type~(\ref{dcl.init.aggr}).
 The closure type is declared in the smallest block
 scope, class scope, or namespace scope that contains the corresponding
 \grammarterm{lambda-expression}. \enternote This determines the set of namespaces and
@@ -746,9 +778,26 @@ followed by \tcode{mutable}. It is neither virtual nor declared \tcode{volatile}
 applies to the corresponding function call operator or operator template.
 An \grammarterm{attribute-specifier-seq} in a \grammarterm{lambda-declarator} appertains
 to the type of the corresponding function call operator or operator template.
+The function call operator or any given operator template specialization
+is a constexpr function if either
+the corresponding \grammarterm{lambda-expression}{'s}
+\grammarterm{parameter-declaration-clause} is followed by \tcode{constexpr}, or
+it satisfies the requirements for a constexpr function~(\ref{dcl.constexpr}).
 \enternote Names referenced in
 the \grammarterm{lambda-declarator} are looked up in the context in which the
 \grammarterm{lambda-expression} appears. \exitnote
+\enterexample
+\begin{codeblock}
+auto ID = [](auto a) { return a; };
+static_assert(ID(3) == 3); // OK
+
+struct NonLiteral {
+  NonLiteral(int n) : n(n) { }
+  int n;
+};
+static_assert(ID(NonLiteral{3}).n == 3); // ill-formed
+\end{codeblock}
+\exitexample
 
 \pnum
 The closure type for a non-generic \grammarterm{lambda-expression} with no
@@ -759,9 +808,11 @@ the same parameter and return types as the closure type's function call operator
 The conversion is to ``pointer to \tcode{noexcept} function''
 if the function call operator
 has a non-throwing exception specification.
-The
-value returned by this conversion function shall be the address of a function that, when
-invoked, has the same effect as invoking the closure type's function call operator.
+The value returned by this conversion function
+is the address of a function \tcode{F} that, when invoked,
+has the same effect as invoking the closure type's function call operator.
+\tcode{F} is a constexpr function
+if the function call operator is a constexpr function.
 For a generic lambda with no \grammarterm{lambda-capture}, the closure type has a
 conversion function template to
 pointer to function. The conversion function template has the same invented
@@ -770,7 +821,8 @@ parameter types, as the function call operator template.  The return type of
 the pointer to function shall behave as if it were a
 \grammarterm{decltype-specifier} denoting the return type of the corresponding
 function call operator template specialization.
-\enternote If the generic lambda has no \grammarterm{trailing-return-type} or
+\enternote
+If the generic lambda has no \grammarterm{trailing-return-type} or
 the \grammarterm{trailing-return-type} contains a placeholder type, return type
 deduction of the corresponding function call operator template specialization
 has to be done. The corresponding specialization is that instantiation of the
@@ -798,6 +850,7 @@ struct Closure {
 };
 \end{codeblock}
 \exitnote
+
 \enterexample
 \begin{codeblock}
 void f1(int (*)(int))   { }
@@ -817,10 +870,13 @@ h(glambda);   // OK: calls \#3 since it is convertible from ID
 int& (*fpi)(int*) = [](auto* a) -> auto& { return *a; }; // OK
 \end{codeblock}
 \exitexample
+
 The value returned by any given specialization of this conversion function
-template shall be the address of a function that, when invoked, has the same
+template is the address of a function \tcode{F} that, when invoked, has the same
 effect as invoking the generic lambda's corresponding function call operator
 template specialization.
+\tcode{F} is a constexpr function
+if the corresponding specialization is a constexpr function.
 \enternote
 This will result in the implicit instantiation of the generic lambda's body.
 The instantiated generic lambda's return type and parameter types shall match
@@ -833,9 +889,22 @@ int (*GL_int)(int) = GL;  // OK: through conversion function template
 GL_int(3);                // OK: same as \tcode{GL(3)}
 \end{codeblock}
 \exitexample
+
 The conversion function or conversion function template is public,
-non-virtual, non-explicit, const, and has a non-throwing exception
+constexpr, non-virtual, non-explicit, const, and has a non-throwing exception
 specification~(\ref{except.spec}).
+\enterexample
+\begin{codeblock}
+auto Fwd = [](int (*fp)(int), auto a) { return fp(a); };
+auto C = [](auto a) { return a; };
+
+static_assert(Fwd(C,3) == 3); // OK
+
+// No specialization of the function call operator template can be constexpr (due to the local static).
+auto NC = [](auto a) { static int s; return a; };
+static_assert(Fwd(NC,3) == 3); // ill-formed
+\end{codeblock}
+\exitexample
 
 \pnum
 The \grammarterm{lambda-expression}'s \grammarterm{compound-statement} yields the
@@ -1052,7 +1121,15 @@ A member of an anonymous union shall not be captured by copy.
 An entity is \defnx{captured by reference}{captured!by~reference} if it is implicitly or explicitly
 captured but not captured by copy. It is unspecified whether additional unnamed
 non-static data members are declared in the closure type for entities captured by
-reference. A member of an anonymous union shall not be captured by reference.
+reference.
+If declared, such non-static data members shall be of literal type.
+\enterexample
+\begin{codeblock}
+// The inner closure type must be a literal type regardless of how reference captures are represented.
+static_assert([](int n) { return [&n] { return ++n; }(); }(3) == 4);
+\end{codeblock}
+\exitexample
+A member of an anonymous union shall not be captured by reference.
 
 \pnum
 If a \grammarterm{lambda-expression} \tcode{m2} captures an entity and that entity is
@@ -4751,9 +4828,6 @@ zero~(\ref{expr.mul}), or certain shift operations~(\ref{expr.shift})
 \exitnote;
 
 \item
-a \grammarterm{lambda-expression}~(\ref{expr.prim.lambda});
-
-\item
 an lvalue-to-rvalue conversion~(\ref{conv.lval}) unless
 it is applied to
 
@@ -4802,6 +4876,36 @@ a reference to \tcode{this} or to a variable with
 automatic storage duration defined outside that
 \grammarterm{lambda-expression}, where
 the reference would be an odr-use~(\ref{basic.def.odr}, \ref{expr.prim.lambda});
+\enterexample
+\begin{codeblock}
+void g() {
+  const int n = 0;
+  [=] {
+    constexpr int i = n;   // OK, \tcode{n} is not odr-used and not captured here
+    constexpr int j = *&n; // ill-formed, \tcode{\&n} would be an odr-use of \tcode{n}
+  };
+}
+\end{codeblock}
+\exitexample
+\enternote
+If the odr-use occurs in an invocation
+of a function call operator of a closure type,
+it no longer refers to \tcode{this} or to an enclosing automatic variable
+due to the transformation~(\ref{expr.prim.lambda})
+of the \grammarterm{id-expression} into
+an access of the corresponding data member.
+\enterexample
+\begin{codeblock}
+auto monad = [](auto v) { return [=] { return v; }; };
+auto bind = [](auto m) {
+  return [=](auto fvm) { return fvm(m()); };
+};
+
+// OK to have captures to automatic objects created during constant expression evaluation.
+static_assert(bind(monad(2))(monad)() == monad(2)());
+\end{codeblock}
+\exitexample
+\exitnote
 
 \item
 a conversion from type \cv{} \tcode{void *} to a pointer-to-object type;
