@@ -5228,7 +5228,8 @@ except that they
 shall not participate in overload resolution unless either
 
 \begin{itemize}
-\item \tcode{U} is the same type as \tcode{pointer}, or
+\item \tcode{U} is the same type as \tcode{pointer},
+\item \tcode{U} is \tcode{nullptr_t}, or
 \item \tcode{pointer} is the same type as \tcode{element_type*},
       \tcode{U} is a pointer type \tcode{V*}, and
       \tcode{V(*)[]} is convertible to \tcode{element_type(*)[]}.
@@ -6080,7 +6081,8 @@ T& operator*() const noexcept;
 
 \pnum\returns  \tcode{*get()}.
 
-\pnum\notes When \tcode{T} is \tcode{void}, it is unspecified whether this
+\pnum\notes When \tcode{T} is (possibly \cv-qualified) \tcode{void},
+it is unspecified whether this
 member function is declared. If it is declared, it is unspecified what its
 return type is, except that the declaration (although not necessarily the
 definition) of the function shall be well formed.
@@ -8045,6 +8047,10 @@ For templates \tcode{greater}, \tcode{less}, \tcode{greater_equal}, and
 \tcode{less_equal}, the specializations for any pointer type yield a total order,
 even if the built-in operators \tcode{<}, \tcode{>}, \tcode{<=}, \tcode{>=}
 do not.
+For template specializations \tcode{greater<void>}, \tcode{less<void>},
+\tcode{greater_equal<void>}, and \tcode{less_equal<void>},
+if the call operator calls a built-in operator comparing pointers,
+the call operator yields a total order.
 
 \rSec2[logical.operations]{Logical operations}
 
@@ -8428,9 +8434,8 @@ as specified below, shall be neither \tcode{volatile} nor \tcode{const volatile}
 
 \pnum\returns A forwarding call wrapper \tcode{g} with a weak result
 type~(\ref{func.require}). The effect of \tcode{g(u1, u2, ..., uM)} shall
-be \tcode{\textit{INVOKE}(fd, std::forward<V1>(v1), std::forward<V2>(v2), ..., std::forward<VN>(vN), result_of_t<FD \textit{cv} \&
-(V1, V2, ..., VN)>)}, where \tcode{\textit{cv}} represents the
-\textit{cv}-qualifiers of \tcode{g} and the values and types of the bound
+be \tcode{\textit{INVOKE}(fd, std::forward<V1>(v1), std::forward<V2>(v2), ..., std::forward<VN>(vN))},
+where the values and types of the bound
 arguments \tcode{v1, v2, ..., vN} are determined as specified below.
 The copy constructor and move constructor of the forwarding call wrapper shall throw an
 exception if and only if the corresponding constructor of \tcode{FD} or of any of the types
@@ -8796,6 +8801,17 @@ template <class A> function(allocator_arg_t, const A& a, function&& f);
 no target; otherwise, move-constructs the target of \tcode{f}
 into the target of \tcode{*this}, leaving \tcode{f} in
 a valid state with an unspecified value.
+
+\pnum
+\throws shall not throw exceptions if \tcode{f}'s target is
+a callable object passed via \tcode{reference_wrapper} or
+a function pointer. Otherwise, may throw \tcode{bad_alloc} or
+any exception thrown by the copy or move constructor
+of the stored callable object.
+\enternote Implementations are encouraged to avoid the use of
+dynamically allocated memory for small callable objects, for example,
+where \tcode{f}'s target is an object holding only a pointer or reference
+to an object and a member function pointer. \exitnote
 \end{itemdescr}
 
 \indexlibrary{\idxcode{function}!\idxcode{function}}
@@ -9491,7 +9507,11 @@ namespace std {
 
 \pnum
 The behavior of a program that adds specializations for any of
-the class templates defined in this subclause is undefined unless otherwise specified.
+the templates defined in this subclause is undefined unless otherwise specified.
+
+\pnum
+Unless otherwise specified, an incomplete type may be used
+to instantiate a template in this subclause.
 
 \rSec2[meta.help]{Helper classes}
 
@@ -9754,7 +9774,9 @@ notwithstanding the restrictions of~\ref{declval}.
 
 \tcode{template <class T, class... Args>}\br
  \tcode{struct is_constructible;}   &
- \seebelow                          &
+ For a function type \tcode{T},
+ \tcode{is_constructible<T, Args...>::value} is \tcode{false},
+ otherwise \seebelow                &
  \tcode{T} and all types in the parameter pack \tcode{Args}
  shall be complete types, (possibly cv-qualified) \tcode{void},
  or arrays of unknown bound.  \\ \rowsep
@@ -10584,7 +10606,8 @@ is unambiguously available in the type.
 The BaseCharacteristic of a specialization \tcode{conjunction<B1, ..., BN>}
 is the first type \tcode{Bi} in the list \tcode{true_type, B1, ..., BN}
 for which \tcode{Bi::value == false}, or
-if every \tcode{Bi::value != false}, the BaseCharacteristic is \tcode{BN}.
+if every \tcode{Bi::value != false},
+the BaseCharacteristic is the last type in the list.
 \enternote This means a specialization of \tcode{conjunction}
 does not necessarily have a BaseCharacteristic
 of either \tcode{true_type} or \tcode{false_type}.
@@ -10618,7 +10641,8 @@ is unambiguously available in the type.
 The BaseCharacteristic of a specialization \tcode{disjunction<B1, ..., BN>}
 is the first type \tcode{Bi} in the list \tcode{false_type, B1, ..., BN}
 for which \tcode{Bi::value != false}, or
-if every \tcode{Bi::value == false}, the BaseCharacteristic is \tcode{BN}.
+if every \tcode{Bi::value == false},
+the BaseCharacteristic is the last type in the list.
 \enternote This means a specialization of \tcode{disjunction}
 does not necessarily have a BaseCharacteristic
 of either \tcode{true_type} or \tcode{false_type}.
@@ -12973,12 +12997,12 @@ template <class T, class... Args>
 \textit{OUTERMOST}(*this), p, std::forward<Args>(args)...)}.
 
 \item Otherwise, if \tcode{uses_allocator<T, inner_allocator_type>::value} is \tcode{true} and
-\tcode{is_construc\-tible<T, allocator_arg_t, inner_allocator_type, Args...>::value} is \tcode{true}, calls
+\tcode{is_construc\-tible<T, allocator_arg_t, inner_allocator_type\&, Args...>::value} is \tcode{true}, calls
 \textit{OUTERMOST_ALLOC_TRAITS}(\tcode{*this})\tcode{::construct(\textit{OUTERMOST}(*this),
 p, allocator_arg,\\inner_allocator(), std::forward<Args>(args)...)}.
 
 \item Otherwise, if \tcode{uses_allocator<T, inner_allocator_type>::value} is \tcode{true} and
-\tcode{is_construct\-ible<T, Args..., inner_allocator_type>::value} is \tcode{true}, calls
+\tcode{is_construct\-ible<T, Args..., inner_allocator_type\&>::value} is \tcode{true}, calls
 \textit{OUTERMOST_ALLOC_TRAITS}(*this)::
 \tcode{construct(\textit{OUTERMOST}(*this), p, std::forward<Args>(args)...,\\inner_allocator())}.
 
@@ -13013,7 +13037,7 @@ Args1...>::value} is \tcode{true}, then \tcode{xprime} is \tcode{x}.
 
 \item Otherwise, if \tcode{uses_allocator<T1, inner_allocator_type>::value} is \tcode{true}
 and
-\tcode{is_construct\-ible<T1, allocator_arg_t, inner_allocator_type, Args1...>::value}
+\tcode{is_construct\-ible<T1, allocator_arg_t, inner_allocator_type\&, Args1...>::value}
 is
 \tcode{true}, then \tcode{xprime} is
 \tcode{tuple_cat(tuple<allocator_arg_t, inner_allocator_type\&>(
@@ -13021,7 +13045,7 @@ allocator_arg, inner_allocator()), std::move(x))}.
 
 \item Otherwise, if \tcode{uses_allocator<T1, inner_allocator_type>::value} is
 \tcode{true} and
-\tcode{is_construct\-ible<T1, Args1..., inner_allocator_type>::value} is \tcode{true},
+\tcode{is_construct\-ible<T1, Args1..., inner_allocator_type\&>::value} is \tcode{true},
 then \tcode{xprime} is
 \tcode{tuple_cat(std::move(x), tuple<inner_allocator_type\&>(inner_allocator()))}.
 
@@ -13037,7 +13061,7 @@ Args2...>::value} is \tcode{true}, then \tcode{yprime} is \tcode{y}.
 
 \item Otherwise, if \tcode{uses_allocator<T2, inner_allocator_type>::value} is \tcode{true}
 and
-\tcode{is_construct\-ible<T2, allocator_arg_t, inner_allocator_type, Args2...>::value}
+\tcode{is_construct\-ible<T2, allocator_arg_t, inner_allocator_type\&, Args2...>::value}
 is
 \tcode{true}, then \tcode{yprime} is
 \tcode{tuple_cat(tuple<allocator_arg_t, inner_allocator_type\&>(
@@ -13045,7 +13069,7 @@ allocator_arg, inner_allocator()), std::move(y))}.
 
 \item Otherwise, if \tcode{uses_allocator<T2, inner_allocator_type>::value} is
 \tcode{true} and
-\tcode{is_construct\-ible<T2, Args2..., inner_allocator_type>::value} is \tcode{true},
+\tcode{is_construct\-ible<T2, Args2..., inner_allocator_type\&>::value} is \tcode{true},
 then \tcode{yprime} is
 \tcode{tuple_cat(std::move(y), tuple<inner_allocator_type\&>(inner_allocator()))}.
 
