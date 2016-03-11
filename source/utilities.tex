@@ -13,6 +13,7 @@ These utilities are summarized in Table~\ref{tab:util.lib.summary}.
 \ref{pairs}                 & Pairs                             & \tcode{<utility>}     \\ \rowsep
 \ref{tuple}                 & Tuples                            & \tcode{<tuple>}       \\ \rowsep
 \ref{optional}              & Optional objects                  & \tcode{<optional>}    \\ \rowsep
+\ref{any}                   & Storage for any type              & \tcode{<any>}         \\ \rowsep
 \ref{intseq}                & Compile-time integer sequences    & \tcode{<utility>}     \\ \rowsep
 \ref{template.bitset}       & Fixed-size sequences of bits      & \tcode{<bitset>}      \\ \rowsep
                             &                                   & \tcode{<memory>}      \\
@@ -3221,6 +3222,413 @@ The template specialization \tcode{hash<optional<T>>} shall meet the requirement
 For an object \tcode{o} of type \tcode{optional<T>}, if \tcode{bool(o) == true},
 \tcode{hash<optional<T>>()(o)} shall evaluate to the same value as \tcode{hash<T>()(*o)};
 otherwise it evaluates to an unspecified value.
+\end{itemdescr}
+
+\rSec1[any]{Storage for any type}
+
+\pnum
+This section describes components that C++ programs may use to perform operations on objects of a discriminated type.
+
+\pnum
+\enternote
+The discriminated type may contain values of different types but does not attempt conversion between them,
+i.e. \tcode{5} is held strictly as an \tcode{int} and is not implicitly convertible either to \tcode{"5"} or to \tcode{5.0}.
+This indifference to interpretation but awareness of type effectively allows safe, generic containers of single values, with no scope for surprises from ambiguous conversions.
+\exitnote
+
+\rSec2[any.synop]{Header \tcode{<any>} synopsis}
+
+\begin{codeblock}
+namespace std {
+  // \ref{any.bad_any_cast}, class \tcode{bad_any_cast}
+  class bad_any_cast;
+
+  // \ref{any.class}, class \tcode{any}
+  class any;
+
+  // \ref{any.nonmembers}, non-member functions
+  void swap(any& x, any& y) noexcept;
+  
+  template<class ValueType>
+    ValueType any_cast(const any& operand);
+  template<class ValueType>
+    ValueType any_cast(any& operand);
+  template<class ValueType>
+    ValueType any_cast(any&& operand);
+  
+  template<class ValueType>
+    const ValueType* any_cast(const any* operand) noexcept;
+  template<class ValueType>
+    ValueType* any_cast(any* operand) noexcept;
+} // namespace std
+\end{codeblock}
+
+\rSec2[any.bad_any_cast]{Class \tcode{bad_any_cast}}
+
+\begin{codeblock}
+class bad_any_cast : public bad_cast {
+public:
+  virtual const char* what() const noexcept;
+};
+\end{codeblock}
+
+\pnum
+Objects of type \tcode{bad_any_cast} are thrown by a failed \tcode{any_cast}.
+
+\rSec2[any.class]{Class \tcode{any}}
+
+\begin{codeblock}
+class any {
+public:
+  // \ref{any.cons}, construction and destruction
+  any() noexcept;
+
+  any(const any &other);
+  any(any &&other) noexcept;
+
+  template <class ValueType> any(ValueType &&value);
+
+  ~any();
+
+  // \ref{any.assign}, assignments
+  any &operator=(const any &rhs);
+  any &operator=(any &&rhs) noexcept;
+
+  template <class ValueType> any &operator=(ValueType &&rhs);
+
+  // \ref{any.modifiers}, modifiers
+  void clear() noexcept;
+  void swap(any &rhs) noexcept;
+
+  // \ref{any.observers}, observers
+  bool empty() const noexcept;
+  const type_info &type() const noexcept;
+};
+\end{codeblock}
+
+\pnum
+An object of class \tcode{any} stores an instance of any type that satisfies the constructor requirements or is empty,
+and this is referred to as the \defn{state} of the class \tcode{any} object.
+The stored instance is called the \defn{contained object}.
+Two states are equivalent if they are either both empty or if both are not empty and if the contained objects are equivalent.
+
+\pnum
+The non-member \tcode{any_cast} functions provide type-safe access to the contained object.
+
+\pnum
+Implementations should avoid the use of dynamically allocated memory for a small contained object.
+\enterexample
+where the object constructed is holding only an \tcode{int}.
+\exitexample
+Such small-object optimization shall only be applied to types \tcode{T} for which
+\tcode{is_nothrow_move_constructible_v<T>} is true.
+
+\rSec3[any.cons]{Construction and destruction}
+
+\indexlibrary{\idxcode{any}!constructor}
+\begin{itemdecl}
+any() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\postconditions
+\tcode{this->empty()}.
+\end{itemdescr}
+
+\begin{itemdecl}
+any(const any& other);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Constructs an object of type \tcode{any} with an equivalent state as \tcode{other}.
+
+\pnum
+\throws
+Any exceptions arising from calling the selected constructor of the contained object.
+\end{itemdescr}
+
+\begin{itemdecl}
+any(any&& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Constructs an object of type \tcode{any} with a state equivalent to the original state of \tcode{other}.
+
+\pnum
+\postconditions
+\tcode{other} is left in a valid but otherwise unspecified state.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class ValueType>
+any(ValueType&& value);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{T} be equal to \tcode{decay_t<ValueType>}.
+
+\pnum
+\requires
+\tcode{T} shall satisfy the \tcode{CopyConstructible} requirements.
+If \tcode{is_copy_constructible_v<T>} is false, the program is ill-formed.
+
+\pnum
+\effects
+Constructs an object of type \tcode{any} that contains an object of type \tcode{T} direct-initialized with \tcode{std::forward<ValueType>(value)}.
+
+\pnum
+\remarks
+This constructor shall not participate in overload resolution if \tcode{decay_t<ValueType>} is the same type as \tcode{any}.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{any}!destructor}
+\begin{itemdecl}
+~any();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\tcode{clear()}.
+\end{itemdescr}
+
+\rSec3[any.assign]{Assignment}
+
+\indexlibrary{\idxcode{any}!\idxcode{operator=}}
+\indexlibrary{\idxcode{operator=}!\idxcode{any}}
+\begin{itemdecl}
+any& operator=(const any& rhs);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\tcode{any(rhs).swap(*this)}.
+No effects if an exception is thrown.
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\throws
+Any exceptions arising from the copy constructor of the contained object.
+\end{itemdescr}
+
+\begin{itemdecl}
+any& operator=(any&& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\tcode{any(std::move(rhs)).swap(*this)}.
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\postconditions
+The state of \tcode{*this} is equivalent to the original state of \tcode{rhs}
+and \tcode{rhs} is left in a valid but otherwise unspecified state.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class ValueType>
+any& operator=(ValueType&& rhs);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{T} be equal to \tcode{decay_t<ValueType>}.
+
+\pnum
+\requires
+\tcode{T} shall satisfy the \tcode{CopyConstructible} requirements.
+If \tcode{is_copy_constructible_v<T>} is false, the program is ill-formed.
+
+\pnum
+\effects
+Constructs an object \tcode{tmp} of type \tcode{any} that contains an object of type \tcode{T} direct-initialized with \tcode{std::forward<ValueType>(rhs)}, and \tcode{tmp.swap(*this)}.
+No effects if an exception is thrown.
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\remarks
+This operator shall not participate in overload resolution if \tcode{decay_t<ValueType>} is the same type as \tcode{any}.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+\end{itemdescr}
+
+\rSec3[any.modifiers]{Modifiers}
+
+\indexlibrary{\idxcode{any}!\idxcode{clear}}
+\indexlibrary{\idxcode{clear}!\idxcode{any}}
+\begin{itemdecl}
+void clear() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If not empty, destroys the contained object.
+
+\pnum
+\postconditions
+\tcode{empty() == true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{any}!\idxcode{swap}}
+\indexlibrary{\idxcode{swap}!\idxcode{any}}
+\begin{itemdecl}
+void swap(any& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+
+\pnum
+\effects
+Exchange the states of \tcode{*this} and \tcode{rhs}.
+\end{itemdescr}
+
+\rSec3[any.observers]{Observers}
+
+\indexlibrary{\idxcode{any}!\idxcode{empty}}
+\indexlibrary{\idxcode{empty}!\idxcode{any}}
+\begin{itemdecl}
+bool empty() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if \tcode{*this} has no contained object, otherwise \tcode{false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{any}!\idxcode{type}}
+\indexlibrary{\idxcode{type}!\idxcode{any}}
+\begin{itemdecl}
+const type_info& type() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+If \tcode{*this} has a contained object of type T, \tcode{typeid(T)};
+otherwise \tcode{typeid(void)}.
+
+\pnum
+\enternote
+Useful for querying against types known either at compile time or only at runtime.
+\exitnote
+\end{itemdescr}
+
+\rSec2[any.nonmembers]{Non-member functions}
+
+\indexlibrary{\idxcode{swap}!\idxcode{any}}
+\begin{itemdecl}
+void swap(any& x, any& y) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\tcode{x.swap(y)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{any_cast}}
+\begin{itemdecl}
+template<class ValueType>
+  ValueType any_cast(const any& operand);
+template<class ValueType>
+  ValueType any_cast(any& operand);
+template<class ValueType>
+  ValueType any_cast(any&& operand);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_reference_v<ValueType>} is true or \tcode{is_copy_constructible_v<ValueType>} is true.
+Otherwise the program is ill-formed.
+
+\pnum
+\returns
+For the first form, \tcode{*any_cast<add_const_t<remove_reference_t<ValueType>>>(\&operand)}.
+For the second and third forms, \tcode{*any_cast<remove_reference_t<ValueType>>(\&operand)}.
+
+\pnum
+\throws
+\tcode{bad_any_cast} if \tcode{operand.type() != typeid(remove_reference_t<ValueType>)}.
+
+\pnum
+\enterexample
+\begin{codeblock}
+any x(5);                                   // \tcode{x} holds \tcode{int}
+assert(any_cast<int>(x) == 5);              // cast to value
+any_cast<int&>(x) = 10;                     // cast to reference
+assert(any_cast<int>(x) == 10);
+
+x = "Meow";                                 // \tcode{x} holds \tcode{const char*}
+assert(strcmp(any_cast<const char*>(x), "Meow") == 0);
+any_cast<const char*&>(x) = "Harry";
+assert(strcmp(any_cast<const char*>(x), "Harry") == 0);
+
+x = string("Meow");                         // \tcode{x} holds \tcode{string}
+string s, s2("Jane");
+s = move(any_cast<string&>(x));             // move from \tcode{any}
+assert(s == "Meow");
+any_cast<string&>(x) = move(s2);            // move to \tcode{any}
+assert(any_cast<const string&>(x) == "Jane");
+
+string cat("Meow");
+const any y(cat);                           // \tcode{const y} holds \tcode{string}
+assert(any_cast<const string&>(y) == cat);
+
+any_cast<string&>(y);                       // error; cannot
+                                            // \tcode{any_cast} away const
+\end{codeblock}
+\exitexample
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class ValueType>
+  const ValueType* any_cast(const any* operand) noexcept;
+template<class ValueType>
+  ValueType* any_cast(any* operand) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+If \tcode{operand != nullptr \&\& operand->type() == typeid(ValueType)},
+a pointer to the object contained by \tcode{operand},
+otherwise \tcode{nullptr}.
+
+\pnum
+\enterexample
+\begin{codeblock}
+bool is_string(const any& operand) {
+  return any_cast<string>(&operand) != nullptr;
+}
+\end{codeblock}
+\exitexample
 \end{itemdescr}
 
 
