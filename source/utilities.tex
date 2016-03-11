@@ -1010,6 +1010,10 @@ namespace std {
   template <class... Tuples>
     constexpr tuple<@\placeholder{Ctypes}@...> tuple_cat(Tuples&&...);
 
+  // \ref{tuple.apply}, calling a function with a tuple of arguments:
+  template <class F, class Tuple>
+    constexpr decltype(auto) apply(F&& f, Tuple&& t);
+
   // \ref{tuple.helper}, tuple helper classes:
   template <class T> class tuple_size;  // undefined
   template <class T> class tuple_size<const T>;
@@ -1677,6 +1681,31 @@ each group $e_i$ in order.
 \realnote An implementation may support additional types in the parameter
 pack \tcode{Tuples} that support the \tcode{tuple}-like protocol, such as
 \tcode{pair} and \tcode{array}.
+\end{itemdescr}
+
+\rSec3[tuple.apply]{Calling a function with a \tcode{tuple} of arguments}
+
+\indexlibrary{\idxcode{apply}}%
+\begin{itemdecl}
+template <class F, class Tuple>
+  constexpr decltype(auto) apply(F&& f, Tuple&& t);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Given the exposition only function
+\begin{codeblock}
+template <class F, class Tuple, size_t... I>
+constexpr decltype(auto) apply_impl(F&& f, Tuple&& t, index_sequence<I...>) { // exposition only
+  return @\textit{INVOKE}@(std::forward<F>(f), std::get<I>(std::forward<Tuple>(t))...);
+}
+\end{codeblock}
+Equivalent to
+\begin{codeblock}
+return apply_impl(std::forward<F>(f), std::forward<Tuple>(t),
+                  make_index_sequence<tuple_size_v<decay_t<Tuple>>>{});
+\end{codeblock}
 \end{itemdescr}
 
 \rSec3[tuple.helper]{Tuple helper classes}
@@ -7243,7 +7272,7 @@ namespace std {
   // \ref{func.memfn}, member function adaptors:
   template<class R, class T> @\unspec@ mem_fn(R T::*) noexcept;
 
-  // \ref{func.wrap} polymorphic function wrappers:
+  // \ref{func.wrap}, polymorphic function wrappers:
   class bad_function_call;
 
   template<class> class function; // undefined
@@ -7260,6 +7289,37 @@ namespace std {
     bool operator!=(const function<R(ArgTypes...)>&, nullptr_t) noexcept;
   template<class R, class... ArgTypes>
     bool operator!=(nullptr_t, const function<R(ArgTypes...)>&) noexcept;
+
+  // \ref{func.searchers}, searchers:
+  template<class ForwardIterator, class BinaryPredicate = equal_to<>>
+    class default_searcher;
+  template<class RandomAccessIterator,
+           class Hash = hash<typename iterator_traits<RandomAccessIterator>::value_type>,
+           class BinaryPredicate = equal_to<>>
+    class boyer_moore_searcher;
+  template<class RandomAccessIterator,
+           class Hash = hash<typename iterator_traits<RandomAccessIterator>::value_type>,
+           class BinaryPredicate = equal_to<>>
+    class boyer_moore_horspool_searcher;
+
+  template<class ForwardIterator, class BinaryPredicate = equal_to<>>
+  default_searcher<ForwardIterator, BinaryPredicate>
+  make_default_searcher(ForwardIterator pat_first, ForwardIterator pat_last,
+                        BinaryPredicate pred = BinaryPredicate());
+  template<class RandomAccessIterator,
+           class Hash = hash<typename iterator_traits<RandomAccessIterator>::value_type>,
+           class BinaryPredicate = equal_to<>>
+  boyer_moore_searcher<RandomAccessIterator, Hash, BinaryPredicate>
+  make_boyer_moore_searcher(
+      RandomAccessIterator pat_first, RandomAccessIterator pat_last,
+      Hash hf = Hash(), BinaryPredicate pred = BinaryPredicate());
+  template<class RandomAccessIterator,
+           class Hash = hash<typename iterator_traits<RandomAccessIterator>::value_type>,
+           class BinaryPredicate = equal_to<>>
+  boyer_moore_horspool_searcher<RandomAccessIterator, Hash, BinaryPredicate>
+  make_boyer_moore_horspool_searcher(
+      RandomAccessIterator pat_first, RandomAccessIterator pat_last,
+      Hash hf = Hash(), BinaryPredicate pred = BinaryPredicate());
 
   // \ref{unord.hash}, hash function primary template:
   template <class T> struct hash;
@@ -7287,7 +7347,7 @@ namespace std {
 
   template<class T> struct hash<T*>;
 
-  // \ref{func.bind}, Function object binders
+  // \ref{func.bind}, function object binders
   template <class T> constexpr bool is_bind_expression_v
     = is_bind_expression<T>::value;
   template <class T> constexpr int is_placeholder_v
@@ -9067,6 +9127,322 @@ template<class R, class... ArgTypes>
 \pnum\effects \tcode{f1.swap(f2);}
 \end{itemdescr}%
 \indextext{function object!wrapper|)}
+
+\rSec2[func.searchers]{Searchers}
+
+\pnum
+This sub-clause provides function object types (\ref{function.objects}) for
+operations that search for a sequence \range{pat_first}{pat_last} in another
+sequence \range{first}{last} that is provided to the object's function call
+operator.  The first sequence (the pattern to be searched for) is provided to
+the object's constructor, and the second (the sequence to be searched) is
+provided to the function call operator.
+
+\pnum
+Each specialization of a class template specified in this sub-clause \ref{func.searchers} shall meet the \tcode{CopyConstructible} and \tcode{CopyAssignable} requirements.
+Template parameters named
+\begin{itemize}
+\item \tcode{ForwardIterator},
+\item \tcode{ForwardIterator1},
+\item \tcode{ForwardIterator2},
+\item \tcode{RandomAccessIterator},
+\item \tcode{RandomAccessIterator1},
+\item \tcode{RandomAccessIterator2}, and
+\item \tcode{BinaryPredicate}
+\end{itemize}
+of templates specified in this sub-clause
+\ref{func.searchers} shall meet the same requirements and semantics as
+specified in \ref{algorithms.general}.
+Template parameters named \tcode{Hash} shall meet the requirements as specified in \ref{hash.requirements}.
+
+\pnum
+The Boyer-Moore searcher implements the Boyer-Moore search algorithm.
+The Boyer-Moore-Horspool searcher implements the Boyer-Moore-Horspool search algorithm.
+In general, the Boyer-Moore searcher will use more memory and give better run-time performance than Boyer-Moore-Horspool
+
+\rSec3[func.searchers.default]{Class template \tcode{default_searcher}}
+
+\indexlibrary{\idxcode{default_searcher}}%
+\begin{codeblock}
+template <class ForwardIterator1, class BinaryPredicate = equal_to<>>
+class default_searcher {
+public:
+  default_searcher(ForwardIterator1 pat_first, ForwardIterator1 pat_last,
+                   BinaryPredicate pred = BinaryPredicate());
+
+  template <class ForwardIterator2>
+  ForwardIterator2 operator()(ForwardIterator2 first,
+                              ForwardIterator2 last) const;
+
+private:
+  ForwardIterator1 pat_first_; // exposition only
+  ForwardIterator1 pat_last_;  // exposition only
+  BinaryPredicate pred_;       // exposition only
+};
+\end{codeblock}
+
+\indexlibrary{\idxcode{default_searcher}!constructor}%
+\begin{itemdecl}
+default_searcher(ForwardIterator pat_first, ForwardIterator pat_last,
+                 BinaryPredicate pred = BinaryPredicate());
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Constructs a \tcode{default_searcher} object, initializing \tcode{pat_first_}
+with \tcode{pat_first}, \tcode{pat_last_} with \tcode{pat_last}, and
+\tcode{pred_} with \tcode{pred}.
+
+\pnum
+\throws
+Any exception thrown by the copy constructor of \tcode{BinaryPredicate} or
+\tcode{ForwardIterator1}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{default_searcher}!\idxcode{operator()}}%
+\indexlibrary{\idxcode{operator()}!\idxcode{default_searcher}}%
+\begin{itemdecl}
+template<class ForwardIterator2>
+ForwardIterator2 operator()(ForwardIterator2 first, ForwardIterator2 last) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{return std::search(first, last, pat_first_, pat_last_, pred_);}
+\end{itemdescr}
+
+\rSec4[func.searchers.default.creation]{\tcode{default_searcher} creation functions}
+
+\indexlibrary{\idxcode{make_default_searcher}}%
+\begin{itemdecl}
+template <class ForwardIterator, class BinaryPredicate = equal_to<>>
+  default_searcher<ForwardIterator, BinaryPredicate>
+    make_default_searcher(ForwardIterator pat_first, ForwardIterator pat_last,
+                          BinaryPredicate pred = BinaryPredicate());
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+return default_searcher<ForwardIterator, BinaryPredicate>(pat_first, pat_last, pred);
+\end{codeblock}
+\end{itemdescr}
+
+\rSec3[func.searchers.boyer_moore]{Class template \tcode{boyer_moore_searcher}}
+
+\indexlibrary{\idxcode{boyer_moore_searcher}}%
+\begin{codeblock}
+template <class RandomAccessIterator1,
+          class Hash = hash<typename iterator_traits<RandomAccessIterator1>::value_type>,
+          class BinaryPredicate = equal_to<>>
+class boyer_moore_searcher {
+public:
+  boyer_moore_searcher(RandomAccessIterator1 pat_first,
+                       RandomAccessIterator1 pat_last, Hash hf = Hash(),
+                       BinaryPredicate pred = BinaryPredicate());
+
+  template <class RandomAccessIterator2>
+  RandomAccessIterator2 operator()(RandomAccessIterator2 first,
+                                   RandomAccessIterator2 last) const;
+
+private:
+  RandomAccessIterator1 pat_first_; // exposition only
+  RandomAccessIterator1 pat_last_;  // exposition only
+  Hash hash_;                       // exposition only
+  BinaryPredicate pred_;            // exposition only
+};
+\end{codeblock}
+
+\indexlibrary{\idxcode{boyer_moore_searcher}!constructor}%
+\begin{itemdecl}
+boyer_moore_searcher(RandomAccessIterator1 pat_first,
+                     RandomAccessIterator1 pat_last, Hash hf = Hash(),
+                     BinaryPredicate pred = BinaryPredicate());
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+The value type of \tcode{RandomAccessIterator1} shall meet the \tcode{DefaultConstructible} requirements, the \tcode{CopyConstructible} requirements, and the \tcode{CopyAssignable} requirements.
+
+\pnum
+\requires
+For any two values \tcode{A} and \tcode{B} of the type \tcode{iterator_traits<RandomAccessIterator1>::value_type}, if \tcode{pred(A,B)==true}, then \tcode{hf(A)==hf(B)} shall be true.
+
+\pnum
+\effects
+Constructs a \tcode{boyer_moore_searcher} object, initializing \tcode{pat_first_} with \tcode{pat_first}, \tcode{pat_last_} with \tcode{pat_last}, \tcode{hash_} with \tcode{hf}, and \tcode{pred_} with \tcode{pred}.
+
+\pnum
+\throws
+Any exception thrown by the copy constructor of \tcode{RandomAccessIterator1},
+or by the default constructor, copy constructor, or the copy assignment operator of the value type of \tcode{RandomAccessIterator1},
+or the copy constructor or \tcode{operator()} of \tcode{BinaryPredicate} or \tcode{Hash}.
+May throw \tcode{bad_alloc} if additional memory needed for internal data structures cannot be allocated.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{boyer_moore_searcher}!\idxcode{operator()}}%
+\indexlibrary{\idxcode{operator()}!\idxcode{boyer_moore_searcher}}%
+\begin{itemdecl}
+template <class RandomAccessIterator2>
+RandomAccessIterator2 operator()(RandomAccessIterator2 first,
+                                 RandomAccessIterator2 last) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{RandomAccessIterator1} and \tcode{RandomAccessIterator2} shall have the same value type.
+
+\pnum
+\effects
+Finds a subsequence of equal values in a sequence.
+
+\pnum
+\returns
+The first iterator \tcode{i} in the range \range{first}{last - (pat_last_ - pat_first_)}
+such that for every non-negative integer \tcode{n} less than \tcode{pat_last_ - pat_first_} the following condition holds:
+\tcode{pred(*(i + n), *(pat_first_ + n)) != false}.
+Returns \tcode{first} if \range{pat_first_}{pat_last_} is empty,
+otherwise returns \tcode{last} if no such iterator is found.
+
+\pnum
+\complexity
+At most \tcode{(last - first) * (pat_last_ - pat_first_)} applications of the predicate.
+\end{itemdescr}
+
+\rSec4[func.searchers.boyer_moore.creation]{\tcode{boyer_moore_searcher} creation functions}
+
+\indexlibrary{\idxcode{make_boyer_moore_searcher}}%
+\begin{itemdecl}
+template <class RandomAccessIterator,
+          class Hash = hash<typename iterator_traits<RandomAccessIterator>::value_type>,
+          class BinaryPredicate = equal_to<>>
+  boyer_moore_searcher<RandomAccessIterator, Hash, BinaryPredicate>
+    make_boyer_moore_searcher(RandomAccessIterator pat_first,
+                              RandomAccessIterator pat_last, Hash hf = Hash(),
+                              BinaryPredicate pred = BinaryPredicate());
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+return boyer_moore_searcher<RandomAccessIterator, Hash, BinaryPredicate>(
+         pat_first, pat_last, hf, pred);
+\end{codeblock}
+\end{itemdescr}
+
+\rSec3[func.searchers.boyer_moore_horspool]{Class template \tcode{boyer_moore_horspool_searcher}}
+
+\indexlibrary{\idxcode{boyer_moore_horspool_searcher}}%
+\begin{codeblock}
+template <class RandomAccessIterator1,
+          class Hash = hash<typename iterator_traits<RandomAccessIterator1>::value_type>,
+          class BinaryPredicate = equal_to<>>
+class boyer_moore_horspool_searcher {
+public:
+  boyer_moore_horspool_searcher(RandomAccessIterator1 pat_first,
+                                RandomAccessIterator1 pat_last,
+                                Hash hf = Hash(),
+                                BinaryPredicate pred = BinaryPredicate());
+
+  template <class RandomAccessIterator2>
+  RandomAccessIterator2 operator()(RandomAccessIterator2 first,
+                                   RandomAccessIterator2 last) const;
+
+private:
+  RandomAccessIterator1 pat_first_; // exposition only
+  RandomAccessIterator1 pat_last_;  // exposition only
+  Hash hash_;                       // exposition only
+  BinaryPredicate pred_;            // exposition only
+};
+\end{codeblock}
+
+\indexlibrary{\idxcode{boyer_moore_horspool_searcher}!constructor}%
+\begin{itemdecl}
+boyer_moore_horspool_searcher(RandomAccessIterator1 pat_first,
+                              RandomAccessIterator1 pat_last, Hash hf = Hash(),
+                              BinaryPredicate pred = BinaryPredicate());
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+The value type of \tcode{RandomAccessIterator1} shall meet the \tcode{DefaultConstructible}, \tcode{CopyConstructible}, and \tcode{CopyAssignable} requirements.
+
+\pnum
+\requires
+For any two values \tcode{A} and \tcode{B} of the type \tcode{iterator_traits<RandomAccessIterator1>::value_type},
+if \tcode{pred(A,B)==true}, then \tcode{hf(A)==hf(B)} shall be true.
+
+\pnum
+\effects
+Constructs a \tcode{boyer_moore_horspool_searcher} object, initializing \tcode{pat_first_} with \tcode{pat_first},
+\tcode{pat_last_} with \tcode{pat_last}, \tcode{hash_} with \tcode{hf}, and \tcode{pred_} with \tcode{pred}.
+
+\pnum
+\throws
+Any exception thrown by the copy constructor of \tcode{RandomAccessIterator1},
+or by the default constructor, copy constructor, or the copy assignment operator of the value type of \tcode{RandomAccessIterator1}
+or the copy constructor or \tcode{operator()} of \tcode{BinaryPredicate} or \tcode{Hash}.
+May throw \tcode{bad_alloc} if additional memory needed for internal data structures cannot be allocated..
+\end{itemdescr}
+
+\indexlibrary{\idxcode{boyer_moore_horspool_searcher}!\idxcode{operator()}}%
+\indexlibrary{\idxcode{operator()}!\idxcode{boyer_moore_horspool_searcher}}%
+\begin{itemdecl}
+template <class RandomAccessIterator2>
+RandomAccessIterator2 operator()(RandomAccessIterator2 first,
+                                 RandomAccessIterator2 last) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{RandomAccessIterator1} and \tcode{RandomAccessIterator2} shall have the same value type.
+
+\pnum
+\effects
+Finds a subsequence of equal values in a sequence.
+
+\pnum
+\returns
+The first iterator \tcode{i} in the range \range{first}{last - (pat_last_ - pat_first_)}
+such that for every non-negative integer \tcode{n} less than \tcode{pat_last_ - pat_first_} the following condition holds:
+\tcode{pred(*(i + n), *(pat_first_ + n)) != false}.
+Returns \tcode{first} if \range{pat_first_}{pat_last_} is empty,
+otherwise returns \tcode{last} if no such iterator is found.
+
+\pnum
+\complexity
+At most \tcode{(last - first) * (pat_last_ - pat_first_)} applications of the predicate.
+\end{itemdescr}
+
+\rSec4[func.searchers.boyer_moore_horspool.creation]{\tcode{boyer_moore_horspool_searcher} creation functions}
+
+\indexlibrary{\idxcode{make_boyer_moore_horspool_searcher}}%
+\begin{itemdecl}
+template <class RandomAccessIterator,
+          class Hash = hash<typename iterator_traits<RandomAccessIterator>::value_type>,
+          class BinaryPredicate = equal_to<>>
+  boyer_moore_searcher_horspool<RandomAccessIterator, Hash, BinaryPredicate>
+    make_boyer_moore_horspool_searcher(
+      RandomAccessIterator pat_first, RandomAccessIterator pat_last,
+      Hash hf = Hash(), BinaryPredicate pred = BinaryPredicate());
+\end{itemdecl}
+
+\begin{itemdescr}
+
+\pnum
+\effects
+Equivalent to \tcode{return boyer_moore_horspool_searcher<RandomAccessIterator, Hash, BinaryPredicate>(pat_first, pat_last, hf, pred);}
+\end{itemdescr}
 
 \rSec2[unord.hash]{Class template \tcode{hash}}
 
