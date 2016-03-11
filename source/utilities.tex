@@ -12,6 +12,7 @@ These utilities are summarized in Table~\ref{tab:util.lib.summary}.
 \ref{utility}               & Utility components                & \tcode{<utility>}     \\ \rowsep
 \ref{pairs}                 & Pairs                             & \tcode{<utility>}     \\ \rowsep
 \ref{tuple}                 & Tuples                            & \tcode{<tuple>}       \\ \rowsep
+\ref{optional}              & Optional objects                  & \tcode{<optional>}    \\ \rowsep
 \ref{intseq}                & Compile-time integer sequences    & \tcode{<utility>}     \\ \rowsep
 \ref{template.bitset}       & Fixed-size sequences of bits      & \tcode{<bitset>}      \\ \rowsep
                             &                                   & \tcode{<memory>}      \\
@@ -2025,6 +2026,1203 @@ noexcept(x.swap(y))
 \pnum
 \effects \tcode{x.swap(y)}
 \end{itemdescr}
+
+\rSec1[optional]{Optional objects}
+
+\rSec2[optional.general]{In general}
+
+\pnum
+This subclause describes class template \tcode{optional} that represents
+\defn{optional object}{s}. An \defn{optional object for object types} is an
+object that contains the storage for another object and manages the lifetime of
+this contained object, if any. The contained object may be initialized after
+the optional object has been initialized, and may be destroyed before the
+optional object has been destroyed. The initialization state of the contained
+object is tracked by the optional object.
+
+\rSec2[optional.syn]{Header \tcode{<optional>} synopsis}
+
+\indexlibrary{\idxhdr{optional}}%
+\begin{codeblock}
+namespace std {
+  // \ref{optional.object}, optional for object types
+  template <class T> class optional;
+
+  // \ref{optional.inplace}, in-place construction
+  struct in_place_t{};
+  constexpr in_place_t in_place{};
+
+  // \ref{optional.nullopt}, no-value state indicator
+  struct nullopt_t{@\seebelow@};
+  constexpr nullopt_t nullopt(@\unspec@);
+
+  // \ref{optional.bad_optional_access}, class \tcode{bad_optional_access}
+  class bad_optional_access;
+
+  // \ref{optional.relops}, relational operators
+  template <class T>
+  constexpr bool operator==(const optional<T>&, const optional<T>&);
+  template <class T>
+  constexpr bool operator!=(const optional<T>&, const optional<T>&);
+  template <class T>
+  constexpr bool operator<(const optional<T>&, const optional<T>&);
+  template <class T>
+  constexpr bool operator>(const optional<T>&, const optional<T>&);
+  template <class T>
+  constexpr bool operator<=(const optional<T>&, const optional<T>&);
+  template <class T>
+  constexpr bool operator>=(const optional<T>&, const optional<T>&);
+
+  // \ref{optional.nullops}, comparison with \tcode{nullopt}
+  template <class T> constexpr bool operator==(const optional<T>&, nullopt_t) noexcept;
+  template <class T> constexpr bool operator==(nullopt_t, const optional<T>&) noexcept;
+  template <class T> constexpr bool operator!=(const optional<T>&, nullopt_t) noexcept;
+  template <class T> constexpr bool operator!=(nullopt_t, const optional<T>&) noexcept;
+  template <class T> constexpr bool operator<(const optional<T>&, nullopt_t) noexcept;
+  template <class T> constexpr bool operator<(nullopt_t, const optional<T>&) noexcept;
+  template <class T> constexpr bool operator<=(const optional<T>&, nullopt_t) noexcept;
+  template <class T> constexpr bool operator<=(nullopt_t, const optional<T>&) noexcept;
+  template <class T> constexpr bool operator>(const optional<T>&, nullopt_t) noexcept;
+  template <class T> constexpr bool operator>(nullopt_t, const optional<T>&) noexcept;
+  template <class T> constexpr bool operator>=(const optional<T>&, nullopt_t) noexcept;
+  template <class T> constexpr bool operator>=(nullopt_t, const optional<T>&) noexcept;
+
+  // \ref{optional.comp_with_t}, \tcode{T}
+  template <class T> constexpr bool operator==(const optional<T>&, const T&);
+  template <class T> constexpr bool operator==(const T&, const optional<T>&);
+  template <class T> constexpr bool operator!=(const optional<T>&, const T&);
+  template <class T> constexpr bool operator!=(const T&, const optional<T>&);
+  template <class T> constexpr bool operator<(const optional<T>&, const T&);
+  template <class T> constexpr bool operator<(const T&, const optional<T>&);
+  template <class T> constexpr bool operator<=(const optional<T>&, const T&);
+  template <class T> constexpr bool operator<=(const T&, const optional<T>&);
+  template <class T> constexpr bool operator>(const optional<T>&, const T&);
+  template <class T> constexpr bool operator>(const T&, const optional<T>&);
+  template <class T> constexpr bool operator>=(const optional<T>&, const T&);
+  template <class T> constexpr bool operator>=(const T&, const optional<T>&);
+
+  // \ref{optional.specalg}, specialized algorithms
+  template <class T> void swap(optional<T>&, optional<T>&) noexcept(@\seebelow@);
+  template <class T> constexpr optional<@\seebelow@> make_optional(T&&);
+
+  // \ref{optional.hash}, hash support
+  template <class T> struct hash;
+  template <class T> struct hash<optional<T>>;
+}
+\end{codeblock}
+
+\pnum
+A program that necessitates the instantiation of template \tcode{optional} for
+a reference type, or for possibly cv-qualified types \tcode{in_place_t} or
+\tcode{nullopt_t} is ill-formed.
+
+\rSec2[optional.object]{\tcode{optional} for object types}
+
+\indexlibrary{\idxcode{optional}}%
+\begin{codeblock}
+template <class T> class optional {
+public:
+  typedef T value_type;
+
+  // \ref{optional.object.ctor}, constructors
+  constexpr optional() noexcept;
+  constexpr optional(nullopt_t) noexcept;
+  optional(const optional &);
+  optional(optional &&) noexcept(@\seebelow@);
+  constexpr optional(const T &);
+  constexpr optional(T &&);
+  template <class... Args> constexpr explicit optional(in_place_t, Args &&...);
+  template <class U, class... Args>
+    constexpr explicit optional(in_place_t, initializer_list<U>, Args &&...);
+
+  // \ref{optional.object.dtor}, destructor
+  ~optional();
+
+  // \ref{optional.object.assign}, assignment
+  optional &operator=(nullopt_t) noexcept;
+  optional &operator=(const optional &);
+  optional &operator=(optional &&) noexcept(@\seebelow@);
+  template <class U> optional &operator=(U &&);
+  template <class... Args> void emplace(Args &&...);
+  template <class U, class... Args>
+    void emplace(initializer_list<U>, Args &&...);
+
+  // \ref{optional.object.swap}, swap
+  void swap(optional &) noexcept(@\seebelow@);
+
+  // \ref{optional.object.observe}, observers
+  constexpr T const *operator->() const;
+  constexpr T *operator->();
+  constexpr T const &operator*() const &;
+  constexpr T &operator*() &;
+  constexpr T &&operator*() &&;
+  constexpr const T &&operator*() const &&;
+  constexpr explicit operator bool() const noexcept;
+  constexpr T const &value() const &;
+  constexpr T &value() &;
+  constexpr T &&value() &&;
+  constexpr const T &&value() const &&;
+  template <class U> constexpr T value_or(U &&) const &;
+  template <class U> constexpr T value_or(U &&) &&;
+
+private:
+  T *val; // \expos
+};
+\end{codeblock}
+
+\pnum
+Any instance of \tcode{optional<T>} at any given time either contains a value or does not contain a value.
+When an instance of \tcode{optional<T>} \defnx{contains a value}{contains a value!\idxcode{optional}},
+it means that an object of type \tcode{T}, referred to as the optional object's \defnx{contained value}{contained value!\idxcode{optional}},
+is allocated within the storage of the optional object.
+Implementations are not permitted to use additional storage, such as dynamic memory, to allocate its contained value.
+The contained value shall be allocated in a region of the \tcode{optional<T>} storage suitably aligned for the type \tcode{T}.
+When an object of type \tcode{optional<T>} is contextually converted to \tcode{bool},
+the conversion returns \tcode{true} if the object contains a value;
+otherwise the conversion returns \tcode{false}.
+
+\pnum
+Member \tcode{val} is provided for exposition only. When an \tcode{optional<T>} object contains a value, \tcode{val} points to the contained value.
+
+\pnum
+\tcode{T} shall be an object type and shall satisfy the requirements of \tcode{Destructible} (Table~\ref{destructible}).
+
+\rSec3[optional.object.ctor]{Constructors}
+
+\indexlibrary{\idxcode{optional}!constructor}%
+\begin{itemdecl}
+constexpr optional() noexcept;
+constexpr optional(nullopt_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\postcondition
+\tcode{*this} does not contain a value.
+
+\pnum
+\remarks
+No contained value is initialized.
+For every object type \tcode{T} these constructors shall be \tcode{constexpr} constructors (\ref{dcl.constexpr}).
+\end{itemdescr}
+
+\begin{itemdecl}
+optional(const optional<T>& rhs);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_copy_constructible_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+If \tcode{rhs} contains a value, initializes the contained value as if
+direct-non-list-initializing an object of type \tcode{T} with the expression \tcode{*rhs}.
+
+\pnum
+\postcondition
+\tcode{bool(rhs) == bool(*this)}.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+\end{itemdescr}
+
+\begin{itemdecl}
+optional(optional<T>&& rhs) noexcept(@\seebelow@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_move_constructible_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+If \tcode{rhs} contains a value, initializes the contained value as if
+direct-non-list-initializing an object of type \tcode{T} with the expression \tcode{std::move(*rhs)}.
+\tcode{bool(rhs)} is unchanged.
+
+\pnum
+\postcondition
+\tcode{bool(rhs) == bool(*this)}.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks
+The expression inside \tcode{noexcept} is equivalent to
+\tcode{is_nothrow_move_constructible_v<T>}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr optional(const T& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_copy_constructible_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+Initializes the contained value as if direct-non-list-initializing an object of type \tcode{T} with the expression \tcode{v}.
+
+\pnum
+\postcondition
+\tcode{*this} contains a value.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks
+If \tcode{T}'s selected constructor is a \tcode{constexpr} constructor, this constructor shall be a \tcode{constexpr} constructor.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr optional(T&& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_move_constructible_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+Initializes the contained value as if direct-non-list-initializing an object of type \tcode{T} with the expression \tcode{std::move(v)}.
+
+\pnum
+\postcondition
+\tcode{*this} contains a value.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks
+If \tcode{T}'s selected constructor is a \tcode{constexpr} constructor, this constructor shall be a \tcode{constexpr} constructor.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class... Args> constexpr explicit optional(in_place_t, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_constructible_v<T, Args\&\&...>} is \tcode{true}.
+
+\pnum
+\effects
+Initializes the contained value as if direct-non-list-initializing an object of type \tcode{T} with the arguments \tcode{std::forward<Args>(args)...}.
+
+\pnum
+\postcondition
+\tcode{*this} contains a value.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks
+If \tcode{T}'s constructor selected for the initialization is a \tcode{constexpr} constructor, this constructor shall be a \tcode{constexpr} constructor.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class U, class... Args>
+  constexpr explicit optional(in_place_t, initializer_list<U> il, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+
+\pnum
+\requires
+\tcode{is_constructible_v<T, initializer_list<U>\&, Args\&\&...>} is \tcode{true}.
+
+\pnum
+\effects
+Initializes the contained value as if direct-non-list-initializing an object of type \tcode{T} with the arguments \tcode{il, std::forward<Args>(args)...}.
+
+\pnum
+\postcondition
+\tcode{*this} contains a value.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks
+The function shall not participate in overload resolution unless \tcode{is_constructible_v<T, initializer_list<U>\&, Args\&\&...>} is \tcode{true}.
+If \tcode{T}'s constructor selected for the initialization is a \tcode{constexpr} constructor, this constructor shall be a \tcode{constexpr} constructor.
+\end{itemdescr}
+
+\rSec3[optional.object.dtor]{Destructor}
+
+\indexlibrary{\idxcode{optional}!destructor}%
+\begin{itemdecl}
+~optional();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{is_trivially_destructible_v<T> != true} and \tcode{*this} contains a value, calls \tcode{val->T::\~T()}.
+
+\pnum
+\remarks
+If \tcode{is_trivially_destructible_v<T> == true} then this destructor shall be a trivial destructor.
+\end{itemdescr}
+
+\rSec3[optional.object.assign]{Assignment}
+
+\indexlibrary{\idxcode{optional}!\idxcode{operator=}}%
+\indexlibrary{\idxcode{operator=}!\idxcode{optional}}%
+\begin{itemdecl}
+optional<T>& operator=(nullopt_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{*this} contains a value, calls \tcode{val->T::\~T()} to destroy the contained value; otherwise no effect.
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\postcondition
+\tcode{*this} does not contain a value.
+\end{itemdescr}
+
+\begin{itemdecl}
+optional<T>& operator=(const optional<T>& rhs);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_copy_constructible_v<T>} is \tcode{true} and \tcode{is_copy_assignable_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+See table \ref{tab:optional.assign.copy}.
+\begin{lib2dtab2}{\tcode{optional::operator=(const optional\&)} effects}{tab:optional.assign.copy}
+{\tcode{*this} contains a value}
+{\tcode{*this} does not contain a value}
+
+\rowhdr{\tcode{rhs} contains a value} &
+assigns \tcode{*rhs} to the contained value &
+initializes the contained value as if direct-non-list-initializing an object of type \tcode{T} with \tcode{*rhs} \\
+\rowsep
+
+\rowhdr{\tcode{rhs} does not contain a value} &
+destroys the contained value by calling \tcode{val->T::\~T()} &
+no effect \\
+\end{lib2dtab2}
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\postcondition
+\tcode{bool(rhs) == bool(*this)}.
+
+\pnum
+\remarks
+If any exception is thrown, the result of the expression \tcode{bool(*this)} remains unchanged.
+If an exception is thrown during the call to \tcode{T}'s copy constructor, no effect.
+If an exception is thrown during the call to \tcode{T}'s copy assignment,
+the state of its contained value is as defined by the exception safety guarantee of \tcode{T}'s copy assignment.
+\end{itemdescr}
+
+\begin{itemdecl}
+optional<T>& operator=(optional<T>&& rhs) noexcept(@\seebelow@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_move_constructible_v<T>} is \tcode{true} and \tcode{is_move_assignable_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+See table \ref{tab:optional.assign.move}.
+The result of the expression \tcode{bool(rhs)} remains unchanged.
+\begin{lib2dtab2}{\tcode{optional::operator=(optional\&\&)} effects}{tab:optional.assign.move}
+{\tcode{*this} contains a value}
+{\tcode{*this} does not contain a value}
+
+\rowhdr{\tcode{rhs} contains a value} &
+assigns \tcode{std::move(*rhs)} to the contained value &
+initializes the contained value as if direct-non-list-initializing an object of type \tcode{T} with \tcode{std::move(*rhs)} \\
+\rowsep
+
+\rowhdr{\tcode{rhs} does not contain a value} &
+destroys the contained value by calling \tcode{val->T::\~T()} &
+no effect \\
+\end{lib2dtab2}
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\postcondition
+\tcode{bool(rhs) == bool(*this)}.
+
+\pnum
+\remarks
+The expression inside \tcode{noexcept} is equivalent to:
+\begin{codeblock}
+is_nothrow_move_assignable_v<T> && is_nothrow_move_constructible_v<T>
+\end{codeblock}
+
+\pnum
+If any exception is thrown, the result of the expression \tcode{bool(*this)} remains unchanged.
+If an exception is thrown during the call to \tcode{T}'s move constructor,
+the state of \tcode{*rhs.val} is determined by the exception safety guarantee of \tcode{T}'s move constructor.
+If an exception is thrown during the call to \tcode{T}'s move assignment,
+the state of \tcode{*val} and \tcode{*rhs.val} is determined by the exception safety guarantee of \tcode{T}'s move assignment.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class U> optional<T>& operator=(U&& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_constructible_v<T, U>} is \tcode{true} and \tcode{is_assignable_v<T\&, U>} is \tcode{true}.
+
+\pnum
+\effects
+If \tcode{*this} contains a value, assigns \tcode{std::forward<U>(v)} to the contained value; otherwise initializes the contained value as if direct-non-list-initializing object of type \tcode{T} with \tcode{std::forward<U>(v)}.
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\postcondition
+\tcode{*this} contains a value.
+
+\pnum
+\remarks
+If any exception is thrown, the result of the expression \tcode{bool(*this)} remains unchanged. If an exception is thrown during the call to \tcode{T}'s constructor, the state of \tcode{v} is determined by the exception safety guarantee of \tcode{T}'s constructor. If an exception is thrown during the call to \tcode{T}'s assignment, the state of \tcode{*val} and \tcode{v} is determined by the exception safety guarantee of \tcode{T}'s assignment.
+The function shall not participate in overload resolution unless
+\tcode{is_same_v<decay_t<U>, T>} is \tcode{true}.
+
+\pnum
+\realnotes
+The reason for providing such generic assignment and then constraining it so that effectively \tcode{T} == \tcode{U} is to guarantee that assignment of the form \tcode{o = {}} is unambiguous.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{emplace}!\idxcode{optional}}%
+\indexlibrary{\idxcode{optional}!\idxcode{emplace}}%
+\begin{itemdecl}
+template <class... Args> void emplace(Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_constructible_v<T, Args\&\&...>} is \tcode{true}.
+
+\pnum
+\effects
+Calls \tcode{*this = nullopt}. Then initializes the contained value as if direct-non-list-initializing an object of type \tcode{T} with the arguments \tcode{std::forward<Args>(args)...}.
+
+\pnum
+\postcondition
+\tcode{*this} contains a value.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks
+If an exception is thrown during the call to \tcode{T}'s constructor, \tcode{*this} does not contain a value, and the previous \tcode{*val} (if any) has been destroyed.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class U, class... Args> void emplace(initializer_list<U> il, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Calls \tcode{*this = nullopt}. Then initializes the contained value as if direct-non-list-initializing an object of type \tcode{T} with the arguments \tcode{il, std::forward<Args>(args)...}.
+
+\pnum
+\postcondition
+\tcode{*this} contains a value.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks
+If an exception is thrown during the call to \tcode{T}'s constructor, \tcode{*this} does not contain a value, and the previous \tcode{*val} (if any) has been destroyed.
+This function shall not participate in overload resolution unless \tcode{is_constructible_v<T, initializer_list<U>\&, Args\&\&...>} is \tcode{true}.
+\end{itemdescr}
+
+\rSec3[optional.object.swap]{Swap}
+
+\indexlibrary{\idxcode{optional}!\idxcode{swap}}%
+\indexlibrary{\idxcode{swap}!\idxcode{optional}}%
+\begin{itemdecl}
+void swap(optional<T>& rhs) noexcept(@\seebelow@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+Lvalues of type \tcode{T} shall be swappable and \tcode{is_move_constructible_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+See table \ref{tab:optional.swap}.
+\begin{lib2dtab2}{\tcode{optional::swap(optional\&)} effects}{tab:optional.swap}
+{\tcode{*this} contains a value}
+{\tcode{*this} does not contain a value}
+
+\rowhdr{\tcode{rhs} contains a value} &
+calls \tcode{swap(*(*this), *rhs)} &
+initializes the contained value of \tcode{*this} as if
+direct-non-list-initializing an object of type \tcode{T} with the expression \tcode{std::move(*rhs)},
+followed by \tcode{rhs.val->T::\~T()};
+postcondition is that \tcode{*this} contains a value and \tcode{rhs} does not contain a value \\
+\rowsep
+
+\rowhdr{\tcode{rhs} does not contain a value} &
+initializes the contained value of \tcode{rhs} as if
+direct-non-list-initializing an object of type \tcode{T} with the expression \tcode{std::move(*(*this))},
+followed by \tcode{val->T::\~T()};
+postcondition is that \tcode{*this} does not contain a value and \tcode{rhs} contains a value &
+no effect \\
+\end{lib2dtab2}
+
+\pnum
+\throws
+Any exceptions that the expressions in the Effects element throw.
+
+\pnum
+\remarks
+The expression inside \tcode{noexcept} is equivalent to:
+\begin{codeblock}
+is_nothrow_move_constructible_v<T> && noexcept(swap(declval<T&>(), declval<T&>()))
+\end{codeblock}
+If any exception is thrown, the results of the expressions \tcode{bool(*this)} and \tcode{bool(rhs)} remain unchanged.
+If an exception is thrown during the call to function \tcode{swap}
+the state of \tcode{*val} and \tcode{*rhs.val} is determined by the exception safety guarantee of \tcode{swap} for lvalues of \tcode{T}.
+If an exception is thrown during the call to \tcode{T}'s move constructor,
+the state of \tcode{*val} and \tcode{*rhs.val} is determined by the exception safety guarantee of \tcode{T}'s move constructor.
+\end{itemdescr}
+
+\rSec3[optional.object.observe]{Observers}
+
+\indexlibrary{\idxcode{optional}!\idxcode{operator->}}%
+\indexlibrary{\idxcode{operator->}!\idxcode{optional}}%
+\begin{itemdecl}
+constexpr T const* operator->() const;
+constexpr T* operator->();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{*this} contains a value.
+
+\pnum
+\returns
+\tcode{val}.
+
+\pnum
+\throws
+Nothing.
+
+\pnum
+\remarks
+Unless \tcode{T} is a user-defined type with overloaded unary \tcode{operator\&}, these functions shall be \tcode{constexpr} functions.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{optional}!\idxcode{operator*}}%
+\indexlibrary{\idxcode{operator*}!\idxcode{optional}}%
+\begin{itemdecl}
+constexpr T const& operator*() const &;
+constexpr T& operator*() &;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{*this} contains a value.
+
+\pnum
+\returns
+\tcode{*val}.
+
+\pnum
+\throws
+Nothing.
+
+\pnum
+\remarks
+These functions shall be \tcode{constexpr} functions.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr T&& operator*() &&;
+constexpr const T&& operator*() const &&;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{*this} contains a value.
+
+\pnum
+\effects
+Equivalent to \tcode{return std::move(*val);}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{optional}!\idxcode{operator bool}}%
+\indexlibrary{\idxcode{operator bool}!\idxcode{optional}}%
+\begin{itemdecl}
+constexpr explicit operator bool() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if and only if \tcode{*this} contains a value.
+
+\pnum
+\remarks
+This function shall be a \tcode{constexpr} function.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{optional}!\idxcode{value}}%
+\indexlibrary{\idxcode{value}!\idxcode{optional}}%
+\begin{itemdecl}
+constexpr T const& value() const &;
+constexpr T& value() &;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+return bool(*this) ? *val : throw bad_optional_access();
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr T&& value() &&;
+constexpr const T&& value() const &&;
+\end{itemdecl}
+
+\begin{itemdescr}
+
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+return bool(*this) ? std::move(*val) : throw bad_optional_access();
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{optional}!\idxcode{value_or}}%
+\indexlibrary{\idxcode{value_or}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class U> constexpr T value_or(U&& v) const &;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+return bool(*this) ? **this : static_cast<T>(std::forward<U>(v));
+\end{codeblock}
+
+\pnum
+\remarks
+If \tcode{is_copy_constructible_v<T> \&\& is_convertible_v<U\&\&, T>} is \tcode{false},
+the program is ill-formed.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class U> T value_or(U&& v) &&;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+return bool(*this) ? std::move(**this) : static_cast<T>(std::forward<U>(v));
+\end{codeblock}
+
+\pnum
+\remarks
+If \tcode{is_move_constructible_v<T> \&\& is_convertible_v<U\&\&, T>} is \tcode{false},
+the program is ill-formed.
+\end{itemdescr}
+
+\rSec2[optional.inplace]{In-place construction}
+
+\indexlibrary{\idxcode{in_place_t}}%
+\indexlibrary{\idxcode{in_place}}%
+\begin{itemdecl}
+struct in_place_t{};
+constexpr in_place_t in_place{};
+\end{itemdecl}
+
+\pnum
+The struct \tcode{in_place_t} is an empty structure type used as a unique type to disambiguate constructor and function overloading.
+Specifically, \tcode{optional<T>} has a constructor with \tcode{in_place_t} as the first parameter followed by a parameter pack;
+this indicates that \tcode{T} should be constructed in-place (as if by a call to a placement new expression) with the forwarded pack expansion as arguments for the initialization of \tcode{T}.
+
+\rSec2[optional.nullopt]{No-value state indicator}
+
+\indexlibrary{\idxcode{nullopt_t}}%
+\indexlibrary{\idxcode{nullopt}}%
+\begin{itemdecl}
+struct nullopt_t{@\seebelow@};
+constexpr nullopt_t nullopt(@\unspec@);
+\end{itemdecl}
+
+\pnum
+The struct \tcode{nullopt_t} is an empty structure type used as a unique type to indicate the state of not containing a value for \tcode{optional} objects.
+In particular, \tcode{optional<T>} has a constructor with \tcode{nullopt_t} as a single argument;
+this indicates that an optional object not containing a value shall be constructed.
+
+\pnum
+Type \tcode{nullopt_t} shall not have a default constructor. It shall be a literal type. Constant \tcode{nullopt} shall be initialized with an argument of literal type.
+
+\rSec2[optional.bad_optional_access]{Class \tcode{bad_optional_access}}
+
+\begin{codeblock}
+class bad_optional_access : public logic_error {
+public:
+  bad_optional_access();
+};
+\end{codeblock}
+
+\pnum
+The class \tcode{bad_optional_access} defines the type of objects thrown as exceptions to report the situation where an attempt is made to access the value of an optional object that does not contain a value.
+
+\indexlibrary{\idxcode{bad_optional_access}!constructor}%
+\begin{itemdecl}
+bad_optional_access();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Constructs an object of class \tcode{bad_optional_access}.
+
+\pnum
+\postcondition
+\tcode{what()} returns an
+\impldef{return value of \tcode{bad_optional_access::what}}
+\ntbs.
+\end{itemdescr}
+
+\rSec2[optional.relops]{Relational operators}
+
+\indexlibrary{\idxcode{operator==}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator==(const optional<T>& x, const optional<T>& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{T} shall meet the requirements of \tcode{EqualityComparable}.
+
+\pnum
+\returns
+If \tcode{bool(x) != bool(y)}, \tcode{false}; otherwise if \tcode{bool(x) == false}, \tcode{true}; otherwise \tcode{*x == *y}.
+
+\pnum
+\remarks
+Specializations of this function template
+for which \tcode{*x == *y} is a core constant expression
+shall be \tcode{constexpr} functions.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator!=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator!=(const optional<T>& x, const optional<T>& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!(x == y)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator<(const optional<T>& x, const optional<T>& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{*x < *y} shall be well-formed
+and its result shall be convertible to \tcode{bool}.
+
+\pnum
+\returns
+If \tcode{!y}, \tcode{false};
+otherwise, if \tcode{!x}, \tcode{true};
+otherwise \tcode{*x < *y}.
+
+\pnum
+\remarks
+Specializations of this function template
+for which \tcode{*x < *y} is a core constant expression
+shall be \tcode{constexpr} functions.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>(const optional<T>& x, const optional<T>& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{y < x}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator<=(const optional<T>& x, const optional<T>& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!(y < x)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>=(const optional<T>& x, const optional<T>& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!(x < y)}.
+\end{itemdescr}
+
+\rSec2[optional.nullops]{Comparison with \tcode{nullopt}}
+
+\indexlibrary{\idxcode{operator==}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator==(const optional<T>& x, nullopt_t) noexcept;
+template <class T> constexpr bool operator==(nullopt_t, const optional<T>& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!x}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator!=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator!=(const optional<T>& x, nullopt_t) noexcept;
+template <class T> constexpr bool operator!=(nullopt_t, const optional<T>& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator<(const optional<T>& x, nullopt_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{false}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class T> constexpr bool operator<(nullopt_t, const optional<T>& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator<=(const optional<T>& x, nullopt_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!x}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class T> constexpr bool operator<=(nullopt_t, const optional<T>& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>(const optional<T>& x, nullopt_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x)}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class T> constexpr bool operator>(nullopt_t, const optional<T>& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>=(const optional<T>& x, nullopt_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>=(nullopt_t, const optional<T>& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!x}.
+\end{itemdescr}
+
+\rSec2[optional.comp_with_t]{Comparison with \tcode{T}}
+
+\indexlibrary{\idxcode{operator==}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator==(const optional<T>& x, const T& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x) ? *x == v : false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator==}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator==(const T& v, const optional<T>& x);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x) ? v == *x : false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator!=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator!=(const optional<T>& x, const T& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x) ? !(*x == v) : true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator!=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator!=(const T& v, const optional<T>& x);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x) ? !(v == *x) : true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator<(const optional<T>& x, const T& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x) ? *x < v : true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator<(const T& v, const optional<T>& x);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x) ? v < *x : false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator<=(const optional<T>& x, const T& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!(x > v)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator<=(const T& v, const optional<T>& x);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!(v > x)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>(const optional<T>& x, const T& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x) ? v < *x : false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>(const T& v, const optional<T>& x);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x) ? *x < v : true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>=(const optional<T>& x, const T& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!(x < v)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>=(const T& v, const optional<T>& x);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!(v < x)}.
+\end{itemdescr}
+
+
+\rSec2[optional.specalg]{Specialized algorithms}
+
+\indexlibrary{\idxcode{swap}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> void swap(optional<T>& x, optional<T>& y) noexcept(noexcept(x.swap(y)));
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Calls \tcode{x.swap(y)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{make_optional}}%
+\begin{itemdecl}
+template <class T> constexpr optional<decay_t<T>> make_optional(T&& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{optional<decay_t<T>>(std::forward<T>(v))}.
+\end{itemdescr}
+
+
+\rSec2[optional.hash]{Hash support}
+
+\indexlibrary{\idxcode{hash}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> struct hash<optional<T>>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+The template specialization \tcode{hash<T>} shall meet the requirements of class template \tcode{hash} (\ref{unord.hash}).
+The template specialization \tcode{hash<optional<T>>} shall meet the requirements of class template \tcode{hash}.
+For an object \tcode{o} of type \tcode{optional<T>}, if \tcode{bool(o) == true},
+\tcode{hash<optional<T>>()(o)} shall evaluate to the same value as \tcode{hash<T>()(*o)};
+otherwise it evaluates to an unspecified value.
+\end{itemdescr}
+
 
 \rSec1[intseq]{Compile-time integer sequences}
 
