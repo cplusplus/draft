@@ -12,12 +12,15 @@ These utilities are summarized in Table~\ref{tab:util.lib.summary}.
 \ref{utility}               & Utility components                & \tcode{<utility>}     \\ \rowsep
 \ref{pairs}                 & Pairs                             & \tcode{<utility>}     \\ \rowsep
 \ref{tuple}                 & Tuples                            & \tcode{<tuple>}       \\ \rowsep
+\ref{optional}              & Optional objects                  & \tcode{<optional>}    \\ \rowsep
+\ref{any}                   & Storage for any type              & \tcode{<any>}         \\ \rowsep
 \ref{intseq}                & Compile-time integer sequences    & \tcode{<utility>}     \\ \rowsep
 \ref{template.bitset}       & Fixed-size sequences of bits      & \tcode{<bitset>}      \\ \rowsep
                             &                                   & \tcode{<memory>}      \\
 \ref{memory}                & Memory                            & \tcode{<cstdlib>}     \\
                             &                                   & \tcode{<cstring>}     \\ \rowsep
 \ref{smartptr}              & Smart pointers                    & \tcode{<memory>}      \\ \rowsep
+\ref{memory.resource}       & Memory resources                  & \tcode{<memory_resource>} \\ \rowsep
 \ref{function.objects}      & Function objects                  & \tcode{<functional>}  \\ \rowsep
 \ref{meta}                  & Type traits                       & \tcode{<type_traits>} \\ \rowsep
 \ref{ratio}                 & Compile-time rational arithmetic  & \tcode{<ratio>}       \\ \rowsep
@@ -1010,6 +1013,10 @@ namespace std {
   template <class... Tuples>
     constexpr tuple<@\placeholder{Ctypes}@...> tuple_cat(Tuples&&...);
 
+  // \ref{tuple.apply}, calling a function with a tuple of arguments:
+  template <class F, class Tuple>
+    constexpr decltype(auto) apply(F&& f, Tuple&& t);
+
   // \ref{tuple.helper}, tuple helper classes:
   template <class T> class tuple_size;  // undefined
   template <class T> class tuple_size<const T>;
@@ -1679,6 +1686,31 @@ pack \tcode{Tuples} that support the \tcode{tuple}-like protocol, such as
 \tcode{pair} and \tcode{array}.
 \end{itemdescr}
 
+\rSec3[tuple.apply]{Calling a function with a \tcode{tuple} of arguments}
+
+\indexlibrary{\idxcode{apply}}%
+\begin{itemdecl}
+template <class F, class Tuple>
+  constexpr decltype(auto) apply(F&& f, Tuple&& t);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Given the exposition only function
+\begin{codeblock}
+template <class F, class Tuple, size_t... I>
+constexpr decltype(auto) apply_impl(F&& f, Tuple&& t, index_sequence<I...>) { // exposition only
+  return @\textit{INVOKE}@(std::forward<F>(f), std::get<I>(std::forward<Tuple>(t))...);
+}
+\end{codeblock}
+Equivalent to
+\begin{codeblock}
+return apply_impl(std::forward<F>(f), std::forward<Tuple>(t),
+                  make_index_sequence<tuple_size_v<decay_t<Tuple>>>{});
+\end{codeblock}
+\end{itemdescr}
+
 \rSec3[tuple.helper]{Tuple helper classes}
 
 \indexlibrary{\idxcode{tuple_size}!in~general}%
@@ -1996,6 +2028,1610 @@ noexcept(x.swap(y))
 \pnum
 \effects \tcode{x.swap(y)}
 \end{itemdescr}
+
+\rSec1[optional]{Optional objects}
+
+\rSec2[optional.general]{In general}
+
+\pnum
+This subclause describes class template \tcode{optional} that represents
+\defn{optional object}{s}. An \defn{optional object for object types} is an
+object that contains the storage for another object and manages the lifetime of
+this contained object, if any. The contained object may be initialized after
+the optional object has been initialized, and may be destroyed before the
+optional object has been destroyed. The initialization state of the contained
+object is tracked by the optional object.
+
+\rSec2[optional.syn]{Header \tcode{<optional>} synopsis}
+
+\indexlibrary{\idxhdr{optional}}%
+\begin{codeblock}
+namespace std {
+  // \ref{optional.object}, optional for object types
+  template <class T> class optional;
+
+  // \ref{optional.inplace}, in-place construction
+  struct in_place_t{};
+  constexpr in_place_t in_place{};
+
+  // \ref{optional.nullopt}, no-value state indicator
+  struct nullopt_t{@\seebelow@};
+  constexpr nullopt_t nullopt(@\unspec@);
+
+  // \ref{optional.bad_optional_access}, class \tcode{bad_optional_access}
+  class bad_optional_access;
+
+  // \ref{optional.relops}, relational operators
+  template <class T>
+  constexpr bool operator==(const optional<T>&, const optional<T>&);
+  template <class T>
+  constexpr bool operator!=(const optional<T>&, const optional<T>&);
+  template <class T>
+  constexpr bool operator<(const optional<T>&, const optional<T>&);
+  template <class T>
+  constexpr bool operator>(const optional<T>&, const optional<T>&);
+  template <class T>
+  constexpr bool operator<=(const optional<T>&, const optional<T>&);
+  template <class T>
+  constexpr bool operator>=(const optional<T>&, const optional<T>&);
+
+  // \ref{optional.nullops}, comparison with \tcode{nullopt}
+  template <class T> constexpr bool operator==(const optional<T>&, nullopt_t) noexcept;
+  template <class T> constexpr bool operator==(nullopt_t, const optional<T>&) noexcept;
+  template <class T> constexpr bool operator!=(const optional<T>&, nullopt_t) noexcept;
+  template <class T> constexpr bool operator!=(nullopt_t, const optional<T>&) noexcept;
+  template <class T> constexpr bool operator<(const optional<T>&, nullopt_t) noexcept;
+  template <class T> constexpr bool operator<(nullopt_t, const optional<T>&) noexcept;
+  template <class T> constexpr bool operator<=(const optional<T>&, nullopt_t) noexcept;
+  template <class T> constexpr bool operator<=(nullopt_t, const optional<T>&) noexcept;
+  template <class T> constexpr bool operator>(const optional<T>&, nullopt_t) noexcept;
+  template <class T> constexpr bool operator>(nullopt_t, const optional<T>&) noexcept;
+  template <class T> constexpr bool operator>=(const optional<T>&, nullopt_t) noexcept;
+  template <class T> constexpr bool operator>=(nullopt_t, const optional<T>&) noexcept;
+
+  // \ref{optional.comp_with_t}, \tcode{T}
+  template <class T> constexpr bool operator==(const optional<T>&, const T&);
+  template <class T> constexpr bool operator==(const T&, const optional<T>&);
+  template <class T> constexpr bool operator!=(const optional<T>&, const T&);
+  template <class T> constexpr bool operator!=(const T&, const optional<T>&);
+  template <class T> constexpr bool operator<(const optional<T>&, const T&);
+  template <class T> constexpr bool operator<(const T&, const optional<T>&);
+  template <class T> constexpr bool operator<=(const optional<T>&, const T&);
+  template <class T> constexpr bool operator<=(const T&, const optional<T>&);
+  template <class T> constexpr bool operator>(const optional<T>&, const T&);
+  template <class T> constexpr bool operator>(const T&, const optional<T>&);
+  template <class T> constexpr bool operator>=(const optional<T>&, const T&);
+  template <class T> constexpr bool operator>=(const T&, const optional<T>&);
+
+  // \ref{optional.specalg}, specialized algorithms
+  template <class T> void swap(optional<T>&, optional<T>&) noexcept(@\seebelow@);
+  template <class T> constexpr optional<@\seebelow@> make_optional(T&&);
+
+  // \ref{optional.hash}, hash support
+  template <class T> struct hash;
+  template <class T> struct hash<optional<T>>;
+}
+\end{codeblock}
+
+\pnum
+A program that necessitates the instantiation of template \tcode{optional} for
+a reference type, or for possibly cv-qualified types \tcode{in_place_t} or
+\tcode{nullopt_t} is ill-formed.
+
+\rSec2[optional.object]{\tcode{optional} for object types}
+
+\indexlibrary{\idxcode{optional}}%
+\begin{codeblock}
+template <class T> class optional {
+public:
+  typedef T value_type;
+
+  // \ref{optional.object.ctor}, constructors
+  constexpr optional() noexcept;
+  constexpr optional(nullopt_t) noexcept;
+  optional(const optional &);
+  optional(optional &&) noexcept(@\seebelow@);
+  constexpr optional(const T &);
+  constexpr optional(T &&);
+  template <class... Args> constexpr explicit optional(in_place_t, Args &&...);
+  template <class U, class... Args>
+    constexpr explicit optional(in_place_t, initializer_list<U>, Args &&...);
+
+  // \ref{optional.object.dtor}, destructor
+  ~optional();
+
+  // \ref{optional.object.assign}, assignment
+  optional &operator=(nullopt_t) noexcept;
+  optional &operator=(const optional &);
+  optional &operator=(optional &&) noexcept(@\seebelow@);
+  template <class U> optional &operator=(U &&);
+  template <class... Args> void emplace(Args &&...);
+  template <class U, class... Args>
+    void emplace(initializer_list<U>, Args &&...);
+
+  // \ref{optional.object.swap}, swap
+  void swap(optional &) noexcept(@\seebelow@);
+
+  // \ref{optional.object.observe}, observers
+  constexpr T const *operator->() const;
+  constexpr T *operator->();
+  constexpr T const &operator*() const &;
+  constexpr T &operator*() &;
+  constexpr T &&operator*() &&;
+  constexpr const T &&operator*() const &&;
+  constexpr explicit operator bool() const noexcept;
+  constexpr T const &value() const &;
+  constexpr T &value() &;
+  constexpr T &&value() &&;
+  constexpr const T &&value() const &&;
+  template <class U> constexpr T value_or(U &&) const &;
+  template <class U> constexpr T value_or(U &&) &&;
+
+private:
+  T *val; // \expos
+};
+\end{codeblock}
+
+\pnum
+Any instance of \tcode{optional<T>} at any given time either contains a value or does not contain a value.
+When an instance of \tcode{optional<T>} \defnx{contains a value}{contains a value!\idxcode{optional}},
+it means that an object of type \tcode{T}, referred to as the optional object's \defnx{contained value}{contained value!\idxcode{optional}},
+is allocated within the storage of the optional object.
+Implementations are not permitted to use additional storage, such as dynamic memory, to allocate its contained value.
+The contained value shall be allocated in a region of the \tcode{optional<T>} storage suitably aligned for the type \tcode{T}.
+When an object of type \tcode{optional<T>} is contextually converted to \tcode{bool},
+the conversion returns \tcode{true} if the object contains a value;
+otherwise the conversion returns \tcode{false}.
+
+\pnum
+Member \tcode{val} is provided for exposition only. When an \tcode{optional<T>} object contains a value, \tcode{val} points to the contained value.
+
+\pnum
+\tcode{T} shall be an object type and shall satisfy the requirements of \tcode{Destructible} (Table~\ref{destructible}).
+
+\rSec3[optional.object.ctor]{Constructors}
+
+\indexlibrary{\idxcode{optional}!constructor}%
+\begin{itemdecl}
+constexpr optional() noexcept;
+constexpr optional(nullopt_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\postcondition
+\tcode{*this} does not contain a value.
+
+\pnum
+\remarks
+No contained value is initialized.
+For every object type \tcode{T} these constructors shall be \tcode{constexpr} constructors (\ref{dcl.constexpr}).
+\end{itemdescr}
+
+\begin{itemdecl}
+optional(const optional<T>& rhs);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_copy_constructible_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+If \tcode{rhs} contains a value, initializes the contained value as if
+direct-non-list-initializing an object of type \tcode{T} with the expression \tcode{*rhs}.
+
+\pnum
+\postcondition
+\tcode{bool(rhs) == bool(*this)}.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+\end{itemdescr}
+
+\begin{itemdecl}
+optional(optional<T>&& rhs) noexcept(@\seebelow@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_move_constructible_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+If \tcode{rhs} contains a value, initializes the contained value as if
+direct-non-list-initializing an object of type \tcode{T} with the expression \tcode{std::move(*rhs)}.
+\tcode{bool(rhs)} is unchanged.
+
+\pnum
+\postcondition
+\tcode{bool(rhs) == bool(*this)}.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks
+The expression inside \tcode{noexcept} is equivalent to
+\tcode{is_nothrow_move_constructible_v<T>}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr optional(const T& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_copy_constructible_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+Initializes the contained value as if direct-non-list-initializing an object of type \tcode{T} with the expression \tcode{v}.
+
+\pnum
+\postcondition
+\tcode{*this} contains a value.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks
+If \tcode{T}'s selected constructor is a \tcode{constexpr} constructor, this constructor shall be a \tcode{constexpr} constructor.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr optional(T&& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_move_constructible_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+Initializes the contained value as if direct-non-list-initializing an object of type \tcode{T} with the expression \tcode{std::move(v)}.
+
+\pnum
+\postcondition
+\tcode{*this} contains a value.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks
+If \tcode{T}'s selected constructor is a \tcode{constexpr} constructor, this constructor shall be a \tcode{constexpr} constructor.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class... Args> constexpr explicit optional(in_place_t, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_constructible_v<T, Args\&\&...>} is \tcode{true}.
+
+\pnum
+\effects
+Initializes the contained value as if direct-non-list-initializing an object of type \tcode{T} with the arguments \tcode{std::forward<Args>(args)...}.
+
+\pnum
+\postcondition
+\tcode{*this} contains a value.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks
+If \tcode{T}'s constructor selected for the initialization is a \tcode{constexpr} constructor, this constructor shall be a \tcode{constexpr} constructor.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class U, class... Args>
+  constexpr explicit optional(in_place_t, initializer_list<U> il, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+
+\pnum
+\requires
+\tcode{is_constructible_v<T, initializer_list<U>\&, Args\&\&...>} is \tcode{true}.
+
+\pnum
+\effects
+Initializes the contained value as if direct-non-list-initializing an object of type \tcode{T} with the arguments \tcode{il, std::forward<Args>(args)...}.
+
+\pnum
+\postcondition
+\tcode{*this} contains a value.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks
+The function shall not participate in overload resolution unless \tcode{is_constructible_v<T, initializer_list<U>\&, Args\&\&...>} is \tcode{true}.
+If \tcode{T}'s constructor selected for the initialization is a \tcode{constexpr} constructor, this constructor shall be a \tcode{constexpr} constructor.
+\end{itemdescr}
+
+\rSec3[optional.object.dtor]{Destructor}
+
+\indexlibrary{\idxcode{optional}!destructor}%
+\begin{itemdecl}
+~optional();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{is_trivially_destructible_v<T> != true} and \tcode{*this} contains a value, calls \tcode{val->T::\~T()}.
+
+\pnum
+\remarks
+If \tcode{is_trivially_destructible_v<T> == true} then this destructor shall be a trivial destructor.
+\end{itemdescr}
+
+\rSec3[optional.object.assign]{Assignment}
+
+\indexlibrary{\idxcode{optional}!\idxcode{operator=}}%
+\indexlibrary{\idxcode{operator=}!\idxcode{optional}}%
+\begin{itemdecl}
+optional<T>& operator=(nullopt_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{*this} contains a value, calls \tcode{val->T::\~T()} to destroy the contained value; otherwise no effect.
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\postcondition
+\tcode{*this} does not contain a value.
+\end{itemdescr}
+
+\begin{itemdecl}
+optional<T>& operator=(const optional<T>& rhs);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_copy_constructible_v<T>} is \tcode{true} and \tcode{is_copy_assignable_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+See table \ref{tab:optional.assign.copy}.
+\begin{lib2dtab2}{\tcode{optional::operator=(const optional\&)} effects}{tab:optional.assign.copy}
+{\tcode{*this} contains a value}
+{\tcode{*this} does not contain a value}
+
+\rowhdr{\tcode{rhs} contains a value} &
+assigns \tcode{*rhs} to the contained value &
+initializes the contained value as if direct-non-list-initializing an object of type \tcode{T} with \tcode{*rhs} \\
+\rowsep
+
+\rowhdr{\tcode{rhs} does not contain a value} &
+destroys the contained value by calling \tcode{val->T::\~T()} &
+no effect \\
+\end{lib2dtab2}
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\postcondition
+\tcode{bool(rhs) == bool(*this)}.
+
+\pnum
+\remarks
+If any exception is thrown, the result of the expression \tcode{bool(*this)} remains unchanged.
+If an exception is thrown during the call to \tcode{T}'s copy constructor, no effect.
+If an exception is thrown during the call to \tcode{T}'s copy assignment,
+the state of its contained value is as defined by the exception safety guarantee of \tcode{T}'s copy assignment.
+\end{itemdescr}
+
+\begin{itemdecl}
+optional<T>& operator=(optional<T>&& rhs) noexcept(@\seebelow@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_move_constructible_v<T>} is \tcode{true} and \tcode{is_move_assignable_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+See table \ref{tab:optional.assign.move}.
+The result of the expression \tcode{bool(rhs)} remains unchanged.
+\begin{lib2dtab2}{\tcode{optional::operator=(optional\&\&)} effects}{tab:optional.assign.move}
+{\tcode{*this} contains a value}
+{\tcode{*this} does not contain a value}
+
+\rowhdr{\tcode{rhs} contains a value} &
+assigns \tcode{std::move(*rhs)} to the contained value &
+initializes the contained value as if direct-non-list-initializing an object of type \tcode{T} with \tcode{std::move(*rhs)} \\
+\rowsep
+
+\rowhdr{\tcode{rhs} does not contain a value} &
+destroys the contained value by calling \tcode{val->T::\~T()} &
+no effect \\
+\end{lib2dtab2}
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\postcondition
+\tcode{bool(rhs) == bool(*this)}.
+
+\pnum
+\remarks
+The expression inside \tcode{noexcept} is equivalent to:
+\begin{codeblock}
+is_nothrow_move_assignable_v<T> && is_nothrow_move_constructible_v<T>
+\end{codeblock}
+
+\pnum
+If any exception is thrown, the result of the expression \tcode{bool(*this)} remains unchanged.
+If an exception is thrown during the call to \tcode{T}'s move constructor,
+the state of \tcode{*rhs.val} is determined by the exception safety guarantee of \tcode{T}'s move constructor.
+If an exception is thrown during the call to \tcode{T}'s move assignment,
+the state of \tcode{*val} and \tcode{*rhs.val} is determined by the exception safety guarantee of \tcode{T}'s move assignment.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class U> optional<T>& operator=(U&& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_constructible_v<T, U>} is \tcode{true} and \tcode{is_assignable_v<T\&, U>} is \tcode{true}.
+
+\pnum
+\effects
+If \tcode{*this} contains a value, assigns \tcode{std::forward<U>(v)} to the contained value; otherwise initializes the contained value as if direct-non-list-initializing object of type \tcode{T} with \tcode{std::forward<U>(v)}.
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\postcondition
+\tcode{*this} contains a value.
+
+\pnum
+\remarks
+If any exception is thrown, the result of the expression \tcode{bool(*this)} remains unchanged. If an exception is thrown during the call to \tcode{T}'s constructor, the state of \tcode{v} is determined by the exception safety guarantee of \tcode{T}'s constructor. If an exception is thrown during the call to \tcode{T}'s assignment, the state of \tcode{*val} and \tcode{v} is determined by the exception safety guarantee of \tcode{T}'s assignment.
+The function shall not participate in overload resolution unless
+\tcode{is_same_v<decay_t<U>, T>} is \tcode{true}.
+
+\pnum
+\realnotes
+The reason for providing such generic assignment and then constraining it so that effectively \tcode{T} == \tcode{U} is to guarantee that assignment of the form \tcode{o = {}} is unambiguous.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{emplace}!\idxcode{optional}}%
+\indexlibrary{\idxcode{optional}!\idxcode{emplace}}%
+\begin{itemdecl}
+template <class... Args> void emplace(Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_constructible_v<T, Args\&\&...>} is \tcode{true}.
+
+\pnum
+\effects
+Calls \tcode{*this = nullopt}. Then initializes the contained value as if direct-non-list-initializing an object of type \tcode{T} with the arguments \tcode{std::forward<Args>(args)...}.
+
+\pnum
+\postcondition
+\tcode{*this} contains a value.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks
+If an exception is thrown during the call to \tcode{T}'s constructor, \tcode{*this} does not contain a value, and the previous \tcode{*val} (if any) has been destroyed.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class U, class... Args> void emplace(initializer_list<U> il, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Calls \tcode{*this = nullopt}. Then initializes the contained value as if direct-non-list-initializing an object of type \tcode{T} with the arguments \tcode{il, std::forward<Args>(args)...}.
+
+\pnum
+\postcondition
+\tcode{*this} contains a value.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks
+If an exception is thrown during the call to \tcode{T}'s constructor, \tcode{*this} does not contain a value, and the previous \tcode{*val} (if any) has been destroyed.
+This function shall not participate in overload resolution unless \tcode{is_constructible_v<T, initializer_list<U>\&, Args\&\&...>} is \tcode{true}.
+\end{itemdescr}
+
+\rSec3[optional.object.swap]{Swap}
+
+\indexlibrary{\idxcode{optional}!\idxcode{swap}}%
+\indexlibrary{\idxcode{swap}!\idxcode{optional}}%
+\begin{itemdecl}
+void swap(optional<T>& rhs) noexcept(@\seebelow@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+Lvalues of type \tcode{T} shall be swappable and \tcode{is_move_constructible_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+See table \ref{tab:optional.swap}.
+\begin{lib2dtab2}{\tcode{optional::swap(optional\&)} effects}{tab:optional.swap}
+{\tcode{*this} contains a value}
+{\tcode{*this} does not contain a value}
+
+\rowhdr{\tcode{rhs} contains a value} &
+calls \tcode{swap(*(*this), *rhs)} &
+initializes the contained value of \tcode{*this} as if
+direct-non-list-initializing an object of type \tcode{T} with the expression \tcode{std::move(*rhs)},
+followed by \tcode{rhs.val->T::\~T()};
+postcondition is that \tcode{*this} contains a value and \tcode{rhs} does not contain a value \\
+\rowsep
+
+\rowhdr{\tcode{rhs} does not contain a value} &
+initializes the contained value of \tcode{rhs} as if
+direct-non-list-initializing an object of type \tcode{T} with the expression \tcode{std::move(*(*this))},
+followed by \tcode{val->T::\~T()};
+postcondition is that \tcode{*this} does not contain a value and \tcode{rhs} contains a value &
+no effect \\
+\end{lib2dtab2}
+
+\pnum
+\throws
+Any exceptions that the expressions in the Effects element throw.
+
+\pnum
+\remarks
+The expression inside \tcode{noexcept} is equivalent to:
+\begin{codeblock}
+is_nothrow_move_constructible_v<T> && noexcept(swap(declval<T&>(), declval<T&>()))
+\end{codeblock}
+If any exception is thrown, the results of the expressions \tcode{bool(*this)} and \tcode{bool(rhs)} remain unchanged.
+If an exception is thrown during the call to function \tcode{swap}
+the state of \tcode{*val} and \tcode{*rhs.val} is determined by the exception safety guarantee of \tcode{swap} for lvalues of \tcode{T}.
+If an exception is thrown during the call to \tcode{T}'s move constructor,
+the state of \tcode{*val} and \tcode{*rhs.val} is determined by the exception safety guarantee of \tcode{T}'s move constructor.
+\end{itemdescr}
+
+\rSec3[optional.object.observe]{Observers}
+
+\indexlibrary{\idxcode{optional}!\idxcode{operator->}}%
+\indexlibrary{\idxcode{operator->}!\idxcode{optional}}%
+\begin{itemdecl}
+constexpr T const* operator->() const;
+constexpr T* operator->();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{*this} contains a value.
+
+\pnum
+\returns
+\tcode{val}.
+
+\pnum
+\throws
+Nothing.
+
+\pnum
+\remarks
+Unless \tcode{T} is a user-defined type with overloaded unary \tcode{operator\&}, these functions shall be \tcode{constexpr} functions.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{optional}!\idxcode{operator*}}%
+\indexlibrary{\idxcode{operator*}!\idxcode{optional}}%
+\begin{itemdecl}
+constexpr T const& operator*() const &;
+constexpr T& operator*() &;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{*this} contains a value.
+
+\pnum
+\returns
+\tcode{*val}.
+
+\pnum
+\throws
+Nothing.
+
+\pnum
+\remarks
+These functions shall be \tcode{constexpr} functions.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr T&& operator*() &&;
+constexpr const T&& operator*() const &&;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{*this} contains a value.
+
+\pnum
+\effects
+Equivalent to \tcode{return std::move(*val);}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{optional}!\idxcode{operator bool}}%
+\indexlibrary{\idxcode{operator bool}!\idxcode{optional}}%
+\begin{itemdecl}
+constexpr explicit operator bool() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if and only if \tcode{*this} contains a value.
+
+\pnum
+\remarks
+This function shall be a \tcode{constexpr} function.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{optional}!\idxcode{value}}%
+\indexlibrary{\idxcode{value}!\idxcode{optional}}%
+\begin{itemdecl}
+constexpr T const& value() const &;
+constexpr T& value() &;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+return bool(*this) ? *val : throw bad_optional_access();
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr T&& value() &&;
+constexpr const T&& value() const &&;
+\end{itemdecl}
+
+\begin{itemdescr}
+
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+return bool(*this) ? std::move(*val) : throw bad_optional_access();
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{optional}!\idxcode{value_or}}%
+\indexlibrary{\idxcode{value_or}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class U> constexpr T value_or(U&& v) const &;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+return bool(*this) ? **this : static_cast<T>(std::forward<U>(v));
+\end{codeblock}
+
+\pnum
+\remarks
+If \tcode{is_copy_constructible_v<T> \&\& is_convertible_v<U\&\&, T>} is \tcode{false},
+the program is ill-formed.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class U> T value_or(U&& v) &&;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+return bool(*this) ? std::move(**this) : static_cast<T>(std::forward<U>(v));
+\end{codeblock}
+
+\pnum
+\remarks
+If \tcode{is_move_constructible_v<T> \&\& is_convertible_v<U\&\&, T>} is \tcode{false},
+the program is ill-formed.
+\end{itemdescr}
+
+\rSec2[optional.inplace]{In-place construction}
+
+\indexlibrary{\idxcode{in_place_t}}%
+\indexlibrary{\idxcode{in_place}}%
+\begin{itemdecl}
+struct in_place_t{};
+constexpr in_place_t in_place{};
+\end{itemdecl}
+
+\pnum
+The struct \tcode{in_place_t} is an empty structure type used as a unique type to disambiguate constructor and function overloading.
+Specifically, \tcode{optional<T>} has a constructor with \tcode{in_place_t} as the first parameter followed by a parameter pack;
+this indicates that \tcode{T} should be constructed in-place (as if by a call to a placement new expression) with the forwarded pack expansion as arguments for the initialization of \tcode{T}.
+
+\rSec2[optional.nullopt]{No-value state indicator}
+
+\indexlibrary{\idxcode{nullopt_t}}%
+\indexlibrary{\idxcode{nullopt}}%
+\begin{itemdecl}
+struct nullopt_t{@\seebelow@};
+constexpr nullopt_t nullopt(@\unspec@);
+\end{itemdecl}
+
+\pnum
+The struct \tcode{nullopt_t} is an empty structure type used as a unique type to indicate the state of not containing a value for \tcode{optional} objects.
+In particular, \tcode{optional<T>} has a constructor with \tcode{nullopt_t} as a single argument;
+this indicates that an optional object not containing a value shall be constructed.
+
+\pnum
+Type \tcode{nullopt_t} shall not have a default constructor. It shall be a literal type. Constant \tcode{nullopt} shall be initialized with an argument of literal type.
+
+\rSec2[optional.bad_optional_access]{Class \tcode{bad_optional_access}}
+
+\begin{codeblock}
+class bad_optional_access : public logic_error {
+public:
+  bad_optional_access();
+};
+\end{codeblock}
+
+\pnum
+The class \tcode{bad_optional_access} defines the type of objects thrown as exceptions to report the situation where an attempt is made to access the value of an optional object that does not contain a value.
+
+\indexlibrary{\idxcode{bad_optional_access}!constructor}%
+\begin{itemdecl}
+bad_optional_access();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Constructs an object of class \tcode{bad_optional_access}.
+
+\pnum
+\postcondition
+\tcode{what()} returns an
+\impldef{return value of \tcode{bad_optional_access::what}}
+\ntbs.
+\end{itemdescr}
+
+\rSec2[optional.relops]{Relational operators}
+
+\indexlibrary{\idxcode{operator==}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator==(const optional<T>& x, const optional<T>& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{T} shall meet the requirements of \tcode{EqualityComparable}.
+
+\pnum
+\returns
+If \tcode{bool(x) != bool(y)}, \tcode{false}; otherwise if \tcode{bool(x) == false}, \tcode{true}; otherwise \tcode{*x == *y}.
+
+\pnum
+\remarks
+Specializations of this function template
+for which \tcode{*x == *y} is a core constant expression
+shall be \tcode{constexpr} functions.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator!=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator!=(const optional<T>& x, const optional<T>& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!(x == y)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator<(const optional<T>& x, const optional<T>& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{*x < *y} shall be well-formed
+and its result shall be convertible to \tcode{bool}.
+
+\pnum
+\returns
+If \tcode{!y}, \tcode{false};
+otherwise, if \tcode{!x}, \tcode{true};
+otherwise \tcode{*x < *y}.
+
+\pnum
+\remarks
+Specializations of this function template
+for which \tcode{*x < *y} is a core constant expression
+shall be \tcode{constexpr} functions.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>(const optional<T>& x, const optional<T>& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{y < x}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator<=(const optional<T>& x, const optional<T>& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!(y < x)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>=(const optional<T>& x, const optional<T>& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!(x < y)}.
+\end{itemdescr}
+
+\rSec2[optional.nullops]{Comparison with \tcode{nullopt}}
+
+\indexlibrary{\idxcode{operator==}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator==(const optional<T>& x, nullopt_t) noexcept;
+template <class T> constexpr bool operator==(nullopt_t, const optional<T>& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!x}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator!=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator!=(const optional<T>& x, nullopt_t) noexcept;
+template <class T> constexpr bool operator!=(nullopt_t, const optional<T>& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator<(const optional<T>& x, nullopt_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{false}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class T> constexpr bool operator<(nullopt_t, const optional<T>& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator<=(const optional<T>& x, nullopt_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!x}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class T> constexpr bool operator<=(nullopt_t, const optional<T>& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>(const optional<T>& x, nullopt_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x)}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class T> constexpr bool operator>(nullopt_t, const optional<T>& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>=(const optional<T>& x, nullopt_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>=(nullopt_t, const optional<T>& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!x}.
+\end{itemdescr}
+
+\rSec2[optional.comp_with_t]{Comparison with \tcode{T}}
+
+\indexlibrary{\idxcode{operator==}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator==(const optional<T>& x, const T& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x) ? *x == v : false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator==}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator==(const T& v, const optional<T>& x);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x) ? v == *x : false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator!=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator!=(const optional<T>& x, const T& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x) ? !(*x == v) : true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator!=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator!=(const T& v, const optional<T>& x);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x) ? !(v == *x) : true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator<(const optional<T>& x, const T& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x) ? *x < v : true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator<(const T& v, const optional<T>& x);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x) ? v < *x : false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator<=(const optional<T>& x, const T& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!(x > v)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator<=(const T& v, const optional<T>& x);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!(v > x)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>(const optional<T>& x, const T& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x) ? v < *x : false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>(const T& v, const optional<T>& x);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{bool(x) ? *x < v : true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>=(const optional<T>& x, const T& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!(x < v)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>=}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> constexpr bool operator>=(const T& v, const optional<T>& x);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!(v < x)}.
+\end{itemdescr}
+
+
+\rSec2[optional.specalg]{Specialized algorithms}
+
+\indexlibrary{\idxcode{swap}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> void swap(optional<T>& x, optional<T>& y) noexcept(noexcept(x.swap(y)));
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Calls \tcode{x.swap(y)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{make_optional}}%
+\begin{itemdecl}
+template <class T> constexpr optional<decay_t<T>> make_optional(T&& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{optional<decay_t<T>>(std::forward<T>(v))}.
+\end{itemdescr}
+
+
+\rSec2[optional.hash]{Hash support}
+
+\indexlibrary{\idxcode{hash}!\idxcode{optional}}%
+\begin{itemdecl}
+template <class T> struct hash<optional<T>>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+The template specialization \tcode{hash<T>} shall meet the requirements of class template \tcode{hash} (\ref{unord.hash}).
+The template specialization \tcode{hash<optional<T>>} shall meet the requirements of class template \tcode{hash}.
+For an object \tcode{o} of type \tcode{optional<T>}, if \tcode{bool(o) == true},
+\tcode{hash<optional<T>>()(o)} shall evaluate to the same value as \tcode{hash<T>()(*o)};
+otherwise it evaluates to an unspecified value.
+\end{itemdescr}
+
+\rSec1[any]{Storage for any type}
+
+\pnum
+This section describes components that C++ programs may use to perform operations on objects of a discriminated type.
+
+\pnum
+\enternote
+The discriminated type may contain values of different types but does not attempt conversion between them,
+i.e. \tcode{5} is held strictly as an \tcode{int} and is not implicitly convertible either to \tcode{"5"} or to \tcode{5.0}.
+This indifference to interpretation but awareness of type effectively allows safe, generic containers of single values, with no scope for surprises from ambiguous conversions.
+\exitnote
+
+\rSec2[any.synop]{Header \tcode{<any>} synopsis}
+
+\begin{codeblock}
+namespace std {
+  // \ref{any.bad_any_cast}, class \tcode{bad_any_cast}
+  class bad_any_cast;
+
+  // \ref{any.class}, class \tcode{any}
+  class any;
+
+  // \ref{any.nonmembers}, non-member functions
+  void swap(any& x, any& y) noexcept;
+  
+  template<class ValueType>
+    ValueType any_cast(const any& operand);
+  template<class ValueType>
+    ValueType any_cast(any& operand);
+  template<class ValueType>
+    ValueType any_cast(any&& operand);
+  
+  template<class ValueType>
+    const ValueType* any_cast(const any* operand) noexcept;
+  template<class ValueType>
+    ValueType* any_cast(any* operand) noexcept;
+} // namespace std
+\end{codeblock}
+
+\rSec2[any.bad_any_cast]{Class \tcode{bad_any_cast}}
+
+\begin{codeblock}
+class bad_any_cast : public bad_cast {
+public:
+  virtual const char* what() const noexcept;
+};
+\end{codeblock}
+
+\pnum
+Objects of type \tcode{bad_any_cast} are thrown by a failed \tcode{any_cast}.
+
+\rSec2[any.class]{Class \tcode{any}}
+
+\begin{codeblock}
+class any {
+public:
+  // \ref{any.cons}, construction and destruction
+  any() noexcept;
+
+  any(const any &other);
+  any(any &&other) noexcept;
+
+  template <class ValueType> any(ValueType &&value);
+
+  ~any();
+
+  // \ref{any.assign}, assignments
+  any &operator=(const any &rhs);
+  any &operator=(any &&rhs) noexcept;
+
+  template <class ValueType> any &operator=(ValueType &&rhs);
+
+  // \ref{any.modifiers}, modifiers
+  void clear() noexcept;
+  void swap(any &rhs) noexcept;
+
+  // \ref{any.observers}, observers
+  bool empty() const noexcept;
+  const type_info &type() const noexcept;
+};
+\end{codeblock}
+
+\pnum
+An object of class \tcode{any} stores an instance of any type that satisfies the constructor requirements or is empty,
+and this is referred to as the \defn{state} of the class \tcode{any} object.
+The stored instance is called the \defn{contained object}.
+Two states are equivalent if they are either both empty or if both are not empty and if the contained objects are equivalent.
+
+\pnum
+The non-member \tcode{any_cast} functions provide type-safe access to the contained object.
+
+\pnum
+Implementations should avoid the use of dynamically allocated memory for a small contained object.
+\enterexample
+where the object constructed is holding only an \tcode{int}.
+\exitexample
+Such small-object optimization shall only be applied to types \tcode{T} for which
+\tcode{is_nothrow_move_constructible_v<T>} is true.
+
+\rSec3[any.cons]{Construction and destruction}
+
+\indexlibrary{\idxcode{any}!constructor}
+\begin{itemdecl}
+any() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\postconditions
+\tcode{this->empty()}.
+\end{itemdescr}
+
+\begin{itemdecl}
+any(const any& other);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Constructs an object of type \tcode{any} with an equivalent state as \tcode{other}.
+
+\pnum
+\throws
+Any exceptions arising from calling the selected constructor of the contained object.
+\end{itemdescr}
+
+\begin{itemdecl}
+any(any&& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Constructs an object of type \tcode{any} with a state equivalent to the original state of \tcode{other}.
+
+\pnum
+\postconditions
+\tcode{other} is left in a valid but otherwise unspecified state.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class ValueType>
+any(ValueType&& value);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{T} be equal to \tcode{decay_t<ValueType>}.
+
+\pnum
+\requires
+\tcode{T} shall satisfy the \tcode{CopyConstructible} requirements.
+If \tcode{is_copy_constructible_v<T>} is false, the program is ill-formed.
+
+\pnum
+\effects
+Constructs an object of type \tcode{any} that contains an object of type \tcode{T} direct-initialized with \tcode{std::forward<ValueType>(value)}.
+
+\pnum
+\remarks
+This constructor shall not participate in overload resolution if \tcode{decay_t<ValueType>} is the same type as \tcode{any}.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{any}!destructor}
+\begin{itemdecl}
+~any();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\tcode{clear()}.
+\end{itemdescr}
+
+\rSec3[any.assign]{Assignment}
+
+\indexlibrary{\idxcode{any}!\idxcode{operator=}}
+\indexlibrary{\idxcode{operator=}!\idxcode{any}}
+\begin{itemdecl}
+any& operator=(const any& rhs);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\tcode{any(rhs).swap(*this)}.
+No effects if an exception is thrown.
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\throws
+Any exceptions arising from the copy constructor of the contained object.
+\end{itemdescr}
+
+\begin{itemdecl}
+any& operator=(any&& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\tcode{any(std::move(rhs)).swap(*this)}.
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\postconditions
+The state of \tcode{*this} is equivalent to the original state of \tcode{rhs}
+and \tcode{rhs} is left in a valid but otherwise unspecified state.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class ValueType>
+any& operator=(ValueType&& rhs);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{T} be equal to \tcode{decay_t<ValueType>}.
+
+\pnum
+\requires
+\tcode{T} shall satisfy the \tcode{CopyConstructible} requirements.
+If \tcode{is_copy_constructible_v<T>} is false, the program is ill-formed.
+
+\pnum
+\effects
+Constructs an object \tcode{tmp} of type \tcode{any} that contains an object of type \tcode{T} direct-initialized with \tcode{std::forward<ValueType>(rhs)}, and \tcode{tmp.swap(*this)}.
+No effects if an exception is thrown.
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\remarks
+This operator shall not participate in overload resolution if \tcode{decay_t<ValueType>} is the same type as \tcode{any}.
+
+\pnum
+\throws
+Any exception thrown by the selected constructor of \tcode{T}.
+\end{itemdescr}
+
+\rSec3[any.modifiers]{Modifiers}
+
+\indexlibrary{\idxcode{any}!\idxcode{clear}}
+\indexlibrary{\idxcode{clear}!\idxcode{any}}
+\begin{itemdecl}
+void clear() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If not empty, destroys the contained object.
+
+\pnum
+\postconditions
+\tcode{empty() == true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{any}!\idxcode{swap}}
+\indexlibrary{\idxcode{swap}!\idxcode{any}}
+\begin{itemdecl}
+void swap(any& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+
+\pnum
+\effects
+Exchange the states of \tcode{*this} and \tcode{rhs}.
+\end{itemdescr}
+
+\rSec3[any.observers]{Observers}
+
+\indexlibrary{\idxcode{any}!\idxcode{empty}}
+\indexlibrary{\idxcode{empty}!\idxcode{any}}
+\begin{itemdecl}
+bool empty() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if \tcode{*this} has no contained object, otherwise \tcode{false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{any}!\idxcode{type}}
+\indexlibrary{\idxcode{type}!\idxcode{any}}
+\begin{itemdecl}
+const type_info& type() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+If \tcode{*this} has a contained object of type T, \tcode{typeid(T)};
+otherwise \tcode{typeid(void)}.
+
+\pnum
+\enternote
+Useful for querying against types known either at compile time or only at runtime.
+\exitnote
+\end{itemdescr}
+
+\rSec2[any.nonmembers]{Non-member functions}
+
+\indexlibrary{\idxcode{swap}!\idxcode{any}}
+\begin{itemdecl}
+void swap(any& x, any& y) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\tcode{x.swap(y)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{any_cast}}
+\begin{itemdecl}
+template<class ValueType>
+  ValueType any_cast(const any& operand);
+template<class ValueType>
+  ValueType any_cast(any& operand);
+template<class ValueType>
+  ValueType any_cast(any&& operand);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{is_reference_v<ValueType>} is true or \tcode{is_copy_constructible_v<ValueType>} is true.
+Otherwise the program is ill-formed.
+
+\pnum
+\returns
+For the first form, \tcode{*any_cast<add_const_t<remove_reference_t<ValueType>>>(\&operand)}.
+For the second and third forms, \tcode{*any_cast<remove_reference_t<ValueType>>(\&operand)}.
+
+\pnum
+\throws
+\tcode{bad_any_cast} if \tcode{operand.type() != typeid(remove_reference_t<ValueType>)}.
+
+\pnum
+\enterexample
+\begin{codeblock}
+any x(5);                                   // \tcode{x} holds \tcode{int}
+assert(any_cast<int>(x) == 5);              // cast to value
+any_cast<int&>(x) = 10;                     // cast to reference
+assert(any_cast<int>(x) == 10);
+
+x = "Meow";                                 // \tcode{x} holds \tcode{const char*}
+assert(strcmp(any_cast<const char*>(x), "Meow") == 0);
+any_cast<const char*&>(x) = "Harry";
+assert(strcmp(any_cast<const char*>(x), "Harry") == 0);
+
+x = string("Meow");                         // \tcode{x} holds \tcode{string}
+string s, s2("Jane");
+s = move(any_cast<string&>(x));             // move from \tcode{any}
+assert(s == "Meow");
+any_cast<string&>(x) = move(s2);            // move to \tcode{any}
+assert(any_cast<const string&>(x) == "Jane");
+
+string cat("Meow");
+const any y(cat);                           // \tcode{const y} holds \tcode{string}
+assert(any_cast<const string&>(y) == cat);
+
+any_cast<string&>(y);                       // error; cannot
+                                            // \tcode{any_cast} away const
+\end{codeblock}
+\exitexample
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class ValueType>
+  const ValueType* any_cast(const any* operand) noexcept;
+template<class ValueType>
+  ValueType* any_cast(any* operand) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+If \tcode{operand != nullptr \&\& operand->type() == typeid(ValueType)},
+a pointer to the object contained by \tcode{operand},
+otherwise \tcode{nullptr}.
+
+\pnum
+\enterexample
+\begin{codeblock}
+bool is_string(const any& operand) {
+  return any_cast<string>(&operand) != nullptr;
+}
+\end{codeblock}
+\exitexample
+\end{itemdescr}
+
 
 \rSec1[intseq]{Compile-time integer sequences}
 
@@ -7132,6 +8768,1140 @@ the same value as \tcode{hash<T*>()(p.get())}.
 \end{itemdescr}%
 \indextext{smart pointers|)}
 
+\rSec1[memory.resource]{Memory resources}
+
+\rSec2[memory.resource.syn]{Header \tcode{<memory_resource>} synopsis}
+
+\indexlibrary{\idxhdr{memory_resource}}%
+\begin{codeblock}
+namespace std::pmr {
+  // \ref{memory.resource.class}, class \tcode{memory_resource}
+  class memory_resource;
+
+  bool operator==(const memory_resource& a, const memory_resource& b) noexcept;
+  bool operator!=(const memory_resource& a, const memory_resource& b) noexcept;
+
+  // \ref{memory.polymorphic.allocator.class}, class \tcode{polymorphic_allocator}
+  template <class Tp> class polymorphic_allocator;
+
+  template <class T1, class T2>
+    bool operator==(const polymorphic_allocator<T1>& a,
+                    const polymorphic_allocator<T2>& b) noexcept;
+  template <class T1, class T2>
+    bool operator!=(const polymorphic_allocator<T1>& a,
+                    const polymorphic_allocator<T2>& b) noexcept;
+
+  // \ref{memory.resource.global}, global memory resources
+  memory_resource* new_delete_resource() noexcept;
+  memory_resource* null_memory_resource() noexcept;
+  memory_resource* set_default_resource(memory_resource* r) noexcept;
+  memory_resource* get_default_resource() noexcept;
+
+  // \ref{memory.resource.pool}, pool resource classes
+  struct pool_options;
+  class synchronized_pool_resource;
+  class unsynchronized_pool_resource;
+  class monotonic_buffer_resource;
+}
+\end{codeblock}
+
+\rSec2[memory.resource.class]{Class \tcode{memory_resource}}
+
+\pnum
+The \tcode{memory_resource} class is an abstract interface to an unbounded set of classes encapsulating memory resources.
+
+\indexlibrary{\idxcode{memory_resource}}%
+\begin{codeblock}
+class memory_resource {
+  static constexpr size_t max_align = alignof(max_align_t); // \expos
+
+public:
+  virtual ~memory_resource();
+
+  void* allocate(size_t bytes, size_t alignment = max_align);
+  void deallocate(void* p, size_t bytes, size_t alignment = max_align);
+
+  bool is_equal(const memory_resource& other) const noexcept;
+
+protected:
+  virtual void* do_allocate(size_t bytes, size_t alignment) = 0;
+  virtual void do_deallocate(void* p, size_t bytes, size_t alignment) = 0;
+
+  virtual bool do_is_equal(const memory_resource& other) const noexcept = 0;
+};
+\end{codeblock}
+
+
+\rSec3[memory.resource.public]{\tcode{memory_resource} public member functions}
+
+\indexlibrary{\idxcode{memory_resource}!destructor}%
+\begin{itemdecl}
+~memory_resource();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Destroys this \tcode{memory_resource}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{memory_resource}!\idxcode{allocate}}%
+\indexlibrary{\idxcode{allocate}!\idxcode{memory_resource}}%
+\begin{itemdecl}
+void* allocate(size_t bytes, size_t alignment = max_align);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{return do_allocate(bytes, alignment);}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{memory_resource}!\idxcode{deallocate}}%
+\indexlibrary{\idxcode{deallocate}!\idxcode{memory_resource}}%
+\begin{itemdecl}
+void deallocate(void* p, size_t bytes, size_t alignment = max_align);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{do_deallocate(p, bytes, alignment);}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{memory_resource}!\idxcode{is_equal}}%
+\indexlibrary{\idxcode{is_equal}!\idxcode{memory_resource}}%
+\begin{itemdecl}
+bool is_equal(const memory_resource& other) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{return do_is_equal(other);}
+\end{itemdescr}
+
+
+\rSec3[memory.resource.prot]{\tcode{memory_resource} protected virtual member functions}
+
+\indexlibrary{\idxcode{memory_resource}!\idxcode{do_allocate}}%
+\indexlibrary{\idxcode{do_allocate}!\idxcode{memory_resource}}%
+\begin{itemdecl}
+virtual void* do_allocate(size_t bytes, size_t alignment) = 0;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+Alignment shall be a power of two.
+
+\pnum
+\returns
+A derived class shall implement this function to return a pointer to allocated storage (\ref{basic.stc.dynamic.deallocation}) with a size of at least \tcode{bytes}.
+The returned storage is aligned to the specified alignment, if such alignment is supported;
+otherwise it is aligned to \tcode{max_align}.
+
+\pnum
+\throws
+A derived class implementation shall throw an appropriate exception if it is unable to allocate memory with the requested size and alignment.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{memory_resource}!\idxcode{do_deallocate}}%
+\indexlibrary{\idxcode{do_deallocate}!\idxcode{memory_resource}}%
+\begin{itemdecl}
+virtual void do_deallocate(void* p, size_t bytes, size_t alignment) = 0;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{p} shall have been returned from a prior call to \tcode{allocate(bytes, alignment)} on a memory resource equal to \tcode{*this},
+and the storage at \tcode{p} shall not yet have been deallocated.
+
+\pnum
+\effects
+A derived class shall implement this function to dispose of allocated storage.
+
+\pnum
+\throws
+Nothing.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{memory_resource}!\idxcode{do_is_equal}}%
+\indexlibrary{\idxcode{do_is_equal}!\idxcode{memory_resource}}%
+\begin{itemdecl}
+virtual bool do_is_equal(const memory_resource& other) const noexcept = 0;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+A derived class shall implement this function to return \tcode{true} if memory allocated from this can be deallocated from other and vice-versa;
+otherwise it shall return false.
+\enternote
+The most-derived type of other might not match the type of this.
+For a derived class, D, a typical implementation of this function will compute \tcode{dynamic_cast<const D*>(\&other)} and go no further (i.e., return \tcode{false}) if it returns \tcode{nullptr}.\exitnote
+\end{itemdescr}
+
+\rSec3[memory.resource.eq]{\tcode{memory_resource} equality}
+
+\indexlibrary{\idxcode{operator==}!\idxcode{memory_resource}}%
+\begin{itemdecl}
+bool operator==(const memory_resource& a, const memory_resource& b) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{\&a == \&b || a.is_equal(b)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator!=}!\idxcode{memory_resource}}%
+\begin{itemdecl}
+bool operator!=(const memory_resource& a, const memory_resource& b) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!(a == b)}.
+\end{itemdescr}
+
+\rSec2[memory.polymorphic.allocator.class]{Class template \tcode{polymorphic_allocator}}
+
+\pnum
+A specialization of class template \tcode{pmr::polymorphic_allocator} conforms to the \tcode{Allocator} requirements (\ref{allocator.requirements}).
+Constructed with different memory resources, different instances of the same specialization of \tcode{pmr::polymorphic_allocator} can exhibit entirely different allocation behavior.
+This runtime polymorphism allows objects that use \tcode{polymorphic_allocator} to behave as if they used different allocator types at run time even though they use the same static allocator type.
+
+\indexlibrary{\idxcode{polymorphic_allocator}}%
+\begin{codeblock}
+template <class Tp>
+class polymorphic_allocator {
+  memory_resource* m_resource; // \expos
+
+public:
+  typedef Tp value_type;
+
+  polymorphic_allocator() noexcept;
+  polymorphic_allocator(memory_resource* r);
+
+  polymorphic_allocator(const polymorphic_allocator& other) = default;
+
+  template <class U>
+    polymorphic_allocator(const polymorphic_allocator<U>& other) noexcept;
+
+  polymorphic_allocator&
+    operator=(const polymorphic_allocator& rhs) = default;
+
+  Tp* allocate(size_t n);
+  void deallocate(Tp* p, size_t n);
+
+  template <class T, class... Args>
+  void construct(T* p, Args&&... args);
+
+  // Specializations for pair using piecewise construction
+  template <class T1, class T2, class... Args1, class... Args2>
+    void construct(pair<T1,T2>* p, piecewise_construct_t,
+                   tuple<Args1...> x, tuple<Args2...> y);
+  template <class T1, class T2>
+    void construct(pair<T1,T2>* p);
+  template <class T1, class T2, class U, class V>
+    void construct(pair<T1,T2>* p, U&& x, V&& y);
+  template <class T1, class T2, class U, class V>
+    void construct(pair<T1,T2>* p, const std::pair<U, V>& pr);
+  template <class T1, class T2, class U, class V>
+    void construct(pair<T1,T2>* p, pair<U, V>&& pr);
+
+  template <class T>
+    void destroy(T* p);
+
+  // Return a default-constructed allocator (no allocator propagation)
+  polymorphic_allocator select_on_container_copy_construction() const;
+
+  memory_resource* resource() const;
+};
+\end{codeblock}
+
+
+\rSec3[memory.polymorphic.allocator.ctor]{\tcode{polymorphic_allocator} constructors}
+
+\indexlibrary{\idxcode{polymorphic_allocator}!constructor}%
+\begin{itemdecl}
+polymorphic_allocator() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Sets \tcode{m_resource} to \tcode{get_default_resource()}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{polymorphic_allocator}!constructor}%
+\begin{itemdecl}
+polymorphic_allocator(memory_resource* r);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{r} is non-null.
+
+\pnum
+\effects
+Sets \tcode{m_resource} to \tcode{r}.
+
+\pnum
+\throws
+Nothing.
+
+\pnum
+\realnotes
+This constructor provides an implicit conversion from \tcode{memory_resource*}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{polymorphic_allocator}!constructor}%
+\begin{itemdecl}
+template <class U>
+  polymorphic_allocator(const polymorphic_allocator<U>& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Sets \tcode{m_resource} to \tcode{other.resource()}.
+\end{itemdescr}
+
+
+\rSec3[memory.polymorphic.allocator.mem]{\tcode{polymorphic_allocator} member functions}
+
+\indexlibrary{\idxcode{polymorphic_allocator}!\idxcode{allocate}}%
+\indexlibrary{\idxcode{allocate}!\idxcode{polymorphic_allocator}}%
+\begin{itemdecl}
+Tp* allocate(size_t n);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+Equivalent to
+\begin{codeblock}
+return static_cast<Tp*>(m_resource->allocate(n * sizeof(Tp), alignof(Tp)));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{polymorphic_allocator}!\idxcode{deallocate}}%
+\indexlibrary{\idxcode{deallocate}!\idxcode{polymorphic_allocator}}%
+\begin{itemdecl}
+void deallocate(Tp* p, size_t n);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{p} was allocated from a memory resource, \tcode{x}, equal to \tcode{*m_resource}, using \tcode{x.allocate(n * sizeof(Tp), alignof(Tp))}.
+
+\pnum
+\effects
+Equivalent to \tcode{m_resource->deallocate(p, n * sizeof(Tp), alignof(Tp))}.
+
+\pnum
+\throws
+Nothing.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{polymorphic_allocator}!\idxcode{construct}}%
+\indexlibrary{\idxcode{construct}!\idxcode{polymorphic_allocator}}%
+\begin{itemdecl}
+template <class T, class... Args>
+  void construct(T* p, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+Uses-allocator construction of \tcode{T}
+with allocator \tcode{this->resource()} (see~\ref{allocator.uses.construction})
+and constructor arguments \tcode{std::forward<Args>(args)...} is well-formed.
+\enternote
+Uses-allocator construction is always well formed for types that do not use allocators.\exitnote
+
+\pnum
+\effects
+Construct a \tcode{T} object at \tcode{p} by uses-allocator construction
+with allocator \tcode{this->resource()}
+and constructor arguments \tcode{std::forward<Args>(args)...}.
+
+\pnum
+\throws
+Nothing unless the constructor for \tcode{T} throws.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{polymorphic_allocator}!\idxcode{construct}}%
+\indexlibrary{\idxcode{construct}!\idxcode{polymorphic_allocator}}%
+\begin{itemdecl}
+template <class T1, class T2, class... Args1, class... Args2>
+  void construct(pair<T1,T2>* p, piecewise_construct_t,
+                 tuple<Args1...> x, tuple<Args2...> y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Let \tcode{xprime} be a \tcode{tuple} constructed from \tcode{x} according to the appropriate rule from the following list.
+\enternote
+The following description can be summarized as constructing a \tcode{std::pair<T1,T2>} object at \tcode{p}
+as if by separate uses-allocator construction with allocator \tcode{this->resource()}~(\ref{allocator.uses.construction})
+of \tcode{p->first} using the elements of \tcode{x}
+and \tcode{p->second} using the elements of \tcode{y}.
+\exitnote
+\begin{itemize}
+\item
+If \tcode{uses_allocator_v<T1,memory_resource*>} is \tcode{false}
+\\
+and
+\tcode{is_constructible_v<T,Args1...>} is \tcode{true},
+\\
+then \tcode{xprime} is \tcode{x}.
+\item
+Otherwise, if \tcode{uses_allocator_v<T1,memory_resource*>} is \tcode{true}
+\\
+and
+\tcode{is_constructible_v<T1,allocator_arg_t,memory_resource*,Args1...>} is \tcode{true},
+\\
+then \tcode{xprime} is \tcode{tuple_cat(make_tuple(allocator_arg, this->resource()), std::move(x))}.
+\item
+Otherwise, if \tcode{uses_allocator_v<T1,memory_resource*>} is \tcode{true}
+\\
+and
+\tcode{is_constructible_v<T1,Args1...,memory_resource*>} is \tcode{true},
+\\
+then \tcode{xprime} is \tcode{tuple_cat(std::move(x), make_tuple(this->resource()))}.
+\item
+Otherwise the program is ill formed.
+\end{itemize}
+Let \tcode{yprime} be a tuple constructed from \tcode{y}
+according to the appropriate rule from the following list:
+\begin{itemize}
+\item
+If \tcode{uses_allocator_v<T2,memory_resource*>} is \tcode{false}
+\\
+and
+\tcode{is_constructible_v<T,Args2...>} is \tcode{true},
+\\
+then \tcode{yprime} is \tcode{y}.
+\item
+Otherwise, if \tcode{uses_allocator_v<T2,memory_resource*>} is \tcode{true}
+\\
+and
+\tcode{is_constructible_v<T2,allocator_arg_t,memory_resource*,Args2...>} is \tcode{true},
+\\
+then \tcode{yprime} is \tcode{tuple_cat(make_tuple(allocator_arg, this->resource()), std::move(y))}.
+\item
+Otherwise, if \tcode{uses_allocator_v<T2,memory_resource*>} is \tcode{true}
+\\
+and
+\tcode{is_constructible_v<T2,Args2...,memory_resource*>} is \tcode{true},
+\\
+then
+\tcode{yprime} is \tcode{tuple_cat(std::move(y), make_tuple(this->resource()))}.
+\item
+Otherwise the program is ill formed.
+\end{itemize}
+This function constructs a \tcode{std::pair<T1,T2>} object at \tcode{p} using constructor arguments \tcode{piecewise_construct, xprime, yprime}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{polymorphic_allocator}!\idxcode{construct}}%
+\indexlibrary{\idxcode{construct}!\idxcode{polymorphic_allocator}}%
+\begin{itemdecl}
+template <class T1, class T2>
+  void construct(std::pair<T1,T2>* p);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+this->construct(p, piecewise_construct, tuple<>(), tuple<>());
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{polymorphic_allocator}!\idxcode{construct}}%
+\indexlibrary{\idxcode{construct}!\idxcode{polymorphic_allocator}}%
+\begin{itemdecl}
+template <class T1, class T2, class U, class V>
+  void construct(std::pair<T1,T2>* p, U&& x, V&& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+this->construct(p, piecewise_construct,
+                forward_as_tuple(std::forward<U>(x)),
+                forward_as_tuple(std::forward<V>(y)));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{polymorphic_allocator}!\idxcode{construct}}%
+\indexlibrary{\idxcode{construct}!\idxcode{polymorphic_allocator}}%
+\begin{itemdecl}
+template <class T1, class T2, class U, class V>
+  void construct(std::pair<T1,T2>* p, const std::pair<U, V>& pr);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+this->construct(p, piecewise_construct,
+                forward_as_tuple(pr.first),
+                forward_as_tuple(pr.second));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{polymorphic_allocator}!\idxcode{construct}}%
+\indexlibrary{\idxcode{construct}!\idxcode{polymorphic_allocator}}%
+\begin{itemdecl}
+template <class T1, class T2, class U, class V>
+  void construct(std::pair<T1,T2>* p, std::pair<U, V>&& pr);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+this->construct(p, piecewise_construct,
+                forward_as_tuple(std::forward<U>(pr.first)),
+                forward_as_tuple(std::forward<V>(pr.second)));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{polymorphic_allocator}!\idxcode{destroy}}%
+\indexlibrary{\idxcode{destroy}!\idxcode{polymorphic_allocator}}%
+\begin{itemdecl}
+template <class T>
+  void destroy(T* p);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\tcode{p->\~T()}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{polymorphic_allocator}!\idxcode{select_on_container_copy_construction}}%
+\indexlibrary{\idxcode{select_on_container_copy_construction}!\idxcode{polymorphic_allocator}}%
+\begin{itemdecl}
+polymorphic_allocator select_on_container_copy_construction() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{polymorphic_allocator()}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{polymorphic_allocator}!\idxcode{resource}}%
+\indexlibrary{\idxcode{resource}!\idxcode{polymorphic_allocator}}%
+\begin{itemdecl}
+memory_resource* resource() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{m_resource}.
+\end{itemdescr}
+
+\rSec3[memory.polymorphic.allocator.eq]{\tcode{polymorphic_allocator} equality}
+
+\indexlibrary{\idxcode{operator==}!\idxcode{polymorphic_allocator}}%
+\begin{itemdecl}
+template <class T1, class T2>
+  bool operator==(const polymorphic_allocator<T1>& a,
+                  const polymorphic_allocator<T2>& b) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{*a.resource() == *b.resource()}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator!=}!\idxcode{polymorphic_allocator}}%
+\begin{itemdecl}
+template <class T1, class T2>
+  bool operator!=(const polymorphic_allocator<T1>& a,
+                  const polymorphic_allocator<T2>& b) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{!(a == b)}.
+\end{itemdescr}
+
+
+\rSec2[memory.resource.global]{Access to program-wide \tcode{memory_resource} objects}
+
+\indexlibrary{\idxcode{new_delete_resource}}%
+\begin{itemdecl}
+memory_resource* new_delete_resource() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+A pointer to a static-duration object of a type derived from \tcode{memory_resource} that can serve as a resource for allocating memory using \tcode{::operator new} and \tcode{::operator delete}. The same value is returned every time this function is called. For return value \tcode{p} and memory resource \tcode{r}, \tcode{p->is_equal(r)} returns \tcode{\&r == p}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{null_memory_resource}}%
+\begin{itemdecl}
+memory_resource* null_memory_resource() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+A pointer to a static-duration object of a type derived from \tcode{memory_resource}
+for which \tcode{allocate()} always throws \tcode{bad_alloc} and
+for which \tcode{deallocate()} has no effect.
+The same value is returned every time this function is called.
+For return value \tcode{p} and memory resource \tcode{r}, \tcode{p->is_equal(r)} returns \tcode{\&r == p}.
+\end{itemdescr}
+
+\pnum
+The \defn{default memory resource pointer} is a pointer to a memory resource
+that is used by certain facilities when an explicit memory resource is not supplied through the interface.
+Its initial value is the return value of \tcode{new_delete_resource()}.
+
+\indexlibrary{\idxcode{set_default_resource}}%
+\begin{itemdecl}
+memory_resource* set_default_resource(memory_resource* r) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{r} is non-null, sets the value of the default memory resource pointer to \tcode{r},
+otherwise sets the default memory resource pointer to \tcode{new_delete_resource()}.
+
+\pnum
+\postconditions
+\tcode{get_default_resource() == r}.
+
+\pnum
+\returns
+The previous value of the default memory resource pointer.
+
+\pnum
+\remarks
+Calling the \tcode{set_default_resource} and \tcode{get_default_resource} functions shall not incur a data race.
+A call to the \tcode{set_default_resource} function shall synchronize with subsequent calls to the \tcode{set_default_resource} and \tcode{get_default_resource} functions.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{get_default_resource}}%
+\begin{itemdecl}
+memory_resource* get_default_resource() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+The current value of the default memory resource pointer.
+\end{itemdescr}
+
+\rSec2[memory.resource.pool]{Pool resource classes}
+
+\rSec3[memory.resource.pool.overview]{Classes \tcode{synchronized_pool_resource} and \tcode{unsynchronized_pool_resource}}
+
+\pnum
+The \tcode{synchronized_pool_resource} and \tcode{unsynchronized_pool_resource} classes (collectively, \defn{pool resource classes})
+are general-purpose memory resources having the following qualities:
+\begin{itemize}
+\item
+Each resource \term{owns} the allocated memory, and frees it on destruction --
+even if \tcode{deallocate} has not been called for some of the allocated blocks.
+\item
+A pool resource consists of a collection of \defn{pools}, serving requests for different block sizes.
+Each individual pool manages a collection of \defn{chunks} that are in turn divided into blocks of uniform size, returned via calls to \tcode{do_allocate}.
+Each call to \tcode{do_allocate(size, alignment)} is dispatched to the pool serving the smallest blocks accommodating at least \tcode{size} bytes.
+\item
+When a particular pool is exhausted, allocating a block from that pool results in the allocation of an additional chunk of memory from the \defn{upstream allocator} (supplied at construction), thus replenishing the pool.
+With each successive replenishment, the chunk size obtained increases geometrically.
+\enternote
+By allocating memory in chunks, the pooling strategy increases the chance that consecutive allocations will be close together in memory.\exitnote
+\item
+Allocation requests that exceed the largest block size of any pool are fulfilled directly from the upstream allocator.
+\item
+A \tcode{pool_options} struct may be passed to the pool resource constructors to tune the largest block size and the maximum chunk size.
+\end{itemize}
+
+\pnum
+A \tcode{synchronized_pool_resource} may be accessed from multiple threads without external synchronization
+and may have thread-specific pools to reduce synchronization costs.
+An \tcode{unsynchronized_pool_resource} class may not be accessed from multiple threads simultaneously
+and thus avoids the cost of synchronization entirely in single-threaded applications.
+
+\indexlibrary{\idxcode{pool_options}}%
+\indexlibrary{\idxcode{synchronized_pool_resource}}%
+\indexlibrary{\idxcode{unsynchronized_pool_resource}}%
+\begin{codeblock}
+struct pool_options {
+  size_t max_blocks_per_chunk = 0;
+  size_t largest_required_pool_block = 0;
+};
+
+class synchronized_pool_resource : public memory_resource {
+public:
+  synchronized_pool_resource(const pool_options &opts,
+                             memory_resource *upstream);
+
+  synchronized_pool_resource()
+      : synchronized_pool_resource(pool_options(), get_default_resource()) {}
+  explicit synchronized_pool_resource(memory_resource *upstream)
+      : synchronized_pool_resource(pool_options(), upstream) {}
+  explicit synchronized_pool_resource(const pool_options &opts)
+      : synchronized_pool_resource(opts, get_default_resource()) {}
+
+  synchronized_pool_resource(const synchronized_pool_resource &) = delete;
+  virtual ~synchronized_pool_resource();
+
+  synchronized_pool_resource &
+    operator=(const synchronized_pool_resource &) = delete;
+
+  void release();
+  memory_resource *upstream_resource() const;
+  pool_options options() const;
+
+protected:
+  virtual void *do_allocate(size_t bytes, size_t alignment);
+  virtual void do_deallocate(void *p, size_t bytes, size_t alignment);
+
+  virtual bool do_is_equal(const memory_resource &other) const noexcept;
+};
+
+class unsynchronized_pool_resource : public memory_resource {
+public:
+  unsynchronized_pool_resource(const pool_options &opts,
+                               memory_resource *upstream);
+
+  unsynchronized_pool_resource()
+      : unsynchronized_pool_resource(pool_options(), get_default_resource()) {}
+  explicit unsynchronized_pool_resource(memory_resource *upstream)
+      : unsynchronized_pool_resource(pool_options(), upstream) {}
+  explicit unsynchronized_pool_resource(const pool_options &opts)
+      : unsynchronized_pool_resource(opts, get_default_resource()) {}
+
+  unsynchronized_pool_resource(const unsynchronized_pool_resource &) = delete;
+  virtual ~unsynchronized_pool_resource();
+
+  unsynchronized_pool_resource &
+    operator=(const unsynchronized_pool_resource &) = delete;
+
+  void release();
+  memory_resource *upstream_resource() const;
+  pool_options options() const;
+
+protected:
+  virtual void *do_allocate(size_t bytes, size_t alignment);
+  virtual void do_deallocate(void *p, size_t bytes, size_t alignment);
+
+  virtual bool do_is_equal(const memory_resource &other) const noexcept;
+};
+\end{codeblock}
+
+\rSec3[memory.resource.pool.options]{\tcode{pool_options} data members}
+
+\pnum
+The members of \tcode{pool_options} comprise a set of constructor options for pool resources.
+The effect of each option on the pool resource behavior is described below:
+
+\indexlibrary{\idxcode{pool_options}!\idxcode{max_blocks_per_chunk}}%
+\begin{itemdecl}
+size_t max_blocks_per_chunk;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The maximum number of blocks that will be allocated at once from the upstream memory resource to replenish a pool.
+If the value of \tcode{max_blocks_per_chunk} is zero or is greater than an implementation-defined limit, that limit is used instead.
+The implementation may choose to use a smaller value than is specified in this field and may use different values for different pools.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{pool_options}!\idxcode{largest_required_pool_block}}%
+\begin{itemdecl}
+size_t largest_required_pool_block;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The largest allocation size that is required to be fulfilled using the pooling mechanism.
+Attempts to allocate a single block larger than this threshold will be allocated directly from the upstream memory resource.
+If \tcode{largest_required_pool_block} is zero or is greater than an implementation-defined limit, that limit is used instead.
+The implementation may choose a pass-through threshold larger than specified in this field.
+\end{itemdescr}
+
+\rSec3[memory.resource.pool.ctor]{Pool resource constructors and destructors}
+
+\indexlibrary{\idxcode{synchronized_pool_resource}!constructor}%
+\indexlibrary{\idxcode{unsynchronized_pool_resource}!constructor}%
+\begin{itemdecl}
+synchronized_pool_resource(const pool_options& opts, memory_resource* upstream);
+unsynchronized_pool_resource(const pool_options& opts, memory_resource* upstream);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{upstream} is the address of a valid memory resource.
+
+\pnum
+\effects
+Constructs a pool resource object that will obtain memory from \tcode{upstream} whenever the pool resource is unable to satisfy a memory request from its own internal data structures.
+The resulting object will hold a copy of \tcode{upstream}, but will not own the resource to which \tcode{upstream} points.
+\enternote
+The intention is that calls to \tcode{upstream->allocate()} will be substantially fewer than calls to \tcode{this->allocate()} in most cases.\exitnote
+The behavior of the pooling mechanism is tuned according to the value of the opts argument.
+
+\pnum
+\throws
+Nothing unless \tcode{upstream->allocate()} throws.
+It is unspecified if or under what conditions this constructor calls \tcode{upstream->allocate()}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{synchronized_pool_resource}!destructor}%
+\indexlibrary{\idxcode{unsynchronized_pool_resource}!destructor}%
+\begin{itemdecl}
+virtual ~synchronized_pool_resource();
+virtual ~unsynchronized_pool_resource();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Calls \tcode{this->release()}.
+\end{itemdescr}
+
+\rSec3[memory.resource.pool.mem]{Pool resource members}
+
+\indexlibrary{\idxcode{synchronized_pool_resource}!\idxcode{release}}%
+\indexlibrary{\idxcode{unsynchronized_pool_resource}!\idxcode{release}}%
+\indexlibrary{\idxcode{release}!\idxcode{synchronized_pool_resource}}%
+\indexlibrary{\idxcode{release}!\idxcode{unsynchronized_pool_resource}}%
+\begin{itemdecl}
+void release();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Calls \tcode{upstream_resource()->deallocate()} as necessary to release all allocated memory.
+\enternote
+memory is released back to \tcode{upstream_resource()} even if \tcode{deallocate} has not been called for some of the allocated blocks.\exitnote
+\end{itemdescr}
+
+\indexlibrary{\idxcode{synchronized_pool_resource}!\idxcode{upstream_resource}}%
+\indexlibrary{\idxcode{unsynchronized_pool_resource}!\idxcode{upstream_resource}}%
+\indexlibrary{\idxcode{upstream_resource}!\idxcode{synchronized_pool_resource}}%
+\indexlibrary{\idxcode{upstream_resource}!\idxcode{unsynchronized_pool_resource}}%
+\begin{itemdecl}
+memory_resource* upstream_resource() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+The value of the \tcode{upstream} argument provided to the constructor of this object.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{synchronized_pool_resource}!\idxcode{options}}%
+\indexlibrary{\idxcode{unsynchronized_pool_resource}!\idxcode{options}}%
+\indexlibrary{\idxcode{options}!\idxcode{synchronized_pool_resource}}%
+\indexlibrary{\idxcode{options}!\idxcode{unsynchronized_pool_resource}}%
+\begin{itemdecl}
+pool_options options() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+The options that control the pooling behavior of this resource.
+The values in the returned struct may differ from those supplied to the pool resource constructor
+in that values of zero will be replaced with implementation-defined defaults and sizes may be rounded to unspecified granularity.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{synchronized_pool_resource}!\idxcode{do_allocate}}%
+\indexlibrary{\idxcode{unsynchronized_pool_resource}!\idxcode{do_allocate}}%
+\indexlibrary{\idxcode{do_allocate}!\idxcode{synchronized_pool_resource}}%
+\indexlibrary{\idxcode{do_allocate}!\idxcode{unsynchronized_pool_resource}}%
+\begin{itemdecl}
+virtual void* do_allocate(size_t bytes, size_t alignment);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+A pointer to allocated storage (\ref{basic.stc.dynamic.deallocation}) with a size of at least \tcode{bytes}.
+The size and alignment of the allocated memory shall meet the requirements for a class derived from \tcode{memory_resource} (\ref{memory.resource}).
+
+\pnum
+\effects
+If the pool selected for a block of size \tcode{bytes} is unable to satisfy the memory request from its own internal data structures,
+it will call \tcode{upstream_resource()->allocate()} to obtain more memory.
+If \tcode{bytes} is larger than that which the largest pool can handle,
+then memory will be allocated using \tcode{upstream_resource()->allocate()}.
+
+\pnum
+\throws
+Nothing unless \tcode{upstream_resource()->allocate()} throws.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{synchronized_pool_resource}!\idxcode{do_deallocate}}%
+\indexlibrary{\idxcode{unsynchronized_pool_resource}!\idxcode{do_deallocate}}%
+\indexlibrary{\idxcode{do_deallocate}!\idxcode{synchronized_pool_resource}}%
+\indexlibrary{\idxcode{do_deallocate}!\idxcode{unsynchronized_pool_resource}}%
+\begin{itemdecl}
+virtual void do_deallocate(void* p, size_t bytes, size_t alignment);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Return the memory at \tcode{p} to the pool.
+It is unspecified if or under what circumstances this operation will result in a call to \tcode{upstream_resource()->deallocate()}.
+
+\pnum
+\throws
+Nothing.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{unsynchronized_pool_resource}!\idxcode{do_is_equal}}%
+\indexlibrary{\idxcode{do_is_equal}!\idxcode{unsynchronized_pool_resource}}%
+\begin{itemdecl}
+virtual bool unsynchronized_pool_resource::do_is_equal(const memory_resource& other) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{this == dynamic_cast<const unsynchronized_pool_resource*>(\&other)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{synchronized_pool_resource}!\idxcode{do_is_equal}}%
+\indexlibrary{\idxcode{do_is_equal}!\idxcode{synchronized_pool_resource}}%
+\begin{itemdecl}
+virtual bool synchronized_pool_resource::do_is_equal(const memory_resource& other) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{this == dynamic_cast<const synchronized_pool_resource*>(\&other)}.
+\end{itemdescr}
+
+\rSec2[memory.resource.monotonic.buffer]{Class \tcode{monotonic_buffer_resource}}
+
+\pnum
+A \tcode{monotonic_buffer_resource} is a special-purpose memory resource
+intended for very fast memory allocations in situations where memory is used to build up a few objects
+and then is released all at once when the memory resource object is destroyed.
+It has the following qualities:
+\begin{itemize}
+\item
+A call to \tcode{deallocate} has no effect,
+thus the amount of memory consumed increases monotonically until the resource is destroyed.
+\item
+The program can supply an initial buffer, which the allocator uses to satisfy memory requests.
+\item
+When the initial buffer (if any) is exhausted,
+it obtains additional buffers from an \defn{upstream} memory resource supplied at construction.
+Each additional buffer is larger than the previous one, following a geometric progression.
+\item
+It is intended for access from one thread of control at a time.
+Specifically, calls to \tcode{allocate} and \tcode{deallocate} do not synchronize with one another.
+\item
+It \term{owns} the allocated memory and frees it on destruction,
+even if \tcode{deallocate} has not been called for some of the allocated blocks.
+\end{itemize}
+
+\indexlibrary{\idxcode{monotonic_buffer_resource}}%
+\begin{codeblock}
+class monotonic_buffer_resource : public memory_resource {
+  memory_resource *upstream_rsrc; // \expos
+  void *current_buffer;           // \expos
+  size_t next_buffer_size;        // \expos
+
+public:
+  explicit monotonic_buffer_resource(memory_resource *upstream);
+  monotonic_buffer_resource(size_t initial_size, memory_resource *upstream);
+  monotonic_buffer_resource(void *buffer, size_t buffer_size,
+                            memory_resource *upstream);
+
+  monotonic_buffer_resource()
+      : monotonic_buffer_resource(get_default_resource()) {}
+  explicit monotonic_buffer_resource(size_t initial_size)
+      : monotonic_buffer_resource(initial_size, get_default_resource()) {}
+  monotonic_buffer_resource(void *buffer, size_t buffer_size)
+      : monotonic_buffer_resource(buffer, buffer_size, get_default_resource()) {}
+
+  monotonic_buffer_resource(const monotonic_buffer_resource &) = delete;
+
+  virtual ~monotonic_buffer_resource();
+
+  monotonic_buffer_resource
+    operator=(const monotonic_buffer_resource &) = delete;
+
+  void release();
+  memory_resource *upstream_resource() const;
+
+protected:
+  virtual void *do_allocate(size_t bytes, size_t alignment);
+  virtual void do_deallocate(void *p, size_t bytes, size_t alignment);
+
+  virtual bool do_is_equal(const memory_resource &other) const noexcept;
+};
+\end{codeblock}
+
+\rSec3[memory.resource.monotonic.buffer.ctor]{\tcode{monotonic_buffer_resource} constructor and destructor}
+
+\indexlibrary{\idxcode{monotonic_buffer_resource}!constructor}%
+\begin{itemdecl}
+explicit monotonic_buffer_resource(memory_resource* upstream);
+monotonic_buffer_resource(size_t initial_size, memory_resource* upstream);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{upstream} shall be the address of a valid memory resource.
+\tcode{initial_size}, if specified, shall be greater than zero.
+
+\pnum
+\effects
+Sets \tcode{upstream_rsrc} to \tcode{upstream} and \tcode{current_buffer} to \tcode{nullptr}.
+If \tcode{initial_size} is specified, sets \tcode{next_buffer_size} to at least \tcode{initial_size};
+otherwise sets \tcode{next_buffer_size} to an implementation-defined size.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{monotonic_buffer_resource}!constructor}%
+\begin{itemdecl}
+monotonic_buffer_resource(void* buffer, size_t buffer_size, memory_resource* upstream);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{upstream} shall be the address of a valid memory resource.
+\tcode{buffer_size} shall be no larger than the number of bytes in \tcode{buffer}.
+
+\pnum
+\effects
+Sets \tcode{upstream_rsrc} to \tcode{upstream}, \tcode{current_buffer} to \tcode{buffer}, and \tcode{next_buffer_size} to \tcode{initial_size} (but not less than 1),
+then increases \tcode{next_buffer_size} by an implementation-defined growth factor (which need not be integral).
+\end{itemdescr}
+
+\indexlibrary{\idxcode{monotonic_buffer_resource}!destructor}%
+\begin{itemdecl}
+~monotonic_buffer_resource();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Calls \tcode{this->release()}.
+\end{itemdescr}
+
+
+\rSec3[memory.resource.monotonic.buffer.mem]{\tcode{monotonic_buffer_resource} members}
+
+\indexlibrary{\idxcode{monotonic_buffer_resource}!\idxcode{release}}%
+\begin{itemdecl}
+void release();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Calls \tcode{upstream_rsrc->deallocate()} as necessary to release all allocated memory.
+
+\pnum
+\enternote
+memory is released back to \tcode{upstream_rsrc} even if some blocks that were allocated from \tcode{this} have not been deallocated from \tcode{this}.\exitnote
+\end{itemdescr}
+
+\indexlibrary{\idxcode{monotonic_buffer_resource}!\idxcode{upstream_resource}}%
+\begin{itemdecl}
+memory_resource* upstream_resource() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+The value of \tcode{upstream_rsrc}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{monotonic_buffer_resource}!\idxcode{do_allocate}}%
+\begin{itemdecl}
+void* do_allocate(size_t bytes, size_t alignment);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+A pointer to allocated storage (\ref{basic.stc.dynamic.deallocation}) with a size of at least \tcode{bytes}.
+The size and alignment of the allocated memory shall meet the requirements for a class derived from \tcode{memory_resource} (\ref{memory.resource}).
+
+\pnum
+\effects
+If the unused space in \tcode{current_buffer} can fit a block with the specified \tcode{bytes} and \tcode{alignment},
+then allocate the return block from \tcode{current_buffer};
+otherwise set \tcode{current_buffer} to \tcode{upstream_rsrc->allocate(n, m)},
+where \tcode{n} is not less than \tcode{max(bytes, next_buffer_size)} and \tcode{m} is not less than \tcode{alignment},
+and increase \tcode{next_buffer_size} by an implementation-defined growth factor (which need not be integral),
+then allocate the return block from the newly-allocated \tcode{current_buffer}.
+
+\pnum
+\throws
+Nothing unless \tcode{upstream_rsrc->allocate()} throws.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{monotonic_buffer_resource}!\idxcode{do_deallocate}}%
+\begin{itemdecl}
+void do_deallocate(void* p, size_t bytes, size_t alignment);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+None.
+
+\pnum
+\throws
+Nothing.
+
+\pnum
+\remarks
+Memory used by this resource increases monotonically until its destruction.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{monotonic_buffer_resource}!\idxcode{do_is_equal}}%
+\begin{itemdecl}
+bool do_is_equal(const memory_resource& other) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{this == dynamic_cast<const monotonic_buffer_resource*>(\&other)}.
+\end{itemdescr}
+
+
 \rSec1[function.objects]{Function objects}
 
 \pnum
@@ -7243,7 +10013,7 @@ namespace std {
   // \ref{func.memfn}, member function adaptors:
   template<class R, class T> @\unspec@ mem_fn(R T::*) noexcept;
 
-  // \ref{func.wrap} polymorphic function wrappers:
+  // \ref{func.wrap}, polymorphic function wrappers:
   class bad_function_call;
 
   template<class> class function; // undefined
@@ -7260,6 +10030,37 @@ namespace std {
     bool operator!=(const function<R(ArgTypes...)>&, nullptr_t) noexcept;
   template<class R, class... ArgTypes>
     bool operator!=(nullptr_t, const function<R(ArgTypes...)>&) noexcept;
+
+  // \ref{func.searchers}, searchers:
+  template<class ForwardIterator, class BinaryPredicate = equal_to<>>
+    class default_searcher;
+  template<class RandomAccessIterator,
+           class Hash = hash<typename iterator_traits<RandomAccessIterator>::value_type>,
+           class BinaryPredicate = equal_to<>>
+    class boyer_moore_searcher;
+  template<class RandomAccessIterator,
+           class Hash = hash<typename iterator_traits<RandomAccessIterator>::value_type>,
+           class BinaryPredicate = equal_to<>>
+    class boyer_moore_horspool_searcher;
+
+  template<class ForwardIterator, class BinaryPredicate = equal_to<>>
+  default_searcher<ForwardIterator, BinaryPredicate>
+  make_default_searcher(ForwardIterator pat_first, ForwardIterator pat_last,
+                        BinaryPredicate pred = BinaryPredicate());
+  template<class RandomAccessIterator,
+           class Hash = hash<typename iterator_traits<RandomAccessIterator>::value_type>,
+           class BinaryPredicate = equal_to<>>
+  boyer_moore_searcher<RandomAccessIterator, Hash, BinaryPredicate>
+  make_boyer_moore_searcher(
+      RandomAccessIterator pat_first, RandomAccessIterator pat_last,
+      Hash hf = Hash(), BinaryPredicate pred = BinaryPredicate());
+  template<class RandomAccessIterator,
+           class Hash = hash<typename iterator_traits<RandomAccessIterator>::value_type>,
+           class BinaryPredicate = equal_to<>>
+  boyer_moore_horspool_searcher<RandomAccessIterator, Hash, BinaryPredicate>
+  make_boyer_moore_horspool_searcher(
+      RandomAccessIterator pat_first, RandomAccessIterator pat_last,
+      Hash hf = Hash(), BinaryPredicate pred = BinaryPredicate());
 
   // \ref{unord.hash}, hash function primary template:
   template <class T> struct hash;
@@ -7287,7 +10088,7 @@ namespace std {
 
   template<class T> struct hash<T*>;
 
-  // \ref{func.bind}, Function object binders
+  // \ref{func.bind}, function object binders
   template <class T> constexpr bool is_bind_expression_v
     = is_bind_expression<T>::value;
   template <class T> constexpr int is_placeholder_v
@@ -9067,6 +11868,322 @@ template<class R, class... ArgTypes>
 \pnum\effects \tcode{f1.swap(f2);}
 \end{itemdescr}%
 \indextext{function object!wrapper|)}
+
+\rSec2[func.searchers]{Searchers}
+
+\pnum
+This sub-clause provides function object types (\ref{function.objects}) for
+operations that search for a sequence \range{pat_first}{pat_last} in another
+sequence \range{first}{last} that is provided to the object's function call
+operator.  The first sequence (the pattern to be searched for) is provided to
+the object's constructor, and the second (the sequence to be searched) is
+provided to the function call operator.
+
+\pnum
+Each specialization of a class template specified in this sub-clause \ref{func.searchers} shall meet the \tcode{CopyConstructible} and \tcode{CopyAssignable} requirements.
+Template parameters named
+\begin{itemize}
+\item \tcode{ForwardIterator},
+\item \tcode{ForwardIterator1},
+\item \tcode{ForwardIterator2},
+\item \tcode{RandomAccessIterator},
+\item \tcode{RandomAccessIterator1},
+\item \tcode{RandomAccessIterator2}, and
+\item \tcode{BinaryPredicate}
+\end{itemize}
+of templates specified in this sub-clause
+\ref{func.searchers} shall meet the same requirements and semantics as
+specified in \ref{algorithms.general}.
+Template parameters named \tcode{Hash} shall meet the requirements as specified in \ref{hash.requirements}.
+
+\pnum
+The Boyer-Moore searcher implements the Boyer-Moore search algorithm.
+The Boyer-Moore-Horspool searcher implements the Boyer-Moore-Horspool search algorithm.
+In general, the Boyer-Moore searcher will use more memory and give better run-time performance than Boyer-Moore-Horspool
+
+\rSec3[func.searchers.default]{Class template \tcode{default_searcher}}
+
+\indexlibrary{\idxcode{default_searcher}}%
+\begin{codeblock}
+template <class ForwardIterator1, class BinaryPredicate = equal_to<>>
+class default_searcher {
+public:
+  default_searcher(ForwardIterator1 pat_first, ForwardIterator1 pat_last,
+                   BinaryPredicate pred = BinaryPredicate());
+
+  template <class ForwardIterator2>
+  ForwardIterator2 operator()(ForwardIterator2 first,
+                              ForwardIterator2 last) const;
+
+private:
+  ForwardIterator1 pat_first_; // exposition only
+  ForwardIterator1 pat_last_;  // exposition only
+  BinaryPredicate pred_;       // exposition only
+};
+\end{codeblock}
+
+\indexlibrary{\idxcode{default_searcher}!constructor}%
+\begin{itemdecl}
+default_searcher(ForwardIterator pat_first, ForwardIterator pat_last,
+                 BinaryPredicate pred = BinaryPredicate());
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Constructs a \tcode{default_searcher} object, initializing \tcode{pat_first_}
+with \tcode{pat_first}, \tcode{pat_last_} with \tcode{pat_last}, and
+\tcode{pred_} with \tcode{pred}.
+
+\pnum
+\throws
+Any exception thrown by the copy constructor of \tcode{BinaryPredicate} or
+\tcode{ForwardIterator1}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{default_searcher}!\idxcode{operator()}}%
+\indexlibrary{\idxcode{operator()}!\idxcode{default_searcher}}%
+\begin{itemdecl}
+template<class ForwardIterator2>
+ForwardIterator2 operator()(ForwardIterator2 first, ForwardIterator2 last) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{return std::search(first, last, pat_first_, pat_last_, pred_);}
+\end{itemdescr}
+
+\rSec4[func.searchers.default.creation]{\tcode{default_searcher} creation functions}
+
+\indexlibrary{\idxcode{make_default_searcher}}%
+\begin{itemdecl}
+template <class ForwardIterator, class BinaryPredicate = equal_to<>>
+  default_searcher<ForwardIterator, BinaryPredicate>
+    make_default_searcher(ForwardIterator pat_first, ForwardIterator pat_last,
+                          BinaryPredicate pred = BinaryPredicate());
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+return default_searcher<ForwardIterator, BinaryPredicate>(pat_first, pat_last, pred);
+\end{codeblock}
+\end{itemdescr}
+
+\rSec3[func.searchers.boyer_moore]{Class template \tcode{boyer_moore_searcher}}
+
+\indexlibrary{\idxcode{boyer_moore_searcher}}%
+\begin{codeblock}
+template <class RandomAccessIterator1,
+          class Hash = hash<typename iterator_traits<RandomAccessIterator1>::value_type>,
+          class BinaryPredicate = equal_to<>>
+class boyer_moore_searcher {
+public:
+  boyer_moore_searcher(RandomAccessIterator1 pat_first,
+                       RandomAccessIterator1 pat_last, Hash hf = Hash(),
+                       BinaryPredicate pred = BinaryPredicate());
+
+  template <class RandomAccessIterator2>
+  RandomAccessIterator2 operator()(RandomAccessIterator2 first,
+                                   RandomAccessIterator2 last) const;
+
+private:
+  RandomAccessIterator1 pat_first_; // exposition only
+  RandomAccessIterator1 pat_last_;  // exposition only
+  Hash hash_;                       // exposition only
+  BinaryPredicate pred_;            // exposition only
+};
+\end{codeblock}
+
+\indexlibrary{\idxcode{boyer_moore_searcher}!constructor}%
+\begin{itemdecl}
+boyer_moore_searcher(RandomAccessIterator1 pat_first,
+                     RandomAccessIterator1 pat_last, Hash hf = Hash(),
+                     BinaryPredicate pred = BinaryPredicate());
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+The value type of \tcode{RandomAccessIterator1} shall meet the \tcode{DefaultConstructible} requirements, the \tcode{CopyConstructible} requirements, and the \tcode{CopyAssignable} requirements.
+
+\pnum
+\requires
+For any two values \tcode{A} and \tcode{B} of the type \tcode{iterator_traits<RandomAccessIterator1>::value_type}, if \tcode{pred(A,B)==true}, then \tcode{hf(A)==hf(B)} shall be true.
+
+\pnum
+\effects
+Constructs a \tcode{boyer_moore_searcher} object, initializing \tcode{pat_first_} with \tcode{pat_first}, \tcode{pat_last_} with \tcode{pat_last}, \tcode{hash_} with \tcode{hf}, and \tcode{pred_} with \tcode{pred}.
+
+\pnum
+\throws
+Any exception thrown by the copy constructor of \tcode{RandomAccessIterator1},
+or by the default constructor, copy constructor, or the copy assignment operator of the value type of \tcode{RandomAccessIterator1},
+or the copy constructor or \tcode{operator()} of \tcode{BinaryPredicate} or \tcode{Hash}.
+May throw \tcode{bad_alloc} if additional memory needed for internal data structures cannot be allocated.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{boyer_moore_searcher}!\idxcode{operator()}}%
+\indexlibrary{\idxcode{operator()}!\idxcode{boyer_moore_searcher}}%
+\begin{itemdecl}
+template <class RandomAccessIterator2>
+RandomAccessIterator2 operator()(RandomAccessIterator2 first,
+                                 RandomAccessIterator2 last) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{RandomAccessIterator1} and \tcode{RandomAccessIterator2} shall have the same value type.
+
+\pnum
+\effects
+Finds a subsequence of equal values in a sequence.
+
+\pnum
+\returns
+The first iterator \tcode{i} in the range \range{first}{last - (pat_last_ - pat_first_)}
+such that for every non-negative integer \tcode{n} less than \tcode{pat_last_ - pat_first_} the following condition holds:
+\tcode{pred(*(i + n), *(pat_first_ + n)) != false}.
+Returns \tcode{first} if \range{pat_first_}{pat_last_} is empty,
+otherwise returns \tcode{last} if no such iterator is found.
+
+\pnum
+\complexity
+At most \tcode{(last - first) * (pat_last_ - pat_first_)} applications of the predicate.
+\end{itemdescr}
+
+\rSec4[func.searchers.boyer_moore.creation]{\tcode{boyer_moore_searcher} creation functions}
+
+\indexlibrary{\idxcode{make_boyer_moore_searcher}}%
+\begin{itemdecl}
+template <class RandomAccessIterator,
+          class Hash = hash<typename iterator_traits<RandomAccessIterator>::value_type>,
+          class BinaryPredicate = equal_to<>>
+  boyer_moore_searcher<RandomAccessIterator, Hash, BinaryPredicate>
+    make_boyer_moore_searcher(RandomAccessIterator pat_first,
+                              RandomAccessIterator pat_last, Hash hf = Hash(),
+                              BinaryPredicate pred = BinaryPredicate());
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+return boyer_moore_searcher<RandomAccessIterator, Hash, BinaryPredicate>(
+         pat_first, pat_last, hf, pred);
+\end{codeblock}
+\end{itemdescr}
+
+\rSec3[func.searchers.boyer_moore_horspool]{Class template \tcode{boyer_moore_horspool_searcher}}
+
+\indexlibrary{\idxcode{boyer_moore_horspool_searcher}}%
+\begin{codeblock}
+template <class RandomAccessIterator1,
+          class Hash = hash<typename iterator_traits<RandomAccessIterator1>::value_type>,
+          class BinaryPredicate = equal_to<>>
+class boyer_moore_horspool_searcher {
+public:
+  boyer_moore_horspool_searcher(RandomAccessIterator1 pat_first,
+                                RandomAccessIterator1 pat_last,
+                                Hash hf = Hash(),
+                                BinaryPredicate pred = BinaryPredicate());
+
+  template <class RandomAccessIterator2>
+  RandomAccessIterator2 operator()(RandomAccessIterator2 first,
+                                   RandomAccessIterator2 last) const;
+
+private:
+  RandomAccessIterator1 pat_first_; // exposition only
+  RandomAccessIterator1 pat_last_;  // exposition only
+  Hash hash_;                       // exposition only
+  BinaryPredicate pred_;            // exposition only
+};
+\end{codeblock}
+
+\indexlibrary{\idxcode{boyer_moore_horspool_searcher}!constructor}%
+\begin{itemdecl}
+boyer_moore_horspool_searcher(RandomAccessIterator1 pat_first,
+                              RandomAccessIterator1 pat_last, Hash hf = Hash(),
+                              BinaryPredicate pred = BinaryPredicate());
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+The value type of \tcode{RandomAccessIterator1} shall meet the \tcode{DefaultConstructible}, \tcode{CopyConstructible}, and \tcode{CopyAssignable} requirements.
+
+\pnum
+\requires
+For any two values \tcode{A} and \tcode{B} of the type \tcode{iterator_traits<RandomAccessIterator1>::value_type},
+if \tcode{pred(A,B)==true}, then \tcode{hf(A)==hf(B)} shall be true.
+
+\pnum
+\effects
+Constructs a \tcode{boyer_moore_horspool_searcher} object, initializing \tcode{pat_first_} with \tcode{pat_first},
+\tcode{pat_last_} with \tcode{pat_last}, \tcode{hash_} with \tcode{hf}, and \tcode{pred_} with \tcode{pred}.
+
+\pnum
+\throws
+Any exception thrown by the copy constructor of \tcode{RandomAccessIterator1},
+or by the default constructor, copy constructor, or the copy assignment operator of the value type of \tcode{RandomAccessIterator1}
+or the copy constructor or \tcode{operator()} of \tcode{BinaryPredicate} or \tcode{Hash}.
+May throw \tcode{bad_alloc} if additional memory needed for internal data structures cannot be allocated..
+\end{itemdescr}
+
+\indexlibrary{\idxcode{boyer_moore_horspool_searcher}!\idxcode{operator()}}%
+\indexlibrary{\idxcode{operator()}!\idxcode{boyer_moore_horspool_searcher}}%
+\begin{itemdecl}
+template <class RandomAccessIterator2>
+RandomAccessIterator2 operator()(RandomAccessIterator2 first,
+                                 RandomAccessIterator2 last) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{RandomAccessIterator1} and \tcode{RandomAccessIterator2} shall have the same value type.
+
+\pnum
+\effects
+Finds a subsequence of equal values in a sequence.
+
+\pnum
+\returns
+The first iterator \tcode{i} in the range \range{first}{last - (pat_last_ - pat_first_)}
+such that for every non-negative integer \tcode{n} less than \tcode{pat_last_ - pat_first_} the following condition holds:
+\tcode{pred(*(i + n), *(pat_first_ + n)) != false}.
+Returns \tcode{first} if \range{pat_first_}{pat_last_} is empty,
+otherwise returns \tcode{last} if no such iterator is found.
+
+\pnum
+\complexity
+At most \tcode{(last - first) * (pat_last_ - pat_first_)} applications of the predicate.
+\end{itemdescr}
+
+\rSec4[func.searchers.boyer_moore_horspool.creation]{\tcode{boyer_moore_horspool_searcher} creation functions}
+
+\indexlibrary{\idxcode{make_boyer_moore_horspool_searcher}}%
+\begin{itemdecl}
+template <class RandomAccessIterator,
+          class Hash = hash<typename iterator_traits<RandomAccessIterator>::value_type>,
+          class BinaryPredicate = equal_to<>>
+  boyer_moore_searcher_horspool<RandomAccessIterator, Hash, BinaryPredicate>
+    make_boyer_moore_horspool_searcher(
+      RandomAccessIterator pat_first, RandomAccessIterator pat_last,
+      Hash hf = Hash(), BinaryPredicate pred = BinaryPredicate());
+\end{itemdecl}
+
+\begin{itemdescr}
+
+\pnum
+\effects
+Equivalent to \tcode{return boyer_moore_horspool_searcher<RandomAccessIterator, Hash, BinaryPredicate>(pat_first, pat_last, hf, pred);}
+\end{itemdescr}
 
 \rSec2[unord.hash]{Class template \tcode{hash}}
 
