@@ -7409,6 +7409,21 @@ reflect modifications that can introduce data races.
 
 \rSec4[util.smartptr.shared.const]{\tcode{shared_ptr} constructors}
 
+\pnum
+In the constructor definitions below,
+\term{enables \tcode{shared_from_this} with \tcode{p}},
+for a pointer \tcode{p} of type \tcode{Y*},
+means that if \tcode{Y} has an unambiguous and accessible base class
+that is a specialization of \tcode{enable_shared_from_this}~(\ref{util.smartptr.enab}),
+then \tcode{remove_cv_t<Y>*} shall be implicitly convertible to \tcode{T*} and
+the constructor evaluates the statement:
+\begin{codeblock}
+if (p != nullptr && p->weak_this.expired())
+  p->weak_this = shared_ptr<remove_cv_t<Y>>(*this, const_cast<remove_cv_t<Y>*>(p));
+\end{codeblock}
+The assignment to the \tcode{weak_this} member is not atomic and
+conflicts with any potentially concurrent access to the same object~(\ref{intro.multithread}).
+
 \indexlibrary{\idxcode{shared_ptr}!\idxcode{shared_ptr}}%
 \begin{itemdecl}
 constexpr shared_ptr() noexcept;
@@ -7431,8 +7446,10 @@ template<class Y> explicit shared_ptr(Y* p);
 shall be well formed, shall have well defined behavior, and shall not
 throw exceptions.
 
-\pnum\effects Constructs a \tcode{shared_ptr} object that \textit{owns} the pointer
-\tcode{p}. If an exception is thrown, \tcode{delete p} is called.
+\pnum\effects Constructs a \tcode{shared_ptr} object
+that \textit{owns} the pointer \tcode{p}.
+Enables \tcode{shared_from_this} with \tcode{p}.
+If an exception is thrown, \tcode{delete p} is called.
 
 \pnum\postconditions  \tcode{use_count() == 1 \&\& get() == p}.
 
@@ -7458,6 +7475,7 @@ The copy constructor and destructor of \tcode{A} shall not throw exceptions.
 
 \pnum\effects  Constructs a \tcode{shared_ptr} object that \textit{owns} the
 object \tcode{p} and the deleter \tcode{d}.
+The first and second constructors enable \tcode{shared_from_this} with \tcode{p}.
 The second and fourth constructors shall use a copy of \tcode{a} to
 allocate memory for internal use.
 If an exception is thrown, \tcode{d(p)} is called.
@@ -7564,6 +7582,9 @@ Otherwise, if \tcode{D} is not a reference type,
 equivalent to \tcode{shared_ptr(r.release(), r.get_deleter())}.
 Otherwise, equivalent to \tcode{shared_ptr(r.release(), ref(r.get_deleter()))}.
 If an exception is thrown, the constructor has no effect.
+If \tcode{r.get() != nullptr},
+enables \tcode{shared_from_this} with the value that was returned
+by \tcode{r.release()}.
 \end{itemdescr}
 
 \rSec4[util.smartptr.shared.dest]{\tcode{shared_ptr} destructor}
@@ -8432,6 +8453,10 @@ namespace std {
   public:
     shared_ptr<T> shared_from_this();
     shared_ptr<T const> shared_from_this() const;
+    weak_ptr<T> weak_from_this() noexcept;
+    weak_ptr<T const> weak_from_this() const noexcept;
+  private:
+    mutable weak_ptr<T> weak_this; // \expos
   };
 } // namespace std
 \end{codeblock}
@@ -8447,7 +8472,7 @@ enable_shared_from_this(const enable_shared_from_this<T>&) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
-\pnum\effects  Constructs an \tcode{enable_shared_from_this<T>} object.
+\pnum\effects  Value-initializes \tcode{weak_this}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{enable_shared_from_this}!\idxcode{operator=}}%
@@ -8458,15 +8483,7 @@ enable_shared_from_this<T>& operator=(const enable_shared_from_this<T>&) noexcep
 
 \begin{itemdescr}
 \pnum\returns  \tcode{*this}.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{enable_shared_from_this}!destructor}
-\begin{itemdecl}
-~enable_shared_from_this();
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum\effects  Destroys \tcode{*this}.
+\pnum\enternote \tcode{weak_this} is not changed. \exitnote
 \end{itemdescr}
 
 \indexlibrary{\idxcode{shared_ptr}}%
@@ -8478,39 +8495,22 @@ shared_ptr<T const> shared_from_this() const;
 \end{itemdecl}
 
 \begin{itemdescr}
-\pnum\requires  \tcode{enable_shared_from_this<T>} shall be an accessible base
-class of \tcode{T}. \tcode{*this} shall be a subobject of an object \tcode{t} of
-type \tcode{T}. There shall be at least one \tcode{shared_ptr} instance \tcode{p}
-that \textit{owns} \tcode{\&t}.
-
-\pnum\returns  A \tcode{shared_ptr<T>} object \tcode{r}
-that \textit{shares ownership with} \tcode{p}.
+\pnum\returns  \tcode{shared_ptr<T>(weak_this)}.
 
 \pnum\postconditions  \tcode{r.get() == this}.
 \end{itemdescr}
 
-\pnum
-\enternote A possible implementation is shown below:
-\begin{codeblock}
-template<class T> class enable_shared_from_this {
-private:
-  weak_ptr<T> __weak_this;
-protected:
-  constexpr enable_shared_from_this() : __weak_this() { }
-  enable_shared_from_this(enable_shared_from_this const&) { }
-  enable_shared_from_this& operator=(enable_shared_from_this const&) { return *this; }
-  ~enable_shared_from_this() { }
-public:
-  shared_ptr<T> shared_from_this() { return shared_ptr<T>(__weak_this); }
-  shared_ptr<T const> shared_from_this() const { return shared_ptr<T const>(__weak_this); }
-};
-\end{codeblock}
+\indexlibrary{\idxcode{weak_ptr}}%
+\indexlibrary{\idxcode{enable_shared_from_this}!\idxcode{weak_from_this}}%
+\indexlibrary{\idxcode{weak_from_this}!\idxcode{enable_shared_from_this}}%
+\begin{itemdecl}
+weak_ptr<T>       weak_from_this() noexcept;
+weak_ptr<T const> weak_from_this() const noexcept;
+\end{itemdecl}
 
-\pnum
-The \tcode{shared_ptr} constructors that create unique pointers
-can detect the presence of an \tcode{enable_shared_from_this} base and
-assign the newly created \tcode{shared_ptr} to its \tcode{__weak_this}
-member. \exitnote
+\begin{itemdescr}
+\pnum\returns  \tcode{weak_this}.
+\end{itemdescr}
 
 \rSec3[util.smartptr.shared.atomic]{\tcode{shared_ptr} atomic access}
 
