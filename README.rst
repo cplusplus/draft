@@ -11,7 +11,7 @@ Get involved:
 
 - `How to submit an editorial issue <https://github.com/cplusplus/draft/wiki/How-to-submit-an-editorial-issue>`_
 - `How to tell if an issue is editorial <https://github.com/cplusplus/draft/wiki/How-to-tell-if-an-issue-is-editorial>`_
-- `How to submit a new issue/defect report <http://isocpp.org/std/submit-a-library-issue>`_ for non-editorial issues
+- `How to submit a new issue/defect report <https://isocpp.org/std/submit-issue>`_ for non-editorial issues
 
 More information about the C++ standard can be found at `isocpp.org <http://isocpp.org/std>`_.
 
