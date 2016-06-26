@@ -2946,8 +2946,6 @@ it is applied. The type of that object is the \defnx{allocated type}{type!alloca
 This type shall be a complete object type, but not an abstract class
 type or array
 thereof~(\ref{intro.object},~\ref{basic.types},~\ref{class.abstract}).
-It is \impldef{support for over-aligned types} whether over-aligned types are
-supported~(\ref{basic.align}).
 \begin{note}
 because references are not objects, references cannot be created by
 \grammarterm{new-expression}{s}.
@@ -3185,6 +3183,10 @@ functions~(\ref{basic.stc.dynamic},~\ref{new.delete.single},~\ref{new.delete.arr
 A \Cpp program can provide alternative definitions of
 these functions~(\ref{replacement.functions}) and/or class-specific
 versions~(\ref{class.free}).
+The set of allocation and deallocation functions that may be called
+by a \grammarterm{new-expression}
+may include functions that do not perform allocation or deallocation;
+for example, see \ref{new.delete.placement}.
 \end{note}
 
 \pnum
@@ -3281,39 +3283,58 @@ be no greater than the sum of the sizes for the omitted calls as specified
 above, plus the size for the extended call had it not been extended, plus any
 padding necessary to align the allocated objects within the allocated memory.
 
-
-
 \pnum
 \indextext{placement~syntax!\idxcode{new}}%
+\indextext{new-expression@\grammarterm{new-expression}!placement}%
 The \grammarterm{new-placement} syntax is used to supply additional
-arguments to an allocation function. If used, overload resolution is
-performed on a function call created by assembling an argument list
-consisting of the amount of space requested (the first argument) and the
-expressions in the \grammarterm{new-placement} part of the
-\grammarterm{new-expression} (the second and succeeding arguments). The
-first of these arguments has type \tcode{std::size_t} and the remaining
-arguments have the corresponding types of the expressions in the
-\grammarterm{new-placement}; such an expression is called a
-\defnx{placement \grammarterm{new-expression}}{placement~new-expression@placement \grammarterm{new-expression}}.
+arguments to an allocation function; such an expression is called
+a \defnx{placement \grammarterm{new-expression}}{placement~new-expression@placement \grammarterm{new-expression}}{.}
+
+\pnum
+Overload resolution is
+performed on a function call created by assembling an argument list.
+The first argument is
+the amount of space requested,
+and has type \tcode{std::size_t}.
+If the type of the allocated object has new-extended alignment,
+the next argument is
+the type's alignment,
+and has type \tcode{std::align_val_t}.
+If the \grammarterm{new-placement} syntax is used,
+the \grammarterm{initializer-clause}{s}
+in its \grammarterm{expression-list}
+are the succeeding arguments.
+If no matching function is found
+and the allocated object type has new-extended alignment,
+the alignment argument is removed from the argument list,
+and overload resolution is performed again.
 
 \pnum
 \begin{example}
 
 \begin{itemize}
-\item \tcode{new T} results in a call of \tcode{operator
-new(sizeof(T))},
-
-\item \tcode{new(2,f) T} results in a call of \tcode{operator
-new(sizeof(T),2,f)},
-
-\item \tcode{new T[5]} results in a call of \tcode{operator
-new[](sizeof(T)*5+x)}, and
-
-\item \tcode{new(2,f) T[5]} results in a call of \tcode{operator
-new[](sizeof(T)*5+y,2,f)}.
+\item \tcode{new T} results in one of the following calls:
+\begin{codeblock}
+operator new(sizeof(T))
+operator new(sizeof(T), std::align_val_t(alignof(T)))
+\end{codeblock}
+\item \tcode{new(2,f) T} results in one of the following calls:
+\begin{codeblock}
+operator new(sizeof(T), 2, f)
+operator new(sizeof(T), std::align_val_t(alignof(T)), 2, f)
+\end{codeblock}
+\item \tcode{new T[5]} results in one of the following calls:
+\begin{codeblock}
+operator new[](sizeof(T) * 5 + x)
+operator new[](sizeof(T) * 5 + x, std::align_val_t(alignof(T)))
+\end{codeblock}
+\item \tcode{new(2,f) T[5]} results in one of the following calls:
+\begin{codeblock}
+operator new[](sizeof(T) * 5 + x, 2, f)
+operator new[](sizeof(T) * 5 + x, std::align_val_t(alignof(T)), 2, f)
+\end{codeblock}
 \end{itemize}
-
-Here, \tcode{x} and \tcode{y} are non-negative unspecified values
+Here, each instance of \tcode{x} is a non-negative unspecified value
 representing array allocation overhead; the result of the
 \grammarterm{new-expression} will be offset by this amount from the value
 returned by \tcode{operator new[]}. This overhead may be applied in all
@@ -3337,8 +3358,8 @@ has a non-throwing exception specification,
 it returns null to indicate failure to allocate storage
 and a non-null pointer otherwise.
 \end{note}
-If the allocation function is a reserved placement allocation
-function~(\ref{new.delete.placement}) that returns null,
+If the allocation function is a non-allocating
+form~(\ref{new.delete.placement}) that returns null,
 the behavior is undefined.
 Otherwise,
 if the allocation function returns null, initialization shall not be
@@ -3430,8 +3451,10 @@ of parameters and, after parameter transformations~(\ref{dcl.fct}), all
 parameter types except the first are identical. If
 the lookup finds a single matching deallocation function, that function
 will be called; otherwise, no deallocation function will be called. If
-the lookup finds the two-parameter form of a usual deallocation
-function~(\ref{basic.stc.dynamic.deallocation}) and that function,
+the lookup finds a usual deallocation
+function
+with a parameter of type \tcode{std\colcol{}size_t}~(\ref{basic.stc.dynamic.deallocation})
+and that function,
 considered as a placement deallocation function, would have been
 selected as a match for the allocation function, the program is
 ill-formed. For a non-placement allocation function, the normal deallocation
@@ -3618,27 +3641,47 @@ functions~(\ref{class.free}). If no class-specific deallocation function is foun
 the deallocation function's name is looked up in global scope.
 
 \pnum
-If deallocation function lookup finds both a usual
-deallocation function with only a pointer parameter and a usual deallocation
-function with both a pointer parameter and a size parameter,
+If deallocation function lookup more than one usual
+deallocation function,
 the function to be called is selected as follows:
 \begin{itemize}
+\item
+If the type has new-extended alignment,
+a function with a parameter of type \tcode{std\colcol{}align_val_t} is preferred;
+otherwise a function without such a parameter is preferred.
+If exactly one preferred function is found,
+that function is selected and the selection process terminates.
+If more than one preferred function is found,
+all non-preferred functions are eliminated from further consideration.
+\item
+If the deallocation functions have class scope,
+the one without a parameter of type \tcode{std\colcol{}size_t} is selected.
 \item
 If the type is complete and if, for the second alternative (delete
 array) only, the operand is a pointer to a class type with a
 non-trivial destructor or a (possibly multi-dimensional) array thereof,
-the function with two parameters is selected.
+the function with a parameter of type \tcode{std\colcol{}size_t} is selected.
 \item
-Otherwise, it is unspecified which of the two deallocation functions
+Otherwise, it is unspecified
+whether a deallocation function with a parameter of type \tcode{std\colcol{}size_t}
 is selected.
 \end{itemize}
 
 \pnum
 When a \grammarterm{delete-expression}
 is executed, the selected deallocation function shall be called with
-the address of the block of storage to be reclaimed as its first argument and
-(if the two-parameter deallocation function is used) the size of the block as its
-second argument.\footnote{If the static type of the object to be deleted is complete
+the address of the block of storage to be reclaimed as its first argument.
+If a deallocation function
+with a parameter of type \tcode{std\colcol{}align_val_t}
+is used,
+the alignment of the type of the object to be deleted
+is passed as the corresponding argument.
+If a deallocation function
+with a parameter of type \tcode{std\colcol{}size_t}
+is used,
+the size of the block
+is passed as the corresponding argument.%
+\footnote{If the static type of the object to be deleted is complete
 and is different from the dynamic type, and the destructor is not virtual, the size might
 be incorrect, but that case is already undefined, as stated above.}
 
