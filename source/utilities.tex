@@ -4634,20 +4634,10 @@ namespace std {
 
   // \ref{default.allocator}, the default allocator:
   template <class T> class allocator;
-  template <> class allocator<void>;
   template <class T, class U>
     bool operator==(const allocator<T>&, const allocator<U>&) noexcept;
   template <class T, class U>
     bool operator!=(const allocator<T>&, const allocator<U>&) noexcept;
-
-  // \ref{storage.iterator}, raw storage iterator:
-  template <class OutputIterator, class T> class raw_storage_iterator;
-
-  // \ref{temporary.buffer}, temporary buffers:
-  template <class T>
-    pair<T*, ptrdiff_t> get_temporary_buffer(ptrdiff_t n) noexcept;
-  template <class T>
-    void return_temporary_buffer(T* p);
 
   // \ref{specialized.algorithms}, specialized algorithms:
   template <class T> constexpr T* addressof(T& r) noexcept;
@@ -5498,28 +5488,9 @@ allocator completeness requirements~\ref{allocator.requirements.completeness}.
 \indexlibrary{\idxcode{allocator}}%
 \begin{codeblock}
 namespace std {
-  template <class T> class allocator;
-
-  // specialize for \tcode{void}:
-  template <> class allocator<void> {
-  public:
-    using pointer       = void*;
-    using const_pointer = const void*;
-    // reference-to-\tcode{void} members are impossible.
-    using value_type    = void;
-    template <class U> struct rebind { using other = allocator<U>; };
-  };
-
   template <class T> class allocator {
    public:
     using value_type      = T;
-    using size_type       = size_t;
-    using difference_type = ptrdiff_t;
-    using pointer         = T*;
-    using const_pointer   = const T*;
-    using reference       = T&;
-    using const_reference = const T&;
-    template <class U> struct rebind { using other = allocator<U>; };
     using propagate_on_container_move_assignment = true_type;
     using is_always_equal = true_type;
 
@@ -5528,18 +5499,8 @@ namespace std {
     template <class U> allocator(const allocator<U>&) noexcept;
    ~allocator();
 
-    pointer address(reference x) const noexcept;
-    const_pointer address(const_reference x) const noexcept;
-
-    pointer allocate(
-      size_type, allocator<void>::const_pointer hint = 0);
-    void deallocate(pointer p, size_type n);
-    size_type max_size() const noexcept;
-
-    template<class U, class... Args>
-      void construct(U* p, Args&&... args);
-    template <class U>
-      void destroy(U* p);
+    T* allocate(size_t);
+    void deallocate(T* p, size_t n);
   };
 }
 \end{codeblock}
@@ -5553,43 +5514,13 @@ functions from different threads. Calls to these functions that allocate or deal
 particular unit of storage shall occur in a single total order, and each such
 deallocation call shall happen before the next allocation (if any) in this order.
 
-\indexlibrary{\idxcode{address}!\idxcode{allocator}}
-\indexlibrary{\idxcode{allocator}!\idxcode{address}}
-\begin{itemdecl}
-pointer address(reference x) const noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\returns
-The actual address of the object referenced by \tcode{x}, even in the presence of an
-overloaded operator\&.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{address}!\idxcode{allocator}}
-\indexlibrary{\idxcode{allocator}!\idxcode{address}}
-\begin{itemdecl}
-const_pointer address(const_reference x) const noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\returns
-The actual address of the object referenced by \tcode{x}, even in the presence of an
-overloaded operator\&.
-\end{itemdescr}
-
 \indexlibrary{\idxcode{allocate}!\idxcode{allocator}}
 \indexlibrary{\idxcode{allocator}!\idxcode{allocate}}
 \begin{itemdecl}
-pointer allocate(size_type n, allocator<void>::const_pointer hint = 0);
+T* allocate(size_t n);
 \end{itemdecl}
 
 \begin{itemdescr}
-\pnum
-\begin{note} In a container member function, the address of an adjacent
-element is often a good choice to pass for the \tcode{hint} argument. \end{note}
-
 \pnum
 \returns
 A pointer to the initial element of an array of storage of size \tcode{n}
@@ -5601,8 +5532,7 @@ supported~(\ref{basic.align}).
 \remark
 the storage is obtained by calling \tcode{::operator
 new(std::size_t)}~(\ref{new.delete}), but it is unspecified when or how often this
-function is called. The use of \tcode{hint} is unspecified, but intended as an aid to
-locality if an implementation so desires.
+function is called.
 
 \pnum
 \throws
@@ -5612,7 +5542,7 @@ locality if an implementation so desires.
 \indexlibrary{\idxcode{deallocate}!\idxcode{allocator}}
 \indexlibrary{\idxcode{allocator}!\idxcode{deallocate}}
 \begin{itemdecl}
-void deallocate(pointer p, size_type n);
+void deallocate(T* p, size_t n);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -5633,50 +5563,13 @@ Uses
 when this function is called.
 \end{itemdescr}
 
-\indexlibrary{\idxcode{max_size}!\idxcode{allocator}}
-\indexlibrary{\idxcode{allocator}!\idxcode{max_size}}
-\begin{itemdecl}
-size_type max_size() const noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\returns
-The largest value \textit{N} for which the call \tcode{allocate(N, 0)}
-might succeed.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{allocator}!constructor}%
-\begin{itemdecl}
-template <class U, class... Args>
-  void construct(U* p, Args&&... args);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-As if by: \tcode{::new((void *)p) U(std::forward<Args>(args)...);}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{allocator}!destructor}%
-\begin{itemdecl}
-template <class U>
-  void destroy(U* p);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-As if by \tcode{p->\~{}U()}.
-\end{itemdescr}
-
 \rSec3[allocator.globals]{\tcode{allocator} globals}
 
 \indexlibrary{\idxcode{operator==}!\idxcode{allocator}}%
 \indexlibrary{\idxcode{allocator}!\idxcode{operator==}}%
 \begin{itemdecl}
-template <class T1, class T2>
-  bool operator==(const allocator<T1>&, const allocator<T2>&) noexcept;
+template <class T, class U>
+  bool operator==(const allocator<T>&, const allocator<U>&) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -5688,205 +5581,14 @@ template <class T1, class T2>
 \indexlibrary{\idxcode{operator"!=}!\idxcode{allocator}}%
 \indexlibrary{\idxcode{allocator}!\idxcode{operator"!=}}%
 \begin{itemdecl}
-template <class T1, class T2>
-  bool operator!=(const allocator<T1>&, const allocator<T2>&) noexcept;
+template <class T, class U>
+  bool operator!=(const allocator<T>&, const allocator<U>&) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \returns
 \tcode{false}.
-\end{itemdescr}
-
-\rSec2[storage.iterator]{Raw storage iterator}
-
-\pnum
-\tcode{raw_storage_iterator} is provided to enable algorithms to store their
-results into uninitialized memory. The template parameter
-\tcode{OutputIterator} is required to have its \tcode{operator*} return an
-object for which \tcode{operator\&} is defined and returns a pointer to
-\tcode{T}, and is also required to satisfy the requirements of an output
-iterator~(\ref{output.iterators}).
-
-\begin{codeblock}
-namespace std {
-  template <class OutputIterator, class T>
-  class raw_storage_iterator {
-  public:
-    using iterator_category = output_iterator_tag;
-    using value_type        = void;
-    using difference_type   = void;
-    using pointer           = void;
-    using reference         = void;
-
-    explicit raw_storage_iterator(OutputIterator x);
-
-    raw_storage_iterator& operator*();
-    raw_storage_iterator& operator=(const T& element);
-    raw_storage_iterator& operator=(T&& element);
-    raw_storage_iterator& operator++();
-    raw_storage_iterator  operator++(int);
-    OutputIterator base() const;
-  };
-}
-\end{codeblock}
-
-\indexlibrary{\idxcode{raw_storage_iterator}!constructor}%
-\begin{itemdecl}
-explicit raw_storage_iterator(OutputIterator x);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Initializes the iterator to point to the same value to which \tcode{x} points.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator*}!\idxcode{raw_storage_iterator}}
-\indexlibrary{\idxcode{raw_storage_iterator}!\idxcode{operator*}}
-\begin{itemdecl}
-raw_storage_iterator& operator*();
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\returns
-\tcode{*this}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator=}!\idxcode{raw_storage_iterator}}
-\indexlibrary{\idxcode{raw_storage_iterator}!\idxcode{operator=}}
-\begin{itemdecl}
-raw_storage_iterator& operator=(const T& element);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\requires
-\tcode{T} shall be \tcode{CopyConstructible}.
-
-\pnum
-\effects
-Constructs a value from \tcode{element} at the location to which the iterator points.
-
-\pnum
-\returns
-A reference to the iterator.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator=}!\idxcode{raw_storage_iterator}}
-\indexlibrary{\idxcode{raw_storage_iterator}!\idxcode{operator=}}
-\begin{itemdecl}
-raw_storage_iterator& operator=(T&& element);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\requires
-\tcode{T} shall be \tcode{MoveConstructible}.
-
-\pnum
-\effects
-Constructs a value from \tcode{std::move(element)} at the location to which
-the iterator points.
-
-\pnum
-\returns
-A reference to the iterator.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator++}!\idxcode{raw_storage_iterator}}
-\indexlibrary{\idxcode{raw_storage_iterator}!\idxcode{operator++}}
-\begin{itemdecl}
-raw_storage_iterator& operator++();
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Pre-increment:  advances the iterator and returns a reference to the updated iterator.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator++}!\idxcode{raw_storage_iterator}}
-\indexlibrary{\idxcode{raw_storage_iterator}!\idxcode{operator++}}
-\begin{itemdecl}
-raw_storage_iterator operator++(int);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Post-increment:  advances the iterator and returns the old value of the iterator.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{base}!\idxcode{raw_storage_iterator}}
-\indexlibrary{\idxcode{raw_storage_iterator}!\idxcode{base}}
-\begin{itemdecl}
-OutputIterator base() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\returns
-An iterator of type \tcode{OutputIterator} that points to the same value as
-\tcode{*this} points to.
-\end{itemdescr}
-
-\rSec2[temporary.buffer]{Temporary buffers}
-
-\indexlibrary{\idxcode{get_temporary_buffer}}%
-\begin{itemdecl}
-template <class T>
-  pair<T*, ptrdiff_t> get_temporary_buffer(ptrdiff_t n) noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Obtains a pointer to uninitialized, contiguous storage for $N$ adjacent
-objects of type \tcode{T}, for some non-negative number $N$.
-It is \impldef{support for over-aligned types} whether over-aligned types are
-supported~(\ref{basic.align}).
-
-\pnum
-\remarks
-Calling \tcode{get_temporary_buffer} with a positive number \tcode{n} is
-a non-binding request to return storage for \tcode{n} objects of type \tcode{T}.
-In this case, an implementation is permitted to return instead storage for
-a non-negative number $N$ of such objects,
-where \tcode{$N$ != n} (including \tcode{$N$ == 0}).
-\begin{note} The request is non-binding to allow latitude for
-implementation-specific optimizations of its memory management. \end{note}
-
-\pnum
-\returns
-If \tcode{n <= 0} or if no storage could be obtained,
-returns a pair \tcode{P} such that
-\tcode{P.first} is a null pointer value and \tcode{P.second == 0};
-otherwise returns a pair \tcode{P} such that
-\tcode{P.first} refers to the address of the uninitialized storage and
-\tcode{P.second} refers to its capacity $N$ (in the units of \tcode{sizeof(T)}).
-\end{itemdescr}
-
-\indexlibrary{\idxcode{return_temporary_buffer}}%
-\begin{itemdecl}
-template <class T> void return_temporary_buffer(T* p);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Deallocates the storage referenced by \tcode{p}.
-
-\pnum
-\requires
-\tcode{p} shall be a pointer value returned by an earlier call to
-\tcode{get_temporary_buffer} that has not been invalidated by
-an intervening call to \tcode{return_temporary_buffer(T*)}.
-
-\pnum
-\throws
-Nothing.
 \end{itemdescr}
 
 \rSec2[specialized.algorithms]{Specialized algorithms}
@@ -12873,7 +12575,6 @@ namespace std {
   template <class T> struct is_trivially_copyable;
   template <class T> struct is_standard_layout;
   template <class T> struct is_pod;
-  template <class T> struct is_literal_type;
   template <class T> struct is_empty;
   template <class T> struct is_polymorphic;
   template <class T> struct is_abstract;
@@ -13096,8 +12797,6 @@ namespace std {
     = is_standard_layout<T>::value;
   template <class T> constexpr bool is_pod_v
     = is_pod<T>::value;
-  template <class T> constexpr bool is_literal_type_v
-    = is_literal_type<T>::value;
   template <class T> constexpr bool is_empty_v
     = is_empty<T>::value;
   template <class T> constexpr bool is_polymorphic_v
@@ -13420,12 +13119,6 @@ notwithstanding the restrictions of~\ref{declval}.
  \tcode{T} is a POD type~(\ref{basic.types})                                &
  \tcode{remove_all_extents_t<T>} shall be a complete
  type or (possibly cv-qualified) \tcode{void}.                \\ \rowsep
-
-\tcode{template <class T>}\br
- \tcode{struct is_literal_type;}        &
- \tcode{T} is a literal type~(\ref{basic.types})  &
- \tcode{remove_all_extents_t<T>} shall be a complete type or
- (possibly cv-qualified) \tcode{void}.                               \\ \rowsep
 
 \tcode{template <class T>}\br
  \tcode{struct is_empty;}               &
