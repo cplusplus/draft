@@ -275,7 +275,9 @@ types:
 
 \item pointer to member,
 
-\item \tcode{std::nullptr_t}.
+\item \tcode{std::nullptr_t}, or
+
+\item a type that contains a placeholder type~(\ref{dcl.spec.auto}).
 \end{itemize}
 
 \pnum
@@ -961,6 +963,16 @@ A template type argument may be an incomplete type~(\ref{basic.types}).
 \rSec2[temp.arg.nontype]{Template non-type arguments}
 
 \pnum
+If the type of a \grammarterm{template-parameter}
+contains a placeholder type~(\ref{dcl.spec.auto}, \ref{temp.param}),
+the deduced parameter type is determined
+from the type of the \grammarterm{template-argument}
+by placeholder type deduction~(\ref{dcl.type.auto.deduct}).
+If a deduced parameter type is not permitted
+for a \grammarterm{template-parameter} declaration~(\ref{temp.param}),
+the program is ill-formed.
+
+\pnum
 A
 \grammarterm{template-argument}
 for a non-type
@@ -1010,6 +1022,11 @@ void f(int);
 template<void (*pf)(int)> struct A { /* ... */ };
 
 A<&f> a;                        // selects \tcode{f(int)}
+
+template<auto n> struct B { /* ... */ };
+B<5> b1;   // OK: template parameter type is \tcode{int}
+B<'a'> b2; // OK: template parameter type is \tcode{char}
+B<2.5> b3; // error: template parameter type cannot be \tcode{double}
 \end{codeblock}
 \end{example}
 
@@ -2262,20 +2279,6 @@ the following restrictions apply:
 
 \begin{itemize}
 \item
-Each \grammarterm{template-parameter} shall appear at least once
-in the \grammarterm{template-id} outside a non-deduced context.
-\begin{example}
-\begin{codeblock}
-template <int I, int J> struct A {};
-template <int I> struct A<I+5, I*2> {};     // error
-
-template <int I> struct A<I, I> {};         // OK
-
-template <int I, int J, int K> struct B {};
-template <int I> struct B<I, I*2, 2> {};    // OK
-\end{codeblock}
-\end{example}
-\item
 The type of a template parameter corresponding to a specialized non-type argument
 shall not be dependent on a parameter of the specialization.
 \begin{example}
@@ -2353,12 +2356,20 @@ A<int*, int*, 2> a5;            // ambiguous: matches \#3 and \#5
 \end{example}
 
 \pnum
-A non-type template argument can also be deduced from the value of an actual
-template argument of a non-type parameter of the primary template.
+If the template arguments of a partial specialization cannot be deduced
+because of the structure of its \grammarterm{template-parameter-list}
+and the \grammarterm{template-id},
+the program is ill-formed.
 \begin{example}
-the declaration of
-\tcode{a2}
-above.
+\begin{codeblock}
+template <int I, int J> struct A {};
+template <int I> struct A<I+5, I*2> {};     // error
+
+template <int I> struct A<I, I> {};         // OK
+
+template <int I, int J, int K> struct B {};
+template <int I> struct B<I, I*2, 2> {};    // OK
+\end{codeblock}
 \end{example}
 
 \pnum
@@ -2381,15 +2392,18 @@ templates~(\ref{temp.func.order}):
 
 \begin{itemize}
 \item
-the first function template has the same template parameters as
-the first partial specialization and has a single function parameter
-whose type is a class template specialization with the template arguments of
-the first partial specialization, and
+Each of the two
+function templates has the same template parameters as
+the corresponding partial specialization.
 \item
-the second function template has the same template parameters as
-the second partial specialization and has a single function parameter
-whose type is a class template specialization with the template arguments of
-the second partial specialization.
+Each function template
+has a single function parameter
+whose type is a class template specialization where the template arguments
+are the corresponding template parameters from the function template
+for each template argument
+in the \grammarterm{template-argument-list}
+of the \grammarterm{simple-template-id}
+of the partial specialization.
 \end{itemize}
 
 \pnum
@@ -2399,19 +2413,37 @@ template<int I, int J, class T> class X { };
 template<int I, int J>          class X<I, J, int> { }; // \#1
 template<int I>                 class X<I, I, int> { }; // \#2
 
-template<int I, int J> void f(X<I, J, int>);            // A
-template<int I>        void f(X<I, I, int>);            // B
+template<int I0, int J0> void f(X<I0, J0, int>);        // A
+template<int I0>         void f(X<I0, I0, int>);        // B
+
+template <auto v>    class Y { };
+template <auto* p>   class Y<p> { };                    // \#3
+template <auto** pp> class Y<pp> { };                   // \#4
+
+template <auto* p0>   void g(Y<p0>);                    // C
+template <auto** pp0> void g(Y<pp0>);                   // D
 \end{codeblock}
 
-The partial specialization
-\tcode{\#2}
-is more specialized than the partial specialization
-\tcode{\#1}
-because the function template
+According to the ordering rules for function templates,
+the function template
 \tcode{B}
 is more specialized than the function template
 \tcode{A}
-according to the ordering rules for function templates.
+and
+the function template
+\tcode{D}
+is more specialized than the function template
+\tcode{C}.
+Therefore,
+the partial specialization
+\tcode{\#2}
+is more specialized than the partial specialization
+\tcode{\#1}
+and
+the partial specialization
+\tcode{\#4}
+is more specialized than the partial specialization
+\tcode{\#3}.
 \end{example}
 
 \rSec3[temp.class.spec.mfunc]{Members of class template specializations}
@@ -2732,6 +2764,11 @@ template parameter (including template parameter packs~(\ref{temp.variadic})
 thereof) synthesize a unique type, value, or class template
 respectively and substitute it for each occurrence of that parameter
 in the function type of the template.
+\begin{note}
+The type replacing the placeholder
+in the type of the value synthesized for a non-type template parameter
+is also a unique synthesized type.
+\end{note}
 If only one of the function templates \placeholder{M} is a non-static
 member of some class \placeholder{A}, \placeholder{M} is considered to have
 a new first parameter inserted in its function
@@ -3952,9 +3989,17 @@ associated by name lookup with one or more declarations
 declared with a dependent type,
 
 \item
+an
+\grammarterm{identifier}
+associated by name lookup with
+a non-type \grammarterm{template-parameter}
+declared with a type
+that contains a placeholder type~(\ref{dcl.spec.auto}),
+
+\item
 an \grammarterm{identifier} associated by name lookup with one or more
 declarations of member functions of the current instantiation declared
-with a return type that contains a placeholder type~(\ref{dcl.spec.auto}),
+with a return type that contains a placeholder type,
 
 \item
 the
@@ -6728,6 +6773,9 @@ pair, or if for any pair the deduction leads to more than
 one possible set of deduced values, or if different pairs yield
 different deduced values, or if any template argument remains neither
 deduced nor explicitly specified, template argument deduction fails.
+The type of a type parameter
+is only deduced from an array bound
+if it is not otherwise deduced.
 
 \pnum
 A given type
@@ -7113,15 +7161,47 @@ Template arguments cannot be deduced from function arguments involving
 constructs other than the ones specified above.
 
 \pnum
-A template type argument cannot be deduced from the type of a non-type
-\grammarterm{template-argument}.
+When the value of the argument
+corresponding to a non-type template parameter \tcode{P}
+that is declared with a dependent type
+is deduced from an expression,
+the template parameters in the type of \tcode{P}
+are deduced from the type of the value.
+\begin{example}
+\begin{codeblock}
+template<long n> struct A { };
+
+template<typename T> struct C;
+template<typename T, T n> struct C<A<n>> {
+  using Q = T;
+};
+
+using R = long;
+using R = C<A<2>>::Q;    // OK; \tcode{T} was deduced to \tcode{long} from the
+                         // template argument value in the type \tcode{A<2>}
+\end{codeblock}
+\end{example}
+The type of \tcode{N} in the type \tcode{T[N]} is \tcode{std::size_t}.
+\begin{example}
+\begin{codeblock}
+template<typename T> struct S;
+template<typename T, T n> struct S<int[n]> {
+  using Q = T;
+};
+
+using V = decltype(sizeof 0);
+using V = S<int[42]>::Q; // OK; \tcode{T} was deduced to \tcode{std::size_t} from the type \tcode{int[42]}
+\end{codeblock}
+\end{example}
 
 \pnum
 \begin{example}
 \begin{codeblock}
-template<class T, T i> void f(int a[10][i]);
-int v[10][20];
-f(v);               // error: argument for template-parameter \tcode{T} cannot be deduced
+template<class T, T i> void f(int (&a)[i]);
+int v[10];
+void g() {
+  f(v);                  // OK: \tcode{T} is \tcode{std::size_t}
+}
 \end{codeblock}
 \end{example}
 
