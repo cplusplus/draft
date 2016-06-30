@@ -364,29 +364,53 @@ void no_opt(C* cptr) {
 \indextext{optimization~of~temporary|see{elimination~of~temporary}}%
 \indextext{temporary!elimination~of}%
 \indextext{temporary!implementation-defined~generation~of}%
-Temporaries of class type are created in various contexts:
-binding a reference to a prvalue~(\ref{dcl.init.ref}),
-returning a prvalue~(\ref{stmt.return}),
-a conversion that creates a prvalue~(\ref{conv.lval}, \ref{expr.static.cast},
-\ref{expr.const.cast}, \ref{expr.cast}),
-throwing an exception~(\ref{except.throw}), and in some initializations~(\ref{dcl.init}).
+Temporary objects are created
+\begin{itemize}
+\item
+when a prvalue is materialized so that it can be used as a glvalue~(\ref{conv.rval}),
+\item
+when needed by the implementation to pass or return an object of trivially-copyable type (see below),
+and
+\item
+when throwing an exception~(\ref{except.throw}).
 \begin{note}
 The lifetime of exception objects is described in~\ref{except.throw}.
 \end{note}
+\end{itemize}
 Even when the creation of the temporary object is
-unevaluated (Clause~\ref{expr}) or otherwise
-avoided~(\ref{class.copy}),
+unevaluated (Clause~\ref{expr}),
 all the semantic restrictions shall be respected as if the temporary object
 had been created and later destroyed.
 \begin{note}
 This includes accessibility~(\ref{class.access}) and whether it is deleted,
 for the constructor selected and for the destructor. However, in the special
-case of a function call used as the operand of a
+case of the operand of a
 \grammarterm{decltype-specifier}~(\ref{expr.call}), no temporary is introduced,
-so the foregoing does not apply to the prvalue of any such function call.
+so the foregoing does not apply to such a prvalue.
 \end{note}
 
 \pnum
+The materialization of a temporary object is generally
+delayed as long as possible
+in order to avoid creating unnecessary temporary objects.
+\begin{note}
+Temporary objects are materialized:
+\begin{itemize}
+\item
+when binding a reference to a prvalue~(\ref{dcl.init.ref}, \ref{expr.type.conv},
+\ref{expr.dynamic.cast}, \ref{expr.static.cast}, \ref{expr.const.cast}, \ref{expr.cast}),
+\item
+when performing member access on a class prvalue~(\ref{expr.ref}, \ref{expr.mptr.oper}),
+\item
+when performing an array-to-pointer conversion or subscripting on an array prvalue~(\ref{conv.array}, \ref{expr.sub}),
+\item
+when initializing an object of type \tcode{std::initializer_list<T>} from a \grammarterm{braced-init-list}~(\ref{dcl.init.list}),
+\item
+for certain unevaluated operands~(\ref{expr.typeid}, \ref{expr.sizeof}), and
+\item
+when a prvalue appears as a discarded-value expression (Clause~\ref{expr}).
+\end{itemize}
+\end{note}
 \begin{example} Consider the following code:
 \begin{codeblock}
 class X {
@@ -417,36 +441,40 @@ void h() {
 
 \indextext{class~object~copy|see{copy~constructor}}%
 \indextext{constructor!copy}%
-An implementation might use a temporary in which to construct
-\tcode{X(2)}
-before passing it to
-\tcode{f()}
-using
-\tcode{X}'s
-copy constructor; alternatively,
-\tcode{X(2)}
-might be constructed in the space used to hold the argument.
-Likewise, an implementation might use a temporary in which to construct
-\tcode{Y(3)} before passing it to \tcode{g()} using \tcode{Y}'s move constructor;
-alternatively, \tcode{Y(3)} might be constructed in the space used to hold the argument.
-Also, a temporary might be used to hold the result of
-\tcode{f(X(2))}
-before copying it to
-\tcode{b}
-using
-\tcode{X}'s
-copy constructor; alternatively,
-\tcode{f()}'s
-result might be constructed in
-\tcode{b}.
-Likewise, a temporary might be used to hold the result of \tcode{g(Y(3))} before
-moving it to \tcode{c} using \tcode{Y}'s move constructor; alternatively, \tcode{g()}'s
-result might be constructed in \tcode{c}.
+\tcode{X(2)} is constructed in the space used to hold \tcode{f()}'s argument and
+\tcode{Y(3)} is constructed in the space used to hold \tcode{g()}'s argument.
+Likewise,
+\tcode{f()}'s result is constructed directly in \tcode{b} and
+\tcode{g()}'s result is constructed directly in \tcode{c}.
 On the other hand, the expression
-\tcode{a=f(a)}
+\tcode{a = f(a)}
 requires a temporary for
-the result of \tcode{f(a)}, which is then assigned to \tcode{a}.
+the result of \tcode{f(a)},
+which is materialized so that the reference parameter
+of \tcode{A::operator=(const A\&)} can bind to it.
 \end{example}
+
+\pnum
+When an object of class type \tcode{X}
+is passed to or returned from a function,
+if each copy constructor, move constructor, and destructor of \tcode{X}
+is either trivial or deleted,
+and \tcode{X}
+has at least one non-deleted copy or move constructor,
+implementations are permitted
+to create a temporary object
+to hold the function parameter or result object.
+The temporary object is constructed
+from the function argument or return value, respectively,
+and the function's parameter or return object
+is initialized as if by
+using the non-deleted trivial constructor to copy the temporary
+(even if that constructor is inaccessible
+or would not be selected by overload resolution
+to perform a copy or move of the object).
+\begin{note}
+This latitude is granted to allow objects of class type to be passed to or returned from functions in registers.
+\end{note}
 
 \pnum
 \indextext{temporary!constructor~for}%
@@ -1083,7 +1111,7 @@ A destructor is invoked implicitly
 
 \item for a constructed object with automatic storage duration~(\ref{basic.stc.auto}) when the block in which an object is created exits~(\ref{stmt.dcl}),
 
-\item for a constructed temporary object when its lifetime ends~(\ref{class.temporary}).
+\item for a constructed temporary object when its lifetime ends~(\ref{conv.rval}, \ref{class.temporary}).
 \end{itemize}
 
 \indextext{\idxcode{delete}!destructor~and}%
@@ -3109,7 +3137,7 @@ introduced by the \grammarterm{exception-declaration} of a
 with the same type (ignoring cv-qualification) as
 the function return type, the copy/move operation can be
 omitted by constructing the automatic object directly
-into the function's return value
+into the function call's return object
 
 \item in a \nonterminal{throw-expression}~(\ref{expr.throw}), when the operand
 is the name of a non-volatile automatic object
@@ -3118,11 +3146,6 @@ whose scope does not extend beyond the end of the innermost enclosing
 \grammarterm{try-block} (if there is one), the copy/move operation from the
 operand to the exception object~(\ref{except.throw}) can be omitted by
 constructing the automatic object directly into the exception object
-
-\item when a temporary class object that has not been bound to a
-reference~(\ref{class.temporary}) would be copied/moved to a class object with
-the same type (ignoring cv-qualification), the copy/move operation can be omitted by constructing
-the temporary object directly into the target of the omitted copy/move
 
 \item when the \nonterminal{exception-declaration} of an
 exception handler (Clause~\ref{except}) declares an object of the same
@@ -3180,15 +3203,13 @@ void g() {
 }
 \end{codeblock}
 
-Here the criteria for elision can be combined to
-eliminate two calls to the copy constructor of class
-\tcode{Thing}:
+Here the criteria for elision can
+eliminate
 the copying of the local automatic object
 \tcode{t}
-into the temporary object for the return value of
-function
-\tcode{f()}
-and the copying of that temporary object into object
+into the result object for the function call
+\tcode{f()},
+which is the global object
 \tcode{t2}.
 Effectively, the construction of the local object
 \tcode{t}
@@ -3198,7 +3219,7 @@ object
 and that object's destruction will occur at program
 exit.
 Adding a move constructor to \tcode{Thing} has the same effect, but it is the
-move construction from the temporary object to \tcode{t2} that is elided.
+move construction from the local automatic object to \tcode{t2} that is elided.
 \end{example}
 
 \pnum

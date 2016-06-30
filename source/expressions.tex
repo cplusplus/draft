@@ -148,6 +148,12 @@ a prvalue expression of type \tcode{int} is required.
 \end{note}
 
 \pnum
+Whenever a prvalue expression appears as an operand of an operator that
+expects a glvalue for that operand, the
+temporary materialization conversion~(\ref{conv.rval}) is
+applied to convert the expression to an xvalue.
+
+\pnum
 \indextext{conversion!usual arithmetic}%
 Many binary operators that expect operands of arithmetic or enumeration
 type cause conversions and yield result types in a similar way. The
@@ -203,8 +209,8 @@ integer type.
 
 \pnum
 In some contexts, an expression only appears for its side effects. Such an
-expression is called a \defn{discarded-value expression}. The expression is
-evaluated and its value is discarded. The array-to-pointer~(\ref{conv.array})
+expression is called a \defn{discarded-value expression}.
+The array-to-pointer~(\ref{conv.array})
 and function-to-pointer~(\ref{conv.func}) standard conversions are not
 applied. The lvalue-to-rvalue conversion~(\ref{conv.lval}) is applied
 if and only if
@@ -226,10 +232,16 @@ following:
 \end{itemize}
 
 \begin{note} Using an overloaded operator causes a function call; the
-above covers only operators with built-in meaning. If the lvalue is of
+above covers only operators with built-in meaning.
+\end{note}
+If the expression is a prvalue after this optional conversion,
+the temporary materialization conversion~(\ref{conv.rval}) is applied.
+\begin{note}
+If the expression is an lvalue of
 class type, it must have a volatile copy constructor to initialize the
-temporary that is the result of the lvalue-to-rvalue
+temporary that is the result object of the lvalue-to-rvalue
 conversion. \end{note}
+The glvalue expression is evaluated and its value is discarded.
 
 \pnum
 The values of the floating operands and the results of floating
@@ -682,8 +694,8 @@ static_assert(add(one)(one)() == monoid(2)()); // OK
 \end{example}
 
 \pnum
-The evaluation of a \grammarterm{lambda-expression} results in a prvalue
-temporary~(\ref{class.temporary}). This temporary is called the \defn{closure object}. A
+A \grammarterm{lambda-expression} is a prvalue
+whose result object is called the \defn{closure object}. A
 \grammarterm{lambda-expression} shall not appear in an unevaluated operand
 (Clause~\ref{expr}), in a \grammarterm{template-argument},
 in an \grammarterm{alias-declaration},
@@ -1434,9 +1446,9 @@ tokens~(\ref{temp.names}).\end{note}
 \indextext{operator!subscripting}%
 \indextext{\idxcode{[]}|see{operator, subscripting}}%
 A postfix expression followed by an expression in square brackets is a
-postfix expression. One of the expressions shall have the type ``array of
-\tcode{T}'' or ``pointer
-to \tcode{T}'' and the other shall have unscoped enumeration or integral type.
+postfix expression. One of the expressions shall be a glvalue of type ``array of
+\tcode{T}'' or a prvalue of type ``pointer
+to \tcode{T}'' and the other shall be a prvalue of unscoped enumeration or integral type.
 The result is of type ``\tcode{T}''.
 \indextext{type!incomplete}%
 The type ``\tcode{T}'' shall be a completely-defined object type.\footnote{This
@@ -1546,12 +1558,11 @@ this still allows a parameter to be a pointer or reference to an
 incomplete class type. However, it prevents a passed-by-value parameter
 to have an incomplete class type.
 \end{note}
-During the initialization of a parameter, an implementation may avoid
-the construction of extra temporaries by combining the conversions on
-the associated argument and/or the construction of temporaries with the
-initialization of the parameter (see~\ref{class.temporary}). The
+It is \impldef{whether the lifetime of a parameter ends when the callee
+returns or at the end of the enclosing full-expression} whether the
 lifetime of a parameter ends when the function in which it is defined
-returns. The initialization and destruction of each parameter occurs
+returns or at the end of the enclosing full-expression.
+The initialization and destruction of each parameter occurs
 within the context of the calling function.
 \begin{example}
 the access of the constructor, conversion functions or destructor is
@@ -1562,8 +1573,10 @@ particular, if the function called has a \grammarterm{function-try-block}
 (Clause~\ref{except}) with a handler that could handle the exception,
 this handler is not considered.
 \end{example}
-The value of a function call is the value returned by the called
-function except in a virtual function call if the return type of the
+The result of a function call is the
+result of the operand of the evaluated \tcode{return} statement~(\ref{stmt.return})
+in the called function (if any),
+except in a virtual function call if the return type of the
 final overrider is different from the return type of the statically
 chosen function, the value returned from the final overrider is
 converted to the return type of the statically chosen function.
@@ -1652,29 +1665,6 @@ if the result type is an lvalue reference type or an rvalue reference to functio
 an xvalue if the result type is an rvalue reference to object type, and a prvalue
 otherwise.
 
-\pnum
-If a function call is a prvalue of object type:
-
-\begin{itemize}
-\item if the function call is either
-\begin{itemize}
-\item the operand of a \grammarterm{decltype-specifier} or
-\item the right operand of a comma operator that is the operand of a
-\grammarterm{decltype-specifier},
-\end{itemize}
-a temporary object is not introduced for the prvalue. The type of the prvalue
-may be incomplete. \begin{note} as a result, storage is not allocated for the
-prvalue and it is not destroyed; thus, a class type is not instantiated as a
-result of being the type of a function call in this context. This is true
-regardless of whether the expression uses function call notation or operator
-notation~(\ref{over.match.oper}). \end{note} \begin{note} unlike the rule for
-a \grammarterm{decltype-specifier} that considers whether an \grammarterm{id-expression}
-is parenthesized~(\ref{dcl.type.simple}), parentheses have no special meaning
-in this context. \end{note}
-
-\item otherwise, the type of the prvalue shall be complete.
-\end{itemize}
-
 \rSec2[expr.type.conv]{Explicit type conversion (functional notation)}
 
 \pnum
@@ -1684,20 +1674,27 @@ in this context. \end{note}
 \indextext{conversion~explicit~type|see{casting}}%
 \indextext{casting}%
 A \grammarterm{simple-type-specifier}~(\ref{dcl.type.simple}) or
-\grammarterm{typename-specifier}~(\ref{temp.res}) followed by a
-parenthesized \grammarterm{expression-list} constructs a value of the
-specified type given the expression list. If the expression list is a
-single expression, the type conversion expression is equivalent (in
+\grammarterm{typename-specifier}~(\ref{temp.res}) followed
+by a parenthesized optional \grammarterm{expression-list} or
+by a \grammarterm{braced-init-list}
+(the initializer)
+constructs a value of the specified type
+given the initializer.
+If the initializer is a parenthesized single expression,
+the type conversion expression is equivalent (in
 definedness, and if defined in meaning) to the corresponding cast
 expression~(\ref{expr.cast}).
 \indextext{type!incomplete}%
-If the type specified is a class type, the
-class type shall be complete. If the expression list specifies more than
-a single value, the type shall be a class with a suitably declared
-constructor~(\ref{dcl.init},~\ref{class.ctor}), and the expression
-\tcode{T(x1, x2, ...)} is equivalent in effect to the declaration
-\tcode{T t(x1, x2, ...);} for some invented temporary variable
-\tcode{t}, with the result being the value of \tcode{t} as a prvalue.
+If the type is (possibly cv-qualified) \tcode{void}
+and the initializer is \tcode{()},
+the expression is a prvalue of the specified type
+that performs no initialization.
+Otherwise,
+the expression is a prvalue of the specified type
+whose result object is direct-initialized~(\ref{dcl.init})
+with the initializer.
+For an expression of the form \tcode{T()},
+\tcode{T} shall not be an array type.
 
 \pnum
 \indextext{deduction!class template arguments}%
@@ -1713,27 +1710,6 @@ Define \tcode{U} to be \tcode{decltype(t)},
 then the expression \tcode{T(x1, x2, ...)}
 is equivalent to
 the expression \tcode{U(x1, x2, ...)}.
-
-\pnum
-The expression \tcode{T()}, where \tcode{T} is a
-\grammarterm{simple-type-specifier} or \grammarterm{typename-specifier} for a non-array complete object
-type or the (possibly cv-qualified) \tcode{void} type, creates a prvalue of the
-specified type, whose value is that produced by
-value-initializing~(\ref{dcl.init}) an object of type \tcode{T}; no
-initialization is done for the \tcode{void()} case.
-\begin{note}
-if \tcode{T} is a non-class type that is cv-qualified, the
-\grammarterm{cv-qualifier}{s} are discarded when determining the type of the
-resulting prvalue (Clause~\ref{expr}).
-\end{note}
-
-\pnum
-Similarly, a \grammarterm{simple-type-specifier} or
-\grammarterm{typename-specifier} followed by a \grammarterm{braced-init-list}
-creates a temporary object of the specified type
-direct-list-initialized~(\ref{dcl.init.list}) with the specified
-\grammarterm{braced-init-list}, and its value is that temporary object as a
-prvalue.
 
 \rSec2[expr.pseudo]{Pseudo destructor call}
 
@@ -1793,9 +1769,10 @@ expression.
 \pnum
 \indextext{type!incomplete}%
 For the first option (dot) the first expression
-shall have complete class type.
+shall be a glvalue having complete class type.
 For the second option (arrow) the first expression
-shall have pointer to complete class type. The expression \tcode{E1->E2} is
+shall be a prvalue having pointer to complete class type.
+The expression \tcode{E1->E2} is
 converted to the equivalent form \tcode{(*(E1)).E2}; the remainder of
 \ref{expr.ref}~will address only the first option (dot).\footnote{Note that
 \tcode{(*(E1))} is an lvalue.}
@@ -1956,7 +1933,7 @@ pointer to complete class type, and the result is a prvalue of type
 \tcode{T}. If \tcode{T} is an lvalue reference type, \tcode{v} shall be
 an lvalue of a complete class type, and the result is an lvalue of the
 type referred to by \tcode{T}. If \tcode{T} is an rvalue reference type,
-\tcode{v} shall be an expression having a complete class type, and the
+\tcode{v} shall be a glvalue having a complete class type, and the
 result is an xvalue of the type referred to by \tcode{T}.
 
 \pnum
@@ -2113,10 +2090,10 @@ object representing the static type of the expression.
 Lvalue-to-rvalue~(\ref{conv.lval}), array-to-pointer~(\ref{conv.array}),
 and function-to-pointer~(\ref{conv.func}) conversions are not applied to
 the expression.
-\indextext{type!incomplete}%
-If the type of the expression is a class type, the class shall be
-completely-defined. The expression is an unevaluated operand
-(Clause~\ref{expr}).
+If the expression is a prvalue,
+the temporary materialization conversion~(\ref{conv.rval})
+is applied.
+The expression is an unevaluated operand (Clause~\ref{expr}).
 
 \pnum
 When \tcode{typeid} is applied to a \grammarterm{type-id}, the result
@@ -2204,7 +2181,7 @@ static_cast<D&>(br);            // produces lvalue to the original \tcode{d} obj
 \end{example}
 
 \pnum
-A glvalue, class prvalue, or array prvalue
+An lvalue
 of type ``\cvqual{cv1} \tcode{T1}'' can be cast to type ``rvalue
 reference to \cvqual{cv2} \tcode{T2}'' if ``\cvqual{cv2} \tcode{T2}'' is
 reference-compatible with ``\cvqual{cv1}
@@ -2224,19 +2201,18 @@ from \tcode{e} to \tcode{T}, or
 if overload resolution for a direct-initialization~(\ref{dcl.init})
 of an object or reference of type \tcode{T} from \tcode{e}
 would find at least one viable function~(\ref{over.match.viable}). 
-The effect of such an explicit conversion is
+If \tcode{T} is a reference type, the effect is
 the same as performing the declaration and initialization
 \begin{codeblock}
  T t(e);
 \end{codeblock}
 for some invented temporary variable \tcode{t}~(\ref{dcl.init})
 and then using the temporary variable as the result of the conversion.
+Otherwise, the result object is direct-initialized from \tcode{e}.
 \begin{note}
 The conversion is ill-formed when attempting to convert an
 expression of class type to an inaccessible or ambiguous base class.
 \end{note}
-The expression \tcode{e} is used as a glvalue if and
-only if the initialization uses it as a glvalue.
 
 \pnum
 Otherwise, the \tcode{static_cast} shall perform one of the conversions
@@ -2589,7 +2565,8 @@ explicitly converted to an xvalue of type \tcode{T2} using the cast
 \end{itemize}
 
 The result of a reference \tcode{const_cast} refers
-to the original object.
+to the original object if the operand is a glvalue and
+to the result of applying the temporary materialization conversion~(\ref{conv.rval}) otherwise.
 
 \pnum
 A null pointer value~(\ref{conv.ptr}) is converted to the null pointer
@@ -2919,6 +2896,9 @@ The lvalue-to-rvalue~(\ref{conv.lval}),
 array-to-pointer~(\ref{conv.array}), and
 function-to-pointer~(\ref{conv.func}) standard conversions are not
 applied to the operand of \tcode{sizeof}.
+If the operand is a prvalue,
+the temporary materialization conversion~(\ref{conv.rval})
+is applied.
 
 \pnum
 The identifier in a \tcode{sizeof...} expression shall name a parameter
@@ -3868,7 +3848,9 @@ left-to-right.
 
 \pnum
 The binary operator \tcode{.*} binds its second operand, which shall be
-of type ``pointer to member of \tcode{T}'' to its first operand, which shall be of
+of type ``pointer to member of \tcode{T}'' to its first operand, which shall be
+a glvalue
+of
 class \tcode{T} or of a class of which \tcode{T} is an unambiguous and
 accessible base class. The result is an object or a function of the type
 specified by the second operand.
@@ -4615,10 +4597,7 @@ of the following shall hold:
 
 \begin{itemize}
 \item The second and third operands have the same type; the result is of
-that type. If the operands have class type, the result is a prvalue
-temporary of the result type, which is copy-initialized from either the
-second operand or the third operand depending on the value of the first
-operand.
+that type and the result object is initialized using the selected operand.
 
 \item The second and third operands have arithmetic or enumeration type;
 the usual arithmetic conversions are performed to bring them to a common
@@ -4848,8 +4827,8 @@ The type and value of the
 result are the type and value of the right operand; the result is of the same
 value category as its right operand, and is a bit-field if its
 right operand is a bit-field.
-If the value of the right operand is a temporary~(\ref{class.temporary}),
-the result is that temporary.
+If the right operand is a temporary expression~(\ref{class.temporary}),
+the result is a temporary expression.
 
 \pnum
 In contexts where comma is given a special meaning, \begin{example} in
