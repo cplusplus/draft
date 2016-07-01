@@ -773,7 +773,19 @@ types~(\ref{basic.types}).
 In a standard-layout union with an active member~(\ref{class.union})
 of struct type \tcode{T1}, it is permitted to read a non-static
 data member \tcode{m} of another union member of struct type \tcode{T2}
-provided \tcode{m} is part of the common initial sequence of \tcode{T1} and \tcode{T2}.
+provided \tcode{m} is part of the common initial sequence of \tcode{T1} and \tcode{T2};
+the behavior is as if the corresponding member of \tcode{T1} were nominated.
+\begin{example}
+\begin{codeblock}
+struct T1 { int a, b; };
+struct T2 { int c; double d; };
+union U { T1 t1; T2 t2; };
+int f() {
+  U u = { { 1, 2 } }; // active member is \tcode{t1}
+  return u.t2.c;      // OK, as if \tcode{u.t1.a} were nominated
+}
+\end{codeblock}
+\end{example}
 \begin{note}
 Reading a volatile object through a non-volatile glvalue has
 undefined behavior (\ref{dcl.type.cv}).
@@ -786,6 +798,10 @@ address is the same as the address of its first base class subobject (if any).
 \begin{note}
 There might therefore be unnamed padding within a standard-layout struct object, but
 not at its beginning, as necessary to achieve appropriate alignment.
+\end{note}
+\begin{note}
+The object and its first subobject are
+pointer-interconvertible~(\ref{basic.compound}, \ref{expr.static.cast}).
 \end{note}
 
 \rSec2[class.mfct]{Member functions}%
@@ -1494,17 +1510,33 @@ X::I e;                         // OK
 \indextext{\idxcode{union}}
 
 \pnum
-In a union, at most one of the non-static data members can be active at any
+In a union,
+a non-static data member is \defnx{active}{active!union member}
+if its name refers to an object
+whose lifetime has begun and has not ended~(\ref{basic.life}).
+At most one of the non-static data members of an object of union type
+can be active at any
 time, that is, the value of at most one of the non-static data members can be
 stored in a union at any time. \begin{note} One special guarantee is made in order to
 simplify the use of unions: If a standard-layout union contains several standard-layout
-structs that share a common initial sequence~(\ref{class.mem}), and if an object of this
-standard-layout union type contains one of the standard-layout structs, it is permitted
-to inspect the common initial sequence of any of standard-layout struct members;
-see~\ref{class.mem}. \end{note} The size of a union is sufficient to contain the largest
+structs that share a common initial sequence~(\ref{class.mem}), and
+if a non-static data member of an object of this standard-layout union type
+is active and is one of the standard-layout structs,
+it is permitted to inspect the common initial sequence
+of any of the standard-layout struct members;
+see~\ref{class.mem}.
+\end{note}
+
+\pnum
+The size of a union is sufficient to contain the largest
 of its non-static data members. Each non-static data member is allocated
-as if it were the sole member of a struct. All non-static data members of a
+as if it were the sole member of a struct.
+\begin{note}
+A union object and its non-static data members are
+pointer-interconvertible~(\ref{basic.compound}, \ref{expr.static.cast}).
+As a consequence, all non-static data members of a
 union object have the same address.
+\end{note}
 
 \pnum
 \indextext{member function!\idxcode{union}}%
@@ -1544,6 +1576,73 @@ copy/move constructor,
 copy/move assignment operator, and destructor.
 To use \tcode{U}, some or all of these member functions
 must be user-provided.\end{example}
+
+\pnum
+When the left operand of an assignment operator
+involves a member access expression~(\ref{expr.ref})
+that nominates a union member,
+it may begin the lifetime of that union member,
+as described below.
+For an expression \tcode{E},
+define the set $S(\mathtt{E})$
+of subexpressions of \tcode{E}
+as follows:
+\begin{itemize}
+\item
+If \tcode{E} is of the form \tcode{A.B},
+$S(\mathtt{E})$ contains the elements of $S(\mathtt{A})$,
+and also contains \tcode{A.B}
+if \tcode{B} names a union member of a non-class, non-array type,
+or of a class type with a trivial default constructor that is not deleted,
+or an array of such types.
+\item
+If \tcode{E} is of the form \tcode{A[B]}
+and is interpreted as a built-in array subscripting operator,
+$S(\mathtt{E})$ is $S(\mathtt{A})$ if \tcode{A} is of array type,
+$S(\mathtt{B})$ if \tcode{B} is of array type,
+and empty otherwise.
+\item
+Otherwise, $S(\mathtt{E})$ is empty.
+\end{itemize}
+In an assignment expression of the form \tcode{E1 = E2}
+that uses either the built-in assignment operator~(\ref{expr.ass})
+or a trivial assignment operator~(\ref{class.copy}),
+for each element \tcode{X} of $S($\tcode{E1}$)$,
+if modification of \tcode{X} would have undefined behavior under~\ref{basic.life},
+an object of the type of \tcode{X} is implicitly created
+in the nominated storage;
+no initialiation is performed and
+the beginning of its lifetime is sequenced after
+the value computation of the left and right operands
+and before the assignment.
+\begin{note}
+This ends the lifetime of the previously-active
+member of the union, if any~(\ref{basic.life}).
+\end{note}
+\begin{example}
+\begin{codeblock}
+union A { int x; int y[4]; };
+struct B { A a; };
+union C { B b; int k; };
+int f() {
+  C c;               // does not start lifetime of any union member
+  c.b.a.y[3] = 4;    // OK: $S($\tcode{c.b.a.y[3]}$)$ contains \tcode{c.b} and \tcode{c.b.a.y};
+                     // creates objects to hold union members \tcode{c.b} and \tcode{c.b.a.y}
+  return c.b.a.y[3]; // OK: \tcode{c.b.a.y} refers to newly created object (see \ref{basic.life})
+}
+
+struct X { const int a; int b; };
+union Y { X x; int k; };
+void g() {
+  Y y = { { 1, 2 } }; // OK, \tcode{y.x} is active union member (\ref{class.mem})
+  int n = y.x.a;
+  y.k = 4;   // OK: ends lifetime of \tcode{y.x}, \tcode{y.k} is active member of union
+  y.x.b = n; // undefined behavior: \tcode{y.x.b} modified outside its lifetime,
+             // $S($\tcode{y.x.b}$)$ is empty because \tcode{X}'s default constructor is deleted,
+             // so union member \tcode{y.x}'s lifetime does not implicitly start
+}
+\end{codeblock}
+\end{example}
 
 \pnum
 \begin{note} In general, one must use explicit destructor calls and placement

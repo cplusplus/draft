@@ -531,14 +531,22 @@ bit-fields \tcode{b} and \tcode{c} cannot be concurrently modified, but
 
 \pnum
 \indextext{object model|(}%
-\indextext{object}%
 The constructs in a \Cpp program create, destroy, refer to, access, and
-manipulate objects. An \defn{object} is a region of storage.
+manipulate objects.
+An \defn{object} is created
+by a definition~(\ref{basic.def}),
+by a \grammarterm{new-expression}~(\ref{expr.new}),
+when implicitly changing the active member of a union~(\ref{class.union}),
+or
+when a temporary object is created~(\ref{conv.rval}, \ref{class.temporary}). 
+An object occupies a region of storage
+in its period of construction~(\ref{class.cdtor}),
+throughout its lifetime~(\ref{basic.life}),
+and
+in its period of destruction~(\ref{class.cdtor}).
 \begin{note} A function is not an object, regardless of whether or not it
-occupies storage in the way that objects do. \end{note} An object is
-created by a \grammarterm{definition}~(\ref{basic.def}), by a
-\grammarterm{new-expression}~(\ref{expr.new}) or by the
-implementation~(\ref{class.temporary}) when needed. The properties of an
+occupies storage in the way that objects do. \end{note}
+The properties of an
 object are determined when the object is created. An object can have a
 \term{name}~(Clause~\ref{basic}). An object has a \term{storage
 duration}~(\ref{basic.stc}) which influences its
@@ -562,6 +570,88 @@ a \defn{member subobject}~(\ref{class.mem}), a \defn{base class subobject}
 \indextext{object!complete}%
 An object that is not a subobject of any other object is called a \defn{complete
 object}.
+If an object is created
+in storage associated with a member subobject or array element \placeholder{e}
+(which may or may not be within its lifetime),
+the created object
+is a subobject of \placeholder{e}'s containing object if:
+\begin{itemize}
+\item
+the lifetime of \placeholder{e}'s containing object has begun and not ended, and
+\item
+the storage for the new object exactly overlays the storage location associated with \placeholder{e}, and
+\item
+the new object is of the same type as \placeholder{e} (ignoring cv-qualification).
+\end{itemize}
+\begin{note}
+If the subobject contains a reference member or a \tcode{const} subobject,
+the name of the original subobject cannot be used to access the new object~(\ref{basic.life}).
+\end{note}
+\begin{example}
+\begin{codeblock}
+struct X { const int n; };
+union U { X x; float f; };
+void tong() {
+  U u = {{ 1 }};
+  u.f = 5.f;                          // OK, creates new subobject of \tcode{u} (\ref{class.union})
+  X *p = new (&u.x) X {2};            // OK, creates new subobject of \tcode{u}
+  assert(p->n == 2);                  // OK
+  assert(*std::launder(&u.x.n) == 2); // OK
+  assert(u.x.n == 2);                 // undefined behavior, \tcode{u.x} does not name new subobject
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\indextext{object!providing storage for}%
+If a complete object is created~(\ref{expr.new})
+in storage associated with another object \placeholder{e}
+of type ``array of $N$ \tcode{unsigned char}'',
+that array \defn{provides storage}
+for the created object if:
+\begin{itemize}
+\item
+the lifetime of \placeholder{e} has begun and not ended, and
+\item
+the storage for the new object fits entirely within \placeholder{e}, and
+\item
+there is no smaller array object that satisfies these constraints.
+\end{itemize}
+\begin{note}
+If that portion of the array
+previously provided storage for another object,
+the lifetime of that object ends
+because its storage was reused~(\ref{basic.life}).
+\end{note}
+\begin{example}
+\begin{codeblock}
+template<typename ...T>
+struct AlignedUnion {
+  alignas(T...) unsigned char data[max(sizeof(T)...)];
+};
+int f() {
+  AlignedUnion<int, char> au;
+  int *p = new (au.data) int;     // OK, \tcode{au.data} provides storage
+  char *c = new (au.data) char(); // OK, ends lifetime of \tcode{*p}
+  char *d = new (au.data + 1) char();
+  return *c + *d; // OK
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\indextext{object!nested within}%
+An object \placeholder{a} is \defn{nested within} another object \placeholder{b} if:
+\begin{itemize}
+\item
+\placeholder{a} is a subobject of \placeholder{b}, or
+\item
+\placeholder{b} provides storage for \placeholder{a}, or
+\item
+there exists an object \placeholder{c}
+where \placeholder{a} is nested within \placeholder{c},
+and \placeholder{c} is nested within \placeholder{b}.
+\end{itemize}
 
 \pnum
 For every object \tcode{x}, there is some object called the
@@ -598,11 +688,16 @@ storage.
 \indextext{most derived object!bit-field}%
 \indextext{most derived object!zero size subobject}%
 Unless an object is a bit-field or a base class subobject of zero size, the
-address of that object is the address of the first byte it occupies. Two
-objects that are not bit-fields
-may have the same address if one is a subobject of the other, or if at least
-one is a base class subobject of zero size and they are of different types;
-otherwise, they shall have distinct addresses.\footnote{Under the ``as-if'' rule an
+address of that object is the address of the first byte it occupies.
+Two objects \placeholder{a} and \placeholder{b}
+with overlapping lifetimes
+that are not bit-fields
+may have the same address
+if one is nested within the other,
+or
+if at least one is a base class subobject of zero size
+and they are of different types;
+otherwise, they have distinct addresses.\footnote{Under the ``as-if'' rule an
 implementation is allowed to store two objects at the same machine address or
 not store an object at all if the program cannot observe the
 difference~(\ref{intro.execution}).}

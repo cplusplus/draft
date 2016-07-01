@@ -2848,6 +2848,20 @@ is associated with objects created with \tcode{operator}
 \pnum
 The storage duration categories apply to references as well.
 
+\pnum
+When the end of the duration of a region of storage is reached,
+the values of all pointers
+representing the address of any part of that region of storage
+become invalid pointer values~(\ref{basic.compound}).
+Indirection through an invalid pointer value and
+passing an invalid pointer value to a deallocation function
+have undefined behavior.
+Any other use of an invalid pointer value
+has implementation-defined behavior.%
+\footnote{Some implementations might define that
+copying an invalid pointer value
+causes a system-generated runtime fault.}
+
 \rSec2[basic.stc.static]{Static storage duration}
 
 \pnum
@@ -3022,7 +3036,7 @@ unless that value \tcode{p1} was subsequently passed to an
 \tcode{operator} \tcode{delete}.
 Furthermore, for the library allocation functions
 in~\ref{new.delete.single} and~\ref{new.delete.array},
-\tcode{p0} shall point to a block of storage disjoint from the storage
+\tcode{p0} shall represent the address of a block of storage disjoint from the storage
 for any other object accessible to the caller.
 The effect of indirecting through a pointer
 returned as a request for zero size is undefined.\footnote{The intent is
@@ -3112,14 +3126,7 @@ supplied in the standard library, the call has no effect.
 If the argument given to a deallocation function in the standard library
 is a pointer that is not the null pointer value~(\ref{conv.ptr}), the
 deallocation function shall deallocate the storage referenced by the
-pointer, rendering invalid all pointers referring to any part of the
-deallocated storage.
-\indextext{object!undefined deleted}%
-Indirection through an invalid pointer value and passing an invalid
-pointer value to a deallocation function have undefined behavior. Any
-other use of an invalid pointer value has implementation-defined
-behavior.\footnote{Some implementations might define that copying an
-  invalid pointer value causes a system-generated runtime fault.}
+pointer, ending the duration of the region of storage.
 
 \rSec3[basic.stc.dynamic.safety]{Safely-derived pointers}
 
@@ -3240,16 +3247,21 @@ The lifetime of an object of type \tcode{T} begins when:
 \item storage with the proper alignment and size for type \tcode{T} is
 obtained, and
 
-\item if the object has non-vacuous initialization, its initialization is complete.
+\item if the object has non-vacuous initialization, its initialization is complete,
 \end{itemize}
 
-The lifetime of an object of type \tcode{T} ends when:
+except that if the object is a union member or subobject thereof,
+its lifetime only begins if that union member is the
+initialized member in the union~(\ref{dcl.init.aggr}, \ref{class.base.init}),
+or as described in \ref{class.union}.
+The lifetime of an object \placeholder{o} of type \tcode{T} ends when:
 
 \begin{itemize}
 \item if \tcode{T} is a class type with a non-trivial
 destructor~(\ref{class.dtor}), the destructor call starts, or
 
-\item the storage which the object occupies is reused or released.
+\item the storage which the object occupies is released,
+or is reused by an object that is not nested within \placeholder{o}~(\ref{intro.object}).
 \end{itemize}
 
 \pnum
@@ -3290,8 +3302,8 @@ the object will occupy has been allocated\footnote{For example, before the
 construction of a global object of
 non-POD class type~(\ref{class.cdtor}).}
 or, after the lifetime of an object has ended and before the storage
-which the object occupied is reused or released, any pointer that refers
-to the storage location where the object will be or was located may be
+which the object occupied is reused or released, any pointer that represents the address of
+the storage location where the object will be or was located may be
 used but only in limited ways.
 For an object under construction or destruction, see~\ref{class.cdtor}.
 Otherwise, such
@@ -3365,10 +3377,9 @@ properties of the glvalue that do not depend on its value is
 well-defined. The program has undefined behavior if:
 
 \begin{itemize}
-\item an lvalue-to-rvalue conversion~(\ref{conv.lval}) is applied to such a glvalue,
+\item the glvalue is used to access the object, or
 
-\item the glvalue is used to access a non-static data member or call a
-non-static member function of the object, or
+\item the glvalue is used to call a non-static member function of the object, or
 
 \item the glvalue is bound to a reference
 to a virtual base class~(\ref{dcl.init.ref}), or
@@ -3400,8 +3411,9 @@ const-qualified or a reference type, and
 
 \item the original object was a most derived object~(\ref{intro.object})
 of type \tcode{T} and the new object is a most derived object of type
-\tcode{T} (that is, they are not base class subobjects). \begin{example}
-
+\tcode{T} (that is, they are not base class subobjects).
+\end{itemize}
+\begin{example}
 \begin{codeblock}
 struct C {
   int i;
@@ -3423,9 +3435,13 @@ C c2;
 c1 = c2;                        // well-defined
 c1.f();                         // well-defined; \tcode{c1} refers to a new object of type \tcode{C}
 \end{codeblock}
-
 \end{example}
-\end{itemize}
+\begin{note}
+If these conditions are not met,
+a pointer to the new object can be obtained from
+a pointer that represents the address of its storage
+by calling \tcode{std::launder}~(\ref{support.dynamic}).
+\end{note}
 
 \pnum
 If a program ends the lifetime of an object of type \tcode{T} with
@@ -3456,11 +3472,11 @@ void h() {
 \end{example}
 
 \pnum
-Creating a new object at the storage location that a \tcode{const}
-object with static, thread, or automatic storage duration occupies or, at the
-storage location that such a \tcode{const} object used to occupy before
-its lifetime ended results in undefined behavior. \begin{example}
-
+Creating a new object within the storage that a \tcode{const} complete
+object with static, thread, or automatic storage duration occupies,
+or within the storage that such a \tcode{const} object used to occupy before
+its lifetime ended, results in undefined behavior.
+\begin{example}
 \begin{codeblock}
 struct B {
   B();
@@ -4000,17 +4016,44 @@ does not apply to pointers to members. Pointers to incomplete types are
 allowed although there are restrictions on what can be done with
 them~(\ref{basic.align}).
 \indextext{address}%
-A valid value of an object
-pointer type represents either the address of a byte in
-memory~(\ref{intro.memory}) or a null pointer~(\ref{conv.ptr}). If an
-object of type \tcode{T} is located at an address \tcode{A}, a pointer
-of type \term{cv} \tcode{T*} whose value is the address \tcode{A} is
-said to \term{point to} that object, regardless of how the value was
-obtained. \begin{note} For instance, the address one past the end of an
-array~(\ref{expr.add}) would be considered to point to an unrelated
-object of the array's element type that might be located at that
-address. There are further restrictions on pointers to objects with dynamic storage
-duration; see~\ref{basic.stc.dynamic.safety}. \end{note} The value representation of
+Every value of pointer type is one of the following:
+\begin{itemize}
+\item
+a \defn{pointer to} an object or function (the pointer is said to \defn{point} to the object or function), or
+\item
+a \defn{pointer past the end of} an object (\ref{expr.add}), or
+\item
+the \defn{null pointer value} (\ref{conv.ptr}) for that type, or
+\item
+an \defn{invalid pointer value}.
+\end{itemize}
+A value of a
+pointer type
+that is a pointer to or past the end of an object
+\defn{represents the address} of
+the first byte in memory~(\ref{intro.memory}) occupied by the object%
+\footnote{For an object that is not within its lifetime,
+this is the first byte in memory that it will occupy or used to occupy.}
+or the first byte in memory
+after the end of the storage occupied by the object,
+respectively.
+\begin{note}
+A pointer past the end of an object~(\ref{expr.add})
+is not considered to point to an unrelated object
+of the object's type
+that might be located at that address.
+A pointer value becomes invalid
+when the storage it denotes
+reaches the end of its storage duration;
+see \ref{basic.stc}.
+\end{note}
+For purposes of pointer arithmetic~(\ref{expr.add})
+and comparison~(\ref{expr.rel}, \ref{expr.eq}),
+a pointer past the end of the last element of
+an array \tcode{x} of $n$ elements
+is considered to be equivalent to
+a pointer to a hypothetical element $\mathtt{x[}n\mathtt{]}$.
+The value representation of
 pointer types is \impldef{value representation of pointer types}. Pointers to
 layout-compatible types shall
 have the same value representation and alignment
@@ -4018,6 +4061,34 @@ requirements~(\ref{basic.align}).
 \begin{note} Pointers to over-aligned types~(\ref{basic.align}) have no special
 representation, but their range of valid values is restricted by the extended
 alignment requirement.\end{note}
+
+\pnum
+Two objects \placeholder{a} and \placeholder{b} are \defn{pointer-interconvertible} if:
+\begin{itemize}
+\item
+they are the same object, or
+\item
+one is a standard-layout union object and
+the other is a non-static data member of that object~(\ref{class.union}), or
+\item
+one is a standard-layout class object and
+the other is the first non-static data member of that object, or,
+if the object has no non-static data members,
+the first base class subobject of that object~(\ref{class.mem}), or
+\item
+there exists an object \placeholder{c} such that
+\placeholder{a} and \placeholder{c} are pointer-interconvertible, and
+\placeholder{c} and \placeholder{b} are pointer-interconvertible.
+\end{itemize}
+If two objects are pointer-interconvertible,
+then they have the same address,
+and it is possible to obtain a pointer to one
+from a pointer to the other
+via a \tcode{reinterpret_cast}~(\ref{expr.reinterpret.cast}).
+\begin{note}
+An array object and its first element are not pointer-interconvertible,
+even though they have the same address.
+\end{note}
 
 \pnum
 \indextext{pointer|seealso{\tcode{void*}}}%
