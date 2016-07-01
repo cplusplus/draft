@@ -127,8 +127,12 @@ not affect whether a declaration is a definition.}
 \grammarterm{function-body},
 \item
 \indextext{declaration!\idxcode{static member}}%
-it declares a static data member in a class
+it declares a non-inline static data member in a class
 definition (\ref{class.mem},~\ref{class.static}),
+\item
+it declares a static data member outside a class definition
+and the variable was defined within the class with the \tcode{constexpr}
+specifier (this usage is deprecated; see \ref{depr.static_constexpr}),
 \item
 \indextext{declaration!class~name}%
 it is a class name declaration~(\ref{class.name}),
@@ -375,7 +379,7 @@ outside of a discarded statement~(\ref{stmt.if}); no diagnostic required.
 The definition can appear explicitly in the program, it can be found in
 the standard or a user-defined library, or (when appropriate) it is
 implicitly defined (see~\ref{class.ctor}, \ref{class.dtor} and
-\ref{class.copy}). An inline function shall be defined in every
+\ref{class.copy}). An inline function or variable shall be defined in every
 translation unit in which it is odr-used outside of a discarded statement.
 
 \pnum
@@ -432,7 +436,8 @@ defined (Clause~\ref{class.derived}), or
 \pnum
 There can be more than one definition of a class type
 (Clause~\ref{class}), enumeration type~(\ref{dcl.enum}), inline function
-with external linkage~(\ref{dcl.fct.spec}), class template
+with external linkage~(\ref{dcl.fct.spec}), inline variable with external
+linkage, class template
 (Clause~\ref{temp}), non-static function template~(\ref{temp.fct}),
 static data member of a class template~(\ref{temp.static}), member
 function of a class template~(\ref{temp.mem.func}), or template
@@ -2276,7 +2281,7 @@ linkage if it is the name of
 \item a variable, function or function template that is
 explicitly declared \tcode{static}; or,
 
-\item a variable of non-volatile const-qualified type that is
+\item a non-inline variable of non-volatile const-qualified type that is
 neither explicitly declared \tcode{extern} nor previously
 declared to have external linkage; or
 
@@ -2657,37 +2662,55 @@ double d1 = fd();   // may be initialized statically or dynamically to \tcode{1.
 \indextext{initialization!order~of}%
 Dynamic initialization of a non-local variable with static storage duration is
 unordered if the variable is an implicitly or explicitly instantiated
+specialization, is partially-ordered if the variable
+is an inline variable that is not an implicitly or explicitly instantiated
 specialization, and otherwise is ordered.
-\begin{note} An explicitly specialized static data member or
+\begin{note} An explicitly specialized non-inline static data member or
 variable template specialization has ordered initialization.\end{note}
-Variables with ordered initialization defined within a single translation unit
-shall be initialized in the order of their definitions in the translation unit.
-If a program starts a thread~(\ref{thread.threads}), the subsequent
-initialization of a variable is unsequenced with respect to the initialization
-of a variable defined in a different translation unit.
-Otherwise, the initialization of a variable is indeterminately sequenced with
-respect to the initialization of a variable defined in a different translation unit.
-If a program starts a thread, the subsequent unordered initialization of
-a variable is unsequenced with respect to every other dynamic initialization.
-Otherwise, the unordered initialization of a variable is
-indeterminately sequenced with respect to every other dynamic initialization.
+
+\pnum
+Dynamic initialization of non-local variables \tcode{V} and \tcode{W}
+with static storage duration are ordered as follows:
+
+\begin{itemize}
+\item
+If \tcode{V} and \tcode{W} have
+ordered initialization and \tcode{V} is defined before \tcode{W} within
+a single translation unit, the initialization of \tcode{V} is sequenced
+before the initialization of \tcode{W}.
+
+\item
+If \tcode{V} has partially-ordered initialization, \tcode{W} does not have
+unordered initialization, and \tcode{V} is defined before \tcode{W} in
+every translation unit in which \tcode{W} is defined, the initialization of
+\tcode{V} is sequenced before the initialization of \tcode{W} if the
+program does not start a thread (\ref{intro.multithread}) and otherwise
+happens before the initialization of \tcode{W}.
+
+\item
+Otherwise, if a program starts a thread before either \tcode{V} or \tcode{W} is
+initialized, the initializations of \tcode{V} and \tcode{W} are unsequenced.
+
+\item
+Otherwise, the initializations of \tcode{V} and \tcode{W} are indeterminately sequenced.
+\end{itemize}
+
 \begin{note} This definition permits initialization of a sequence of
 ordered variables concurrently with another sequence. \end{note}
 
 \pnum
 \indextext{evaluation!unspecified order~of}%
-It is \impldef{dynamic initialization of static objects before \tcode{main}} whether the
-dynamic initialization of a non-local variable with static storage duration
+It is \impldef{dynamic initialization of static variables before \tcode{main}} whether the
+dynamic initialization of a non-local non-inline variable with static storage duration
 happens before the first statement of \tcode{main}. If the initialization is deferred to
 happen after the first statement of \tcode{main}, it happens before the
-first odr-use~(\ref{basic.def.odr}) of any function or variable
+first odr-use~(\ref{basic.def.odr}) of any non-inline function or non-inline variable
 defined in the same translation unit as the variable
 to be initialized.\footnote{A non-local variable with static storage duration
 having initialization
 with side effects must be initialized even if it is not
 odr-used (\ref{basic.def.odr},~\ref{basic.stc.static}).}
 \begin{example}
-
 \begin{codeblock}
 // - File 1 -
 #include "a.h"
@@ -2713,7 +2736,8 @@ int main() {
 }
 \end{codeblock}
 
-It is implementation-defined whether either \tcode{a} or \tcode{b} is
+It is \impldef{dynamic initialization of static variables before \tcode{main}}
+whether either \tcode{a} or \tcode{b} is
 initialized before \tcode{main} is entered or whether the
 initializations are delayed until \tcode{a} is first odr-used in
 \tcode{main}. In particular, if \tcode{a} is initialized before
@@ -2724,14 +2748,22 @@ at some point after the first statement of \tcode{main}, \tcode{b} will
 be initialized prior to its use in \tcode{A::A}. \end{example}
 
 \pnum
-It is \impldef{dynamic initialization of thread-local objects before entry}
-whether the dynamic initialization of a non-local variable with static
+It is \impldef{dynamic initialization of static inline variables before \tcode{main}}
+whether the dynamic initialization of a
+non-local inline variable with static storage duration happens before the
+first statement of \tcode{main}. If the initialization is deferred
+to happen after the first statement of \tcode{main}, it happens before
+the first odr-use~(\ref{basic.def.odr}) of that variable.
+
+\pnum
+It is \impldef{dynamic initialization of thread-local variables before entry}
+whether the dynamic initialization of a non-local non-inline variable with static
 or thread storage duration is sequenced before
 the first statement of the initial function of the thread.
 If the initialization is deferred to some point in time sequenced after
 the first statement of the initial function of the thread,
 it is sequenced before the first odr-use~(\ref{basic.def.odr})
-of any variable with thread storage duration defined
+of any non-inline variable with thread storage duration defined
 in the same translation unit as the variable to be initialized.
 
 \pnum
