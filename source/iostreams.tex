@@ -10393,7 +10393,7 @@ namespace std::filesystem {
                        error_code& ec) noexcept;
 
   void permissions(const path& p, perms prms);
-  void permissions(const path& p, perms prms, error_code& ec) noexcept;
+  void permissions(const path& p, perms prms, error_code& ec);
 
   path read_symlink(const path& p);
   path read_symlink(const path& p, error_code& ec);
@@ -12288,9 +12288,9 @@ permissions, with the meanings listed in Table~\ref{tab:enum.perms}.
   \tcode{permissions()} shall bitwise \textit{and} the complement of
   \tcode{perm} argument's permission bits to the
   file's current permission bits.  \\ \rowsep
-\tcode{resolve_symlinks} &
+\tcode{symlink_nofollow} &
   \tcode{0x40000} &  &
-  \tcode{permissions()} shall resolve symlinks \\ \rowsep
+  \tcode{permissions()} shall change the permissions of symbolic links. \\ \rowsep
 \end{floattable}
 
 \rSec3[enum.directory_options]{Enum class \tcode{directory_options}}
@@ -12635,8 +12635,9 @@ namespace std::filesystem {
 iterator~(\ref{input.iterators}).
 
 \pnum
-If an iterator of type \tcode{directory_iterator} is advanced past the
-last directory element, that iterator shall become equal to the end iterator
+If an iterator of type \tcode{directory_iterator} reports an error or
+is advanced past the last directory element,
+that iterator shall become equal to the end iterator
 value. The \tcode{directory_iterator} default constructor shall
 create an iterator equal to the end iterator value, and this shall be the only
 valid iterator for the end condition.
@@ -12758,7 +12759,8 @@ directory_iterator& increment(error_code& ec) noexcept;
 \begin{itemdescr}
 
 \pnum
-\effects As specified by Input iterators~(\ref{input.iterators}).
+\effects As specified for the prefix increment operation of
+Input iterators~(\ref{input.iterators}).
 
 \pnum
 \returns \tcode{*this}.
@@ -13032,7 +13034,8 @@ recursive_directory_iterator& increment(error_code& ec) noexcept;
 
 \begin{itemdescr}
 \pnum
-\effects As specified by Input iterators~(\ref{input.iterators}),
+\effects As specified for the prefix increment operation of
+Input iterators~(\ref{input.iterators}),
 except that:
 
 \begin{itemize}
@@ -14089,7 +14092,7 @@ void last_write_time(const path& p, file_time_type new_time,
 \indexlibrary{\idxcode{permissions}}
 \begin{itemdecl}
 void permissions(const path& p, perms prms);
-void permissions(const path& p, perms prms, error_code& ec) noexcept;
+void permissions(const path& p, perms prms, error_code& ec);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -14097,9 +14100,15 @@ void permissions(const path& p, perms prms, error_code& ec) noexcept;
   \requires \tcode{!((prms \& perms::add_perms) != perms::none \&\& (prms \& perms::remove_perms) != perms::none)}.
 
 \pnum
-\effects Applies the effective permissions bits from \tcode{prms} to the file \tcode{p}
-  resolves to, as if by POSIX \tcode{fchmodat()}. The effective permission bits are determined as
-  specified in Table~\ref{tab:fs.op.permissions}.
+\effects Applies the effective permissions bits from \tcode{prms}
+  to the file \tcode{p} resolves to, or
+  if that file is a symbolic link and \tcode{symlink_nofollow} is not set in \tcode{prms},
+  the file that it points to,
+  as if by POSIX \tcode{fchmodat()}. The effective permission bits are determined as
+  specified in Table~\ref{tab:fs.op.permissions},
+  where \tcode{s} is the result of
+  \tcode{(prms \& perms::symlink_nofollow)} \tcode{!=} \tcode{perms::none}
+  \tcode{?} \tcode{symlink_status(p)} \tcode{:} \tcode{status(p)}.
 
 \begin{floattable}
 {Effects of permission bits}{tab:fs.op.permissions}{x{.30\hsize}x{.55\hsize}}
@@ -14109,9 +14118,9 @@ void permissions(const path& p, perms prms, error_code& ec) noexcept;
 Neither \tcode{add_perms} nor \tcode{remove_perms} &
   \tcode{prms \& perms::mask} \\ \rowsep
 \tcode{add_perms} &
-  \tcode{status(p).permissions() | (prms \& perms::mask)} \\ \rowsep
+  \tcode{s.permissions() | (prms \& perms::mask)} \\ \rowsep
 \tcode{remove_perms} &
-  \tcode{status(p).permissions() \& \~(prms \& perms::mask)} \\
+  \tcode{s.permissions() \& \~(prms \& perms::mask)} \\
 \end{floattable}
 
 \begin{note} Conceptually permissions are viewed as bits, but the actual
@@ -14186,7 +14195,7 @@ uintmax_t remove_all(const path& p, error_code& ec) noexcept;
   resolves to. \end{note}
 
 \pnum
-\postcondition \tcode{!exists(p)}.
+\postcondition \tcode{!exists(symlink_status(p))}.
 
 \pnum
 \returns The number of files removed. The signature with argument
@@ -14319,13 +14328,19 @@ file_status status(const path& p, error_code& ec) noexcept;
 \pnum
 \effects
 If possible, determines the attributes
-    of the file \tcode{p} resolves to, as if by POSIX \tcode{stat()}.
+    of the file \tcode{p} resolves to, as if by using POSIX \tcode{stat()}
+    to obtain a POSIX \tcode{struct stat}.
       If, during attribute determination, the underlying file system API reports
     an error, sets \tcode{ec} to indicate the specific error reported.
     Otherwise, \tcode{ec.clear()}.
 \begin{note} This allows users to inspect the specifics of underlying
       API errors even when the value returned by \tcode{status()} is not
       \tcode{file_status(file_type::none)}. \end{note}
+
+\pnum
+Let \tcode{prms} denote the result of \tcode{(m \& perms::mask)},
+where \tcode{m} is determined as if by converting the \tcode{st_mode} member
+of the obtained \tcode{struct stat} to the type \tcode{perms}.
 
 \pnum
 \returns
@@ -14348,24 +14363,24 @@ If \tcode{ec != error_code()}:
 Otherwise,
 \begin{itemize}
 \item If the attributes indicate a regular file, as if by POSIX \tcode{S_ISREG},
-      returns \tcode{file_status(file_type::regular)}. \begin{note}
+      returns \tcode{file_status(file_type::regular, prms)}. \begin{note}
       \tcode{file_type::regular} implies appropriate \tcode{<fstream>} operations
       would succeed, assuming no hardware, permission, access, or file system
       race errors. Lack of \tcode{file_type::regular} does not necessarily imply
       \tcode{<fstream>} operations would fail on a directory.  \end{note}
 \item Otherwise, if the attributes indicate a directory, as if by POSIX
-      \tcode{S_ISDIR}, returns \tcode{file_status(file_type::directory)}.
+      \tcode{S_ISDIR}, returns \tcode{file_status(file_type::directory, prms)}.
       \begin{note} \tcode{file_type::directory} implies
       \tcode{directory_iterator(p)} would succeed.  \end{note}
 \item Otherwise, if the attributes indicate a block special file, as if by
-      POSIX \tcode{S_ISBLK}, returns \tcode{file_status(file_type::block)}.
+      POSIX \tcode{S_ISBLK}, returns \tcode{file_status(file_type::block, prms)}.
 \item Otherwise, if the attributes indicate a character special file, as if
-      by POSIX \tcode{S_ISCHR}, returns \tcode{file_status(file_type::character)}.
+      by POSIX \tcode{S_ISCHR}, returns \tcode{file_status(file_type::character, prms)}.
 \item Otherwise, if the attributes indicate a fifo or pipe file, as if by
-      POSIX \tcode{S_ISFIFO}, returns \tcode{file_status(file_type::fifo)}.
+      POSIX \tcode{S_ISFIFO}, returns \tcode{file_status(file_type::fifo, prms)}.
 \item Otherwise, if the attributes indicate a socket, as if by POSIX
-      \tcode{S_ISSOCK}, returns \tcode{file_status(file_type::socket)}.
-\item Otherwise, returns \tcode{file_status(file_type::unknown)}.
+      \tcode{S_ISSOCK}, returns \tcode{file_status(file_type::socket, prms)}.
+\item Otherwise, returns \tcode{file_status(file_type::unknown, prms)}.
 \end{itemize}
 \end{itemize}
 
@@ -14398,14 +14413,20 @@ file_status symlink_status(const path& p, error_code& ec) noexcept;
 
 \begin{itemdescr}
 \pnum
-\effects Same as status(), above,
+\effects Same as \tcode{status()}, above,
   except that the attributes
-    of \tcode{p} are determined as if by POSIX \tcode{lstat()}.
+    of \tcode{p} are determined as if by using POSIX \tcode{lstat()}
+    to obtain a POSIX \tcode{struct stat}.
 
 \pnum
-\returns Same as status(), above, except
-      that if the attributes indicate a symbolic link, as if by POSIX \tcode{S_ISLNK}, returns
-      \tcode{file_status(file_type::symlink)}.
+Let \tcode{prms} denote the result of \tcode{(m \& perms::mask)},
+where \tcode{m} is determined as if by converting the \tcode{st_mode} member
+of the obtained \tcode{struct stat} to the type \tcode{perms}.
+
+\pnum
+\returns Same as \tcode{status()}, above, except
+      that if the attributes indicate a symbolic link, as if by POSIX \tcode{S_ISLNK},
+      returns \tcode{file_status(file_type::symlink, prms)}.
       The signature with argument \tcode{ec} returns
       \tcode{file_status(file_type::none)} if an error occurs.
 
