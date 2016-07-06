@@ -31,6 +31,255 @@ Table~\ref{tab:containers.lib.summary}.
                              &                                  & \tcode{<stack>}         \\ \rowsep
 \end{libsumtab}
 
+\rSec2[container.node]{Node handles}
+
+\rSec3[container.node.overview]{\tcode{node_handle} overview}
+
+\pnum
+A \term{node handle} is an object that accepts ownership of a single element
+from an associative container~(\ref{associative.reqmts}) or an unordered
+associative container~(\ref{unord.req}). It may be used to transfer that
+ownership to another container with compatible nodes.  Containers with
+compatible nodes have the same node handle type. Elements may be transferred in
+either direction between container types in the same row of
+Table~\ref{tab:containers.node.compat}.
+
+\begin{floattable}{Container types with compatible nodes}{tab:containers.node.compat}
+{ll}
+\topline
+\tcode{map<K, T, C1, A>}               & \tcode{map<K, T, C2, A>}                    \\
+\rowsep
+\tcode{map<K, T, C1, A>}               & \tcode{multimap<K, T, C2, A>}               \\
+\rowsep
+\tcode{set<K, C1, A>}                  & \tcode{set<K, C2, A>}                       \\
+\rowsep
+\tcode{set<K, C1, A>}                  & \tcode{multiset<K, C2, A>}                  \\
+\rowsep
+\tcode{unordered_map<K, T, H1, E1, A>} & \tcode{unordered_map<K, T, H2, E2, A>}      \\
+\rowsep
+\tcode{unordered_map<K, T, H1, E1, A>} & \tcode{unordered_multimap<K, T, H2, E2, A>} \\
+\rowsep
+\tcode{unordered_set<K, H1, E1, A>}    & \tcode{unordered_set<K, H2, E2, A>}         \\
+\rowsep
+\tcode{unordered_set<K, H1, E1, A>}    & \tcode{unordered_multiset<K, H2, E2, A>}    \\
+\end{floattable}
+
+\pnum
+If a node handle is not empty, then it contains an allocator that is equal to
+the allocator of the container when the element was extracted. If a node handle
+is empty, it contains no allocator.
+
+\pnum
+Class \tcode{\textit{node_handle}} is for exposition only. An implementation is
+permitted to provide equivalent functionality without providing a class with
+this name.
+
+\pnum
+If a user-defined specialization of \tcode{std::pair} exists for
+\tcode{pair<const Key, T>} or \tcode{pair<Key, T>}, where \tcode{Key} is the
+container's \tcode{key_type} and \tcode{T} is the container's
+\tcode{mapped_type}, the behavior of operations involving node handles is
+undefined.
+
+\begin{codeblock}
+template<@\unspecnc@>
+class @\textit{node_handle}@ {
+public:
+  // These type declarations are described in Tables \ref{tab:containers.associative.requirements} and \ref{tab:HashRequirements}
+  using value_type     = @\seebelownc{}@; // Not present for map containers
+  using key_type       = @\seebelownc{}@; // Not present for set containers
+  using mapped_type    = @\seebelownc{}@; // Not present for set containers
+  using allocator_type = @\seebelownc{}@;
+
+private:
+  using container_node_type = @\unspecnc@;
+  using ator_traits         = allocator_traits<allocator_type>;
+  typename ator_traits::rebind_traits<container_node_type>::pointer ptr_;
+  optional<allocator_type> alloc_;
+
+public:
+  constexpr @\textit{node_handle}@() noexcept : ptr_(), alloc_() {}
+  ~@\textit{node_handle}@();
+  @\textit{node_handle}@(@\textit{node_handle}@&&) noexcept;
+  @\textit{node_handle}@& operator=(@\textit{node_handle}@&&);
+  value_type& value() const;    // Not present for map containers
+  key_type& key() const;        // Not present for set containers
+  mapped_type& mapped() const;  // Not present for set containers
+  allocator_type get_allocator() const;
+  explicit operator bool() const noexcept;
+  bool empty() const noexcept;
+  void swap(@\textit{node_handle}@&)
+    noexcept(ator_traits::propagate_on_container_swap::value ||
+             ator_traits::is_always_equal::value);
+  friend void swap(@\textit{node_handle}@& x, @\textit{node_handle}@& y) noexcept(noexcept(x.swap(y)))
+    { x.swap(y); }
+};
+\end{codeblock}
+
+\rSec3[container.node.cons]{\tcode{\textit{node_handle}} constructors, copy, and assignment}
+
+\begin{itemdecl}
+@\textit{node_handle}@(@\textit{node_handle}@&& nh) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Constructs a \tcode{\textit{node_handle}} object initializing
+\tcode{ptr_} with \tcode{nh.ptr_}.  Move constructs \tcode{alloc_} with
+\tcode{nh.alloc_}.  Assigns \tcode{nullptr} to \tcode{nh.ptr_} and assigns
+\tcode{nullopt} to \tcode{nh.alloc_}.
+\end{itemdescr}
+
+\begin{itemdecl}
+@\textit{node_handle}@& operator=(@\textit{node_handle}@&& nh);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires Either \tcode{!alloc_}, or
+\tcode{ator_traits::propagate_on_container_move_assignment}
+is \tcode{true}, or \tcode{alloc_ ==  nh.alloc_}.
+
+\pnum
+\effects If \tcode{ptr_ != nullptr}, destroys the \tcode{value_type}
+subobject in the \tcode{container_node_type} object pointed to by \tcode{ptr_}
+by calling \tcode{ator_traits::destroy}, then deallocates \tcode{ptr_} by
+calling \tcode{ator_traits::rebind_traits<container_node_type>::deallocate}.
+Assigns \tcode{nh.ptr_} to \tcode{ptr_}.
+If \tcode{!alloc\textunderscore} or \tcode{ator_traits::propagate_on_container_move_assignment}
+is \tcode{true}, move assigns \tcode{nh.alloc_} to \tcode{alloc_}. Assigns
+\tcode{nullptr} to \tcode{nh.ptr_} and assigns \tcode{nullopt} to
+\tcode{nh.alloc_}.
+
+\pnum \returns \tcode{*this}.
+
+\pnum \throws Nothing.
+\end{itemdescr}
+
+\rSec3[container.node.dtor]{\tcode{\textit{node_handle}} destructor}
+
+\begin{itemdecl}
+~@\textit{node_handle}@();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects If \tcode{ptr_ != nullptr}, destroys the \tcode{value_type} subobject
+in the \tcode{container_node_type} object pointed to by \tcode{ptr_} by calling
+\tcode{ator_traits::destroy}, then deallocates \tcode{ptr_} by calling
+\tcode{ator_traits::rebind_traits<container_node_type>::deallocate}.
+\end{itemdescr}
+
+\rSec3[container.node.observers]{\tcode{\textit{node_handle}} observers}
+
+\begin{itemdecl}
+value_type& value() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{empty() == false}.
+
+\pnum
+\returns A reference to the \tcode{value_type} subobject in the
+\tcode{container_node_type} object pointed to by \tcode{ptr_}.
+
+\pnum
+\throws Nothing.
+\end{itemdescr}
+
+\begin{itemdecl}
+key_type& key() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{empty() == false}.
+
+\pnum
+\returns A non-const reference to the \tcode{key_type} member of the
+\tcode{value_type} subobject in the \tcode{container_node_type} object
+pointed to by \tcode{ptr_}.
+
+\pnum
+\throws  Nothing.
+
+\pnum
+\remarks Modifying the key through the returned reference is permitted.
+\end{itemdescr}
+
+\begin{itemdecl}
+mapped_type& mapped() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{empty() == false}.
+
+\pnum
+\returns A reference to the \tcode{mapped_type} member of the
+\tcode{value_type} subobject in the \tcode{container_node_type} object
+pointed to by \tcode{ptr_}.
+
+\pnum
+\throws  Nothing.
+\end{itemdescr}
+
+
+\begin{itemdecl}
+allocator_type get_allocator() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{empty() == false}.
+
+\pnum
+\returns \tcode{*alloc_}.
+
+\pnum
+\throws Nothing.
+\end{itemdescr}
+
+\begin{itemdecl}
+explicit operator bool() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{ptr_ != nullptr}.
+\end{itemdescr}
+
+\begin{itemdecl}
+bool empty() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{ptr_ == nullptr}.
+\end{itemdescr}
+
+\rSec3[container.node.modifiers]{\tcode{\textit{node_handle}} modifiers}
+
+\begin{itemdecl}
+void swap(@\textit{node_handle}@& nh)
+  noexcept(ator_traits::propagate_on_container_swap::value ||
+           ator_traits::is_always_equal::value);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{!alloc_}, or \tcode{!nh.alloc_}, or
+\tcode{ator_traits::propagate_on_container_swap} is \tcode{true},
+or \tcode{alloc_ == nh.alloc_}.
+
+\pnum
+\effects Calls \tcode{swap(ptr_, nh.ptr_)}. If \tcode{!alloc_}, or
+\tcode{!nh.alloc_}, or \tcode{ator_traits::propagate_on_container_swap}
+is \tcode{true} calls \tcode{swap(alloc_, nh.alloc_)}.
+\end{itemdescr}
+
+
 \rSec1[container.requirements]{Container requirements}%
 \indextext{requirements!container}
 
@@ -1275,6 +1524,8 @@ are required to be \tcode{CopyAssignable} even though the associated
 In Table~\ref{tab:containers.associative.requirements},
 \tcode{X} denotes an associative container class,
 \tcode{a} denotes a value of type \tcode{X},
+\tcode{a2} denotes a value of a type with nodes compatible with type
+\tcode{X} (Table~\ref{tab:containers.node.compat}),
 \tcode{b} denotes a possibly \tcode{const} value of type \tcode{X},
 \tcode{u} denotes the name of a variable being declared,
 \tcode{a_uniq} denotes a value of type \tcode{X}
@@ -1306,7 +1557,9 @@ and \tcode{e} in \tcode{a};
 \tcode{ke} is a value such that \tcode{a} is partitioned with respect to
 \tcode{c(r, ke)} and \tcode{!c(ke, r)}, with \tcode{c(r, ke)} implying
 \tcode{!c(ke, r)}.
-\tcode{A} denotes the storage allocator used by \tcode{X}, if any, or \tcode{std::allocator<X::value_type>} otherwise, and \tcode{m} denotes an allocator of a type convertible to \tcode{A}.
+\tcode{A} denotes the storage allocator used by \tcode{X}, if any, or \tcode{std::allocator<X::value_type>} otherwise,
+\tcode{m} denotes an allocator of a type convertible to \tcode{A},
+and \tcode{nh} denotes a non-const rvalue of type \tcode{X::node_type}.
 
 \begin{libreqtab4b}
 {Associative container requirements (in addition to container)}
@@ -1352,6 +1605,26 @@ and \tcode{e} in \tcode{a};
  \tcode{multiset}; is an ordering relation on pairs induced by the
  first component (i.e., \tcode{Key}) for \tcode{map} and \tcode{multimap}. &
  compile time                       \\ \rowsep
+
+\tcode{X::node_type} &
+ a specialization of a \tcode{\textit{node_handle}}
+ class template, such that the public nested types are
+ the same types as the corresponding types in \tcode{X}. &
+ see~\ref{container.node} &
+ compile time \\ \rowsep
+
+\tcode{X::insert_return_type} &
+ a class type used to describe the results of inserting a
+ \tcode{node_type} that includes at least the following non-static
+ public data members:\br
+   \tcode{bool inserted;}\br
+   \tcode{X::iterator position;}\br
+   \tcode{X::node_type node;}\br
+ The type shall be \tcode{MoveConstructible}, \tcode{MoveAssignable},
+ \tcode{DefaultConstructible}, \tcode{Destructible}, and
+ lvalues of that type shall be swappable (\ref{swappable.requirements}).  &
+ &
+ compile time \\ \rowsep
 
 \tcode{X(c)}\br
 \tcode{X u(c);}                         &
@@ -1501,6 +1774,78 @@ and \tcode{e} in \tcode{a};
   Equivalent to \tcode{a.insert(il.begin(), il.end())}. &
                                           \\ \rowsep
 
+\tcode{a_uniq.}\br
+ \tcode{insert(nh)}           &
+ \tcode{insert_return_type}   &
+ pre: \tcode{nh} is empty or
+ \tcode{a_uniq.get_allocator() == nh.get_allocator()}.\br
+ \effects{} If \tcode{nh} is empty, has no effect. Otherwise, inserts the
+ element owned by \tcode{nh} if and only if there is no element in the
+ container with a key equivalent to \tcode{nh.key()}.\br
+ post: If \tcode{nh} is empty, \tcode{inserted} is \tcode{false},
+ \tcode{position} is \tcode{end()}, and \tcode{node} is empty.
+ Otherwise if the insertion took place, \tcode{inserted} is \tcode{true},
+ \tcode{position} points to the inserted element, and \tcode{node} is empty;
+ if the insertion failed, \tcode{inserted} is \tcode{false},
+ \tcode{node} has the previous value of \tcode{nh}, and \tcode{position}
+ points to an element with a key equivalent to \tcode{nh.key()}. &
+ logarithmic                             \\ \rowsep
+
+\tcode{a_eq.}\br
+ \tcode{insert(nh)}           &
+ \tcode{iterator}   &
+ pre: \tcode{nh} is empty or
+ \tcode{a_eq.get_allocator() == nh.get_allocator()}.\br
+ \effects{} If \tcode{nh} is empty, has no effect and returns \tcode{a_eq.end()}.
+ Otherwise, inserts the element owned by \tcode{nh} and returns an iterator
+ pointing to the newly inserted element. If a range containing elements with
+ keys equivalent to \tcode{nh.key()} exists in \tcode{a_eq}, the element is
+ inserted at the end of that range.\br
+ post: \tcode{nh} is empty. &
+ logarithmic                             \\ \rowsep
+
+\tcode{a.insert(p, nh)}           &
+ \tcode{iterator}   &
+ pre: \tcode{nh} is empty or
+ \tcode{a.get_allocator() == nh.get_allocator()}.\br
+ \effects{} If \tcode{nh} is empty, has no effect and returns \tcode{a.end()}.
+ Otherwise, inserts the element owned by \tcode{nh} if and only if there
+ is no element with key equivalent to \tcode{nh.key()} in containers with
+ unique keys; always inserts the element owned by \tcode{nh} in containers
+ with equivalent keys. Always returns the iterator pointing to the element
+ with key equivalent to \tcode{nh.key()}. The element is inserted as close
+ as possible to the position just prior to \tcode{p}.\br
+ post: \tcode{nh} is empty if insertion succeeds, unchanged if insertion fails.  &
+ logarithmic in general, but amortized constant if the element is inserted right
+ before \tcode{p}.                             \\ \rowsep
+
+\tcode{a.extract(k)}              &
+ \tcode{node_type}             &
+ Removes the first element in the container with key equivalent to \tcode{k}.
+ Returns a \tcode{node_type} owning the element if found, otherwise an empty
+ \tcode{node_type}. &
+ $\log (\tcode{a.size()})$       \\ \rowsep
+
+\tcode{a.extract(q)}              &
+ \tcode{node_type}             &
+ Removes the element pointed to by to \tcode{q}.
+ Returns a \tcode{node_type} owning that element. &
+ amortized constant       \\ \rowsep
+
+\tcode{a.merge(a2)}              &
+ \tcode{void}             &
+ pre: \tcode{a_eq.get_allocator() == nh.get_allocator()}.\br
+ Attempts to extract each element in \tcode{a2} and insert it into \tcode{a}
+ using the comparison object of \tcode{a}. In containers with unique keys,
+ if there is an element in \tcode{a} with key equivalent to the key of an
+ element from \tcode{a2}, then that element is not extracted from \tcode{a2}.\br
+ post: Pointers and references to the transferred elements of \tcode{a2}
+ refer to those same elements but as members of \tcode{a}. Iterators referring
+ to the transferred elements will continue to refer to their elements, but
+ they now behave as iterators into \tcode{a}, not into \tcode{a2}.\br
+ \throws{} Nothing unless the comparison object throws.  &
+ $N \log(\tcode{a.size()+} N)$ where $N$ has the value \tcode{a2.size()}.    \\ \rowsep
+
 \tcode{a.erase(k)}              &
  \tcode{size_type}             &
  erases all elements in the container with key equivalent to
@@ -1611,6 +1956,14 @@ The \tcode{insert} and \tcode{emplace} members shall not affect the validity of
 iterators and references to the container,
 and the \tcode{erase} members shall invalidate only iterators and
 references to the erased elements.
+
+\pnum
+The \tcode{extract} members invalidate only iterators to the removed element;
+pointers and references to the removed element remain valid. However, accessing
+the element through such pointers and references while the element is owned by
+a \tcode{node_type} is undefined behavior. References and pointers to an element
+obtained while it is owned by a \tcode{node_type} are invalidated if the element
+is successfully inserted.
 
 \pnum
 The fundamental property of iterators of associative containers is that they iterate through the containers
@@ -1798,6 +2151,8 @@ are sometimes required to be \tcode{CopyAssignable} even though the associated
 In Table~\ref{tab:HashRequirements}:
 \tcode{X} denotes an unordered associative container class,
 \tcode{a} denotes a value of type \tcode{X},
+\tcode{a2} denotes a value of a type with nodes compatible with type
+\tcode{X} (Table~\ref{tab:containers.node.compat}),
 \tcode{b} denotes a possibly const value of type \tcode{X},
 \tcode{a_uniq} denotes a value of type \tcode{X} when \tcode{X} supports unique keys,
 \tcode{a_eq} denotes a value of type \tcode{X} when \tcode{X} supports equivalent keys,
@@ -1813,7 +2168,8 @@ In Table~\ref{tab:HashRequirements}:
 \tcode{hf} denotes a possibly const value of type \tcode{hasher},
 \tcode{eq} denotes a possibly const value of type \tcode{key_equal},
 \tcode{n} denotes a value of type \tcode{size_type},
-and \tcode{z} denotes a value of type \tcode{float}.
+\tcode{z} denotes a value of type \tcode{float},
+and \tcode{nh} denotes a non-const rvalue of type \tcode{X::node_type}.
 
 \begin{libreqtab4d}
   {Unordered associative container requirements (in addition to container)}
@@ -1892,6 +2248,26 @@ and \tcode{z} denotes a value of type \tcode{float}.
     \indextext{\idxcode{const_local_iterator}!unordered associative containers}%
 &   compile time
 \\ \rowsep
+%
+\tcode{X::node_type} &
+ a specialization of a \tcode{\textit{node_handle}}
+ class template, such that the public nested types are
+ the same types as the corresponding types in \tcode{X}. &
+ see~\ref{container.node} &
+ compile time \\ \rowsep
+%
+\tcode{X::insert_return_type} &
+ a class type used to describe the results of inserting a
+ \tcode{node_type} that includes at least the following non-static
+ public data members:\br
+   \tcode{bool inserted;}\br
+   \tcode{X::iterator position;}\br
+   \tcode{X::node_type node;}\br
+ The type shall be \tcode{MoveConstructible}, \tcode{MoveAssignable},
+ \tcode{DefaultConstructible}, \tcode{Destructible}, and
+ lvalues of that type shall be swappable (\ref{swappable.requirements}).  &
+ &
+ compile time \\ \rowsep
 %
 \tcode{X(n, hf, eq)}\br \tcode{X a(n, hf, eq)}
 &   \tcode{X}
@@ -2130,6 +2506,79 @@ start.  Implementations are permitted to ignore the hint.%
 &   Same as \tcode{a.insert(il.begin(), il.end())}.
 &   Same as \tcode{a.insert(} \tcode{il.begin(),} \tcode{il.end())}.
 \\ \rowsep
+%
+\tcode{a_uniq.}\br
+ \tcode{insert(nh)}           &
+ \tcode{insert_return_type}   &
+ Pre: \tcode{nh} is empty or
+ \tcode{a_uniq.get_allocator() == nh.get_allocator()}.\br
+ \effects{} If \tcode{nh} is empty, has no effect. Otherwise, inserts the
+ element owned by \tcode{nh} if and only if there is no element in the
+ container with a key equivalent to \tcode{nh.key()}.\br
+ post: If \tcode{nh} is empty, \tcode{inserted} is \tcode{false},
+ \tcode{position} is \tcode{end()}, and \tcode{node} is empty.
+ Otherwise if the insertion took place, \tcode{inserted} is \tcode{true},
+ \tcode{position} points to the inserted element, and \tcode{node} is empty;
+ if the insertion failed, \tcode{inserted} is \tcode{false},
+ \tcode{node} has the previous value of \tcode{nh}, and \tcode{position}
+ points to an element with a key equivalent to \tcode{nh.key()}. &
+ Average case \bigoh{1}, worst case \bigoh{\tcode{a_uniq.}\br\tcode{size()}}.  \\ \rowsep
+%
+\tcode{a_eq.}\br
+ \tcode{insert(nh)}           &
+ \tcode{iterator}   &
+ Pre: \tcode{nh} is empty or
+ \tcode{a_eq.get_allocator() == nh.get_allocator()}.\br
+ \effects{} If \tcode{nh} is empty, has no effect and returns \tcode{a_eq.end()}.
+ Otherwise, inserts the element owned by \tcode{nh} and returns an iterator
+ pointing to the newly inserted element.\br
+ Post: \tcode{nh} is empty. &
+ Average case \bigoh{1}, worst case \bigoh{\tcode{a_eq.size()}}.  \\ \rowsep
+%
+\tcode{a.insert(q, nh)}           &
+ \tcode{iterator}   &
+ Pre: \tcode{nh} is empty or
+ \tcode{a.get_allocator() == nh.get_allocator()}.\br
+ \effects{} If \tcode{nh} is empty, has no effect and returns \tcode{a.end()}.
+ Otherwise, inserts the element owned by \tcode{nh} if and only if there
+ is no element with key equivalent to \tcode{nh.key()} in containers with
+ unique keys; always inserts the element owned by \tcode{nh} in containers
+ with equivalent keys. Always returns the iterator pointing to the element
+ with key equivalent to \tcode{nh.key()}. The iterator \tcode{q} is a hint
+ pointing to where the search should start. Implementations are permitted
+ to ignore the hint.\br
+ Post: \tcode{nh} is empty if insertion succeeds, unchanged if insertion fails.  &
+ Average case \bigoh{1}, worst case \bigoh{\tcode{a.size()}}.  \\ \rowsep
+%
+\tcode{a.extract(k)}              &
+ \tcode{node_type}             &
+ Removes an element in the container with key equivalent to \tcode{k}.
+ Returns a \tcode{node_type} owning the element if found, otherwise an empty
+ \tcode{node_type}. &
+ Average case \bigoh{1}, worst case \bigoh{\tcode{a.size()}}.  \\ \rowsep
+%
+\tcode{a.extract(q)}              &
+ \tcode{node_type}             &
+ Removes the element pointed to by to \tcode{q}.
+ Returns a \tcode{node_type} owning that element. &
+ Average case \bigoh{1}, worst case \bigoh{\tcode{a.size()}}.  \\ \rowsep
+%
+\tcode{a.merge(a2)}              &
+ \tcode{void}             &
+ Pre: \tcode{a_eq.get_allocator() == nh.get_allocator()}.\br
+ Attempts to extract each element in \tcode{a2} and insert it into \tcode{a}
+ using the hash function and key equality predicate of \tcode{a}.
+ In containers with unique keys, if there is an element in \tcode{a} with
+ key equivalent to the key of an element from \tcode{a2}, then that
+ element is not extracted from \tcode{a2}.\par
+ Post: Pointers and references to the transferred elements of \tcode{a2}
+ refer to those same elements but as members of \tcode{a}. Iterators referring
+ to the transferred elements and all iterators referring to \tcode{a} will
+ be invalidated, but iterators to elements remaining in \tcode{a2} will
+ remain valid.\br
+ \throws{} Nothing unless the hash function or key equality predicate throws. &
+ Average case \bigoh{N}, where $N$ is \tcode{a2.size()}.
+ Worst case \bigoh{N\tcode{*a.size()}\br\tcode{+} N}.  \\ \rowsep
 %
 \tcode{a.erase(k)}
 &   \tcode{size_type}
@@ -2381,6 +2830,15 @@ The \tcode{insert} and \tcode{emplace} members shall not affect the validity of 
 the container prior to the insert operation, \tcode{n} is the
 number of elements inserted, \tcode{B} is the container's bucket count, and
 \tcode{z} is the container's maximum load factor.
+
+\pnum
+The \tcode{extract} members invalidate only iterators to the removed element,
+and preserve the relative order of the elements that are not erased; pointers
+and references to the removed element remain valid. However, accessing the
+element through such pointers and references while the element is owned by a
+\tcode{node_type} is undefined behavior. References and pointers to an element
+obtained while it is owned by a \tcode{node_type} are invalidated if the
+element is successfully inserted.
 
 \rSec3[unord.req.except]{Exception safety guarantees}
 
@@ -5546,6 +6004,8 @@ namespace std {
     using const_iterator         = @\impdefx{type of \tcode{map::const_iterator}}@; // see \ref{container.requirements}
     using reverse_iterator       = std::reverse_iterator<iterator>;
     using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+    using node_type              = @\unspec@;
+    using insert_return_type     = @\unspec@;
 
     class value_compare {
       friend class map;
@@ -5626,6 +6086,11 @@ namespace std {
       void insert(InputIterator first, InputIterator last);
     void insert(initializer_list<value_type>);
 
+    node_type extract(const_iterator position);
+    node_type extract(const key_type& x);
+    insert_return_type insert(node_type&& nh);
+    iterator           insert(const_iterator hint, node_type&& nh);
+
     template <class... Args>
       pair<iterator, bool> try_emplace(const key_type& k, Args&&... args);
     template <class... Args>
@@ -5651,6 +6116,15 @@ namespace std {
       noexcept(allocator_traits<Allocator>::is_always_equal::value &&
                is_nothrow_swappable_v<Compare>);
     void      clear() noexcept;
+
+    template<class C2>
+      void merge(map<Key, T, C2, Allocator>& source);
+    template<class C2>
+      void merge(map<Key, T, C2, Allocator>&& source);
+    template<class C2>
+      void merge(multimap<Key, T, C2, Allocator>& source);
+    template<class C2>
+      void merge(multimap<Key, T, C2, Allocator>&& source);
 
     // observers:
     key_compare key_comp() const;
@@ -6059,6 +6533,7 @@ namespace std {
     using const_iterator         = @\impdefx{type of \tcode{multimap::const_iterator}}@; // see \ref{container.requirements}
     using reverse_iterator       = std::reverse_iterator<iterator>;
     using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+    using node_type              = @\unspec@;
 
     class value_compare {
       friend class multimap;
@@ -6133,6 +6608,11 @@ namespace std {
       void insert(InputIterator first, InputIterator last);
     void insert(initializer_list<value_type>);
 
+    node_type extract(const_iterator position);
+    node_type extract(const key_type& x);
+    iterator insert(node_type&& nh);
+    iterator insert(const_iterator hint, node_type&& nh);
+
     iterator  erase(iterator position);
     iterator  erase(const_iterator position);
     size_type erase(const key_type& x);
@@ -6141,6 +6621,15 @@ namespace std {
       noexcept(allocator_traits<Allocator>::is_always_equal::value &&
                is_nothrow_swappable_v<Compare>);
     void      clear() noexcept;
+
+    template<class C2>
+      void merge(multimap<Key, T, C2, Allocator>& source);
+    template<class C2>
+      void merge(multimap<Key, T, C2, Allocator>&& source);
+    template<class C2>
+      void merge(map<Key, T, C2, Allocator>& source);
+    template<class C2>
+      void merge(map<Key, T, C2, Allocator>&& source);
 
     // observers:
     key_compare key_comp() const;
@@ -6354,6 +6843,8 @@ namespace std {
     using const_iterator         = @\impdefx{type of \tcode{set::const_iterator}}@; // see \ref{container.requirements}
     using reverse_iterator       = std::reverse_iterator<iterator>;
     using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+    using node_type              = @\unspec@;
+    using insert_return_type     = @\unspec@;
 
     // \ref{set.cons}, construct/copy/destroy:
     set() : set(Compare()) { }
@@ -6413,6 +6904,11 @@ namespace std {
       void insert(InputIterator first, InputIterator last);
     void insert(initializer_list<value_type>);
 
+    node_type extract(const_iterator position);
+    node_type extract(const key_type& x);
+    insert_return_type insert(node_type&& nh);
+    iterator           insert(const_iterator hint, node_type&& nh);
+
     iterator  erase(iterator position);
     iterator  erase(const_iterator position);
     size_type erase(const key_type& x);
@@ -6421,6 +6917,15 @@ namespace std {
       noexcept(allocator_traits<Allocator>::is_always_equal::value &&
                is_nothrow_swappable_v<Compare>);
     void      clear() noexcept;
+
+    template<class C2>
+      void merge(set<Key, C2, Allocator>& source);
+    template<class C2>
+      void merge(set<Key, C2, Allocator>&& source);
+    template<class C2>
+      void merge(multiset<Key, C2, Allocator>& source);
+    template<class C2>
+      void merge(multiset<Key, C2, Allocator>&& source);
 
     // observers:
     key_compare key_comp() const;
@@ -6607,6 +7112,7 @@ namespace std {
     using const_iterator         = @\impdefx{type of \tcode{multiset::const_iterator}}@; // see \ref{container.requirements}
     using reverse_iterator       = std::reverse_iterator<iterator>;
     using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+    using node_type              = @\unspec@;
 
     // \ref{multiset.cons}, construct/copy/destroy:
     multiset() : multiset(Compare()) { }
@@ -6666,6 +7172,11 @@ namespace std {
       void insert(InputIterator first, InputIterator last);
     void insert(initializer_list<value_type>);
 
+    node_type extract(const_iterator position);
+    node_type extract(const key_type& x);
+    iterator insert(node_type&& nh);
+    iterator insert(const_iterator hint, node_type&& nh);
+
     iterator  erase(iterator position);
     iterator  erase(const_iterator position);
     size_type erase(const key_type& x);
@@ -6674,6 +7185,15 @@ namespace std {
       noexcept(allocator_traits<Allocator>::is_always_equal::value &&
                is_nothrow_swappable_v<Compare>);
     void      clear() noexcept;
+
+    template<class C2>
+      void merge(multiset<Key, C2, Allocator>& source);
+    template<class C2>
+      void merge(multiset<Key, C2, Allocator>&& source);
+    template<class C2>
+      void merge(set<Key, C2, Allocator>& source);
+    template<class C2>
+      void merge(set<Key, C2, Allocator>&& source);
 
     // observers:
     key_compare key_comp() const;
@@ -6984,6 +7504,8 @@ namespace std {
     using const_iterator       = @\impdefx{type of \tcode{unordered_map::const_iterator}}@; // see \ref{container.requirements}
     using local_iterator       = @\impdefx{type of \tcode{unordered_map::local_iterator}}@; // see \ref{container.requirements}
     using const_local_iterator = @\impdefx{type of \tcode{unordered_map::const_local_iterator}}@; // see \ref{container.requirements}
+    using node_type            = @\unspec@;
+    using insert_return_type   = @\unspec@;
 
     // \ref{unord.map.cnstr}, construct/copy/destroy:
     unordered_map();
@@ -7057,6 +7579,11 @@ namespace std {
     template <class InputIterator> void insert(InputIterator first, InputIterator last);
     void insert(initializer_list<value_type>);
 
+    node_type extract(const_iterator position);
+    node_type extract(const key_type& x);
+    insert_return_type insert(node_type&& nh);
+    iterator           insert(const_iterator hint, node_type&& nh);
+
     template <class... Args>
       pair<iterator, bool> try_emplace(const key_type& k, Args&&... args);
     template <class... Args>
@@ -7083,6 +7610,15 @@ namespace std {
                is_nothrow_swappable_v<Hash> &&
                is_nothrow_swappable_v<Pred>);
     void      clear() noexcept;
+
+    template<class H2, class P2>
+      void merge(unordered_map<Key, T, H2, P2, Allocator>& source);
+    template<class H2, class P2>
+      void merge(unordered_map<Key, T, H2, P2, Allocator>&& source);
+    template<class H2, class P2>
+      void merge(unordered_multimap<Key, T, H2, P2, Allocator>& source);
+    template<class H2, class P2>
+      void merge(unordered_multimap<Key, T, H2, P2, Allocator>&& source);
 
     // observers:
     hasher hash_function() const;
@@ -7486,6 +8022,7 @@ namespace std {
     using const_iterator       = @\impdefx{type of \tcode{unordered_multimap::const_iterator}}@; // see \ref{container.requirements}
     using local_iterator       = @\impdefx{type of \tcode{unordered_multimap::local_iterator}}@; // see \ref{container.requirements}
     using const_local_iterator = @\impdefx{type of \tcode{unordered_multimap::const_local_iterator}}@; // see \ref{container.requirements}
+    using node_type            = @\unspec@;
 
     // \ref{unord.multimap.cnstr}, construct/copy/destroy:
     unordered_multimap();
@@ -7559,6 +8096,11 @@ namespace std {
     template <class InputIterator> void insert(InputIterator first, InputIterator last);
     void insert(initializer_list<value_type>);
 
+    node_type extract(const_iterator position);
+    node_type extract(const key_type& x);
+    iterator insert(node_type&& nh);
+    iterator insert(const_iterator hint, node_type&& nh);
+
     iterator  erase(iterator position);
     iterator  erase(const_iterator position);
     size_type erase(const key_type& k);
@@ -7568,6 +8110,15 @@ namespace std {
                is_nothrow_swappable_v<Hash> &&
                is_nothrow_swappable_v<Pred>);
     void      clear() noexcept;
+
+    template<class H2, class P2>
+      void merge(unordered_multimap<Key, T, H2, P2, Allocator>& source);
+    template<class H2, class P2>
+      void merge(unordered_multimap<Key, T, H2, P2, Allocator>&& source);
+    template<class H2, class P2>
+      void merge(unordered_map<Key, T, H2, P2, Allocator>& source);
+    template<class H2, class P2>
+      void merge(unordered_map<Key, T, H2, P2, Allocator>&& source);
 
     // observers:
     hasher hash_function() const;
@@ -7771,6 +8322,8 @@ namespace std {
     using const_iterator       = @\impdefx{type of \tcode{unordered_set::const_iterator}}@; // see \ref{container.requirements}
     using local_iterator       = @\impdefx{type of \tcode{unordered_set::local_iterator}}@; // see \ref{container.requirements}
     using const_local_iterator = @\impdefx{type of \tcode{unordered_set::const_local_iterator}}@; // see \ref{container.requirements}
+    using node_type            = @\unspec@;
+    using insert_return_type   = @\unspec@;
 
     // \ref{unord.set.cnstr}, construct/copy/destroy:
     unordered_set();
@@ -7842,6 +8395,11 @@ namespace std {
     template <class InputIterator> void insert(InputIterator first, InputIterator last);
     void insert(initializer_list<value_type>);
 
+    node_type extract(const_iterator position);
+    node_type extract(const key_type& x);
+    insert_return_type insert(node_type&& nh);
+    iterator           insert(const_iterator hint, node_type&& nh);
+
     iterator  erase(iterator position);
     iterator  erase(const_iterator position);
     size_type erase(const key_type& k);
@@ -7851,6 +8409,15 @@ namespace std {
                is_nothrow_swappable_v<Hash> &&
                is_nothrow_swappable_v<Pred>);
     void      clear() noexcept;
+
+    template<class H2, class P2>
+      void merge(unordered_set<Key, H2, P2, Allocator>& source);
+    template<class H2, class P2>
+      void merge(unordered_set<Key, H2, P2, Allocator>&& source);
+    template<class H2, class P2>
+      void merge(unordered_multiset<Key, H2, P2, Allocator>& source);
+    template<class H2, class P2>
+      void merge(unordered_multiset<Key, H2, P2, Allocator>&& source);
 
     // observers:
     hasher hash_function() const;
@@ -8024,6 +8591,7 @@ namespace std {
     using const_iterator       = @\impdefx{type of \tcode{unordered_multiset::const_iterator}}@; // see \ref{container.requirements}
     using local_iterator       = @\impdefx{type of \tcode{unordered_multiset::local_iterator}}@; // see \ref{container.requirements}
     using const_local_iterator = @\impdefx{type of \tcode{unordered_multiset::const_local_iterator}}@; // see \ref{container.requirements}
+    using node_type            = @\unspec@;
 
     // \ref{unord.multiset.cnstr}, construct/copy/destroy:
     unordered_multiset();
@@ -8095,6 +8663,11 @@ namespace std {
     template <class InputIterator> void insert(InputIterator first, InputIterator last);
     void insert(initializer_list<value_type>);
 
+    node_type extract(const_iterator position);
+    node_type extract(const key_type& x);
+    iterator insert(node_type&& nh);
+    iterator insert(const_iterator hint, node_type&& nh);
+
     iterator  erase(iterator position);
     iterator  erase(const_iterator position);
     size_type erase(const key_type& k);
@@ -8104,6 +8677,15 @@ namespace std {
                is_nothrow_swappable_v<Hash> &&
                is_nothrow_swappable_v<Pred>);
     void      clear() noexcept;
+
+    template<class H2, class P2>
+      void merge(unordered_multiset<Key, H2, P2, Allocator>& source);
+    template<class H2, class P2>
+      void merge(unordered_multiset<Key, H2, P2, Allocator>&& source);
+    template<class H2, class P2>
+      void merge(unordered_set<Key, H2, P2, Allocator>& source);
+    template<class H2, class P2>
+      void merge(unordered_set<Key, H2, P2, Allocator>&& source);
 
     // observers:
     hasher hash_function() const;
