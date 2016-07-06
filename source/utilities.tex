@@ -165,6 +165,21 @@ namespace std {
   struct piecewise_construct_t { };
   constexpr piecewise_construct_t piecewise_construct{};
   template <class... Types> class tuple;  // defined in \tcode{<tuple>}
+
+  // \ref{utility.inplace}, in-place construction
+  struct in_place_tag {
+    in_place_tag() = delete;
+  };
+  using in_place_t = in_place_tag(&)(@\unspec@);
+  template <class T>
+    using in_place_type_t = in_place_tag(&)(@\unspec@<T>);
+  template <int N>
+    using in_place_index_t = in_place_tag(&)(@\unspec@<N>);
+  in_place_tag in_place(@\unspec@);
+  template <class T>
+    in_place_tag in_place(@\unspec@<T>);
+  template <size N>
+    in_place_tag in_place(@\unspec@<N>);
 }
 \end{codeblock}
 
@@ -464,6 +479,21 @@ type \tcode{From} can be explicitly converted to type \tcode{To}. For another ex
 template \tcode{common_type}~(\ref{meta.trans.other}).
 \end{example}
 \end{itemdescr}
+
+\rSec2[utility.inplace]{In-place construction}
+
+\pnum
+The \tcode{in_place_t}, \tcode{in_place_type_t}, and \tcode{in_place_index_t}
+function types are used as unique types to disambiguate constructor and function
+overloading. Specifically, \tcode{optional} has a constructor with \tcode{in_place_t}
+as the first parameter followed by a parameter pack; this indicates that \tcode{T}
+should be constructed in-place (as if by a call to a placement \grammarterm{new-expression})
+with the forwarded pack expansion as arguments for the initialization of \tcode{T}.
+
+\pnum
+\remarks
+Calling \tcode{in_place} functions results in undefined behavior.
+\begin{note} These functions might be instantiated into every object file.  \end{note}
 
 \rSec1[intseq]{Compile-time integer sequences}
 
@@ -2140,10 +2170,6 @@ namespace std {
   // \ref{optional.object}, optional for object types
   template <class T> class optional;
 
-  // \ref{optional.inplace}, in-place construction
-  struct in_place_t{};
-  constexpr in_place_t in_place{};
-
   // \ref{optional.nullopt}, no-value state indicator
   struct nullopt_t{@\seebelow@};
   constexpr nullopt_t nullopt(@\unspec@);
@@ -2196,6 +2222,10 @@ namespace std {
   // \ref{optional.specalg}, specialized algorithms
   template <class T> void swap(optional<T>&, optional<T>&) noexcept(@\seebelow@);
   template <class T> constexpr optional<@\seebelow@> make_optional(T&&);
+  template <class T, class... Args>
+    constexpr optional<T> make_optional(Args&&... args);
+  template <class T, class U, class... Args>
+    constexpr optional<T> make_optional(initializer_list<U> il, Args&&... args);
 
   // \ref{optional.hash}, hash support
   template <class T> struct hash;
@@ -2250,12 +2280,16 @@ public:
   constexpr T &&operator*() &&;
   constexpr const T &&operator*() const &&;
   constexpr explicit operator bool() const noexcept;
+  constexpr bool has_value() const noexcept;
   constexpr T const &value() const &;
   constexpr T &value() &;
   constexpr T &&value() &&;
   constexpr const T &&value() const &&;
   template <class U> constexpr T value_or(U &&) const &;
   template <class U> constexpr T value_or(U &&) &&;
+
+  // \ref{optional.object.mod}, modifiers
+  void reset() noexcept;
 
 private:
   T *val; // \expos
@@ -2807,6 +2841,18 @@ constexpr explicit operator bool() const noexcept;
 This function shall be a \tcode{constexpr} function.
 \end{itemdescr}
 
+\begin{itemdecl}
+constexpr bool has_value() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{true} if and only if \tcode{*this} contains a value.
+
+\pnum
+\remarks This function shall be a \tcode{constexpr} function.
+\end{itemdescr}
+
 \indexlibrary{\idxcode{optional}!\idxcode{value}}%
 \indexlibrary{\idxcode{value}!\idxcode{optional}}%
 \begin{itemdecl}
@@ -2876,19 +2922,22 @@ If \tcode{is_move_constructible_v<T> \&\& is_convertible_v<U\&\&, T>} is \tcode{
 the program is ill-formed.
 \end{itemdescr}
 
-\rSec2[optional.inplace]{In-place construction}
+\rSec3[optional.object.mod]{Modifiers}
 
-\indexlibrary{\idxcode{in_place_t}}%
-\indexlibrary{\idxcode{in_place}}%
 \begin{itemdecl}
-struct in_place_t{};
-constexpr in_place_t in_place{};
+void reset() noexcept;
 \end{itemdecl}
 
+\begin{itemdescr}
 \pnum
-The struct \tcode{in_place_t} is an empty structure type used as a unique type to disambiguate constructor and function overloading.
-Specifically, \tcode{optional<T>} has a constructor with \tcode{in_place_t} as the first parameter followed by a parameter pack;
-this indicates that \tcode{T} should be constructed in-place (as if by a call to a placement \grammarterm{new-expression}) with the forwarded pack expansion as arguments for the initialization of \tcode{T}.
+\effects
+If \tcode{*this} contains a value, calls \tcode{val->T::~T()} to destroy the contained value;
+otherwise no effect.
+
+\pnum
+\postconditions
+\tcode{*this} does not contain a value.
+\end{itemdescr}
 
 \rSec2[optional.nullopt]{No-value state indicator}
 
@@ -3353,6 +3402,25 @@ template <class T> constexpr optional<decay_t<T>> make_optional(T&& v);
 \tcode{optional<decay_t<T>>(std::forward<T>(v))}.
 \end{itemdescr}
 
+\begin{itemdecl}
+template <class T, class...Args>
+  constexpr optional<T> make_optional(Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return optional<T>(in_place, std::forward<Args>(args)...);}
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class T, class U, class... Args>
+  constexpr optional<T> make_optional(initializer_list<U> il, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return optional<T>(in_place, il, std::forward<Args>(args)...);}
+\end{itemdescr}
 
 \rSec2[optional.hash]{Hash support}
 
@@ -3412,14 +3480,6 @@ namespace std {
     struct variant_alternative<I, variant<Types...>>;
 
   constexpr size_t variant_npos = -1;
-
-
-  // \ref{variant.in.place}, in-place construction
-  template <class T> struct in_place_type_t{ explicit in_place_type_t() = default; };
-  template <class T> constexpr in_place_type_t<T> in_place_type{};
-
-  template <size_t I> struct in_place_index_t{ explicit in_place_index_t() = default; };
-  template <size_t I> constexpr in_place_index_t<I> in_place_index{};
 
   // \ref{variant.get}, value access
   template <class T, class... Types>
@@ -4309,42 +4369,6 @@ variant_alternative<I, variant<Types...>>::type
 \textit{Value:} The type $T_I$.
 \end{itemdescr}
 
-\rSec2[variant.in.place]{In-place construction}
-
-\indexlibrary{\idxcode{in_place_type_t}}%
-\indexlibrary{\idxcode{in_place_type}}%
-\indexlibrary{\idxcode{in_place_index_t}}%
-\indexlibrary{\idxcode{in_place_index}}%
-\begin{itemdecl}
-template <class T> struct in_place_type_t{ explicit in_place_type_t() = default; };
-template <class T> constexpr in_place_type_t<T> in_place_type{};
-template <size_t I> struct in_place_index_t{ explicit in_place_index_t() = default; };
-template <size_t I> constexpr in_place_index_t<I> in_place_index{};
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-Template specializations of \tcode{in_place_type_t} are empty structure types
-used as unique types to disambiguate constructor overloading. They signal
-(through the template parameter) the alternative to be constructed.
-Specifically, \tcode{variant} has a constructor with \tcode{in_place_type_t<T>}
-as the first argument followed by an argument pack; this indicates that
-\tcode{T} should be constructed in-place (as if by a call to a placement
-\grammarterm{new-expression}) with the forwarded argument pack as parameters.
-If a \tcode{variant}'s \tcode{Types...} has multiple occurrences of \tcode{T},
-\tcode{in_place_index_t} shall be used.
-
-\pnum
-Template specializations of \tcode{in_place_index_t} are empty structure types
-used as unique types to disambiguate constructor overloading, and signaling
-(through the template parameter) the alternative to be constructed.
-Specifically, \tcode{variant} has a constructor with \tcode{in_place_index_t<I>}
-as the first argument followed by an argument pack; this indicates that
-$T_I$ should be constructed in-place (as if by a call to a placement
-\grammarterm{new-expression}) with the forwarded argument pack as parameters.
-\end{itemdescr}
-
-
 \rSec2[variant.get]{Value access}
 
 \indexlibrary{\idxcode{holds_alternative}}
@@ -4769,7 +4793,12 @@ namespace std {
 
   // \ref{any.nonmembers}, non-member functions
   void swap(any& x, any& y) noexcept;
-  
+
+  template <class T, class ...Args>
+    any make_any(Args&& ...args);
+  template <class U, class T, class ...Args>
+    any make_any(initializer_list<U>, Args&& ...args);
+
   template<class ValueType>
     ValueType any_cast(const any& operand);
   template<class ValueType>
@@ -4803,36 +4832,48 @@ Objects of type \tcode{bad_any_cast} are thrown by a failed \tcode{any_cast}~(\r
 class any {
 public:
   // \ref{any.cons}, construction and destruction
-  any() noexcept;
+  constexpr any() noexcept;
 
-  any(const any &other);
-  any(any &&other) noexcept;
+  any(const any& other);
+  any(any&& other) noexcept;
 
-  template <class ValueType> any(ValueType &&value);
+  template <class ValueType> any(ValueType&& value);
+
+  template <class T, class... Args>
+    explicit any(in_place_type_t<T>, Args&&...);
+  template <class T, class U, class... Args>
+    explicit any(in_place_type_t<T>, initializer_list<U>, Args&&...);
 
   ~any();
 
   // \ref{any.assign}, assignments
-  any &operator=(const any &rhs);
-  any &operator=(any &&rhs) noexcept;
+  any &operator=(const any& rhs);
+  any &operator=(any&& rhs) noexcept;
 
-  template <class ValueType> any &operator=(ValueType &&rhs);
+  template <class ValueType> any& operator=(ValueType&& rhs);
 
   // \ref{any.modifiers}, modifiers
-  void clear() noexcept;
-  void swap(any &rhs) noexcept;
+  template <class T, class... Args>
+    void emplace(Args&& ...);
+  template <class T, class U, class... Args>
+    void emplace(initializer_list<U>, Args&&...);
+  void reset() noexcept;
+  void swap(any& rhs) noexcept;
 
   // \ref{any.observers}, observers
-  bool empty() const noexcept;
-  const type_info &type() const noexcept;
+  bool has_value() const noexcept;
+  const type_info& type() const noexcept;
 };
 \end{codeblock}
 
 \pnum
-An object of class \tcode{any} stores an instance of any type that satisfies the constructor requirements or is empty,
+\begin{note} \tcode{any} is not a literal type. \end{note}
+
+\pnum
+An object of class \tcode{any} stores an instance of any type that satisfies the constructor requirements or it has no value,
 and this is referred to as the \defn{state} of the class \tcode{any} object.
 The stored instance is called the \defn{contained object}.
-Two states are equivalent if they are either both empty or if both are not empty and if the contained objects are equivalent.
+Two states are equivalent if either they both have no value, or both have a value and the contained objects are equivalent.
 
 \pnum
 The non-member \tcode{any_cast} functions provide type-safe access to the contained object.
@@ -4849,7 +4890,7 @@ Such small-object optimization shall only be applied to types \tcode{T} for whic
 
 \indexlibrary{\idxcode{any}!constructor}
 \begin{itemdecl}
-any() noexcept;
+constexpr any() noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -4913,6 +4954,50 @@ This constructor shall not participate in overload resolution if \tcode{decay_t<
 Any exception thrown by the selected constructor of \tcode{T}.
 \end{itemdescr}
 
+\begin{itemdecl}
+template <class T, class... Args>
+  explicit any(in_place_type_t<T>, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{is_constructible_v<T, Args...>} is \tcode{true}.
+
+\pnum
+\effects Initializes the contained value as if direct-non-list-initializing an object of
+type \tcode{T} with the arguments \tcode{std::forward<Args>(args)...}.
+
+\pnum
+\postconditions \tcode{*this} contains a value of type \tcode{T}.
+
+\pnum
+\throws Any exception thrown by the selected constructor of \tcode{T}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class T, class U, class... Args>
+  explicit any(in_place_type_t<T>, initializer_list<U> il, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{is_constructible_v<T, initializer_list<U>\&, Args...>} is \tcode{true}.
+
+\pnum
+\effects Initializes the contained value as if direct-non-list-initializing an object of
+type \tcode{T} with the arguments \tcode{il, std::forward<Args>(args)...}.
+
+\pnum
+\postconditions \tcode{*this} contains a value.
+
+\pnum
+\throws Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks The function shall not participate in overload resolution
+unless \tcode{is_constructible_v<T, initializer_list<U>\&, Args...>} is \tcode{true}.
+\end{itemdescr}
+
 \indexlibrary{\idxcode{any}!destructor}
 \begin{itemdecl}
 ~any();
@@ -4921,7 +5006,7 @@ Any exception thrown by the selected constructor of \tcode{T}.
 \begin{itemdescr}
 \pnum
 \effects
-As if by \tcode{clear()}.
+As if by \tcode{reset()}.
 \end{itemdescr}
 
 \rSec3[any.assign]{Assignment}
@@ -5000,20 +5085,74 @@ Any exception thrown by the selected constructor of \tcode{T}.
 
 \rSec3[any.modifiers]{Modifiers}
 
+\begin{itemdecl}
+template <class T, class... Args>
+  void emplace(Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{is_constructible_v<T, Args...>} is \tcode{true}.
+
+\pnum
+\effects Calls \tcode{this.reset()}.
+Then initializes the contained value as if direct-non-list-initializing
+an object of type \tcode{T} with the arguments \tcode{std::forward<Args>(args)...}.
+
+\pnum
+\postconditions \tcode{*this} contains a value.
+
+\pnum
+\throws Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks If an exception is thrown during the call to \tcode{T}'s constructor,
+\tcode{*this} does not contain a value, and any previously contained object
+has been destroyed.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <class T, class U, class... Args>
+  void emplace(initializer_list<U> il, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{is_constructible_v<T, initializer_list<U>\&, Args...>} is \tcode{true}.
+
+\pnum
+\effects Calls \tcode{this->reset()}. Then initializes the contained value
+as if direct-non-list-initializing an object of type \tcode{T} with the arguments
+\tcode{il, std::forward<Args> (args)...}.
+
+\pnum
+\postconditions \tcode{*this} contains a value.
+
+\pnum
+\throws Any exception thrown by the selected constructor of \tcode{T}.
+
+\pnum
+\remarks If an exception is thrown during the call to \tcode{T}'s constructor,
+\tcode{*this} does not contain a value, and any previously contained object
+has been destroyed.
+The function shall not participate in overload resolution unless
+\tcode{is_constructible_v<T, initializer_list<U>\&, Args...>} is \tcode{true}.
+\end{itemdescr}
+
 \indexlibrary{\idxcode{any}!\idxcode{clear}}
 \indexlibrary{\idxcode{clear}!\idxcode{any}}
 \begin{itemdecl}
-void clear() noexcept;
+void reset() noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects
-If not empty, destroys the contained object.
+If \tcode{has_value()} is \tcode{true}, destroys the contained object.
 
 \pnum
 \postcondition
-\tcode{empty() == true}.
+\tcode{has_value()} is \tcode{false}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{any}!\idxcode{swap}}
@@ -5034,13 +5173,13 @@ Exchanges the states of \tcode{*this} and \tcode{rhs}.
 \indexlibrary{\idxcode{any}!\idxcode{empty}}
 \indexlibrary{\idxcode{empty}!\idxcode{any}}
 \begin{itemdecl}
-bool empty() const noexcept;
+bool has_value() const noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \returns
-\tcode{true} if \tcode{*this} has no contained object, otherwise \tcode{false}.
+\tcode{true} if \tcode{*this} contains an object, otherwise \tcode{false}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{any}!\idxcode{type}}
@@ -5072,6 +5211,30 @@ void swap(any& x, any& y) noexcept;
 \pnum
 \effects
 As if by \tcode{x.swap(y)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{make_any}}%
+\begin{itemdecl}
+template <class T, class ...Args>
+  any make_any(Args&& ...args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return any(in_place<T>, std::forward<Args>(args)...);}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{make_any}}%
+\begin{itemdecl}
+template <class U, class T, class ...Args>
+  any make_any(initializer_list<U>, Args&& ...args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return any(in_place<T>, il, std::forward<Args>(args)...);}
 \end{itemdescr}
 
 \indexlibrary{\idxcode{any_cast}}
