@@ -14,6 +14,7 @@ These utilities are summarized in Table~\ref{tab:util.lib.summary}.
 \ref{pairs}                 & Pairs                             & \tcode{<utility>}     \\ \rowsep
 \ref{tuple}                 & Tuples                            & \tcode{<tuple>}       \\ \rowsep
 \ref{optional}              & Optional objects                  & \tcode{<optional>}    \\ \rowsep
+\ref{variant}               & Variants                          & \tcode{<variant>}     \\ \rowsep
 \ref{any}                   & Storage for any type              & \tcode{<any>}         \\ \rowsep
 \ref{template.bitset}       & Fixed-size sequences of bits      & \tcode{<bitset>}      \\ \rowsep
 \ref{memory}                & Memory                            & \tcode{<memory>}      \\
@@ -3315,6 +3316,1350 @@ For an object \tcode{o} of type \tcode{optional<T>}, if \tcode{bool(o) == true},
 \tcode{hash<optional<T>>()(o)} shall evaluate to the same value as \tcode{hash<T>()(*o)};
 otherwise it evaluates to an unspecified value.
 \end{itemdescr}
+
+
+\rSec1[variant]{Variants}
+
+\rSec2[variant.general]{In general}
+
+\pnum
+A variant object holds and manages the lifetime of a value.
+If the \tcode{variant} holds a value, that value's type has to be one
+of the template argument types given to variant.
+These template arguments are called alternatives.
+
+\indexlibrary{\idxhdr{variant}}%
+\synopsis{Header \tcode{<variant>} synopsis}
+
+\begin{codeblock}
+namespace std {
+  // \ref{variant.variant}, variant of value types
+  template <class... Types> class variant;
+
+  // \ref{variant.helper}, variant helper classes
+  template <class T> struct variant_size; // undefined
+  template <class T> struct variant_size<const T>;
+  template <class T> struct variant_size<volatile T>;
+  template <class T> struct variant_size<const volatile T>;
+  template <class T> constexpr size_t variant_size_v
+    = variant_size<T>::value;
+
+  template <class... Types>
+    struct variant_size<variant<Types...>>;
+
+  template <size_t I, class T> struct variant_alternative; // undefined
+  template <size_t I, class T> struct variant_alternative<I, const T>;
+  template <size_t I, class T> struct variant_alternative<I, volatile T>;
+  template <size_t I, class T> struct variant_alternative<I, const volatile T>;
+  template <size_t I, class T>
+    using variant_alternative_t = typename variant_alternative<I, T>::type;
+
+  template <size_t I, class... Types>
+    struct variant_alternative<I, variant<Types...>>;
+
+  constexpr size_t variant_npos = -1;
+
+
+  // \ref{variant.in.place}, in-place construction
+  template <class T> struct in_place_type_t{ explicit in_place_type_t() = default; };
+  template <class T> constexpr in_place_type_t<T> in_place_type{};
+
+  template <size_t I> struct in_place_index_t{ explicit in_place_index_t() = default; };
+  template <size_t I> constexpr in_place_index_t<I> in_place_index{};
+
+  // \ref{variant.get}, value access
+  template <class T, class... Types>
+    constexpr bool holds_alternative(const variant<Types...>&) noexcept;
+
+  template <size_t I, class... Types>
+    constexpr variant_alternative_t<I, variant<Types...>>&
+    get(variant<Types...>&);
+  template <size_t I, class... Types>
+    constexpr variant_alternative_t<I, variant<Types...>>&&
+    get(variant<Types...>&&);
+  template <size_t I, class... Types>
+    constexpr variant_alternative_t<I, variant<Types...>> const&
+    get(const variant<Types...>&);
+  template <size_t I, class... Types>
+    constexpr variant_alternative_t<I, variant<Types...>> const&&
+    get(const variant<Types...>&&);
+
+  template <class T, class... Types>
+    constexpr T& get(variant<Types...>&);
+  template <class T, class... Types>
+    constexpr T&& get(variant<Types...>&&);
+  template <class T, class... Types>
+    constexpr const T& get(const variant<Types...>&);
+  template <class T, class... Types>
+    constexpr const T&& get(const variant<Types...>&&);
+
+  template <size_t I, class... Types>
+    constexpr add_pointer_t<variant_alternative_t<I, variant<Types...>>>
+    get_if(variant<Types...>*) noexcept;
+  template <size_t I, class... Types>
+    constexpr add_pointer_t<const variant_alternative_t<I, variant<Types...>>>
+    get_if(const variant<Types...>*) noexcept;
+
+  template <class T, class... Types>
+    constexpr add_pointer_t<T> get_if(variant<Types...>*) noexcept;
+  template <class T, class... Types>
+    constexpr add_pointer_t<const T> get_if(const variant<Types...>*) noexcept;
+
+  // \ref{variant.relops}, relational operators
+  template <class... Types>
+    constexpr bool operator==(const variant<Types...>&,
+                              const variant<Types...>&);
+  template <class... Types>
+    constexpr bool operator!=(const variant<Types...>&,
+                              const variant<Types...>&);
+  template <class... Types>
+    constexpr bool operator<(const variant<Types...>&,
+                             const variant<Types...>&);
+  template <class... Types>
+    constexpr bool operator>(const variant<Types...>&,
+                             const variant<Types...>&);
+  template <class... Types>
+    constexpr bool operator<=(const variant<Types...>&,
+                              const variant<Types...>&);
+  template <class... Types>
+    constexpr bool operator>=(const variant<Types...>&,
+                              const variant<Types...>&);
+
+  // \ref{variant.visit}, visitation
+  template <class Visitor, class... Variants>
+  constexpr @\seebelow@ visit(Visitor&&, Variants&&...);
+
+  // \ref{variant.monostate}, class \tcode{monostate}
+  struct monostate;
+
+  // \ref{variant.monostate.relops}, \tcode{monostate} relational operators
+  constexpr bool operator<(monostate, monostate) noexcept;
+  constexpr bool operator>(monostate, monostate) noexcept;
+  constexpr bool operator<=(monostate, monostate) noexcept;
+  constexpr bool operator>=(monostate, monostate) noexcept;
+  constexpr bool operator==(monostate, monostate) noexcept;
+  constexpr bool operator!=(monostate, monostate) noexcept;
+
+  // \ref{variant.specalg}, specialized algorithms
+  template <class... Types>
+  void swap(variant<Types...>&, variant<Types...>&) noexcept(@\seebelow@);
+
+  // \ref{variant.bad.access}, class \tcode{bad_variant_access}
+  class bad_variant_access;
+
+  // \ref{variant.hash}, hash support
+  template <class T> struct hash;
+  template <class... Types> struct hash<variant<Types...>>;
+  template <> struct hash<monostate>;
+
+  // \ref{variant.traits}, allocator-related traits
+  template <class T, class Alloc> struct uses_allocator;
+  template <class... Types, class Alloc>
+  struct uses_allocator<variant<Types...>, Alloc>;
+} // namespace std
+\end{codeblock}
+
+\indexlibrary{\idxcode{variant}}%
+\rSec2[variant.variant]{\tcode{variant} of value types}
+
+\begin{codeblock}
+namespace std {
+  template <class... Types>
+  class variant {
+  public:
+    // \ref{variant.ctor}, constructors
+    constexpr variant() noexcept(@\seebelow@);
+    variant(const variant&);
+    variant(variant&&) noexcept(@\seebelow@);
+
+    template <class T> constexpr variant(T&&) noexcept(@\seebelow@);
+
+    template <class T, class... Args>
+      constexpr explicit variant(in_place_type_t<T>, Args&&...);
+    template <class T, class U, class... Args>
+      constexpr explicit variant(in_place_type_t<T>, initializer_list<U>, Args&&...);
+
+    template <size_t I, class... Args>
+      constexpr explicit variant(in_place_index_t<I>, Args&&...);
+    template <size_t I, class U, class... Args>
+      constexpr explicit variant(in_place_index_t<I>, initializer_list<U>, Args&&...);
+
+    // allocator-extended constructors
+    template <class Alloc>
+      variant(allocator_arg_t, const Alloc&);
+    template <class Alloc>
+      variant(allocator_arg_t, const Alloc&, const variant&);
+    template <class Alloc>
+      variant(allocator_arg_t, const Alloc&, variant&&);
+    template <class Alloc, class T>
+      variant(allocator_arg_t, const Alloc&, T&&);
+    template <class Alloc, class T, class... Args>
+      variant(allocator_arg_t, const Alloc&, in_place_type_t<T>, Args&&...);
+    template <class Alloc, class T, class U, class... Args>
+      variant(allocator_arg_t, const Alloc&, in_place_type_t<T>, initializer_list<U>, Args&&...);
+    template <class Alloc, size_t I, class... Args>
+      variant(allocator_arg_t, const Alloc&, in_place_index_t<I>, Args&&...);
+    template <class Alloc, size_t I, class U, class... Args>
+      variant(allocator_arg_t, const Alloc&, in_place_index_t<I>, initializer_list<U>, Args&&...);
+
+    // \ref{variant.dtor}, destructor
+    ~variant();
+
+    // \ref{variant.assign}, assignment
+    variant& operator=(const variant&);
+    variant& operator=(variant&&) noexcept(@\seebelow@);
+
+    template <class T> variant& operator=(T&&) noexcept(@\seebelow@);
+
+    // \ref{variant.mod}, modifiers
+    template <class T, class... Args> void emplace(Args&&...);
+    template <class T, class U, class... Args>
+      void emplace(initializer_list<U>, Args&&...);
+    template <size_t I, class... Args> void emplace(Args&&...);
+    template <size_t I, class U, class... Args>
+      void emplace(initializer_list<U>, Args&&...);
+
+    // \ref{variant.status}, value status
+    constexpr bool valueless_by_exception() const noexcept;
+    constexpr size_t index() const noexcept;
+
+    // \ref{variant.swap}, swap
+    void swap(variant&) noexcept(@\seebelow@);
+  };
+} // namespace std
+\end{codeblock}
+
+\pnum
+Any instance of \tcode{variant} at any given time either holds a value
+of one of its alternative types, or it holds no value.
+When an instance of \tcode{variant} holds a value of alternative type \tcode{T},
+it means that a value of type \tcode{T}, referred to as the \tcode{variant}
+object's contained value, is allocated within the storage of the
+\tcode{variant} object.
+Implementations are not permitted to use additional storage, such as dynamic
+memory, to allocate the contained value.
+The contained value shall be allocated in a region of the \tcode{variant}
+storage suitably aligned for all types in \tcode{Types...}.
+It is \impldef{whether \tcode{variant} supports over-aligned types}
+whether over-aligned types are supported.
+
+\pnum
+All types in \tcode{Types...} shall be (possibly cv-qualified)
+object types, (possibly cv-qualified) \tcode{void}, or references.
+\begin{note}
+Implementations could decide to store references in a wrapper.
+\end{note}
+
+\rSec3[variant.ctor]{Constructors}
+
+\pnum
+In the descriptions that follow, let $i$ be in the range \range{0}{sizeof...(Types)},
+and $T_i$ be the $i^{th}$ type in \tcode{Types...}.
+
+\indexlibrary{\idxcode{variant}!constructor}%
+\begin{itemdecl}
+constexpr variant() noexcept(@\seebelow@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Constructs a \tcode{variant} holding a value-initialized value of type $T_0$.
+
+\pnum
+\postconditions
+\tcode{valueless_by_exception()} is \tcode{false} and \tcode{index()} is \tcode{0}.
+
+\pnum
+\throws
+Any exception thrown by the value initialization of $T_0$.
+
+\pnum
+\remarks
+This function shall be \tcode{constexpr} if and only if the
+value-initialization of the alternative type $T_0$ would satisfy the
+requirements for a \tcode{constexpr} function.
+The expression inside \tcode{noexcept} is equivalent to
+\tcode{is_nothrow_default_constructible_v<$T_0$>}.
+This function shall not participate in overload resolution unless
+\tcode{is_default_constructible_v<$T_0$>} is \tcode{true}.
+\begin{note} See also class \tcode{monostate}. \end{note}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant}!constructor}%
+\begin{itemdecl}
+variant(const variant& w);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{w} holds a value, initializes the \tcode{variant} to hold the same
+alternative as \tcode{w} and direct-initializes the contained value
+with \tcode{get<j>(w)}, where \tcode{j} is \tcode{w.index()}.
+Otherwise, initializes the \tcode{variant} to not hold a value.
+
+\pnum
+\throws
+Any exception thrown by direct-initializing any $T_i$ for all $i$.
+
+\pnum
+\remarks
+This function shall not participate in overload resolution unless
+\tcode{is_copy_constructible_v<$T_i$>} is \tcode{true} for all $i$.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant}!constructor}%
+\begin{itemdecl}
+variant(variant&& w) noexcept(@\seebelow@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{w} holds a value, initializes the \tcode{variant} to hold the same
+alternative as \tcode{w} and direct-initializes the contained value with
+\tcode{get<j>(std::move(w))}, where \tcode{j} is \tcode{w.index()}.
+Otherwise, initializes the \tcode{variant} to not hold a value.
+
+\pnum
+\throws
+Any exception thrown by move-constructing any $T_i$ for all $i$.
+
+\pnum
+\remarks
+The expression inside \tcode{noexcept} is equivalent to the logical AND of
+\tcode{is_nothrow_move_constructible_v<$T_i$>} for all $i$.
+This function shall not participate in overload resolution unless
+\tcode{is_move_constructible_v<$T_i$>} is \tcode{true} for all $i$.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant}!constructor}%
+\begin{itemdecl}
+template <class T> constexpr variant(T&& t) noexcept(@\seebelow@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let $T_j$ be a type that is determined as follows:
+build an imaginary function \tcode{\textit{FUN}($T_i$)} for each alternative type $T_i$. The overload \tcode{\textit{FUN}($T_j$)} selected by overload
+resolution for the expression \tcode{\textit{FUN}(std::forward<T>(\brk{}t))} defines
+the alternative $T_j$ which is the type of the contained value after
+construction.
+
+\pnum
+\effects
+Initializes \tcode{*this} to hold the alternative type $T_j$ and
+direct-initializes the contained value as if direct-non-list-initializing it
+with \tcode{std::forward<T>(t)}.
+
+\pnum
+\postconditions
+\tcode{holds_alternative<$T_j$>(*this)} is \tcode{true}.
+
+\pnum
+\throws
+Any exception thrown by the initialization of the selected alternative $T_j$.
+
+\pnum
+\remarks
+This function shall not participate in overload resolution unless
+\tcode{is_same_v<decay_t<T>, variant>} is \tcode{false}, unless \tcode{is_constructible_v<$T_j$, T>} is \tcode{true}, and unless the expression
+\tcode{\textit{FUN}(}\brk\tcode{std::forward<T>(t))} (with \tcode{\textit{FUN}}
+being the above-mentioned set of imaginary functions) is well formed.
+
+\pnum
+\begin{note}
+\begin{codeblock}
+variant<string, string> v("abc");
+\end{codeblock}
+is ill-formed, as both alternative types have an equally viable constructor
+for the argument. \end{note}
+
+\pnum
+The expression inside \tcode{noexcept} is equivalent to
+\tcode{is_nothrow_constructible_v<$T_j$, T>}.
+If $T_j$'s selected constructor is a constexpr constructor,
+this constructor shall be a constexpr constructor.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant}!constructor}%
+\begin{itemdecl}
+template <class T, class... Args> constexpr explicit variant(in_place_type_t<T>, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the contained value of type \tcode{T} with the arguments \tcode{std::forward<Args>(args)...}.
+
+\pnum
+\postconditions
+\tcode{holds_alternative<T>(*this)} is \tcode{true}.
+
+\pnum
+\throws
+Any exception thrown by calling the selected constructor of \tcode{T}.
+
+\pnum
+\remarks
+This function shall not participate in overload resolution unless there is
+exactly one occurrence of \tcode{T} in \tcode{Types...} and
+\tcode{is_constructible_v<T, Args...>} is \tcode{true}.
+If \tcode{T}'s selected constructor is a constexpr constructor, this
+constructor shall be a constexpr constructor.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant}!constructor}%
+\begin{itemdecl}
+template <class T, class U, class... Args>
+  constexpr explicit variant(in_place_type_t<T>, initializer_list<U> il, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the contained value as if constructing an object of type \tcode{T}
+with the arguments \tcode{il, std::forward<Args>(args)...}.
+
+\pnum
+\postconditions
+\tcode{holds_alternative<T>(*this)} is \tcode{true}.
+
+\pnum
+\throws
+Any exception thrown by calling the selected constructor of \tcode{T}.
+
+\pnum
+\remarks
+This function shall not participate in overload resolution unless there is
+exactly one occurrences of \tcode{T} in \tcode{Types...} and
+\tcode{is_constructible_v<T, initializer_list<U>\&, Args...>} is \tcode{true}.
+If \tcode{T}'s selected constructor is a constexpr constructor, this
+constructor shall be a constexpr constructor.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant}!constructor}%
+\begin{itemdecl}
+template <size_t I, class... Args> constexpr explicit variant(in_place_index_t<I>, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the contained value as if constructing an object of type $T_I$
+with the arguments \tcode{std::forward<Args>(args)...}.
+
+\pnum
+\postconditions
+\tcode{index()} is \tcode{I}.
+
+\pnum
+\throws
+Any exception thrown by calling the selected constructor of $T_I$.
+
+\pnum
+\remarks
+This function shall not participate in overload resolution unless \tcode{I} is
+less than \tcode{sizeof...(Types)} and \tcode{is_constructible_v<$T_I$, Args...>} is \tcode{true}.
+If $T_I$'s selected constructor is a \tcode{constexpr} constructor, this
+constructor shall be a constexpr constructor.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant}!constructor}%
+\begin{itemdecl}
+template <size_t I, class U, class... Args>
+  constexpr explicit variant(in_place_index_t<I>, initializer_list<U> il, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the contained value as if constructing an object of type
+$T_I$ with the arguments \tcode{il, std::forward<Args>(args)...}.
+
+\pnum
+\postconditions
+\tcode{index()} is \tcode{I}.
+
+\pnum
+\remarks
+This function shall not participate in overload resolution unless \tcode{I} is
+less than \tcode{sizeof...(Types)} and
+\tcode{is_constructible_v<$T_I$, initializer_list<U>\&, Args...>} is \tcode{true}.
+If $T_I$'s selected constructor is a \tcode{constexpr} constructor, this
+constructor shall be a constexpr constructor.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant}!constructor}%
+\begin{itemdecl}
+// allocator-extended constructors
+template <class Alloc>
+  variant(allocator_arg_t, const Alloc& a);
+template <class Alloc>
+  variant(allocator_arg_t, const Alloc& a, const variant& v);
+template <class Alloc>
+  variant(allocator_arg_t, const Alloc& a, variant&& v);
+template <class Alloc, class T>
+  variant(allocator_arg_t, const Alloc& a, T&& t);
+template <class Alloc, class T, class... Args>
+  variant(allocator_arg_t, const Alloc& a, in_place_type_t<T>, Args&&... args);
+template <class Alloc, class T, class U, class... Args>
+  variant(allocator_arg_t, const Alloc& a, in_place_type_t<T>,
+          initializer_list<U> il, Args&&... args);
+template <class Alloc, size_t I, class... Args>
+  variant(allocator_arg_t, const Alloc& a, in_place_index_t<I>, Args&&... args);
+template <class Alloc, size_t I, class U, class... Args>
+  variant(allocator_arg_t, const Alloc& a, in_place_index_t<I>,
+          initializer_list<U> il, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{Alloc} shall meet the requirements for an Allocator~(\ref{allocator.requirements}).
+
+\pnum
+\effects
+Equivalent to the preceding constructors except that the contained value is
+constructed with uses-allocator construction~(\ref{allocator.uses.construction}).
+\end{itemdescr}
+
+\rSec3[variant.dtor]{Destructor}
+
+\indexlibrary{\idxcode{variant}!destructor}%
+\begin{itemdecl}
+~variant();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{valueless_by_exception()} is \tcode{false},
+destroys the currently contained value.
+
+\pnum
+\remarks
+If \tcode{is_trivially_destructible_v<$T_i$> == true} for all $T_i$
+then this destructor shall be a trivial destructor.
+\end{itemdescr}
+
+\rSec3[variant.assign]{Assignment}
+
+\indexlibrary{\idxcode{variant}!\idxcode{operator=}}%
+\indexlibrary{\idxcode{operator=}!\idxcode{variant}}%
+\begin{itemdecl}
+variant& operator=(const variant& rhs);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\begin{itemize}
+\item
+If neither \tcode{*this} nor \tcode{rhs} holds a value, there is no effect.  Otherwise,
+\item
+if \tcode{*this} holds a value but \tcode{rhs} does not, destroys the value
+contained in \tcode{*this} and sets \tcode{*this} to not hold a value.  Otherwise,
+\item
+if \tcode{index() == rhs.index()}, assigns the value contained in \tcode{rhs}
+to the value contained in *this. Otherwise,
+\item
+copies the value contained in \tcode{rhs} to a temporary, then destroys any
+value contained in \tcode{*this}. Sets \tcode{*this} to hold the same
+alternative index as \tcode{rhs} and initializes the value contained in
+\tcode{*this} as if direct-non-list-initializing an object of type $T_j$
+with \tcode{std::forward<$T_j$>(TMP),} with \tcode{TMP} being the temporary and
+$j$ being \tcode{rhs.index()}.
+\end{itemize}
+
+\pnum
+\returns \tcode{*this}.
+
+\pnum
+\postconditions \tcode{index() == rhs.index()}.
+
+\pnum
+\remarks
+This function shall not participate in overload resolution unless
+\tcode{is_copy_constructible_v<$T_i$> \&\& is_move_constructible_v<$T_i$> \&\& is_copy_assignable_v<$T_i$>}
+is \tcode{true} for all $i$.
+If an exception is thrown during the call to $T_j$'s copy assignment,
+the state of the contained value is as defined by the exception safety
+guarantee of $T_j$'s copy assignment; \tcode{index()} will be $j$.
+If an exception is thrown during the call to $T_j$'s copy construction
+(with $j$ being \tcode{rhs.index()}), \tcode{*this} will remain unchanged.
+If an exception is thrown during the call to $T_j$'s move construction,
+the \tcode{variant} will hold no value.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant}!\idxcode{operator=}}%
+\indexlibrary{\idxcode{operator=}!\idxcode{variant}}%
+\begin{itemdecl}
+variant& operator=(variant&& rhs) noexcept(@\seebelow@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\begin{itemize}
+\item
+If neither \tcode{*this} nor \tcode{rhs} holds a value, there is no effect. Otherwise,
+\item
+if \tcode{*this} holds a value but \tcode{rhs} does not, destroys the value
+contained in \tcode{*this} and sets \tcode{*this} to not hold a value. Otherwise,
+\item
+if \tcode{index() == rhs.index()}, assigns \tcode{get<$j$>(std::move(rhs))} to
+the value contained in \tcode{*this}, with $j$ being \tcode{index()}. Otherwise,
+\item
+destroys any value contained in \tcode{*this}. Sets \tcode{*this} to hold the
+same alternative index as \tcode{rhs} and initializes the value contained in
+\tcode{*this} as if direct-non-list-initializing an object of type $T_j$
+with \tcode{get<$j$>(std::move(rhs))} with $j$ being \tcode{rhs.index()}.
+\end{itemize}
+
+\pnum
+\returns \tcode{*this}.
+
+\pnum
+\remarks
+This function shall not participate in overload resolution unless
+\tcode{is_move_constructible_v<$T_i$> \&\& is_move_assignable_v<$T_i$>} is
+\tcode{true} for all $i$.
+The expression inside \tcode{noexcept} is equivalent to:
+\tcode{is_nothrow_move_constructible_v<$T_i$> \&\& is_nothrow_move_assignable_v<$T_i$>} for all $i$.
+If an exception is thrown during the call to $T_j$'s move construction
+(with $j$ being \tcode{rhs.index())}, the \tcode{variant} will hold no value.
+If an exception is thrown during the call to $T_j$'s move assignment,
+the state of the contained value is as defined by the exception safety
+guarantee of $T_j$'s move assignment; \tcode{index()} will be $j$.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant}!\idxcode{operator=}}%
+\indexlibrary{\idxcode{operator=}!\idxcode{variant}}%
+\begin{itemdecl}
+template <class T> variant& operator=(T&& t) noexcept(@\seebelow@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let $T_j$ be a type that is determined as follows:
+build an imaginary function \tcode{\textit{FUN}($T_i$)} for each alternative type
+$T_i$. The overload \tcode{\textit{FUN}($T_j$)} selected by overload
+resolution for the expression \tcode{\textit{FUN}(std::forward<T>(\brk{}t))} defines
+the alternative $T_j$ which is the type of the contained value after
+assignment.
+
+\pnum
+\effects
+If \tcode{*this} holds a $T_j$, assigns \tcode{std::forward<T>(t)} to
+the value contained in \tcode{*this}. Otherwise, destroys any value contained
+in \tcode{*this}, sets \tcode{*this} to hold the alternative type $T_j$
+as selected by the imaginary function overload resolution described above,
+and direct-initializes the contained value as if direct-non-list-initializing
+it with \tcode{std::forward<T>(t)}.
+
+\pnum
+\postconditions
+\tcode{holds_alternative<$T_j$>(*this)} is \tcode{true}, with $T_j$
+selected by the imaginary function overload resolution described above.
+
+\pnum
+\returns \tcode{*this}.
+
+\pnum
+\remarks
+This function shall not participate in overload resolution unless
+\tcode{is_same_v<decay_t<T>, variant>} is \tcode{false}, unless
+\tcode{is_assignable_v<$T_j$\&, T> \&\& is_constructible_v<$T_j$, T>} is \tcode{true},
+and unless the expression \tcode{\textit{FUN}(std::forward<T>(t))} (with
+\tcode{\textit{FUN}} being the above-mentioned set of imaginary functions)
+is well formed.
+
+\pnum
+\begin{note}
+\begin{codeblock}
+variant<string, string> v;
+v = "abc";
+\end{codeblock}
+is ill-formed, as both alternative types have an equally viable constructor
+for the argument. \end{note}
+
+\pnum
+The expression inside \tcode{noexcept} is equivalent to:
+\tcode{is_nothrow_assignable_v<$T_j$\&, T> \&\& is_nothrow_constructible_v<$T_j$, T>}.
+If an exception is thrown during the assignment of \tcode{std::forward<T>(t)}
+to the value contained in \tcode{*this}, the state of the contained value and
+\tcode{t} are as defined by the exception safety guarantee of the assignment
+expression; \tcode{valueless_by_exception()} will be \tcode{false}.
+If an exception is thrown during the initialization of the contained value,
+the \tcode{variant} object might not hold a value.
+\end{itemdescr}
+
+\rSec3[variant.mod]{Modifiers}
+
+\indexlibrary{\idxcode{variant}!\idxcode{emplace}}%
+\indexlibrary{\idxcode{emplace}!\idxcode{variant}}%
+\begin{itemdecl}
+template <class T, class... Args> void emplace(Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{emplace<$I$>(std::forward<Args>(args)...)} where $I$
+is the zero-based index of \tcode{T} in \tcode{Types...}.
+
+\pnum
+\remarks
+This function shall not participate in overload resolution unless
+\tcode{is_constructible_v<T, Args...>} is \tcode{true}, and \tcode{T} occurs
+exactly once in \tcode{Types...}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant}!\idxcode{emplace}}%
+\indexlibrary{\idxcode{emplace}!\idxcode{variant}}%
+\begin{itemdecl}
+template <class T, class U, class... Args> void emplace(initializer_list<U> il, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{emplace<$I$>(il, std::forward<Args>(args)...)} where
+$I$ is the zero-based index of \tcode{T} in \tcode{Types...}.
+
+\pnum
+\remarks
+This function shall not participate in overload resolution unless
+\tcode{is_constructible_v<T, initializer_list<U>\&, Args...>} is \tcode{true},
+and \tcode{T} occurs exactly once in \tcode{Types...}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant}!\idxcode{emplace}}%
+\indexlibrary{\idxcode{emplace}!\idxcode{variant}}%
+\begin{itemdecl}
+template <size_t I, class... Args> void emplace(Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{I < sizeof...(Types)}.
+
+\pnum
+\effects
+Destroys the currently contained value if \tcode{valueless_by_exception()}
+is \tcode{false}. Then direct-initializes the contained value as if
+constructing a value of type $T_I$ with the arguments
+\tcode{std::forward<Ar\-gs>(args)...}.
+
+\pnum
+\postconditions
+\tcode{index()} is \tcode{I}.
+
+\pnum
+\throws
+Any exception thrown during the initialization of the contained value.
+
+\pnum
+\remarks
+This function shall not participate in overload resolution unless
+\tcode{is_constructible_v<$T_I$, Args...>} is \tcode{true}.
+If an exception is thrown during the initialization of the contained value,
+the \tcode{variant} might not hold a value.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant}!\idxcode{emplace}}%
+\indexlibrary{\idxcode{emplace}!\idxcode{variant}}%
+\begin{itemdecl}
+template <size_t I, class U, class... Args> void emplace(initializer_list<U> il, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{I < sizeof...(Types)}.
+
+\pnum
+\effects
+Destroys the currently contained value if \tcode{valueless_by_exception()}
+is \tcode{false}. Then direct-initializes the contained value as if
+constructing a value of type $T_I$ with the arguments
+\tcode{il, std::forward<Args>(args)...}.
+
+\pnum
+\postconditions
+\tcode{index()} is \tcode{I}.
+
+\pnum
+\throws
+Any exception thrown during the initialization of the contained value.
+
+\pnum
+\remarks
+This function shall not participate in overload resolution unless
+\tcode{is_constructible_v<$T_I$, initializer_list<U>\&, Args...>} is \tcode{true}.
+If an exception is thrown during the initialization of the contained value,
+the \tcode{variant} might not hold a value.
+\end{itemdescr}
+
+\rSec3[variant.status]{Value status}
+
+\indexlibrary{\idxcode{variant}!\idxcode{valueless_by_exception}}%
+\indexlibrary{\idxcode{valueless_by_exception}!\idxcode{variant}}%
+\begin{itemdecl}
+constexpr bool valueless_by_exception() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Returns \tcode{false} if and only if the \tcode{variant} holds a value.
+
+\pnum
+\begin{note}
+A \tcode{variant} might not hold a value if an exception is thrown during a
+type-changing assignment or emplacement. The latter means that even a
+\tcode{variant<float, int>} can become \tcode{valueless_by_exception()}, for
+instance by
+\begin{codeblock}
+struct S { operator int() { throw 42; }};
+variant<float, int> v{12.f};
+v.emplace<1>(S());
+\end{codeblock}
+\end{note}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant}!\idxcode{index}}%
+\indexlibrary{\idxcode{index}!\idxcode{variant}}%
+\begin{itemdecl}
+constexpr size_t index() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{valueless_by_exception()} is \tcode{true}, returns \tcode{variant_npos}.
+Otherwise, returns the zero-based index of the alternative of the contained value.
+\end{itemdescr}
+
+\rSec3[variant.swap]{Swap}
+
+\indexlibrary{\idxcode{variant}!\idxcode{swap}}%
+\indexlibrary{\idxcode{swap}!\idxcode{variant}}%
+\begin{itemdecl}
+void swap(variant& rhs) noexcept(@\seebelow@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\begin{itemize}
+\item
+if \tcode{valueless_by_exception() \&\& rhs.valueless_by_exception()} no effect. Otherwise,
+\item
+if \tcode{index() == rhs.index()}, calls \tcode{swap(get<i>(*this), get<i>(rhs))} where \tcode{i} is \tcode{index()}. Otherwise,
+\item
+exchanges values of \tcode{rhs} and \tcode{*this}.
+\end{itemize}
+
+\pnum
+\throws
+Any exception thrown by \tcode{swap(get<$i$>(*this), get<$i$>(rhs))} with $i$
+being \tcode{index()} and \tcode{variant}'s move constructor and move assignment operator.
+
+\pnum
+\remarks
+This function shall not participate in overload resolution unless
+\tcode{is_swappable_v<$T_i$>} is \tcode{true} for all $i$.
+If an exception is thrown during the call to function \tcode{swap(get<$i$>(*this), get<$i$>(rhs))},
+the states of the contained values of \tcode{*this} and of \tcode{rhs} are
+determined by the exception safety guarantee of \tcode{swap} for lvalues of
+$T_i$ with $i$ being \tcode{index()}.
+If an exception is thrown during the exchange of the values of \tcode{*this}
+and \tcode{rhs}, the states of the values of \tcode{*this} and of \tcode{rhs}
+are determined by the exception safety guarantee of \tcode{variant}'s move
+constructor and move assignment operator.
+The expression inside \tcode{noexcept} is equivalent to the logical AND of
+\tcode{is_nothrow_move_constructible_v<$T_i$> \&\& is_nothrow_swappable_v<$T_i$>} for all $i$.
+\end{itemdescr}
+
+\rSec2[variant.helper]{\tcode{variant} helper classes}
+
+\indexlibrary{\idxcode{variant_size}}%
+\begin{itemdecl}
+template <class T> struct variant_size;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\remarks
+All specializations of \tcode{variant_size<T>} shall meet the
+\tcode{UnaryTypeTrait} requirements~(\ref{meta.rqmts}) with a \tcode{BaseCharacteristic} of \tcode{integral_constant<size_t, N>} for some \tcode{N}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant_size}}%
+\begin{itemdecl}
+template <class T> class variant_size<const T>;
+template <class T> class variant_size<volatile T>;
+template <class T> class variant_size<const volatile T>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{VS} denote \tcode{variant_size<T>} of the cv-unqualified
+type \tcode{T}. Then each of the three templates shall meet the
+\tcode{UnaryTypeTrait} requirements~(\ref{meta.rqmts}) with a
+\tcode{BaseCharacteristic} of \tcode{integral_constant<size_t, VS::value>}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant_size}}%
+\begin{itemdecl}
+template <class... Types>
+struct variant_size<variant<Types...>>
+  : integral_constant<size_t, sizeof...(Types)> { };
+\end{itemdecl}
+% No itemdescr needed for variant_size<variant<Types...>>
+
+\indexlibrary{\idxcode{variant_alternative}}%
+\begin{itemdecl}
+template <size_t I, class T> class variant_alternative<I, const T>;
+template <size_t I, class T> class variant_alternative<I, volatile T>;
+template <size_t I, class T> class variant_alternative<I, const volatile T>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{VS} denote \tcode{variant_alternative<T>} of the
+cv-unqualified type \tcode{T}. Then each of the three templates shall
+meet the \tcode{TransformationTrait} requirements~(\ref{meta.rqmts}) with a
+member typedef \tcode{type} that names the following type:
+\begin{itemize}
+\item for the first specialization, \tcode{add_const_t<VA::type>},
+\item for the second specialization, \tcode{add_volatile_t<VA::type>}, and
+\item for the third specialization, \tcode{add_cv_t<VA::type>}.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{variant_alternative}}%
+\begin{itemdecl}
+variant_alternative<I, variant<Types...>>::type
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{I < sizeof...(Types)}.
+
+\pnum
+\textit{Value:} The type $T_I$.
+\end{itemdescr}
+
+\rSec2[variant.in.place]{In-place construction}
+
+\indexlibrary{\idxcode{in_place_type_t}}%
+\indexlibrary{\idxcode{in_place_type}}%
+\indexlibrary{\idxcode{in_place_index_t}}%
+\indexlibrary{\idxcode{in_place_index}}%
+\begin{itemdecl}
+template <class T> struct in_place_type_t{ explicit in_place_type_t() = default; };
+template <class T> constexpr in_place_type_t<T> in_place_type{};
+template <size_t I> struct in_place_index_t{ explicit in_place_index_t() = default; };
+template <size_t I> constexpr in_place_index_t<I> in_place_index{};
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Template specializations of \tcode{in_place_type_t} are empty structure types
+used as unique types to disambiguate constructor overloading. They signal
+(through the template parameter) the alternative to be constructed.
+Specifically, \tcode{variant} has a constructor with \tcode{in_place_type_t<T>}
+as the first argument followed by an argument pack; this indicates that
+\tcode{T} should be constructed in-place (as if by a call to a placement
+\grammarterm{new-expression}) with the forwarded argument pack as parameters.
+If a \tcode{variant}'s \tcode{Types...} has multiple occurrences of \tcode{T},
+\tcode{in_place_index_t} shall be used.
+
+\pnum
+Template specializations of \tcode{in_place_index_t} are empty structure types
+used as unique types to disambiguate constructor overloading, and signaling
+(through the template parameter) the alternative to be constructed.
+Specifically, \tcode{variant} has a constructor with \tcode{in_place_index_t<I>}
+as the first argument followed by an argument pack; this indicates that
+$T_I$ should be constructed in-place (as if by a call to a placement
+\grammarterm{new-expression}) with the forwarded argument pack as parameters.
+\end{itemdescr}
+
+
+\rSec2[variant.get]{Value access}
+
+\indexlibrary{\idxcode{holds_alternative}}
+\indexlibrary{\idxcode{variant}!\idxcode{holds_alternative}}
+\begin{itemdecl}
+template <class T, class... Types>
+  constexpr bool holds_alternative(const variant<Types...>& v) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+The type \tcode{T} occurs exactly once in \tcode{Types...}.
+Otherwise, the program is ill-formed.
+
+\pnum
+\returns
+\tcode{true} if \tcode{index()} is equal to the zero-based index of \tcode{T} in \tcode{Types...}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{get}!\idxcode{variant}}%
+\indexlibrary{\idxcode{variant}!\idxcode{get}}%
+\begin{itemdecl}
+template <size_t I, class... Types>
+  constexpr variant_alternative_t<I, variant<Types...>>& get(variant<Types...>& v);
+template <size_t I, class... Types>
+  constexpr variant_alternative_t<I, variant<Types...>>&& get(variant<Types...>&& v);
+template <size_t I, class... Types>
+  constexpr variant_alternative_t<I, variant<Types...>> const& get(const variant<Types...>& v);
+template <size_t I, class... Types>
+  constexpr variant_alternative_t<I, variant<Types...>> const&& get(const variant<Types...>&& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{I < sizeof...(Types)}, and $T_I$ is not (possibly cv-qualified) \tcode{void}.
+Otherwise the program is ill-formed.
+
+\pnum
+\effects
+If \tcode{v.index()} is \tcode{I}, returns a reference to the object stored in
+the \tcode{variant}. Otherwise, throws an exception of type \tcode{bad_variant_access}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{get}!\idxcode{variant}}%
+\indexlibrary{\idxcode{variant}!\idxcode{get}}%
+\begin{itemdecl}
+template <class T, class... Types> constexpr T& get(variant<Types...>& v);
+template <class T, class... Types> constexpr T&& get(variant<Types...>&& v);
+template <class T, class... Types> constexpr const T& get(const variant<Types...>& v);
+template <class T, class... Types> constexpr const T&& get(const variant<Types...>&& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+The type \tcode{T} occurs exactly once in \tcode{Types...}, and \tcode{T} is
+not (possibly cv-qualified) \tcode{void}. Otherwise, the program is ill-formed.
+
+\pnum
+\effects
+If \tcode{v} holds a value of type \tcode{T}, returns a reference to that value.
+Otherwise, throws an exception of type \tcode{bad_variant_access}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{get_if}}%
+\indexlibrary{\idxcode{variant}!\idxcode{get_if}}
+\begin{itemdecl}
+template <size_t I, class... Types>
+  constexpr add_pointer_t<variant_alternative_t<I, variant<Types...>>>
+  get_if(variant<Types...>* v) noexcept;
+template <size_t I, class... Types>
+  constexpr add_pointer_t<const variant_alternative_t<I, variant<Types...>>>
+  get_if(const variant<Types...>* v) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{I < sizeof...(Types)}, and $T_I$ is not (possibly cv-qualified) \tcode{void}.
+Otherwise the program is ill-formed.
+
+\pnum
+\returns
+A pointer to the value stored in the \tcode{variant}, if \tcode{v != nullptr}
+and \tcode{v->index() == I}. Otherwise, returns \tcode{nullptr}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{get_if}}%
+\indexlibrary{\idxcode{variant}!\idxcode{get_if}}
+\begin{itemdecl}
+template <class T, class... Types>
+  constexpr add_pointer_t<T> get_if(variant<Types...>* v) noexcept;
+template <class T, class... Types>
+  constexpr add_pointer_t<const T> get_if(const variant<Types...>* v) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+The type \tcode{T} occurs exactly once in \tcode{Types...}, and \tcode{T} is
+not (possibly cv-qualified) \tcode{void}. Otherwise, the program is ill-formed.
+
+\pnum
+\effects
+Equivalent to: \tcode{return get_if<$i$>(v);} with $i$ being the zero-based
+index of \tcode{T} in \tcode{Types...}.
+\end{itemdescr}
+
+\rSec2[variant.relops]{Relational operators}
+
+\indexlibrary{\idxcode{operator==}!\idxcode{variant}}%
+\begin{itemdecl}
+template <class... Types>
+  constexpr bool operator==(const variant<Types...>& v, const variant<Types...>& w);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{get<$i$>(v) == get<$i$>(w)} is a valid expression returning a type that is
+convertible to \tcode{bool}, for all $i$.
+
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+return (v.valueless_by_exception() && w.valueless_by_exception()) ||
+       (v.index() == w.index() && get<@$i$@>(v) == get<@$i$@>(w));
+\end{codeblock}
+with $i$ being \tcode{v.index()}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator!=}!\idxcode{variant}}%
+\begin{itemdecl}
+template <class... Types>
+  constexpr bool operator!=(const variant<Types...>& v, const variant<Types...>& w);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return !(v == w);}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<}!\idxcode{variant}}%
+\begin{itemdecl}
+template <class... Types>
+  constexpr bool operator<(const variant<Types...>& v, const variant<Types...>& w);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{get<$i$>(v) < get<$i$>(w)} is a valid expression returning a type that is
+convertible to \tcode{bool}, for all $i$.
+
+\pnum
+\effects
+Equivalent to
+\begin{codeblock}
+return (v.index() < w.index()) ||
+       (v.index() == w.index() && !v.valueless_by_exception() && get<@$i$@>(v) < get<@$i$@>(w))
+\end{codeblock}
+with $i$ being \tcode{v.index()}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>}!\idxcode{variant}}%
+\begin{itemdecl}
+template <class... Types>
+  constexpr bool operator>(const variant<Types...>& v, const variant<Types...>& w);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return w < v;}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<=}!\idxcode{variant}}%
+\begin{itemdecl}
+template <class... Types>
+  constexpr bool operator<=(const variant<Types...>& v, const variant<Types...>& w);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return !(v > w);}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>=}!\idxcode{variant}}%
+\begin{itemdecl}
+template <class... Types>
+  constexpr bool operator>=(const variant<Types...>& v, const variant<Types...>& w);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return !(v < w);}.
+\end{itemdescr}
+
+\rSec2[variant.visit]{Visitation}
+
+\indexlibrary{\idxcode{visit}}%
+\indexlibrary{\idxcode{variant}!\idxcode{visit}}%
+\begin{itemdecl}
+template <class Visitor, class... Variants>
+  constexpr @\seebelow@ visit(Visitor&& vis, Variants&&... vars);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+The expression in the \effects element shall be a valid expression of the same
+ type and value category, for all combinations of alternative types of all
+ variants. Otherwise, the program is ill-formed.
+
+\effects
+Let \tcode{is...} be \tcode{vars.index()...}. Returns \tcode{\textit{INVOKE}(forward<Visitor>(vis), get<is>(}\brk{}
+\tcode{forward<Variants>(vars))...);}.
+
+\pnum
+\remarks
+The return type is the common type of all possible \tcode{\textit{INVOKE}}
+expressions of the \effects element.
+
+\pnum
+\throws
+\tcode{bad_variant_access} if any \tcode{variant} in \tcode{vars} is \tcode{valueless_by_exception()}.
+
+\complexity:
+For \tcode{sizeof...(Variants) <= 1}, the invocation of the callable object is
+implemented in constant time, i.e. it does not depend on \tcode{sizeof...(Types).}
+For \tcode{sizeof...(Variants) > 1}, the invocation of the callable object has
+no complexity requirements.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{monostate}}%
+\rSec2[variant.monostate]{Class \tcode{monostate}}
+
+\begin{itemdecl}
+struct monostate{};
+\end{itemdecl}
+
+\begin{itemdescr}
+The class \tcode{monostate} can serve as a first alternative type for
+a \tcode{variant} to make the \tcode{variant} type default constructible.
+\end{itemdescr}
+
+
+\rSec2[variant.monostate.relops]{\tcode{monostate} relational operators}
+
+\indexlibrary{\idxcode{operator<}!\idxcode{monostate}}%
+\indexlibrary{\idxcode{operator>}!\idxcode{monostate}}%
+\indexlibrary{\idxcode{operator<=}!\idxcode{monostate}}%
+\indexlibrary{\idxcode{operator>=}!\idxcode{monostate}}%
+\indexlibrary{\idxcode{operator==}!\idxcode{monostate}}%
+\indexlibrary{\idxcode{operator!=}!\idxcode{monostate}}%
+\begin{itemdecl}
+constexpr bool operator<(monostate, monostate) noexcept { return false; }
+constexpr bool operator>(monostate, monostate) noexcept { return false; }
+constexpr bool operator<=(monostate, monostate) noexcept { return true; }
+constexpr bool operator>=(monostate, monostate) noexcept { return true; }
+constexpr bool operator==(monostate, monostate) noexcept { return true; }
+constexpr bool operator!=(monostate, monostate) noexcept { return false; }
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\begin{note} \tcode{monostate} objects have only a single state; they thus always compare equal.\end{note}
+\end{itemdescr}
+
+
+\rSec2[variant.specalg]{Specialized algorithms}
+
+\begin{itemdecl}
+template <class... Types> void swap(variant<Types...>& v, variant<Types...>& w) noexcept(@\seebelow@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to \tcode{v.swap(w)}.
+
+\pnum
+\remarks The expression inside \tcode{noexcept} is equivalent to \tcode{noexcept(v.swap(w))}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{bad_variant_access}}%
+\rSec2[variant.bad.access]{Class \tcode{bad_variant_access}}
+
+\begin{codeblock}
+class bad_variant_access : public exception {
+public:
+  bad_variant_access() noexcept;
+  virtual const char* what() const noexcept;
+};
+\end{codeblock}
+
+\pnum
+Objects of type \tcode{bad_variant_access} are thrown to report invalid
+accesses to the value of a \tcode{variant} object.
+
+\begin{itemdecl}
+bad_variant_access() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Constructs a \tcode{bad_variant_access} object.
+\end{itemdescr}
+
+\begin{itemdecl}
+const char* what() const noexcept override;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns An \impldef{return value of \tcode{bad_variant_access::what}} \ntbs.
+\end{itemdescr}
+
+\rSec2[variant.hash]{Hash support}
+
+\indexlibrary{\idxcode{hash}!\idxcode{variant}}%
+\begin{itemdecl}
+template <class... Types> struct hash<variant<Types...>>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The template specialization \tcode{hash<T>} shall meet the requirements
+of class template \tcode{hash}~(\ref{unord.hash}) for all \tcode{T} in \tcode{Types...}.
+The template specialization \tcode{hash<variant<Types...>>} shall meet
+the requirements of class template \tcode{hash}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{hash}!\idxcode{monostate}}%
+\begin{itemdecl}
+template <> struct hash<monostate>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The template specialization hash<monostate> shall meet the requirements of class template hash.
+\end{itemdescr}
+
+
+\rSec2[variant.traits]{Allocator-related traits}
+
+\indexlibrary{\idxcode{uses_allocator}!\idxcode{variant}}%
+\begin{itemdecl}
+template <class... Types, class Alloc>
+  struct uses_allocator<variant<Types...>, Alloc> : true_type { };
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{Alloc} shall be an Allocator~(\ref{allocator.requirements}).
+
+\pnum
+\begin{note}
+Specialization of this trait informs other library components
+that variant can be constructed with an allocator,
+even though it does not have a nested \tcode{allocator_type}.
+\end{note}
+\end{itemdescr}
+
 
 \rSec1[any]{Storage for any type}
 
