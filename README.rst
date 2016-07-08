@@ -51,6 +51,7 @@ If you can't use latexmk or make for some reason, you can run LaTeX manually ins
 #. run ``makeindex libraryindex``
 #. run ``makeindex grammarindex``
 #. run ``makeindex impldefindex``
+#. run ``makeindex -s basic.gst -o xrefindex.gls xrefindex.glo``
 #. run ``pdflatex std`` twice more.
 
 Generated input files
@@ -68,11 +69,6 @@ To regenerate the grammar appendix, run the following from the source
 directory::
 
    ../tools/makegram
-
-To regenerate the cross-references appendix, run the following from
-the source directory::
-
-   ../tools/makexref
 
 ----------------
 Acknowledgements
