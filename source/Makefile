@@ -28,7 +28,7 @@ rebuild:
 	$(STDPDF)
 	$(STDPDF)
 
-full: $(FIGURES) grammar xrefs reindex
+full: $(FIGURES) grammar reindex
 
 %.pdf: %.dot
 	dot -o $@ -Tpdf $<
