@@ -10126,6 +10126,22 @@ wide-character set encoding~(\ref{lex.charset}).
 \definitionx{native pathname format}{fs.def.native}
 The operating system dependent pathname format accepted by the host operating system.
 
+\definitionx{normal form}{fs.def.normal.form}
+A path with no redundant current directory (\grammarterm{dot}) elements,
+no redundant parent directory (\grammarterm{dot-dot}) elements, and
+no redundant \grammarterm{directory-separator}{s}.
+The normal form for an empty path is an empty path.
+The normal form for a path ending in a \grammarterm{directory-separator}
+that is not the root directory
+has a current directory (\grammarterm{dot}) element appended.
+A path in normal form is said to be \term{normalized}.
+The process of obtaining a normalized path
+from a path that is not in normal form is called \term{normalization}.
+\begin{note} The rule that appends a current directory (\grammarterm{dot}) element
+supports operating systems like OpenVMS
+that use different syntax for directory names and regular file names.
+\end{note}
+
 \definitionx{NTCTS}{fs.def.ntcts}
 Acronym for ``null-terminated character-type sequence''. Describes a sequence
 of values of a given encoded character type terminated by that type's null character. If
@@ -10170,7 +10186,7 @@ pathnames that resolve to the same file.
 
 \definitionx{relative path}{fs.def.relative-path}
 A path that is not absolute, and as such, only unambiguously
-identifies the location of a file when resolved relative to
+identifies the location of a file when resolved~(\ref{fs.def.pathres} relative to
 an implied starting location. The elements of a path that determine if it is
 relative are operating system dependent.
 \begin{note}
@@ -10395,8 +10411,16 @@ namespace std::filesystem {
   void permissions(const path& p, perms prms);
   void permissions(const path& p, perms prms, error_code& ec);
 
+  path proximate(const path& p, error_code& ec);
+  path proximate(const path& p, const path& base = current_path());
+  path proximate(const path& p, const path& base, error_code& ec);
+
   path read_symlink(const path& p);
   path read_symlink(const path& p, error_code& ec);
+
+  path relative(const path& p, error_code& ec);
+  path relative(const path& p, const path& base = current_path());
+  path relative(const path& p, const path& base, error_code& ec);
 
   bool remove(const path& p);
   bool remove(const path& p, error_code& ec) noexcept;
@@ -10426,6 +10450,9 @@ namespace std::filesystem {
 
   path temp_directory_path();
   path temp_directory_path(error_code& ec);
+
+  path weakly_canonical(const path& p);
+  path weakly_canonical(const path& p, error_code& ec);
 }
 \end{codeblock}
 
@@ -10621,6 +10648,11 @@ namespace std::filesystem {
     bool has_extension() const;
     bool is_absolute() const;
     bool is_relative() const;
+
+    // \ref{path.gen}, generation:
+    path lexically_normal() const;
+    path lexically_relative(const path& base) const;
+    path lexically_proximate(const path& base) const;
 
     // \ref{path.itr}, iterators:
     class iterator;
@@ -11734,6 +11766,115 @@ bool is_relative() const;
 \returns \tcode{!is_absolute()}.
 \end{itemdescr}
 
+\rSec4[path.gen]{\tcode{path} generation}
+
+\indexlibrary{\idxcode{path}!\idxcode{lexically_normal}}
+\indexlibrary{\idxcode{lexically_normal}!\idxcode{path}}
+\begin{itemdecl}
+path lexically_normal() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{*this} in normal form~(\ref{fs.def.normal.form}).
+
+\begin{example}
+\begin{codeblock}
+assert(path("foo/./bar/..").lexically_normal() == "foo");
+assert(path("foo/.///bar/../").lexically_normal() == "foo/.");
+\end{codeblock}
+The above assertions will succeed.
+The second example ends with a current directory (\grammarterm{dot}) element
+appended to support operating systems
+that use different syntax for directory names and regular file names.
+
+On Windows, the returned path's \grammarterm{directory-separator} characters
+will be backslashes rather than slashes,
+but that does not affect \tcode{path} equality.
+\end{example}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{path}!\idxcode{lexically_relative}}
+\indexlibrary{\idxcode{lexically_relative}!\idxcode{path}}
+\begin{itemdecl}
+path lexically_relative(const path& base) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{*this} made relative to \tcode{base}.
+Does not resolve~(\ref{fs.def.pathres} symlinks.
+Does not first normalize~(\ref{fs.def.normal.form}) \tcode{*this} or \tcode{base}.
+
+\pnum
+\effects
+Using \tcode{operator==} to determine if elements match,
+determines the first mismatched element of \tcode{*this} and \tcode{base}
+using \tcode{mismatch(begin(),} \tcode{end(),} \tcode{base.begin(),} \tcode{base.end())}.
+
+Then:
+\begin{itemize}
+\item returns \tcode{path()} if
+  the first mismatched element of \tcode{*this} is equal to \tcode{begin()} or
+  the first mismatched element of \tcode{base} is equal to \tcode{base.begin()}, or
+\item returns \tcode{path(".")} if
+  the first mismatched element of \tcode{*this} is equal to \tcode{end()} and
+  the first mismatched element of \tcode{base} is equal to \tcode{base.end()}, or
+\item returns an object of class \tcode{path} composed via
+\begin{itemize}
+\item application of \tcode{operator/=} (\tcode{path("..")})
+  for each element in the half-open range
+  [first mismatched element of \tcode{base}, \tcode{base.end()}), and then
+\item application of \tcode{operator/=}
+  for each element in the half-open range
+  [first mismatched element of \tcode{*this}, \tcode{end()}).
+\end{itemize}
+\end{itemize}
+
+\begin{example}
+\begin{codeblock}
+assert(path("/a/d").lexically_relative("/a/b/c") == "../../d");
+assert(path("/a/b/c").lexically_relative("/a/d") == "../b/c");
+assert(path("a/b/c").lexically_relative("a") == "b/c");
+assert(path("a/b/c").lexically_relative("a/b/c/x/y") == "../..");
+assert(path("a/b/c").lexically_relative("a/b/c") == ".");
+assert(path("a/b").lexically_relative("c/d") == "");
+\end{codeblock}
+The above assertions will succeed.
+On Windows, the returned path's \grammarterm{directory-separator} characters
+will be backslashes rather than forward slashes,
+but that does not affect \tcode{path} equality.
+\end{example}
+
+\begin{note} If symlink following semantics are desired,
+  use the operational function \tcode{relative()}. \end{note}
+
+\begin{note} If normalization~(\ref{fs.def.normal.form}) is needed
+  to ensure consistent matching of elements,
+  apply \tcode{lexically_normal()} to
+  \tcode{*this}, \tcode{base}, or both. \end{note}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{path}!\idxcode{lexically_proximate}}
+\indexlibrary{\idxcode{lexically_proximate}!\idxcode{path}}
+\begin{itemdecl}
+path lexically_proximate(const path& base) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns If the value of \tcode{lexically_relative(base)} is not an empty path,
+  return it. Otherwise return \tcode{*this}.
+
+\begin{note} If symlink following semantics are desired,
+  use the operational function \tcode{proximate()}. \end{note}
+
+\begin{note} If normalization~(\ref{fs.def.normal.form}) is needed
+  to ensure consistent matching of elements,
+  apply \tcode{lexically_normal()} to
+  \tcode{*this}, \tcode{base}, or both. \end{note}
+\end{itemdescr}
+
 \rSec3[path.itr]{\tcode{path} iterators}
 
 \indexlibrary{\idxcode{path}!\idxcode{iterator}}
@@ -11869,7 +12010,7 @@ Equality is determined by the \tcode{path} non-member \tcode{operator==}, which 
   representations only. Thus \tcode{path("foo") == "bar"} is never \tcode{true}.
 
 \pnum
-Equivalence is determined by the \tcode{equivalent()} non-member function, which determines if two paths resolve to the same file system entity.
+Equivalence is determined by the \tcode{equivalent()} non-member function, which determines if two paths resolve~(\ref{fs.def.pathres} to the same file system entity.
   Thus \tcode{equivalent("foo", "bar")} will be \tcode{true} when both paths resolve to the same file.
 
 \pnum
@@ -13133,7 +13274,7 @@ an error. See Error reporting~(\ref{fs.err.report}). \end{note}
 
 \indexlibrary{\idxcode{absolute}}
 \begin{itemdecl}
-path absolute(const path& p, const path& base=current_path());
+path absolute(const path& p, const path& base = current_path());
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -14130,6 +14271,43 @@ Neither \tcode{add_perms} nor \tcode{remove_perms} &
 \throws As specified in Error reporting~(\ref{fs.err.report}).
 \end{itemdescr}
 
+\rSec3[fs.op.proximate]{Proximate}
+
+\indexlibrary{\idxcode{proximate}}
+\begin{itemdecl}
+path proximate(const path& p, error_code& ec);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{proximate(p, current_path(), ec)}.
+
+\pnum
+\throws As specified in Error reporting~(\ref{fs.err.report}).
+\end{itemdescr}
+
+\indexlibrary{\idxcode{proximate}}
+\begin{itemdecl}
+path proximate(const path& p, const path& base = current_path());
+path proximate(const path& p, const path& base, error_code& ec);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns For the first form:
+\begin{codeblock}
+weakly_canonical(p).lexically_proximate(weakly_canonical(base));
+\end{codeblock}
+  For the second form:
+\begin{codeblock}
+weakly_canonical(p, ec).lexically_proximate(weakly_canonical(base, ec));
+\end{codeblock}
+  or \tcode{path()} at the first error occurrence, if any.
+
+\pnum
+\throws As specified in Error reporting~(\ref{fs.err.report}).
+\end{itemdescr}
+
 \rSec3[fs.op.read_symlink]{Read symlink}
 
 \indexlibrary{\idxcode{read_symlink}}
@@ -14150,6 +14328,42 @@ path read_symlink(const path& p, error_code& ec);
   resolve to a symbolic link. \end{note}
 \end{itemdescr}
 
+\rSec3[fs.op.relative]{Relative}
+
+\indexlibrary{\idxcode{relative}}
+\begin{itemdecl}
+path relative(const path& p, error_code& ec);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{relative(p, current_path(), ec)}.
+
+\pnum
+\throws As specified in Error reporting~(\ref{fs.err.report}).
+\end{itemdescr}
+
+\indexlibrary{\idxcode{relative}}
+\begin{itemdecl}
+path relative(const path& p, const path& base = current_path());
+path relative(const path& p, const path& base, error_code& ec);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns For the first form:
+\begin{codeblock}
+weakly_canonical(p).lexically_relative(weakly_canonical(base));
+\end{codeblock}
+  For the second form:
+\begin{codeblock}
+weakly_canonical(p, ec).lexically_relative(weakly_canonical(base, ec));
+\end{codeblock}
+  except \tcode{path()} at the first error occurrence, if any.
+
+\pnum
+\throws As specified in Error reporting~(\ref{fs.err.report}).
+\end{itemdescr}
 
 \rSec3[fs.op.remove]{Remove}
 
@@ -14219,6 +14433,7 @@ void rename(const path& old_p, const path& new_p, error_code& ec) noexcept;
 \pnum
 \effects Renames \tcode{old_p} to \tcode{new_p}, as if by
   POSIX \tcode{rename()}.
+
 \begin{note}
 \begin{itemize}
 \item If \tcode{old_p} and \tcode{new_p} resolve to the same existing file,
@@ -14508,6 +14723,47 @@ path temp_directory_path(error_code& ec);
 For Windows-based operating systems, an implementation might return the path
   reported by the Windows \tcode{GetTempPath} API function.
 \end{example}
+\end{itemdescr}
+
+\rSec3[fs.op.weakly_canonical]{Weakly Canonical}
+
+\indexlibrary{\idxcode{weakly}}
+\begin{itemdecl}
+path weakly_canonical(const path& p);
+path weakly_canonical(const path& p, error_code& ec);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{p} with symlinks resolved and
+  the result normalized~(\ref{fs.def.normal.form}).
+
+\pnum
+\effects Using \tcode{status(p)} or \tcode{status(p, ec)}, respectively,
+  to determine existence,
+  return a path composed by \tcode{operator/=}
+  from the result of calling \tcode{canonical()}
+  without a \tcode{base} argument and
+  with a path argument composed of
+  the leading elements of \tcode{p} that exist, if any, followed by
+  the elements of \tcode{p} that do not exist, if any.
+  For the first form,
+  \tcode{canonical()} is called without an \tcode{error_code} argument.
+  For the second form,
+  \tcode{canonical()} is called
+  with \tcode{ec} as an \tcode{error_code} argument, and
+  \tcode{path()} is returned at the first error occurrence, if any.
+
+\pnum
+\postconditions The returned path is in normal form~(\ref{fs.def.normal.form}).
+
+\pnum
+\remarks Implementations are encouraged
+  to avoid unnecessary normalization such as
+  when \tcode{canonical()} has already been called on the entirety of \tcode{p}.
+
+\pnum
+\throws As specified in Error reporting~(\ref{fs.err.report}).
 \end{itemdescr}
 
 \rSec1[c.files]{C library files}
