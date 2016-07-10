@@ -65,11 +65,6 @@ For example::
 
    dot -ofigstreampos.pdf -Tpdf figstreampos.dot
 
-To regenerate the grammar appendix, run the following from the source
-directory::
-
-   ../tools/makegram
-
 ----------------
 Acknowledgements
 ----------------
