@@ -1399,13 +1399,14 @@ resolution. \end{note}
 \indextext{deduction!class template arguments}%
 
 \pnum
-The overload set consists of:
+A set of functions and function templates is formed comprising:
+
 \begin{itemize}
 \item
 For each constructor
 of the class template
 designated by the \grammarterm{template-name},
-a function template with the following properties is a candidate:
+a function template with the following properties:
 \begin{itemize}
 \item
 The template parameters are the template parameters of the class template
@@ -1425,8 +1426,8 @@ obtained from the class template.
 \item
 For each \grammarterm{deduction-guide},
 a function or function template
-with the following properties
-is a candidate:
+with the following properties:
+
 \begin{itemize}
 \item
 The template parameters, if any,
@@ -1438,6 +1439,52 @@ is the \grammarterm{simple-template-id}
 of the \grammarterm{deduction-guide}.
 \end{itemize}
 \end{itemize}
+
+\pnum
+Initialization and overload resolution are performed as described
+in \ref{dcl.init} and \ref{over.match.ctor}, \ref{over.match.copy},
+or \ref{over.match.list} (as appropriate for the type of initialization
+performed) for an object of a hypothetical class type, where
+the selected functions and function templates are considered to be the
+constructors of that class type for the purpose of forming an overload
+set, and the initializer is provided by the context in which class
+template argument deduction was performed. Each such notional constructor
+is considered to be explicit if the function or function template was
+generated from a constructor or \grammarterm{deduction-guide} that was
+declared \tcode{explicit}.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+template <class T> struct A {
+  explicit A(const T&, ...) noexcept;  // \#1
+  A(T&&, ...);                         // \#2
+};
+
+int i;
+A a1 = { i, i };  // error: explicit constructor \#1 selected in copy-list-initialization during deduction,
+                  // cannot deduce from non-forwarding rvalue reference in \#2
+
+A a2{i, i};       // OK, \#1 deduces to \tcode{A<int>} and also initializes
+A a3{0, i};       // OK, \#2 deduces to \tcode{A<int>} and also initializes
+A a4 = {0, i};    // OK, \#2 deduces to \tcode{A<int>} and also initializes
+
+template <class T> A(const T&, const T&) -> A<T&>;  // \#3
+template <class T> explicit A(T&&, T&&) -> A<T>;    // \#4
+
+A a5 = {0, 1};    // error: explicit deduction guide \#4 selected in copy-list-initialization during deduction
+A a6{0,1};        // OK, \#4 deduces to \tcode{A<int>} and \#2 initializes
+A a7 = {0, i};    // error: \#3 deduces to \tcode{A<int\&>}, \#1 and \#2 declare same constructor
+A a8{0,i};        // error: \#3 deduces to \tcode{A<int\&>}, \#1 and \#2 declare same constructor
+
+template <class T> struct B {
+  template <class U> using TA = T;
+  template <class U> B(U, TA<U>);
+};
+
+B b{(int*)0, (char*)0};  // OK, deduces \tcode{B<char*>}
+\end{codeblock}
+\end{example}
 
 \rSec2[over.match.viable]{Viable functions}%
 \indextext{overloading!resolution!viable functions|(}
@@ -1606,6 +1653,26 @@ Fn& lf = a;             // calls \#1
 Fn&& rf = a;            // calls \#2
 \end{codeblock}
 
+\end{example}
+or, if not that,
+
+\item
+\tcode{F1} is generated from a
+\grammarterm{deduction-guide}~(\ref{over.match.class.deduct})
+and \tcode{F2} is not
+\begin{example}
+\begin{codeblock}
+template <class T> struct A {
+  A(T, int*);      // \#1
+  A(A<T>&, int*);  // \#2
+  enum { value };
+};
+
+template <class T, int N = T::value> A(T&&, int*) -> A<T>;  // \#3
+
+A a{1, 0};  // uses \#1 to deduce \tcode{A<int>} and initializes with \#1
+A b{a, 0};  // uses \#3 (not \#2) to deduce \tcode{A<A<int>\&>} and initializes with \#1
+\end{codeblock}
 \end{example}
 or, if not that,
 
