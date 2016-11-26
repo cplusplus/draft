@@ -9034,7 +9034,7 @@ the object, or otherwise releasing the resources associated with the stored poin
 namespace std {
   template<class T> class shared_ptr {
   public:
-    using element_type = T;
+    using element_type = remove_extent_t<T>;
     using weak_type    = weak_ptr<T>;
 
     // \ref{util.smartptr.shared.const}, constructors:
@@ -9044,7 +9044,7 @@ namespace std {
     template<class Y, class D, class A> shared_ptr(Y* p, D d, A a);
     template <class D> shared_ptr(nullptr_t p, D d);
     template <class D, class A> shared_ptr(nullptr_t p, D d, A a);
-    template<class Y> shared_ptr(const shared_ptr<Y>& r, T* p) noexcept;
+    template<class Y> shared_ptr(const shared_ptr<Y>& r, element_type* p) noexcept;
     shared_ptr(const shared_ptr& r) noexcept;
     template<class Y> shared_ptr(const shared_ptr<Y>& r) noexcept;
     shared_ptr(shared_ptr&& r) noexcept;
@@ -9071,9 +9071,10 @@ namespace std {
     template<class Y, class D, class A> void reset(Y* p, D d, A a);
 
     // \ref{util.smartptr.shared.obs}, observers:
-    T* get() const noexcept;
+    element_type* get() const noexcept;
     T& operator*() const noexcept;
     T* operator->() const noexcept;
+    element_type& operator[](ptrdiff_t i) const;
     long use_count() const noexcept;
     bool unique() const noexcept;
     explicit operator bool() const noexcept;
@@ -9135,6 +9136,8 @@ namespace std {
     shared_ptr<T> dynamic_pointer_cast(const shared_ptr<U>& r) noexcept;
   template<class T, class U>
     shared_ptr<T> const_pointer_cast(const shared_ptr<U>& r) noexcept;
+  template<class T, class U>
+    shared_ptr<T> reinterpret_pointer_cast(const shared_ptr<U>& r) noexcept;
 
   // \ref{util.smartptr.getdeleter}, shared_ptr get_deleter:
   template<class D, class T> D* get_deleter(const shared_ptr<T>& p) noexcept;
@@ -9167,6 +9170,14 @@ For purposes of determining the presence of a data race, member functions shall
 access and modify only the \tcode{shared_ptr} and \tcode{weak_ptr} objects
 themselves and not objects they refer to. Changes in \tcode{use_count()} do not
 reflect modifications that can introduce data races.
+
+\pnum
+For the purposes of subclause \ref{util.smartptr},
+a pointer type \tcode{Y*} is said to be
+\defnx{compatible with}{compatible with!\idxcode{shared_ptr}}
+a pointer type \tcode{T*} when either
+\tcode{Y*} is convertible to \tcode{T*} or
+\tcode{Y} is \tcode{U[N]} and \tcode{T} is \cv{} \tcode{U[]}.
 
 \rSec4[util.smartptr.shared.const]{\tcode{shared_ptr} constructors}
 
@@ -9202,15 +9213,25 @@ template<class Y> explicit shared_ptr(Y* p);
 \end{itemdecl}
 
 \begin{itemdescr}
-\pnum\requires  \tcode{p} shall be convertible to \tcode{T*}.
-\tcode{Y} shall be a complete type. The expression \tcode{delete p}
-shall be well formed, shall have well defined behavior, and shall not
-throw exceptions.
+\pnum\requires \tcode{Y} shall be a complete type. The expression
+\tcode{delete[] p}, when \tcode{T} is an array type, or
+\tcode{delete p}, when \tcode{T} is not an array type,
+shall be well formed, shall have well defined behavior, and
+shall not throw exceptions.
+When \tcode{T} is \tcode{U[N]}, \tcode{Y(*)[N]} shall be convertible to \tcode{T*};
+when \tcode{T} is \tcode{U[]}, \tcode{Y(*)[]} shall be convertible to \tcode{T*};
+otherwise, \tcode{Y*} shall be convertible to \tcode{T*}.
 
-\pnum\effects Constructs a \tcode{shared_ptr} object
+\pnum\effects When \tcode{T} is not an array type,
+constructs a \tcode{shared_ptr} object
 that \textit{owns} the pointer \tcode{p}.
-Enables \tcode{shared_from_this} with \tcode{p}.
-If an exception is thrown, \tcode{delete p} is called.
+Otherwise, constructs a \tcode{shared_ptr}
+that owns \tcode{p} and a deleter of an
+unspecified type that calls \tcode{delete[] p}.
+When \tcode{T} is not an array type,
+enables \tcode{shared_from_this} with \tcode{p}.
+If an exception is thrown, \tcode{delete p} is called
+when \tcode{T} is not an array type, \tcode{delete[] p} otherwise.
 
 \pnum\postconditions  \tcode{use_count() == 1 \&\& get() == p}.
 
@@ -9227,17 +9248,21 @@ template <class D, class A> shared_ptr(nullptr_t p, D d, A a);
 \end{itemdecl}
 
 \begin{itemdescr}
-\pnum\requires  \tcode{p} shall be convertible to \tcode{T*}. \tcode{D} shall be
+\pnum\requires \tcode{D} shall be
 \tcode{CopyConstructible} and such construction shall not throw exceptions.
 The destructor of \tcode{D}
 shall not throw exceptions. The expression \tcode{d(p)} shall be
 well formed, shall have well defined behavior, and shall not throw exceptions.
 \tcode{A} shall be an allocator~(\ref{allocator.requirements}).
 The copy constructor and destructor of \tcode{A} shall not throw exceptions.
+When \tcode{T} is \tcode{U[N]}, \tcode{Y(*)[N]} shall be convertible to \tcode{T*};
+when \tcode{T} is \tcode{U[]}, \tcode{Y(*)[]} shall be convertible to \tcode{T*};
+otherwise, \tcode{Y*} shall be convertible to \tcode{T*}.
 
 \pnum\effects  Constructs a \tcode{shared_ptr} object that \textit{owns} the
 object \tcode{p} and the deleter \tcode{d}.
-The first and second constructors enable \tcode{shared_from_this} with \tcode{p}.
+When \tcode{T} is not an array type,
+the first and second constructors enable \tcode{shared_from_this} with \tcode{p}.
 The second and fourth constructors shall use a copy of \tcode{a} to
 allocate memory for internal use.
 If an exception is thrown, \tcode{d(p)} is called.
@@ -9251,7 +9276,7 @@ when a resource other than memory could not be obtained.
 
 \indexlibrary{\idxcode{shared_ptr}!constructor}%
 \begin{itemdecl}
-template<class Y> shared_ptr(const shared_ptr<Y>& r, T* p) noexcept;
+template<class Y> shared_ptr(const shared_ptr<Y>& r, element_type* p) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9281,7 +9306,7 @@ template<class Y> shared_ptr(const shared_ptr<Y>& r) noexcept;
 \begin{itemdescr}
 \pnum\remarks
 The second constructor shall not participate in overload resolution unless
-\tcode{Y*} is implicitly convertible to \tcode{T*}.
+\tcode{Y*} is compatible with \tcode{T*}.
 
 \pnum\effects  If \tcode{r} is \textit{empty}, constructs
 an \textit{empty} \tcode{shared_ptr} object; otherwise, constructs
@@ -9299,7 +9324,7 @@ template<class Y> shared_ptr(shared_ptr<Y>&& r) noexcept;
 \begin{itemdescr}
 \pnum
 \remarks The second constructor shall not participate in overload resolution unless
-\tcode{Y*} is convertible to \tcode{T*}.
+\tcode{Y*} is compatible with \tcode{T*}.
 
 \pnum
 \effects Move constructs a \tcode{shared_ptr} instance from \tcode{r}.
@@ -9316,7 +9341,7 @@ template<class Y> explicit shared_ptr(const weak_ptr<Y>& r);
 \end{itemdecl}
 
 \begin{itemdescr}
-\pnum\requires \tcode{Y*} shall be convertible to \tcode{T*}.
+\pnum\requires \tcode{Y*} shall be compatible with \tcode{T*}.
 
 \pnum\effects  Constructs a \tcode{shared_ptr} object that \textit{shares ownership} with
 \tcode{r} and stores a copy of the pointer stored in \tcode{r}.
@@ -9335,7 +9360,8 @@ template <class Y, class D> shared_ptr(unique_ptr<Y, D>&& r);
 
 \begin{itemdescr}
 \pnum\remarks This constructor shall not participate in overload resolution
-unless \tcode{unique_ptr<Y, D>::\brk{}pointer} is convertible to \tcode{T*}.
+unless \tcode{Y*} is compatible with \tcode{T*} and
+\tcode{unique_ptr<Y, D>::pointer} is convertible to \tcode{element_type*}.
 
 \pnum
 \effects If \tcode{r.get() == nullptr}, equivalent to \tcode{shared_ptr()}.
@@ -9485,7 +9511,7 @@ template<class Y, class D, class A> void reset(Y* p, D d, A a);
 \rSec4[util.smartptr.shared.obs]{\tcode{shared_ptr} observers}
 \indexlibrarymember{get}{shared_ptr}%
 \begin{itemdecl}
-T* get() const noexcept;
+element_type* get() const noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9502,7 +9528,7 @@ T& operator*() const noexcept;
 
 \pnum\returns  \tcode{*get()}.
 
-\pnum\remarks When \tcode{T} is (possibly cv-qualified) \tcode{void},
+\pnum\remarks When \tcode{T} is an array type or (possibly cv-qualified) \tcode{void},
 it is unspecified whether this
 member function is declared. If it is declared, it is unspecified what its
 return type is, except that the declaration (although not necessarily the
@@ -9518,6 +9544,32 @@ T* operator->() const noexcept;
 \pnum\requires  \tcode{get() != 0}.
 
 \pnum\returns  \tcode{get()}.
+
+\pnum\remarks When \tcode{T} is an array type,
+it is unspecified whether this member function is declared.
+If it is declared, it is unspecified what its return type is,
+except that the declaration (although not necessarily the definition)
+of the function shall be well formed.
+\end{itemdescr}
+
+\indexlibrarymember{operator[]}{shared_ptr}%
+\begin{itemdecl}
+element_type& operator[](ptrdiff_t i) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum\requires \tcode{get() != 0 \&\& i >= 0}.
+If \tcode{T} is \tcode{U[N]}, \tcode{i < N}.
+
+\pnum\returns \tcode{get()[i]}.
+
+\pnum\remarks When \tcode{T} is not an array type,
+it is unspecified whether this member function is declared.
+If it is declared, it is unspecified what its return type is,
+except that the declaration (although not necessarily the definition)
+of the function shall be well formed.
+
+\pnum\throws Nothing.
 \end{itemdescr}
 
 \indexlibrarymember{use_count}{shared_ptr}%
@@ -9644,7 +9696,8 @@ template<class T, class U> bool operator<(const shared_ptr<T>& a, const shared_p
 
 \begin{itemdescr}
 \pnum\returns \tcode{less<V>()(a.get(), b.get())},
-where \tcode{V} is the composite pointer type (Clause~\ref{expr}) of \tcode{T*} and \tcode{U*}.
+where \tcode{V} is the composite pointer type (Clause~\ref{expr})
+of \tcode{shared_ptr<T>::element_type*} and \tcode{shared_ptr<U>::element_type*}.
 
 \pnum \begin{note}
 Defining a comparison operator allows \tcode{shared_ptr} objects to be
@@ -9691,9 +9744,9 @@ template <class T>
 \pnum
 \returns
 The first function template returns
-\tcode{less<T*>()(a.get(), nullptr)}.
+\tcode{less<shared_ptr<T>::element_type*>()(a.get(), nullptr)}.
 The second function template returns
-\tcode{less<T*>()(nullptr, a.get())}.
+\tcode{less<shared_ptr<T>::element_type*>()(nullptr, a.get())}.
 \end{itemdescr}
 
 \indexlibrarymember{operator>}{shared_ptr}%
@@ -9760,17 +9813,10 @@ template<class T, class U> shared_ptr<T> static_pointer_cast(const shared_ptr<U>
 \end{itemdecl}
 
 \begin{itemdescr}
-\pnum\requires  The expression \tcode{static_cast<T*>(r.get())} shall
+\pnum\requires  The expression \tcode{static_cast<T*>((U*)0)} shall
 be well formed.
 
-\pnum\returns  If \tcode{r} is \textit{empty}, an \textit{empty}
-\tcode{shared_ptr<T>}; otherwise, a \tcode{shared_ptr<T>} object that
-\textit{shares ownership}
-with \tcode{r}.
-
-\pnum
-\postconditions \tcode{w.get() == static_cast<T*>(r.get())} and
-\tcode{w.use_count() == r.use_count()}, where \tcode{w} is the return value.
+\pnum\returns \tcode{shared_ptr<T>(r, static_cast<typename shared_ptr<T>::element_type*>(r.get()))}.
 
 \pnum
 \begin{note} The seemingly equivalent expression
@@ -9785,21 +9831,16 @@ template<class T, class U> shared_ptr<T> dynamic_pointer_cast(const shared_ptr<U
 \end{itemdecl}
 
 \begin{itemdescr}
-\pnum\requires  The expression \tcode{dynamic_cast<T*>(r.get())}
+\pnum\requires  The expression \tcode{dynamic_cast<T*>((U*)0)}
 shall be well formed and shall have well defined behavior.
 
 \pnum\returns
 \begin{itemize}
-\item When \tcode{dynamic_cast<T*>(r.get())} returns a nonzero value, a
-  \tcode{shared_ptr<T>} object that
-  \textit{shares ownership}
-  with \tcode{r};
+\item When \tcode{dynamic_cast<typename shared_ptr<T>::element_type*>(r.get())}
+returns a nonzero value \tcode{p}, \tcode{shared_ptr<T>(r, p)}.
 
-\item Otherwise, an \textit{empty} \tcode{shared_ptr<T>} object.
+\item Otherwise, \tcode{shared_ptr<T>()}.
 \end{itemize}
-
-\pnum
-\postconditions \tcode{w.get() == dynamic_cast<T*>(r.get())}, where \tcode{w} is the return value.
 
 \pnum \begin{note}  The seemingly equivalent expression
 \tcode{shared_ptr<T>(dynamic_cast<T*>(r.get()))} will eventually result in
@@ -9812,21 +9853,33 @@ template<class T, class U> shared_ptr<T> const_pointer_cast(const shared_ptr<U>&
 \end{itemdecl}
 
 \begin{itemdescr}
-\pnum\requires  The expression \tcode{const_cast<T*>(r.get())} shall
+\pnum\requires  The expression \tcode{const_cast<T*>((U*)0)} shall
 be well formed.
 
-\pnum\returns  If \tcode{r} is empty, an empty \tcode{shared_ptr<T>}; otherwise, a
-\tcode{shared_ptr<T>} object that
-shares ownership
-with \tcode{r}.
-
-\pnum
-\postconditions \tcode{w.get() == const_cast<T*>(r.get())} and
-\tcode{w.use_count() == r.use_count()},\newline
-where \tcode{w} is the return value.
+\pnum\returns  \tcode{shared_ptr<T>(r, const_cast<typename shared_ptr<T>::element_type*>(r.get()))}.
 
 \pnum \begin{note} The seemingly equivalent expression
 \tcode{shared_ptr<T>(const_cast<T*>(r.get()))} will eventually result in
+undefined behavior, attempting to delete the same object twice. \end{note}
+\end{itemdescr}
+
+\indexlibrarymember{reinterpret_pointer_cast}{shared_ptr}%
+\begin{itemdecl}
+template<class T, class U>
+  shared_ptr<T> reinterpret_pointer_cast(const shared_ptr<U>& r) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum\requires  The expression \tcode{reinterpret_cast<T*>((U*)0)}
+shall be well formed.
+
+\pnum\returns
+\begin{codeblock}
+shared_ptr<T>(r, reinterpret_cast<typename shared_ptr<T>::element_type*>(r.get()))
+\end{codeblock}
+
+\pnum \begin{note} The seemingly equivalent expression
+\tcode{shared_ptr<T>(reinterpret_cast<T*>(r.get()))} will eventually result in
 undefined behavior, attempting to delete the same object twice. \end{note}
 \end{itemdescr}
 
@@ -9940,7 +9993,7 @@ template<class Y> weak_ptr(const shared_ptr<Y>& r) noexcept;
 
 \begin{itemdescr}
 \pnum\remarks The second and third constructors shall not participate in
-overload resolution unless \tcode{Y*} is implicitly convertible to \tcode{T*}.
+overload resolution unless \tcode{Y*} is compatible with \tcode{T*}.
 
 \pnum\effects  If \tcode{r} is \textit{empty}, constructs
 an \textit{empty} \tcode{weak_ptr} object; otherwise, constructs
@@ -9958,7 +10011,7 @@ template<class Y> weak_ptr(weak_ptr<Y>&& r) noexcept;
 
 \begin{itemdescr}
 \pnum\remarks The second constructor shall not participate in overload resolution unless
-\tcode{Y*} is implicitly convertible to \tcode{T*}.
+\tcode{Y*} is compatible with \tcode{T*}.
 
 \pnum\effects Move constructs a \tcode{weak_ptr} instance from \tcode{r}.
 
@@ -10473,7 +10526,7 @@ template <class T> struct hash<shared_ptr<T>>;
 The template specialization shall meet the requirements of class
 template \tcode{hash}~(\ref{unord.hash}). For an object \tcode{p} of type \tcode{shared_ptr<T>},
 \tcode{hash<shared_ptr<T>>()(p)} shall evaluate to
-the same value as \tcode{hash<T*>()(p.get())}.
+the same value as \tcode{hash<typename shared_ptr<T>::element_type*>()(p.get())}.
 \end{itemdescr}%
 \indextext{smart pointers|)}
 
