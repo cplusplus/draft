@@ -602,45 +602,6 @@ by the \grammarterm{nested-name-specifier}.
 \end{bnf}
 
 \begin{bnf}
-\nontermdef{lambda-capture}\br
-    capture-default\br
-    capture-list\br
-    capture-default \terminal{,} capture-list
-\end{bnf}
-
-\begin{bnf}
-\nontermdef{capture-default}\br
-    \terminal{\&}\br
-    \terminal{=}
-\end{bnf}
-
-\begin{bnf}
-\nontermdef{capture-list}\br
-    capture \terminal{...\opt}\br
-    capture-list \terminal{,} capture \terminal{...\opt}
-\end{bnf}
-
-\begin{bnf}
-\nontermdef{capture}\br
-    simple-capture\br
-    init-capture
-\end{bnf}
-
-\begin{bnf}
-\nontermdef{simple-capture}\br
-    identifier\br
-    \terminal{\&} identifier\br
-    \terminal{this}\br
-    \terminal{* this}
-\end{bnf}
-
-\begin{bnf}
-\nontermdef{init-capture}\br
-    identifier initializer\br
-    \terminal{\&} identifier initializer
-\end{bnf}
-
-\begin{bnf}
 \nontermdef{lambda-declarator}\br
     \terminal{(} parameter-declaration-clause \terminal{)} decl-specifier-seq\opt\br
     \hspace*{\bnfindentinc}noexcept-specifier\opt attribute-specifier-seq\opt trailing-return-type\opt
@@ -655,37 +616,6 @@ Lambda expressions provide a concise way to create simple function objects.
 void abssort(float* x, unsigned N) {
   std::sort(x, x + N, [](float a, float b) { return std::abs(a) < std::abs(b); });
 }
-\end{codeblock}
-\end{example}
-
-\pnum
-In the \grammarterm{decl-specifier-seq} of the \grammarterm{lambda-declarator},
-each \grammarterm{decl-specifier}
-shall either be \tcode{mutable} or \tcode{constexpr}.
-\begin{example}
-\begin{codeblock}
-auto monoid = [](auto v) { return [=] { return v; }; };
-auto add = [](auto m1) constexpr {
-  auto ret = m1();
-  return [=](auto m2) mutable {
-    auto m1val = m1();
-    auto plus = [=](auto m2val) mutable constexpr
-                   { return m1val += m2val; };
-    ret = plus(m2());
-    return monoid(ret);
-  };
-};
-constexpr auto zero = monoid(0);
-constexpr auto one = monoid(1);
-static_assert(add(one)(zero)() == one()); // OK
-
-// Since \tcode{two} below is not declared \tcode{constexpr}, an evaluation of its \tcode{constexpr} member function call operator
-// cannot perform an lvalue-to-rvalue conversion on one of its subobjects (that represents its capture)
-// in a constant expression.
-auto two = monoid(2);
-assert(two() == 2); // OK, not a constant expression.
-static_assert(add(one)(one)() == two()); // ill-formed: \tcode{two()} is not a constant expression
-static_assert(add(one)(one)() == monoid(2)()); // OK
 \end{codeblock}
 \end{example}
 
@@ -705,17 +635,38 @@ A closure object behaves like a function
 object~(\ref{function.objects}).\end{note}
 
 \pnum
-The type of the \grammarterm{lambda-expression} (which is also the type of the
-closure object) is a unique, unnamed non-union class type
---- called the \defn{closure type} ---
+If a \grammarterm{lambda-expression} does not include a
+\grammarterm{lambda-declarator}, it is as if the \grammarterm{lambda-declarator} were
+\tcode{()}.
+The lambda return type is \tcode{auto}, which is replaced by the
+type specified by the
+\grammarterm{trailing-return-type} if provided and/or deduced from
+\tcode{return} statements as described in~\ref{dcl.spec.auto}.
+\begin{example}
+\begin{codeblock}
+auto x1 = [](int i){ return i; };     // OK: return type is \tcode{int}
+auto x2 = []{ return { 1, 2 }; };     // error: deducing return type from \grammarterm{braced-init-list}
+int j;
+auto x3 = []()->auto&& { return j; }; // OK: return type is \tcode{int\&}
+\end{codeblock}
+\end{example}
+
+\rSec3[expr.prim.lambda.closure]{Closure types}%
+
+\pnum
+The type of a \grammarterm{lambda-expression} (which is also the type of the
+closure object) is a unique, unnamed non-union class type,
+called the \defn{closure type},
 whose properties are described below.
-This class type is not an aggregate type~(\ref{dcl.init.aggr}).
+
+\pnum
 The closure type is declared in the smallest block
 scope, class scope, or namespace scope that contains the corresponding
 \grammarterm{lambda-expression}. \begin{note} This determines the set of namespaces and
 classes associated with the closure type~(\ref{basic.lookup.argdep}). The parameter
 types of a \grammarterm{lambda-declarator} do not affect these associated namespaces and
-classes. \end{note} An implementation may define the closure type differently from what
+classes. \end{note} The closure type is not an aggregate type~(\ref{dcl.init.aggr}).
+An implementation may define the closure type differently from what
 is described below provided this does not alter the observable behavior of the program
 other than by changing:
 
@@ -732,23 +683,6 @@ or
 
 An implementation shall not add members of rvalue reference type to the closure
 type.
-
-\pnum
-If a \grammarterm{lambda-expression} does not include a
-\grammarterm{lambda-declarator}, it is as if the \grammarterm{lambda-declarator} were
-\tcode{()}.
-The lambda return type is \tcode{auto}, which is replaced by the
-type specified by the
-\grammarterm{trailing-return-type} if provided and/or deduced from
-\tcode{return} statements as described in~\ref{dcl.spec.auto}.
-\begin{example}
-\begin{codeblock}
-auto x1 = [](int i){ return i; };     // OK: return type is \tcode{int}
-auto x2 = []{ return { 1, 2 }; };     // error: deducing return type from \grammarterm{braced-init-list}
-int j;
-auto x3 = []()->auto&& { return j; }; // OK: return type is \tcode{int\&}
-\end{codeblock}
-\end{example}
 
 \pnum
 The closure type for a non-generic \grammarterm{lambda-expression} has a public
@@ -790,7 +724,12 @@ auto q = p(1, 'a', 3.14);                              // OK: outputs \tcode{1a3
 q();                                                   // OK: outputs \tcode{1a3.14}
 \end{codeblock}
 \end{example}
-This function call operator or operator template is declared
+
+\pnum
+In the \grammarterm{decl-specifier-seq} of the \grammarterm{lambda-declarator},
+each \grammarterm{decl-specifier}
+shall either be \tcode{mutable} or \tcode{constexpr}.
+The function call operator or operator template is declared
 \tcode{const}~(\ref{class.mfct.non-static}) if and only if the
 \grammarterm{lambda-expression}'s \grammarterm{parameter-declaration-clause} is not
 followed by \tcode{mutable}. It is neither virtual nor declared \tcode{volatile}. Any
@@ -820,6 +759,34 @@ static_assert(ID(NonLiteral{3}).n == 3); // ill-formed
 \end{example}
 
 \pnum
+\begin{example}
+\begin{codeblock}
+auto monoid = [](auto v) { return [=] { return v; }; };
+auto add = [](auto m1) constexpr {
+  auto ret = m1();
+  return [=](auto m2) mutable {
+    auto m1val = m1();
+    auto plus = [=](auto m2val) mutable constexpr
+                   { return m1val += m2val; };
+    ret = plus(m2());
+    return monoid(ret);
+  };
+};
+constexpr auto zero = monoid(0);
+constexpr auto one = monoid(1);
+static_assert(add(one)(zero)() == one()); // OK
+
+// Since \tcode{two} below is not declared \tcode{constexpr}, an evaluation of its \tcode{constexpr} member function call operator
+// cannot perform an lvalue-to-rvalue conversion on one of its subobjects (that represents its capture)
+// in a constant expression.
+auto two = monoid(2);
+assert(two() == 2); // OK, not a constant expression.
+static_assert(add(one)(one)() == two()); // ill-formed: \tcode{two()} is not a constant expression
+static_assert(add(one)(one)() == monoid(2)()); // OK
+\end{codeblock}
+\end{example}
+
+\pnum
 The closure type for a non-generic \grammarterm{lambda-expression} with no
 \grammarterm{lambda-capture}
 has a conversion function to pointer to
@@ -841,6 +808,8 @@ parameter types, as the function call operator template.  The return type of
 the pointer to function shall behave as if it were a
 \grammarterm{decltype-specifier} denoting the return type of the corresponding
 function call operator template specialization.
+
+\pnum
 \begin{note}
 If the generic lambda has no \grammarterm{trailing-return-type} or
 the \grammarterm{trailing-return-type} contains a placeholder type, return type
@@ -891,6 +860,7 @@ int& (*fpi)(int*) = [](auto* a) -> auto& { return *a; }; // OK
 \end{codeblock}
 \end{example}
 
+\pnum
 The value returned by any given specialization of this conversion function
 template is the address of a function \tcode{F} that, when invoked, has the same
 effect as invoking the generic lambda's corresponding function call operator
@@ -910,6 +880,7 @@ GL_int(3);                // OK: same as \tcode{GL(3)}
 \end{codeblock}
 \end{example}
 
+\pnum
 The conversion function or conversion function template is public,
 constexpr, non-virtual, non-explicit, const, and has a non-throwing exception
 specification~(\ref{except.spec}).
@@ -951,6 +922,70 @@ struct S1 {
 Further, a variable \tcode{__func__} is implicitly defined at the beginning of
 the \grammarterm{compound-statement} of the \grammarterm{lambda-expression},
 with semantics as described in~\ref{dcl.fct.def.general}.
+
+\pnum
+The closure type associated with a \grammarterm{lambda-expression} has no
+default constructor and a deleted copy assignment operator. It has a
+defaulted copy constructor and a defaulted move constructor~(\ref{class.copy}).
+\begin{note} These special member functions are implicitly defined as
+usual, and might therefore be defined as deleted. \end{note}
+
+\pnum
+The closure type associated with a \grammarterm{lambda-expression} has an
+implicitly-declared destructor~(\ref{class.dtor}).
+
+\pnum
+A member of a closure type shall not be
+explicitly instantiated~(\ref{temp.explicit}),
+explicitly specialized~(\ref{temp.expl.spec}), or
+named in a \tcode{friend} declaration~(\ref{class.friend}).
+
+\rSec3[expr.prim.lambda.capture]{Captures}%
+
+\begin{bnf}
+\nontermdef{lambda-capture}\br
+    capture-default\br
+    capture-list\br
+    capture-default \terminal{,} capture-list
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{capture-default}\br
+    \terminal{\&}\br
+    \terminal{=}
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{capture-list}\br
+    capture \terminal{...\opt}\br
+    capture-list \terminal{,} capture \terminal{...\opt}
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{capture}\br
+    simple-capture\br
+    init-capture
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{simple-capture}\br
+    identifier\br
+    \terminal{\&} identifier\br
+    \terminal{this}\br
+    \terminal{* this}
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{init-capture}\br
+    identifier initializer\br
+    \terminal{\&} identifier initializer
+\end{bnf}
+
+\pnum
+The body of a \grammarterm{lambda-expression} may refer to variables
+with automatic storage duration and the \tcode{*this} object (if any)
+of enclosing block scopes by capturing those entities, as described
+below.
 
 \pnum
 If a \grammarterm{lambda-capture} includes a \grammarterm{capture-default} that
@@ -1259,23 +1294,6 @@ void f3() {
 }
 \end{codeblock}
 \end{example}
-
-\pnum
-The closure type associated with a \grammarterm{lambda-expression} has no
-default constructor and a deleted copy assignment operator. It has a
-defaulted copy constructor and a defaulted move constructor~(\ref{class.copy}).
-\begin{note} These special member functions are implicitly defined as
-usual, and might therefore be defined as deleted. \end{note}
-
-\pnum
-The closure type associated with a \grammarterm{lambda-expression} has an
-implicitly-declared destructor~(\ref{class.dtor}).
-
-\pnum
-A member of a closure type shall not be
-explicitly instantiated~(\ref{temp.explicit}),
-explicitly specialized~(\ref{temp.expl.spec}), or
-named in a \tcode{friend} declaration~(\ref{class.friend}).
 
 \pnum
 When the \grammarterm{lambda-expression} is evaluated, the entities that are
@@ -4981,7 +4999,7 @@ void g() {
 If the odr-use occurs in an invocation
 of a function call operator of a closure type,
 it no longer refers to \tcode{this} or to an enclosing automatic variable
-due to the transformation~(\ref{expr.prim.lambda})
+due to the transformation~(\ref{expr.prim.lambda.capture})
 of the \grammarterm{id-expression} into
 an access of the corresponding data member.
 \begin{example}
