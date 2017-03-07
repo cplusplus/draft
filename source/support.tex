@@ -547,6 +547,10 @@ Non-arithmetic standard types, such as
 
 \rSec3[numeric.limits.members]{\tcode{numeric_limits} members}
 
+\pnum
+\indextext{signal-safe!\idxcode{numeric_limits} members}%
+Each member function defined in this subclause is signal-safe~(\ref{csignal.syn}).
+
 \indexlibrarymember{min}{numeric_limits}%
 \begin{itemdecl}
 static constexpr T min() noexcept;
@@ -1442,6 +1446,8 @@ This function has the semantics specified in the C standard library.
 The program is terminated without executing destructors for objects of automatic,
 thread, or static storage duration and without calling functions passed to
 \tcode{atexit()}~(\ref{basic.start.term}).
+\indextext{signal-safe!\idxcode{_Exit}}%
+The function \tcode{_Exit} is signal-safe~(\ref{csignal.syn}).
 \end{itemdescr}
 
 \indexlibrary{\idxcode{abort}}%
@@ -1460,8 +1466,8 @@ The program is terminated without executing destructors for objects of
 automatic, thread, or static storage
 duration and without calling functions passed to
 \tcode{atexit()}~(\ref{basic.start.term}).
-%
-\indexlibrary{\idxcode{atexit}}%
+\indextext{signal-safe!\idxcode{abort}}%
+The function \tcode{abort} is signal-safe~(\ref{csignal.syn}).
 \end{itemdescr}
 
 \indexlibrary{\idxcode{atexit}}%
@@ -1610,6 +1616,11 @@ After calling registered functions, \tcode{quick_exit} shall call \tcode{_Exit(s
 The standard file buffers are not flushed.
 \end{note}
 
+\pnum
+\remarks
+\indextext{signal-safe!\idxcode{quick_exit}}%
+The function \tcode{quick_exit} is signal-safe~(\ref{csignal.syn})
+when the functions registered with \tcode{at_quick_exit} are.
 \end{itemdescr}
 
 \xref~\ref{basic.start}, \ref{basic.start.term},
@@ -3400,6 +3411,8 @@ dynamic_cast<const nested_exception&>(e).rethrow_nested();
 \pnum
 The header \tcode{<initializer_list>} defines a class template and several
 support functions related to list-initialization~(see \ref{dcl.init.list}).
+\indextext{signal-safe!\idxcode{initializer_list} functions}%
+All functions specified in this subclause are signal-safe~(\ref{csignal.syn}).
 
 \rSec2[initializer_list.syn]{Header \tcode{<initializer_list>} synopsis}
 \indexlibrary{\idxcode{initializer_list}}%
@@ -3708,6 +3721,7 @@ define a macro named \tcode{alignas}.
 namespace std {
   using sig_atomic_t = @\seebelow@;
 
+  // \ref{support.signal}, signal handlers
   extern "C" using @\placeholdernc{signal-handler}@ = void(int);  // \expos
   @\placeholder{signal-handler}@* signal(int sig, @\placeholder{signal-handler}@* func);
 
@@ -3731,32 +3745,76 @@ namespace std {
 The contents of the header \tcode{<csignal>} are the same as the C
 standard library header \tcode{<signal.h>}.
 
+\rSec2[support.signal]{Signal handlers}
+
 \pnum
 A call to the function \tcode{signal} synchronizes with any resulting
 invocation of the signal handler so installed.
 
 \pnum
-The common subset of the C and \Cpp languages consists of all declarations,
-definitions, and expressions that may appear in a well formed \Cpp program
-and also in a conforming C program.
-A
-\indextext{POF}%
-\indextext{function!plain old}%
-POF (``plain old function'') is a function that uses only features from
-this common subset, and that does not directly or indirectly use any
-function that is not a POF, except that it may use
-plain lock-free atomic operations.
-A \term{plain lock-free atomic operation} is an invocation of a function
-\placeholder{f} from Clause~\ref{atomics}, such that \placeholder{f} is not a
-member function, and either \placeholder{f} is the function
-\tcode{atomic_is_lock_free}, or for every atomic argument \tcode{A} passed to
-\placeholder{f}, \tcode{atomic_is_lock_free(A)} yields \tcode{true}.
-All signal handlers shall have C linkage.
-The behavior of any function other than a POF used as a signal handler in a
-\Cpp program is \impldef{use of non-POF function as signal handler}.\footnote{In
-particular, a signal handler using exception handling is very likely to
-have problems. Also, invoking \tcode{std::exit} may cause destruction of objects,
-including those of the standard library implementation, which, in general, yields
-undefined behavior in a signal handler (see~\ref{intro.execution}).}
+A \defn{plain lock-free atomic operation} is
+an invocation of a function \tcode{f} from Clause~\ref{atomics},
+such that:
+
+\begin{itemize}
+\item
+\tcode{f} is the function \tcode{atomic_is_lock_free()}, or
+
+\item
+\tcode{f} is the member function \tcode{is_lock_free()}, or
+
+\item
+\tcode{f} is a non-static member function invoked on an object \tcode{A},
+such that \tcode{A.is_lock_free()} yields \tcode{true}, or
+
+\item
+\tcode{f} is a non-member function, and
+for every pointer-to-atomic argument \tcode{A} passed to \tcode{f},
+\tcode{atomic_is_lock_free(A)} yields \tcode{true}.
+\end{itemize}
+
+\pnum
+\indextext{signal-safe!evaluation|see{evaluation, signal-safe}}%
+An evaluation is \defnx{signal-safe}{evaluation!signal-safe} unless it includes one of the following:
+
+\begin{itemize}
+\item
+a call to any standard library function,
+except for plain lock-free atomic operations and
+functions explicitly identified as signal-safe.
+\begin{note}
+This implicitly excludes the use of \tcode{new} and \tcode{delete} expressions
+that rely on a library-provided memory allocator.
+\end{note}
+
+\item
+an access to an object with thread storage duration;
+
+\item
+a \tcode{dynamic_cast} expression;
+
+\item
+throwing of an exception;
+
+\item
+control entering a \grammarterm{try-block} or \grammarterm{function-try-block};
+
+\item
+initialization of a variable with static storage duration
+requiring dynamic initialization~(\ref{basic.start.dynamic}, \ref{stmt.dcl})%
+\footnote{Such initialization might occur because it is the first odr-use~(\ref{basic.def.odr}) of that variable.}; or
+
+\item
+waiting for the completion of the initialization of a variable with static storage duration~(\ref{stmt.dcl}).
+\end{itemize}
+
+A signal handler invocation has undefined behavior if it includes
+an evaluation that is not signal-safe.
+
+\pnum
+\indextext{signal-safe!\idxcode{signal}}%
+The function \tcode{signal} is signal-safe if it is invoked
+with the first argument equal to the signal number
+corresponding to the signal that caused the invocation of the handler.
 
 \xref ISO C~7.14.
