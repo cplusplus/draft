@@ -12444,10 +12444,11 @@ namespace std::filesystem {
   class directory_entry {
   public:
     // \ref{directory_entry.cons}, constructors and destructor
-    explicit directory_entry(const path& p);
     directory_entry() noexcept = default;
     directory_entry(const directory_entry&) = default;
     directory_entry(directory_entry&&) noexcept = default;
+    explicit directory_entry(const path& p);
+    directory_entry(const path& p, error_code& ec);
     ~directory_entry();
 
     // assignments:
@@ -12456,15 +12457,43 @@ namespace std::filesystem {
 
     // \ref{directory_entry.mods}, modifiers
     void assign(const path& p);
+    void assign(const path& p, error_code& ec);
     void replace_filename(const path& p);
+    void replace_filename(const path& p, error_code& ec);
+    void refresh();
+    void refresh(error_code& ec) noexcept;
 
     // \ref{directory_entry.obs}, observers
-    const path&  path() const noexcept;
+    const path& path() const noexcept;
     operator const path&() const noexcept;
-    file_status  status() const;
-    file_status  status(error_code& ec) const noexcept;
-    file_status  symlink_status() const;
-    file_status  symlink_status(error_code& ec) const noexcept;
+    bool exists() const;
+    bool exists(error_code& ec) const noexcept;
+    bool is_block_file() const;
+    bool is_block_file(error_code& ec) const noexcept;
+    bool is_character_file() const;
+    bool is_character_file(error_code& ec) const noexcept;
+    bool is_directory() const;
+    bool is_directory(error_code& ec) const noexcept;
+    bool is_fifo() const;
+    bool is_fifo(error_code& ec) const noexcept;
+    bool is_other() const;
+    bool is_other(error_code& ec) const noexcept;
+    bool is_regular_file() const;
+    bool is_regular_file(error_code& ec) const noexcept;
+    bool is_socket() const;
+    bool is_socket(error_code& ec) const noexcept;
+    bool is_symlink() const;
+    bool is_symlink(error_code& ec) const noexcept;
+    uintmax_t file_size() const;
+    uintmax_t file_size(error_code& ec) const noexcept;
+    uintmax_t hard_link_count() const;
+    uintmax_t hard_link_count(error_code& ec) const noexcept;
+    file_time_type last_write_time() const;
+    file_time_type last_write_time(error_code& ec) const noexcept;
+    file_status status() const;
+    file_status status(error_code& ec) const noexcept;
+    file_status symlink_status() const;
+    file_status symlink_status(error_code& ec) const noexcept;
 
     bool operator< (const directory_entry& rhs) const noexcept;
     bool operator==(const directory_entry& rhs) const noexcept;
@@ -12474,26 +12503,86 @@ namespace std::filesystem {
     bool operator>=(const directory_entry& rhs) const noexcept;
 
   private:
-    path   pathobject; // \expos
+    path pathobject;                 // \expos
+    friend class directory_iterator; // \expos
   };
 }
 \end{codeblock}
 \pnum
-A \tcode{directory_entry} object stores a \tcode{path} object.
+\indextext{file attributes}%
+A \tcode{directory_entry} object stores a \tcode{path} object
+and may store additional objects for file attributes
+such as hard link count, status, symlink status, file size, and last write time.
+
+\pnum
+Implementations are encouraged to store such additional file attributes
+during directory iteration if their values are available
+and storing the values would allow the implementation to eliminate file system accesses
+by \tcode{directory_entry} observer functions~(\ref{fs.op.funcs}).
+Such stored file attribute values are said to be \defnx{cached}{file attributes!cached}.
+
+\pnum
+\begin{note}
+For purposes of exposition,
+class \tcode{directory_iterator}~(\ref{class.directory_iterator})
+is shown above as a friend of class \tcode{directory_entry}.
+Friendship allows the \tcode{directory_iterator} implementation to cache
+already available attribute values
+directly into a \tcode{directory_entry} object
+without the cost of an unneeded call to \tcode{refresh()}.
+\end{note}
+
+\pnum
+\begin{example}
+\begin{codeblock}
+using namespace std::filesystem;
+
+// use possibly cached last write time to minimize disk accesses
+for (auto&& x : directory_iterator("."))
+{
+  std::cout << x.path() << " " << x.last_write_time() << std::endl;
+}
+
+// call refresh() to refresh a stale cache
+for (auto&& x : directory_iterator("."))
+{
+  lengthy_function(x.path());  // cache becomes stale
+  x.refresh();
+  std::cout << x.path() << " " << x.last_write_time() << std::endl;
+}
+\end{codeblock}
+On implementations that do not cache the last write time,
+both loops will result in a potentially expensive call
+to the \tcode{std::filesystem::last_write_time} function.
+%
+On implementations that do cache the last write time,
+the first loop will use the cached value and so
+will not result in a potentially expensive call
+to the \tcode{std::filesystem::last_write_time} function.
+%
+The code is portable to any implementation,
+regardless of whether or not it employs caching.
+\end{example}
 
 \rSec3[directory_entry.cons]{\tcode{directory_entry} constructors}
 
 \indexlibrary{\idxcode{directory_entry}!constructor}%
 \begin{itemdecl}
 explicit directory_entry(const path& p);
+directory_entry(const path& p, error_code& ec);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
-\effects Constructs an object of type \tcode{directory_entry}.
+\effects Constructs an object of type \tcode{directory_entry},
+then \tcode{refresh()} or \tcode{refresh(ec)}, respectively.
 
 \pnum
-\postconditions \tcode{path() == p}.
+\postconditions \tcode{path() == p} if no error occurs,
+otherwise \tcode{path() == std::filesystem::path()}.
+
+\pnum
+\throws As specified in~\ref{fs.err.report}.
 \end{itemdescr}
 
 \rSec3[directory_entry.mods]{\tcode{directory_entry} modifiers}
@@ -12501,26 +12590,64 @@ explicit directory_entry(const path& p);
 \indexlibrarymember{assign}{directory_entry}%
 \begin{itemdecl}
 void assign(const path& p);
+void assign(const path& p, error_code& ec);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
-\postconditions \tcode{path() == p}.
+\effects Equivalent to \tcode{pathobject = p},
+then \tcode{refresh()} or \tcode{refresh(ec)}, respectively.
+If an error occurs the value of any cached attributes is unspecified.
+
+\pnum
+\throws As specified in~\ref{fs.err.report}.
 \end{itemdescr}
 
 \indexlibrarymember{replace_filename}{directory_entry}%
 \begin{itemdecl}
 void replace_filename(const path& p);
+void replace_filename(const path& p, error_code& ec);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
-\postconditions \tcode{path() == x.parent_path() / p} where
-  \tcode{x} is the value of \tcode{path()} before the function is
-  called.
+\effects Equivalent to \tcode{pathobject = pathobject.parent_path() / p},
+followed by \tcode{refresh()} or \tcode{refresh(ec)}, respectively.
+If an error occurs the value of any cached attributes is unspecified.
+
+\throws As specified in~\ref{fs.err.report}.
+\end{itemdescr}
+
+\indexlibrarymember{refresh}{directory_entry}%
+\begin{itemdecl}
+void refresh();
+void refresh(error_code& ec) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Stores the current value for any cached attribute values of the file \tcode{p} resolves to.
+If an error occurs, an error is reported~(\ref{fs.err.report})
+and the value of any cached attributes is unspecified.
+
+\pnum
+\throws As specified in~\ref{fs.err.report}.
+
+\pnum
+\begin{note}
+Implementations of \tcode{directory_iterator}~(\ref{class.directory_iterator})
+are prohibited from directly or indirectly calling the \tcode{refresh} function
+since it must access the external file system,
+and the objective of caching is to avoid unnecessary file system accesses.
+\end{note}
 \end{itemdescr}
 
 \rSec3[directory_entry.obs]{\tcode{directory_entry} observers}
+
+\pnum
+Unqualified function names in the \returns elements of the
+\tcode{directory_entry} observers described below refer to members of the
+\tcode{std::filesystem} namespace.
 
 \indexlibrarymember{path}{directory_entry}%
 \indexlibrarymember{operator const path\&}{directory_entry}%
@@ -12534,6 +12661,177 @@ operator const path&() const noexcept;
 \returns \tcode{pathobject}.
 \end{itemdescr}
 
+\indexlibrarymember{exists}{directory_entry}%
+\begin{itemdecl}
+bool exists() const;
+bool exists(error_code& ec) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{exists(this->status())} or \tcode{exists(this->status(), ec)}, respectively.
+
+\pnum
+\throws As specified in~\ref{fs.err.report}.
+\end{itemdescr}
+
+\indexlibrarymember{is_block_file}{directory_entry}%
+\begin{itemdecl}
+bool is_block_file() const;
+bool is_block_file(error_code& ec) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{is_block_file(this->status())} or \tcode{is_block_file(this->status(), ec)}, respectively.
+
+\pnum
+\throws As specified in~\ref{fs.err.report}.
+\end{itemdescr}
+
+\indexlibrarymember{is_character_file}{directory_entry}%
+\begin{itemdecl}
+bool is_character_file() const;
+bool is_character_file(error_code& ec) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{is_character_file(this->status())} or \tcode{is_character_file(this->status(), ec)}, respectively.
+
+\pnum
+\throws As specified in~\ref{fs.err.report}.
+\end{itemdescr}
+
+\indexlibrarymember{is_directory}{directory_entry}%
+\begin{itemdecl}
+bool is_directory() const;
+bool is_directory(error_code& ec) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{is_directory(this->status())} or \tcode{is_directory(this->status(), ec)}, respectively.
+
+\pnum
+\throws As specified in~\ref{fs.err.report}.
+\end{itemdescr}
+
+\indexlibrarymember{is_fifo}{directory_entry}%
+\begin{itemdecl}
+bool is_fifo() const;
+bool is_fifo(error_code& ec) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{is_fifo(this->status())} or \tcode{is_fifo(this->status(), ec)}, respectively.
+
+\pnum
+\throws As specified in~\ref{fs.err.report}.
+\end{itemdescr}
+
+\indexlibrarymember{is_other}{directory_entry}%
+\begin{itemdecl}
+bool is_other() const;
+bool is_other(error_code& ec) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{is_other(this->status())} or \tcode{is_other(this->status(), ec)}, respectively.
+
+\pnum
+\throws As specified in~\ref{fs.err.report}.
+\end{itemdescr}
+
+\indexlibrarymember{is_regular_file}{directory_entry}%
+\begin{itemdecl}
+bool is_regular_file() const;
+bool is_regular_file(error_code& ec) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{is_regular_file(this->status())} or \tcode{is_regular_file(this->status(), ec)}, respectively.
+
+\pnum
+\throws As specified in~\ref{fs.err.report}.
+\end{itemdescr}
+
+\indexlibrarymember{is_socket}{directory_entry}%
+\begin{itemdecl}
+bool is_socket() const;
+bool is_socket(error_code& ec) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{is_socket(this->status())} or \tcode{is_socket(this->status(), ec)}, respectively.
+
+\pnum
+\throws As specified in~\ref{fs.err.report}.
+\end{itemdescr}
+
+\indexlibrarymember{is_symlink}{directory_entry}%
+\begin{itemdecl}
+bool is_symlink() const;
+bool is_symlink(error_code& ec) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{is_symlink(this->symlink_status())} or \tcode{is_symlink(this->symlink_status(), ec)}, respectively.
+
+\pnum
+\throws As specified in~\ref{fs.err.report}.
+\end{itemdescr}
+
+\indexlibrarymember{file_size}{directory_entry}%
+\begin{itemdecl}
+uintmax_t file_size() const;
+uintmax_t file_size(error_code& ec) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns If cached, the file size attribute value.
+Otherwise, \tcode{file_size(path())} or \tcode{file_size(path(), ec)}, respectively.
+
+\pnum
+\throws As specified in~\ref{fs.err.report}.
+\end{itemdescr}
+
+\indexlibrarymember{hard_link_count}{directory_entry}%
+\begin{itemdecl}
+uintmax_t hard_link_count() const;
+uintmax_t hard_link_count(error_code& ec) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns If cached, the hard link count attribute value.
+Otherwise, \tcode{hard_link_count(path())} or \tcode{hard_link_count(path(), ec)}, respectively.
+
+\pnum
+\throws As specified in~\ref{fs.err.report}.
+\end{itemdescr}
+
+\indexlibrarymember{last_write_time}{directory_entry}%
+\begin{itemdecl}
+file_time_type last_write_time() const;
+file_time_type last_write_time(error_code& ec) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns If cached, the last write time attribute value.
+Otherwise, \tcode{last_write_time(path())} or \tcode{last_write_time(path(), ec)}, respectively.
+
+\pnum
+\throws As specified in~\ref{fs.err.report}.
+\end{itemdescr}
+
 \indexlibrarymember{status}{directory_entry}%
 \begin{itemdecl}
 file_status status() const;
@@ -12542,7 +12840,8 @@ file_status status(error_code& ec) const noexcept;
 
 \begin{itemdescr}
 \pnum
-\returns \tcode{status(path())} or \tcode{status(path(), ec)}, respectively.
+\returns If cached, the status attribute value.
+Otherwise, \tcode{status(path())} or \tcode{status(path(), ec)}, respectively.
 
 \pnum
 \throws As specified in~\ref{fs.err.report}.
@@ -12556,7 +12855,8 @@ file_status symlink_status(error_code& ec) const noexcept;
 
 \begin{itemdescr}
 \pnum
-\returns \tcode{symlink_status(path())} or \tcode{symlink_status(path(), ec)}, respectively.
+\returns If cached, the symlink status attribute value.
+Otherwise, \tcode{symlink_status(path())} or \tcode{symlink_status(path(), ec)}, respectively.
 
 \pnum
 \throws As specified in~\ref{fs.err.report}.
@@ -12627,8 +12927,9 @@ bool operator>=(const directory_entry& rhs) const noexcept;
 \indexlibrary{\idxcode{directory_iterator}}%
 \pnum
 An object of type \tcode{directory_iterator} provides an iterator for a
-sequence of \tcode{directory_entry} elements representing the files in a
-directory.
+sequence of \tcode{directory_entry} elements representing the
+path and any cached attribute values~(\ref{class.directory_entry})
+for each file in a directory.
 \begin{note} For iteration into sub-directories, see class \tcode{recursive_directory_iterator}
 (\ref{class.rec.dir.itr}). \end{note}
 
@@ -12696,6 +12997,18 @@ and parent (\grammarterm{dot-dot}) directories.
 \pnum
 The order of directory entries obtained by dereferencing successive
 increments of a \tcode{directory_iterator} is unspecified.
+
+\pnum
+Constructors and non-const \tcode{directory_iterator} member functions
+shall store the cached attribute values, if any, described in \ref{class.directory_entry}
+in the \tcode{directory_entry} element returned by \tcode{operator*()}.
+\tcode{directory_iterator} member functions shall not directly or indirectly call
+any \tcode{directory_entry} \tcode{refresh} function.
+\begin{note}
+The exact mechanism for storing cached attribute values is not exposed to users.
+For exposition class \tcode{directory_iterator} is shown in \ref{class.directory_entry}
+as a friend of class \tcode{directory_entry}.
+\end{note}
 
 \pnum
 \begin{note}
