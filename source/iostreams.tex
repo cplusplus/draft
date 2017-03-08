@@ -11066,19 +11066,45 @@ path& operator/=(const path& p);
 
 \begin{itemdescr}
 \pnum
-\requires \tcode{!p.has_root_name()}.
+\effects If \tcode{p.is_absolute() || (p.has_root_name() \&\& p.root_name() != root_name())},
+then \tcode{operator=(p)}.
 
 \pnum
-\effects Appends \tcode{path::preferred_separator} to \tcode{pathstring} unless:
+Otherwise, modifies \tcode{*this} as if by these steps:
 \begin{itemize}
-\item an added \grammarterm{directory-separator}
-    would be redundant, or
-\item an added \grammarterm{directory-separator} would change a relative path into an absolute path
-    \begin{note} An empty path is relative.\end{note}, or
-\item \tcode{p.empty()} is \tcode{true}, or
-\item \tcode{*p.native().cbegin()} is a \grammarterm{directory-separator}.
+\item If \tcode{p.has_root_directory()},
+  then removes any root directory and relative path
+  from the generic format pathname.
+  Otherwise,
+  if \tcode{!has_root_directory() \&\& is_absolute()} is \tcode{true}
+  or if \tcode{has_filename()} is \tcode{true},
+  then appends \tcode{path::preferred_separator} to the generic format pathname.
+\item Then appends the native format pathname of \tcode{p},
+  omitting any \grammarterm{root-name} from its generic format pathname,
+  to the native format pathname.
 \end{itemize}
-Then appends \tcode{p.native()} to \tcode{pathstring}.
+
+\pnum
+\begin{example}
+Even if \tcode{//host} is interpreted as a \grammarterm{root-name},
+both of the paths \tcode{path("//host")/"foo"} and \tcode{path("//host/")/"foo"}
+equal \tcode{"//host/foo"}.
+
+Expression examples:
+\begin{codeblock}
+// On POSIX,
+path("foo") / "";     // yields \tcode{"foo/"}
+path("foo") / "/bar"; // yields \tcode{"/bar"}
+// On Windows, backslashes replace slashes in the above yields
+
+// On Windows,
+path("foo") / "c:/bar";  // yields \tcode{"c:/bar"}
+path("foo") / "c:";      // yields \tcode{"c:"}
+path("c:") / "";         // yields \tcode{"c:"}
+path("c:foo") / "/bar";  // yields \tcode{"c:/bar"}
+path("c:foo") / "c:bar"; // yields \tcode{"c:foo/bar"}
+\end{codeblock}
+\end{example}
 
 \pnum
 \returns \tcode{*this}.
@@ -11524,10 +11550,10 @@ path parent_path() const;
 
 \begin{itemdescr}
 \pnum
-\returns \tcode{(empty() || begin() == --end()) ? path() : \textit{pp}},
-where \tcode{\textit{pp}} is constructed as if by
-  starting with an empty \tcode{path} and successively applying \tcode{operator/=} for each element in the range
-  \range{begin()}{--end()}.
+\returns \tcode{*this} if \tcode{!has_relative_path()},
+otherwise a path whose generic format pathname is
+the longest prefix of the generic format pathname of \tcode{*this}
+that produces one fewer element in its iteration.
 \end{itemdescr}
 
 \indexlibrarymember{filename}{path}%
@@ -11743,18 +11769,17 @@ path lexically_normal() const;
 
 \begin{itemdescr}
 \pnum
-\returns \tcode{*this} in normal form~(\ref{fs.def.normal.form}).
+\returns A path whose pathname in the generic format is
+the normal form~(\ref{fs.def.normal.form}) of the pathname
+in the generic format of \tcode{*this}.
 
+\pnum
 \begin{example}
 \begin{codeblock}
-assert(path("foo/./bar/..").lexically_normal() == "foo");
-assert(path("foo/.///bar/../").lexically_normal() == "foo/.");
+assert(path("foo/./bar/..").lexically_normal() == "foo/");
+assert(path("foo/.///bar/../").lexically_normal() == "foo/");
 \end{codeblock}
 The above assertions will succeed.
-The second example ends with a current directory (\grammarterm{dot}) element
-appended to support operating systems
-that use different syntax for directory names and regular file names.
-
 On Windows, the returned path's \grammarterm{directory-separator} characters
 will be backslashes rather than slashes,
 but that does not affect \tcode{path} equality.
@@ -11774,6 +11799,8 @@ Does not first normalize~(\ref{fs.def.normal.form}) \tcode{*this} or \tcode{base
 
 \pnum
 \effects
+If \tcode{root_name() != base.root_name() || is_absolute() != base.is_absolute() || (!has_root_directory() \&\& base.has_root_directory())},
+returns \tcode{path()}.
 Determines the first mismatched element of \tcode{*this} and \tcode{base}
 as if by:
 \begin{codeblock}
@@ -11781,17 +11808,20 @@ auto [a, b] = mismatch(begin(), end(), base.begin(), base.end());
 \end{codeblock}
 Then,
 \begin{itemize}
-\item if \tcode{a == begin()} and \tcode{b == base.begin()}, returns \tcode{path()}; otherwise
 \item if \tcode{a == end()} and \tcode{b == base.end()}, returns \tcode{path(".")}; otherwise
+\item let \tcode{n} be the number of \grammarterm{filename} elements in \range{b}{base.end()}
+that are not \grammarterm{dot} or \grammarterm{dot-dot} minus the number that are \grammarterm{dot-dot}.
+If \tcode{n<0,} returns \tcode{path()}; otherwise
 \item returns an object of class \tcode{path} that is default-constructed, followed by
 \begin{itemize}
 \item application of \tcode{operator/=(path(".."))}
-  for each element in \range{b}{base.end()}, and then
+  \tcode{n} times, and then
 \item application of \tcode{operator/=}
   for each element in \range{a}{end()}.
 \end{itemize}
 \end{itemize}
 
+\pnum
 \begin{example}
 \begin{codeblock}
 assert(path("/a/d").lexically_relative("/a/b/c") == "../../d");
@@ -11799,7 +11829,7 @@ assert(path("/a/b/c").lexically_relative("/a/d") == "../b/c");
 assert(path("a/b/c").lexically_relative("a") == "b/c");
 assert(path("a/b/c").lexically_relative("a/b/c/x/y") == "../..");
 assert(path("a/b/c").lexically_relative("a/b/c") == ".");
-assert(path("a/b").lexically_relative("c/d") == "");
+assert(path("a/b").lexically_relative("c/d") == "../../a/b");
 \end{codeblock}
 The above assertions will succeed.
 On Windows, the returned path's \grammarterm{directory-separator} characters
@@ -11807,9 +11837,11 @@ will be backslashes rather than forward slashes,
 but that does not affect \tcode{path} equality.
 \end{example}
 
+\pnum
 \begin{note} If symlink following semantics are desired,
   use the operational function \tcode{relative()}. \end{note}
 
+\pnum
 \begin{note} If normalization~(\ref{fs.def.normal.form}) is needed
   to ensure consistent matching of elements,
   apply \tcode{lexically_normal()} to
@@ -11826,9 +11858,11 @@ path lexically_proximate(const path& base) const;
 \returns If the value of \tcode{lexically_relative(base)} is not an empty path,
   return it. Otherwise return \tcode{*this}.
 
+\pnum
 \begin{note} If symlink following semantics are desired,
   use the operational function \tcode{proximate()}. \end{note}
 
+\pnum
 \begin{note} If normalization~(\ref{fs.def.normal.form}) is needed
   to ensure consistent matching of elements,
   apply \tcode{lexically_normal()} to
@@ -13495,7 +13529,7 @@ Input iterators~(\ref{input.iterators}),
 except that:
 
 \begin{itemize}
-\item If there are no more  entries at the current depth, then if \tcode{depth()!= 0}
+\item If there are no more  entries at the current depth, then if \tcode{depth() != 0}
 iteration over the parent directory resumes; otherwise \tcode{*this = recursive_directory_iterator()}.
 
 \item Otherwise if
