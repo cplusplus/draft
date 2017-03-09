@@ -2432,8 +2432,12 @@ identity does not require a diagnostic.
 
 \pnum
 \indextext{program!start|(}%
-A program shall contain a global function called \tcode{main}, which is the designated
-start of the program. It is \impldef{defining \tcode{main} in freestanding environment}
+A program shall contain a global function called \tcode{main}.
+Executing a program starts a main thread of execution~(\ref{intro.multithread}, \ref{thread.threads})
+in which the \tcode{main} function is invoked,
+and in which variables of static storage duration
+might be initialized~(\ref{basic.start.static}) and destroyed~(\ref{basic.start.term}).
+It is \impldef{defining \tcode{main} in freestanding environment}
 whether a program in a freestanding environment is required to define a \tcode{main}
 function. \begin{note} In a freestanding environment, start-up and termination is
 \impldef{start-up and termination in freestanding environment}; start-up contains the
@@ -2559,7 +2563,8 @@ Together, zero-initialization and constant initialization are called
 \indextext{initialization!dynamic}%
 \defn{static initialization};
 all other initialization is \defn{dynamic initialization}.
-Static initialization shall be performed before any dynamic initialization takes place.
+All static initialization strongly happens before~(\ref{intro.races})
+any dynamic initialization.
 \begin{note} The dynamic initialization of non-local variables is described
 in~\ref{basic.start.dynamic}; that of local static variables is described
 in~\ref{stmt.dcl}. \end{note}
@@ -2627,12 +2632,17 @@ If \tcode{V} has partially-ordered initialization, \tcode{W} does not have
 unordered initialization, and \tcode{V} is defined before \tcode{W} in
 every translation unit in which \tcode{W} is defined, the initialization of
 \tcode{V} is sequenced before the initialization of \tcode{W} if the
-program does not start a thread (\ref{intro.multithread}) and otherwise
-happens before the initialization of \tcode{W}.
+program does not start a thread~(\ref{intro.multithread})
+other than the main thread~(\ref{basic.start.main})
+and otherwise strongly happens before the initialization of \tcode{W}.
 
 \item
-Otherwise, if a program starts a thread before either \tcode{V} or \tcode{W} is
-initialized, the initializations of \tcode{V} and \tcode{W} are unsequenced.
+Otherwise, if the program starts a thread
+other than the main thread
+before either \tcode{V} or \tcode{W} is initialized,
+it is unspecified in which threads
+the initializations of \tcode{V} and \tcode{W} occur;
+the initializations are unsequenced if they occur in the same thread.
 
 \item
 Otherwise, the initializations of \tcode{V} and \tcode{W} are indeterminately sequenced.
@@ -2643,17 +2653,30 @@ ordered variables concurrently with another sequence.
 \end{note}
 
 \pnum
+\indextext{non-initialization odr-use|see{odr-use, non-initialization}}%
+A \defnx{non-initialization odr-use}{odr-use!non-initialization}
+is an odr-use~(\ref{basic.def.odr}) not caused directly or indirectly by
+the initialization of a non-local static or thread storage duration variable.
+
+\pnum
 \indextext{evaluation!unspecified order of}%
-It is \impldef{dynamic initialization of static variables before \tcode{main}} whether the
-dynamic initialization of a non-local non-inline variable with static storage duration
-happens before the first statement of \tcode{main}. If the initialization is deferred to
-happen after the first statement of \tcode{main}, it happens before the
-first odr-use~(\ref{basic.def.odr}) of any non-inline function or non-inline variable
-defined in the same translation unit as the variable
-to be initialized.\footnote{A non-local variable with static storage duration
+It is \impldef{dynamic initialization of static variables before \tcode{main}}
+whether the dynamic initialization of a
+non-local non-inline variable with static storage duration
+is sequenced before the first statement of \tcode{main} or is deferred.
+If it is deferred, it strongly happens before
+any non-initialization odr-use
+of any non-inline function or non-inline variable
+defined in the same translation unit as the variable to be initialized.%
+\footnote{A non-local variable with static storage duration
 having initialization
-with side effects must be initialized even if it is not
-odr-used (\ref{basic.def.odr},~\ref{basic.stc.static}).}
+with side effects is initialized in this case
+even if it is not itself odr-used (\ref{basic.def.odr},~\ref{basic.stc.static}).}
+It is \impldef{threads and program points at which deferred dynamic initialization is performed}
+in which threads and at which points in the program such deferred dynamic initialization occurs.
+\begin{note}
+Such points should be chosen in a way that allows the programmer to avoid deadlocks.
+\end{note}
 \begin{example}
 \begin{codeblock}
 // - File 1 -
@@ -2694,21 +2717,26 @@ be initialized prior to its use in \tcode{A::A}. \end{example}
 \pnum
 It is \impldef{dynamic initialization of static inline variables before \tcode{main}}
 whether the dynamic initialization of a
-non-local inline variable with static storage duration happens before the
-first statement of \tcode{main}. If the initialization is deferred
-to happen after the first statement of \tcode{main}, it happens before
-the first odr-use~(\ref{basic.def.odr}) of that variable.
+non-local inline variable with static storage duration
+is sequenced before the first statement of \tcode{main} or is deferred.
+If it is deferred, it strongly happens before
+any non-initialization odr-use
+of that variable.
+It is \impldef{threads and program points at which deferred dynamic initialization is performed}
+in which threads and at which points in the program such deferred dynamic initialization occurs.
 
 \pnum
 It is \impldef{dynamic initialization of thread-local variables before entry}
-whether the dynamic initialization of a non-local non-inline variable with static
-or thread storage duration is sequenced before
-the first statement of the initial function of the thread.
-If the initialization is deferred to some point in time sequenced after
-the first statement of the initial function of the thread,
-it is sequenced before the first odr-use~(\ref{basic.def.odr})
-of any non-inline variable with thread storage duration defined
-in the same translation unit as the variable to be initialized.
+whether the dynamic initialization of a
+non-local non-inline variable with thread storage duration
+is sequenced before the first statement of the initial function of a thread or is deferred.
+If it is deferred,
+the initialization associated with the entity for thread \placeholder{t}
+is sequenced before the first non-initialization odr-use by \placeholder{t}
+of any non-inline variable with thread storage duration
+defined in the same translation unit as the variable to be initialized.
+It is \impldef{threads and program points at which deferred dynamic initialization is performed}
+in which threads and at which points in the program such deferred dynamic initialization occurs.
 
 \pnum
 If the initialization of a non-local variable with static or thread storage duration
@@ -2724,24 +2752,34 @@ an exception, \tcode{std::terminate} is called~(\ref{except.terminate}).%
 \indextext{\idxcode{main} function!return from}%
 Destructors~(\ref{class.dtor}) for initialized objects
 (that is, objects whose lifetime~(\ref{basic.life}) has begun)
-with static storage duration
-are called as a result of returning from \tcode{main} and as a result of calling
+with static storage duration,
+and functions registered with \tcode{std::atexit},
+are called as part of a call to
 \indextext{\idxcode{exit}}%
 \indexlibrary{\idxcode{exit}}%
 \tcode{std::exit}~(\ref{support.start.term}).
+The call to \tcode{std::exit} is sequenced before
+the invocations of the destructors and the registered functions.
+\begin{note}
+Returning from \tcode{main} invokes \tcode{std::exit}~(\ref{basic.start.main}).
+\end{note}
+
+\pnum
 Destructors for initialized objects with thread storage duration within a given thread
 are called as a result of returning from the initial function of that thread and as a
 result of that thread calling \tcode{std::exit}.
 The completions of the destructors for all initialized objects with thread storage
-duration within that thread are sequenced before the initiation of the destructors of
+duration within that thread strongly happen before the initiation of the destructors of
 any object with static storage duration.
+
+\pnum
+If the completion of the constructor or dynamic initialization of an object with static
+storage duration strongly happens before that of another, the completion of the destructor
+of the second is sequenced before the initiation of the destructor of the first.
 If the completion of the constructor or dynamic initialization of an object with thread
 storage duration is sequenced before that of another, the completion of the destructor
 of the second is sequenced before the initiation of the destructor of the first.
-If the completion of the constructor or dynamic initialization of an object with static
-storage duration is sequenced before that of another, the completion of the destructor
-of the second is sequenced before the initiation of the destructor of the first.
-\begin{note} This definition permits concurrent destruction. \end{note} If an object is
+If an object is
 initialized statically, the object is destroyed in the same order as if
 the object was dynamically initialized. For an object of array or class
 type, all subobjects of that object are destroyed before any block-scope
@@ -2763,13 +2801,13 @@ pointer) after its destruction.
 \indextext{\idxcode{atexit}}%
 \indexlibrary{\idxcode{atexit}}%
 If the completion of the initialization of an object with static storage
-duration is sequenced before a call to \tcode{std::atexit}~(see
+duration strongly happens before a call to \tcode{std::atexit}~(see
 \tcode{<cstdlib>},~\ref{support.start.term}), the call to the function passed to
 \tcode{std::atexit} is sequenced before the call to the destructor for the object. If a
-call to \tcode{std::atexit} is sequenced before the completion of the initialization of
+call to \tcode{std::atexit} strongly happens before the completion of the initialization of
 an object with static storage duration, the call to the destructor for the
 object is sequenced before the call to the function passed to \tcode{std::atexit}. If a
-call to \tcode{std::atexit} is sequenced before another call to \tcode{std::atexit}, the
+call to \tcode{std::atexit} strongly happens before another call to \tcode{std::atexit}, the
 call to the function passed to the second \tcode{std::atexit} call is sequenced before
 the call to the function passed to the first \tcode{std::atexit} call.
 
