@@ -26,6 +26,22 @@ then run the following command to install the other packages that the draft requ
 
    sudo tlmgr install latexmk isodate substr relsize ulem fixme rsfs extract layouts enumitem
 
+---------------------------------------
+Getting Started on Debian-based Systems
+---------------------------------------
+
+Install the following packages:
+
+   sudo apt-get install latexmk texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended
+
+-------------------------
+Getting Started on Fedora
+-------------------------
+
+Install the following packages:
+
+   dnf install texlive texlive-isodate texlive-relsize texlive-ulem texlive-fixme texlive-extract
+
 ------------
 Instructions
 ------------
