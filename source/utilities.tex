@@ -2809,7 +2809,7 @@ If \tcode{T}'s selected constructor is a constexpr constructor,
 this constructor shall be a constexpr constructor.
 This constructor shall not participate in overload resolution unless
 \tcode{is_constructible_v<T, U\&\&>} is \tcode{true},
-\tcode{is_same_v<U, in_place_t>} is \tcode{false}, and
+\tcode{is_same_v<decay_t<U>, in_place_t>} is \tcode{false}, and
 \tcode{is_same_v<optional<T>, decay_t<U>>} is \tcode{false}.
 The constructor is explicit if and only if
 \tcode{is_convertible_v<U\&\&, T>} is \tcode{false}.
@@ -5449,7 +5449,9 @@ any(const any& other);
 \begin{itemdescr}
 \pnum
 \effects
-Constructs an object of type \tcode{any} with an equivalent state as \tcode{other}.
+If \tcode{other.has_value()} is \tcode{false}, constructs an object that has no value.
+Otherwise, equivalent to \tcode{any(in_place<T>, any_cast<const T\&>(other))}
+where \tcode{T} is the type of the contained object.
 
 \pnum
 \throws
@@ -5464,7 +5466,11 @@ any(any&& other) noexcept;
 \begin{itemdescr}
 \pnum
 \effects
-Constructs an object of type \tcode{any} with a state equivalent to the original state of \tcode{other}.
+If \tcode{other.has_value()} is \tcode{false}, constructs an object that has no value.
+Otherwise, constructs an object of type \tcode{any} that
+contains either the contained object of \tcode{other}, or
+contains an object of the same type constructed from
+the contained object of \tcode{other} considering that contained object as an rvalue.
 
 \pnum
 \postconditions
@@ -5824,14 +5830,19 @@ template<class T>
 
 \begin{itemdescr}
 \pnum
+Let \tcode{U} be the type \tcode{remove_cv_t<remove_reference_t<ValueType>>}.
+
+\pnum
 \requires
-\tcode{is_reference_v<T>} is \tcode{true} or \tcode{is_copy_constructible_v<T>} is \tcode{true}.
+For the first overload, \tcode{is_constructible_v<ValueType, const U\&>} is \tcode{true}.
+For the second overload, \tcode{is_constructible_v<ValueType, U\&>} is \tcode{true}.
+For the third overload, \tcode{is_constructible_v<ValueType, U>} is \tcode{true}.
 Otherwise the program is ill-formed.
 
 \pnum
 \returns
-For the first form, \tcode{*any_cast<add_const_t<remove_reference_t<T>>>(\&operand)}.
-For the second and third forms, \tcode{*any_cast<remove_reference_t<T>>(\&operand)}.
+For the first and second overload, \tcode{static_cast<ValueType>(*any_cast<U>(\&operand))}.
+For the third overload, \tcode{static_cast<ValueType>(std::move(*any_cast<U>(\&operand)))}.
 
 \pnum
 \throws
@@ -12308,13 +12319,14 @@ template <class OuterA2>
 
 \begin{itemdescr}
 \pnum
-\requires \tcode{OuterAlloc} shall be constructible from \tcode{OuterA2}.
-
-\pnum
 \effects Initializes the \tcode{OuterAlloc} base class with
 \tcode{std::forward<OuterA2>(outerAlloc)} and \tcode{inner} with \tcode{innerAllocs...}
 (hence recursively initializing each allocator within the adaptor with the corresponding
 allocator from the argument list).
+
+\pnum
+\remarks This constructor shall not participate in overload resolution unless
+\tcode{is_constructible_v<OuterAlloc, OuterA2>} is \tcode{true}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{scoped_allocator_adaptor}!constructor}%
@@ -12348,11 +12360,12 @@ template <class OuterA2>
 
 \begin{itemdescr}
 \pnum
-\requires \tcode{OuterAlloc} shall be constructible from \tcode{OuterA2}.
-
-\pnum
 \effects Initializes each allocator within the adaptor with the corresponding allocator
 from \tcode{other}.
+
+\pnum
+\remarks This constructor shall not participate in overload resolution unless
+\tcode{is_constructible_v<OuterAlloc, const OuterA2\&>} is \tcode{true}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{scoped_allocator_adaptor}!constructor}%
@@ -12364,11 +12377,12 @@ template <class OuterA2>
 
 \begin{itemdescr}
 \pnum
-\requires \tcode{OuterAlloc} shall be constructible from \tcode{OuterA2}.
-
-\pnum
 \effects Initializes each allocator within the adaptor with the corresponding allocator rvalue
 from \tcode{other}.
+
+\pnum
+\remarks This constructor shall not participate in overload resolution unless
+\tcode{is_constructible_v<OuterAlloc, OuterA2>} is \tcode{true}.
 \end{itemdescr}
 
 \rSec2[allocator.adaptor.members]{Scoped allocator adaptor members}
@@ -14424,7 +14438,7 @@ function(const function& f);
 
 \pnum
 \throws shall not throw exceptions if \tcode{f}'s target is
-a callable object passed via \tcode{reference_wrapper} or
+a specialization of \tcode{reference_wrapper} or
 a function pointer. Otherwise, may throw \tcode{bad_alloc}
 or any exception thrown by the copy constructor of the stored callable object.
 \begin{note} Implementations are encouraged to avoid the use of
@@ -14440,14 +14454,14 @@ function(function&& f);
 
 \begin{itemdescr}
 \pnum
-\effects If \tcode{!f}, \tcode{*this} has
-no target; otherwise, move constructs the target of \tcode{f}
-into the target of \tcode{*this}, leaving \tcode{f} in
-a valid state with an unspecified value.
+\postconditions If \tcode{!f}, \tcode{*this} has no target;
+otherwise, the target of \tcode{*this} is equivalent to
+the target of \tcode{f} before the construction, and
+\tcode{f} is in a valid state with an unspecified value.
 
 \pnum
 \throws shall not throw exceptions if \tcode{f}'s target is
-a callable object passed via \tcode{reference_wrapper} or
+a specialization of \tcode{reference_wrapper} or
 a function pointer. Otherwise, may throw \tcode{bad_alloc} or
 any exception thrown by the copy or move constructor
 of the stored callable object.
