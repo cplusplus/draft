@@ -124,7 +124,12 @@ are xvalues. The expression \tcode{ar} is an lvalue.
 
 \pnum
 In some contexts, \defnx{unevaluated operands}{unevaluated operand}
-appear~(\ref{expr.typeid}, \ref{expr.sizeof}, \ref{expr.unary.noexcept}, \ref{dcl.type.simple}).
+appear~(\ref{expr.prim.req},
+\ref{expr.typeid},
+\ref{expr.sizeof},
+\ref{expr.unary.noexcept},
+\ref{dcl.type.simple},
+Clause \ref{temp}).
 An unevaluated operand is not evaluated.
 \begin{note}
 In an unevaluated operand, a non-static class member may be
@@ -238,7 +243,7 @@ the temporary materialization conversion~(\ref{conv.rval}) is applied.
 \begin{note}
 If the expression is an lvalue of
 class type, it must have a volatile copy constructor to initialize the
-temporary that is the result object of the lvalue-to-rvalue
+temporary object that is the result object of the lvalue-to-rvalue
 conversion. \end{note}
 The glvalue expression is evaluated and its value is discarded.
 
@@ -344,7 +349,8 @@ composite pointer type of \tcode{pi} and \tcode{pci} is ``pointer to \tcode{cons
     \terminal{(} expression \terminal{)}\br
     id-expression\br
     lambda-expression\br
-    fold-expression
+    fold-expression\br
+    requires-expression
 \end{bnf}
 
 \rSec2[expr.prim.literal]{Literals}
@@ -376,11 +382,12 @@ before the optional \grammarterm{cv-qualifier-seq} and it shall not appear withi
 the declaration of a static member function (although its type and value category
 are defined within a static member function as they are within a non-static
 member function). \begin{note} This is because declaration matching does not
-occur until the complete declarator is known. \end{note} Unlike the object
-expression in other contexts, \tcode{*this} is not required to be of complete
-type for purposes of class member access~(\ref{expr.ref}) outside the member
-function body. \begin{note} Only class members declared prior to the declaration
-are visible. \end{note}
+occur until the complete declarator is known. \end{note}
+\begin{note}
+In a \grammarterm{trailing-return-type},
+the class being defined is not required to be complete
+for purposes of class member access~(\ref{expr.ref}).
+Class members declared later are not visible.
 \begin{example}
 \begin{codeblock}
 struct A {
@@ -391,6 +398,7 @@ struct A {
 template auto A::f(int t) -> decltype(t + g());
 \end{codeblock}
 \end{example}
+\end{note}
 
 \pnum
 Otherwise, if a \grammarterm{member-declarator} declares a non-static data
@@ -472,6 +480,54 @@ int j = sizeof(S::m + 42);      // OK
 \end{codeblock}
 \end{example}
 \end{itemize}
+
+\pnum
+An \grammarterm{id-expression}
+that denotes the specialization of a concept~(\ref{temp.concept})
+results in a prvalue of type \tcode{bool}.
+The expression is \tcode{true} if
+the concept's normalized~(\ref{temp.constr.decl})
+\grammarterm{constraint-expression}
+is satisfied
+according to the rules in \ref{temp.constr.constr}
+and \tcode{false} otherwise.
+\begin{example}
+\begin{codeblock}
+template<typename T> concept C = true;
+static_assert(C<int>);  // OK
+\end{codeblock}
+\end{example}
+\begin{note}
+A concept's constraints are also considered
+when using a template name~(\ref{temp.names})
+and during overload resolution (Clause~\ref{over}),
+and they are compared
+during the the partial ordering of constraints~(\ref{temp.constr.order}).
+\end{note}
+
+\pnum
+A program that refers
+explicitly or implicitly
+to a function with a \grammarterm{requires-clause}
+whose \grammarterm{constraint-expression} is not satisfied~(\ref{temp.constr.decl}),
+other than to declare it,
+is ill-formed.
+\begin{example}
+\begin{codeblock}
+void f(int) requires false;
+
+void g() {
+  f(0);                         // error: cannot call \tcode{f}
+  void (*p1)(int) = f;          // error: cannot take the address of \tcode{f}
+  decltype(f)* p2 = nullptr;    // error: the type \tcode{decltype(f)} is invalid
+}
+\end{codeblock}
+In each case the constraints of \tcode{f} are not satisfied.
+In the declaration of \tcode{p2},
+those constraints are required to be satisfied
+even though
+\tcode{f} is an unevaluated operand (Clause~\ref{expr}).
+\end{example}
 
 \rSec3[expr.prim.id.unqual]{Unqualified names}
 
@@ -594,7 +650,8 @@ by the \grammarterm{nested-name-specifier}.
 
 \begin{bnf}
 \nontermdef{lambda-expression}\br
-    lambda-introducer lambda-declarator\opt compound-statement
+    lambda-introducer lambda-declarator\opt{} compound-statement\br
+    lambda-introducer \tcode{<} template-parameter-list \tcode{>} lambda-declarator\opt{} compound-statement
 \end{bnf}
 
 \begin{bnf}
@@ -657,6 +714,19 @@ auto x3 = []()->auto&& { return j; }; // OK: return type is \tcode{int\&}
 \end{codeblock}
 \end{example}
 
+\pnum
+A lambda is a \defn{generic lambda}
+if the \tcode{auto} \grammarterm{type-specifier} appears as one of the
+\grammarterm{decl-specifier}{s} in the \grammarterm{decl-specifier-seq} of a
+\grammarterm{parameter-declaration} of the \grammarterm{lambda-expression},
+or if the lambda has a \grammarterm{template-parameter-list}.
+\begin{example}
+\begin{codeblock}
+int i = [](int i, auto a) { return i; }(3, 4);         // OK: a generic lambda
+int j = []<class T>(T t, int i) { return i; }(3, 4);   // OK: a generic lambda
+\end{codeblock}
+\end{example}
+
 \rSec3[expr.prim.lambda.closure]{Closure types}%
 
 \pnum
@@ -698,7 +768,9 @@ are described by the \grammarterm{lambda-expression}'s
 respectively.
 For a generic lambda, the closure type has a public inline function call
 operator member template~(\ref{temp.mem}) whose
-\grammarterm{template-parameter-list} consists of one invented type
+\grammarterm{template-parameter-list} consists of
+the specified \grammarterm{template-parameter-list}, if any,
+to which is appended one invented type
 \grammarterm{template-parameter} for each occurrence of \tcode{auto} in the
 lambda's \grammarterm{parameter-declaration-clause}, in order of appearance.
 The invented type \grammarterm{template-parameter} is a parameter pack if
@@ -806,7 +878,7 @@ if the function call operator is a constexpr function.
 For a generic lambda with no \grammarterm{lambda-capture}, the closure type has a
 conversion function template to
 pointer to function. The conversion function template has the same invented
-\grammarterm{template-parameter-list}, and the pointer to function has the same
+template parameter list, and the pointer to function has the same
 parameter types, as the function call operator template.  The return type of
 the pointer to function shall behave as if it were a
 \grammarterm{decltype-specifier} denoting the return type of the corresponding
@@ -997,7 +1069,10 @@ is \tcode{\&}, no identifier in a \grammarterm{simple-capture} of that
 by \tcode{\&}. If a \grammarterm{lambda-capture} includes a
 \grammarterm{capture-default} that is \tcode{=}, each
 \grammarterm{simple-capture} of that \grammarterm{lambda-capture} shall
-be of the form ``\tcode{\&} \grammarterm{identifier}'' or ``\tcode{* this}''.
+be of the form
+``\tcode{\&} \grammarterm{identifier}'',
+``\tcode{this}'',
+or ``\tcode{* this}''.
 \begin{note} The form \tcode{[\&,this]} is redundant but accepted
 for compatibility with ISO \CppXIV. \end{note}
 Ignoring appearances in
@@ -1009,9 +1084,10 @@ Ignoring appearances in
 struct S2 { void f(int i); };
 void S2::f(int i) {
   [&, i]{ };        // OK
+  [&, this, i]{ };  // OK, equivalent to \tcode{[\&, i]}
   [&, &i]{ };       // error: \tcode{i} preceded by \tcode{\&} when \tcode{\&} is the default
   [=, *this]{ };    // OK
-  [=, this]{ };     // error: \tcode{this} when \tcode{=} is the default
+  [=, this]{ };     // OK, equivalent to \tcode{[=]}
   [i, i]{ };        // error: \tcode{i} repeated
   [this, *this]{ }; // error: \tcode{this} appears twice
 }
@@ -1432,6 +1508,344 @@ bool f(Args ...args) {
 \end{codeblock}
 \end{example}
 \indextext{expression!fold|)}%
+
+\rSec2[expr.prim.req]{Requires expressions}
+\indextext{expression!requires|(}%
+
+\pnum
+A \grammarterm{requires-expression} provides a concise way to express
+requirements on template arguments
+that can be checked by name lookup~(\ref{basic.lookup})
+or by checking properties of types and expressions.
+
+\begin{bnf}
+\nontermdef{requires-expression}\br
+    \terminal{requires} requirement-parameter-list\opt{} requirement-body
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{requirement-parameter-list}\br
+    \terminal{(} parameter-declaration-clause\opt{} \terminal{)}
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{requirement-body}\br
+    \terminal{\{} requirement-seq \terminal{\}}
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{requirement-seq}\br
+    requirement\br
+    requirement-seq requirement
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{requirement}\br
+    simple-requirement\br
+    type-requirement\br
+    compound-requirement\br
+    nested-requirement
+\end{bnf}
+
+\pnum
+A \grammarterm{requires-expression} is a prvalue of type \tcode{bool}
+whose value is described below.
+Expressions appearing within a \grammarterm{requirement-body}
+are unevaluated operands (Clause~\ref{expr}).
+
+\pnum
+\begin{example}
+A common use of \grammarterm{requires-expression}{}s is to define
+requirements in concepts such as the one below:
+\begin{codeblock}
+template<typename T>
+  concept R = requires (T i) {
+    typename T::type;
+    {*i} -> const typename T::type&;
+  };
+\end{codeblock}
+A \grammarterm{requires-expression} can also be used in a
+\grammarterm{requires-clause} (Clause~\ref{temp}) as a way of writing ad hoc
+constraints on template arguments such as the one below:
+\begin{codeblock}
+template<typename T>
+  requires requires (T x) { x + x; }
+    T add(T a, T b) { return a + b; }
+\end{codeblock}
+The first \tcode{requires} introduces the
+\grammarterm{requires-clause}, and the second
+introduces the \grammarterm{requires-expression}.
+\end{example}
+
+\pnum
+A \grammarterm{requires-expression} may introduce local parameters using a
+\grammarterm{parameter-declaration-clause}~(\ref{dcl.fct}).
+A local parameter of a \grammarterm{requires-expression} shall not have a
+default argument.
+Each name introduced by a local parameter is in scope from the point
+of its declaration until the closing brace of the
+\grammarterm{requirement-body}.
+These parameters have no linkage, storage, or lifetime; they are only used
+as notation for the purpose of defining \grammarterm{requirement}{}s.
+The \grammarterm{parameter-declaration-clause} of a
+\grammarterm{requirement-parameter-list}
+shall not terminate with an ellipsis.
+\begin{example}
+\begin{codeblock}
+template<typename T>
+concept C = requires(T t, ...) {    // error: terminates with an ellipsis
+  t;
+};
+\end{codeblock}
+\end{example}
+
+\pnum
+\indextext{requirement}%
+The \grammarterm{requirement-body} contains
+a sequence of \grammarterm{requirement}{}s.
+These \grammarterm{requirement}{}s may refer to local
+parameters, template parameters, and any other declarations visible from the
+enclosing context.
+
+\pnum
+The substitution of template arguments into a \grammarterm{requires-expression}
+may result in the formation of invalid types or expressions in its
+requirements or the violation of the semantic constraints of those requirements.
+In such cases, the \grammarterm{requires-expression} evaluates to \tcode{false};
+it does not cause the program to be ill-formed.
+The substitution and semantic constraint checking
+proceeds in lexical order and stops when a condition that
+determines the result of the \grammarterm{requires-expression} is encountered.
+If substitution (if any) and semantic constraint checking succeed,
+the \grammarterm{requires-expression} evaluates to \tcode{true}.
+\begin{note}
+If a \grammarterm{requires-expression} contains invalid types or expressions in
+its requirements, and it does not appear within the declaration of a templated
+entity, then the program is ill-formed.
+\end{note}
+If the substitution of template arguments into a \grammarterm{requirement}
+would always result in a substitution failure, the program is ill-formed;
+no diagnostic required.
+\begin{example}
+\begin{codeblock}
+template<typename T> concept C =
+requires {
+  new int[-(int)sizeof(T)]; // ill-formed, no diagnostic required
+};
+\end{codeblock}
+\end{example}
+
+\rSec3[expr.prim.req.simple]{Simple requirements}
+\indextext{requirement!simple}%
+
+\begin{bnf}
+\nontermdef{simple-requirement}\br
+    expression \terminal{;}
+\end{bnf}
+
+\pnum
+A simple requirement asserts the validity of an expression.
+\begin{note}
+The enclosing \grammarterm{requires-expression} will evaluate to \tcode{false}
+if substitution of template arguments into the \grammarterm{expression} fails.
+The \grammarterm{expression} is an unevaluated operand (Clause \ref{expr}).
+\end{note}
+\begin{example}
+\begin{codeblock}
+template<typename T> concept C =
+  requires (T a, T b) {
+    a + b;  // \tcode{C<T>} is \tcode{true} if \tcode{a + b} is a valid expression
+  };
+\end{codeblock}
+\end{example}
+
+\rSec3[expr.prim.req.type]{Type requirements}
+\indextext{requirement!type}%
+
+\begin{bnf}
+\nontermdef{type-requirement}\br
+    \terminal{typename} nested-name-specifier\opt type-name \terminal{;}
+\end{bnf}
+
+\pnum
+A type requirement asserts the validity of a type.
+\begin{note}
+The enclosing \grammarterm{requires-expression} will evaluate to \tcode{false}
+if substitution of template arguments fails.
+\end{note}
+\begin{example}
+\begin{codeblock}
+template<typename T, typename T::type = 0> struct S;
+template<typename T> using Ref = T&;
+
+template<typename T> concept C = requires {
+  typename T::inner;    // required nested member name
+  typename S<T>;        // required class template specialization
+  typename Ref<T>;      // required alias template substitution, fails if \tcode{T} is void
+};
+\end{codeblock}
+\end{example}
+
+\pnum
+A type requirement that names a class template specialization
+does not require that type to be complete~(\ref{basic.types}).
+
+\rSec3[expr.prim.req.compound]{Compound requirements}
+\indextext{requirement!compound}%
+
+\begin{bnf}
+\nontermdef{compound-requirement}\br
+    \terminal{\{} expression \terminal{\}} \terminal{noexcept}\opt{} return-type-requirement\opt{} \terminal{;}
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{return-type-requirement}\br
+    trailing-return-type\br
+    \terminal{->} cv-qualifier-seq\opt{} constrained-parameter cv-qualifier-seq\opt{} abstract-declarator\opt{}
+\end{bnf}
+
+\pnum
+A \grammarterm{compound-requirement} asserts properties
+of the \grammarterm{expression} \tcode{E}. Substitution
+of template arguments (if any) and verification of
+semantic properties proceed in the following order:
+
+\begin{itemize}
+\item Substitution of template arguments (if any)
+into the \grammarterm{expression} is performed.
+
+\item If the \tcode{noexcept} specifier is present,
+\tcode{E} shall not be a potentially-throwing expression~(\ref{except.spec}).
+
+\item If the \grammarterm{return-type-requirement} is present, then:
+
+\begin{itemize}
+\item Substitution of template arguments (if any)
+into the \grammarterm{return-type-requirement} is performed.
+
+\item If the \grammarterm{return-type-requirement} is a
+\grammarterm{trailing-return-type},
+%%% FIXME: is -> shall be
+\tcode{E} is implicitly convertible to
+the type named by the \grammarterm{trailing-return-type}.
+If conversion fails, the enclosing \grammarterm{requires-expression}
+is \tcode{false}.
+
+\item If the \grammarterm{return-type-requirement}
+starts with a \grammarterm{constrained-parameter}~(\ref{temp.param}),
+the \grammarterm{expression} is deduced against
+an invented function template \tcode{F}
+using the rules in \ref{temp.deduct.call}.
+\tcode{F} is a \tcode{void} function template
+with a single type template parameter \tcode{T}
+declared with the \grammarterm{constrained-parameter}.
+A \grammarterm{cv-qualifier-seq} \cv{} is formed
+as the union of \tcode{const} and \tcode{volatile} specifiers
+around the \grammarterm{constrained-parameter}.
+\tcode{F} has a single \grammarterm{parameter}
+whose \grammarterm{type-specifier} is \cv{}~\tcode{T}
+followed by the \grammarterm{abstract-declarator}.
+%%% FIXME: Remove this; if deduction fails, the construct should
+%%% be ill-formed.
+If deduction fails,
+the enclosing \grammarterm{requires-expression} is \tcode{false}.
+\end{itemize}
+\end{itemize}
+
+\begin{example}
+\begin{codeblock}
+template<typename T> concept C1 = requires(T x) {
+  {x++};
+};
+\end{codeblock}
+The \grammarterm{compound-requirement} in \tcode{C1}
+requires that \tcode{x++} is a valid expression.
+It is equivalent to a \grammarterm{simple-requirement}
+with the same \grammarterm{expression}.
+
+\begin{codeblock}
+template<typename T> concept C2 = requires(T x) {
+  {*x} -> typename T::inner;
+};
+\end{codeblock}
+
+The \grammarterm{compound-requirement} in \tcode{C2}
+requires that \tcode{*x} is a valid expression,
+that \tcode{typename T::inner} is a valid type, and
+that \tcode{*x} is implicitly convertible to
+\tcode{typename T::inner}.
+
+\begin{codeblock}
+template<typename T, typename U> concept C3 = requires (T t, U u) {
+  t == u;
+};
+template<typename T> concept C4 = requires(T x) {
+  {*x} -> C3<int> const&;
+};
+\end{codeblock}
+The \grammarterm{compound-requirement}
+requires that \tcode{*x} be deduced
+as an argument for the invented function:
+\begin{codeblock}
+template<C3<int> X> void f(X const&);
+\end{codeblock}
+In this case, deduction only succeeds if
+an expression of the type deduced for \tcode{X}
+can be compared to an \tcode{int}
+with the \tcode{==} operator.
+
+\begin{codeblock}
+template<typename T> concept C5 =
+  requires(T x) {
+    {g(x)} noexcept;
+  };
+\end{codeblock}
+
+The \grammarterm{compound-requirement} in \tcode{C5}
+requires that \tcode{g(x)} is a valid expression and
+that \tcode{g(x)} is non-throwing.
+\end{example}
+
+\rSec3[expr.prim.req.nested]{Nested requirements}
+\indextext{requirement!nested}%
+
+\begin{bnf}
+\nontermdef{nested-requirement}\br
+    \terminal{requires} constraint-expression \terminal{;}
+\end{bnf}
+
+\pnum
+A \grammarterm{nested-requirement} can be used
+to specify additional constraints in terms of local parameters.
+The \grammarterm{constraint-expression}
+shall be satisfied~(\ref{temp.constr.decl})
+by the substituted template arguments, if any.
+Substitution of template arguments into a \grammarterm{nested-requirement}
+does not result in substitution into the \grammarterm{constraint-expression}
+other than as specified in \ref{temp.constr.decl}.
+\begin{example}
+\begin{codeblock}
+template<typename U> concept C = sizeof(U) == 1;
+
+template<typename T> concept D = requires (T t) {
+  requires C<decltype (+t)>;
+};
+\end{codeblock}
+\tcode{D<T>} is satisfied if \tcode{sizeof(decltype (+t)) == 1}~(\ref{temp.constr.atomic}).
+\end{example}
+
+\pnum
+A local parameter shall only appear as an unevaluated operand
+(Clause~\ref{expr}) within the \grammarterm{constraint-expression}.
+\begin{example}
+\begin{codeblock}
+template<typename T> concept C = requires (T a) {
+  requires sizeof(a) == 4;  // OK
+  requires a == 0;          // error: evaluation of a constraint variable
+}
+\end{codeblock}
+\end{example}
+\indextext{expression!requires|)}
 \indextext{expression!primary|)}
 
 \rSec1[expr.post]{Postfix expressions}%
@@ -1843,9 +2257,15 @@ expression.
 \pnum
 \indextext{type!incomplete}%
 For the first option (dot) the first expression
-shall be a glvalue having complete class type.
+shall be a glvalue having class type.
 For the second option (arrow) the first expression
-shall be a prvalue having pointer to complete class type.
+shall be a prvalue having pointer to class type.
+In both cases, the class type shall be complete
+unless the class member access appears in the definition of that class.
+\begin{note}
+If the class is incomplete, lookup in the complete class type
+is required to refer to the same declaration~(\ref{basic.scope.class}).
+\end{note}
 The expression \tcode{E1->E2} is
 converted to the equivalent form \tcode{(*(E1)).E2}; the remainder of
 \ref{expr.ref}~will address only the first option (dot).\footnote{Note that
@@ -3950,7 +4370,7 @@ The expression \tcode{E1->*E2} is converted into the equivalent form
 
 \pnum
 Abbreviating \term{pm-expression}{}\tcode{.*}\term{cast-expression} as \tcode{E1.*E2}, \tcode{E1}
-is called the \term{object expression}.
+is called the \defn{object expression}.
 If the dynamic type of \tcode{E1} does not
 contain the member to which
 \tcode{E2} refers, the behavior is undefined.
@@ -3995,11 +4415,14 @@ calls the member function denoted by \tcode{ptr_to_mfct} for the object
 pointed to by \tcode{ptr_to_obj}.
 \end{example}
 In a \tcode{.*} expression whose object expression is an rvalue, the program is
-ill-formed if the second operand is a pointer to member function with
-\grammarterm{ref-qualifier} \tcode{\&}.
+ill-formed if the second operand is a pointer to member function
+whose \grammarterm{ref-qualifier} is \tcode{\&},
+unless its \grammarterm{cv-qualifier-seq} is \tcode{const}.
 In a \tcode{.*}
 expression whose object expression is an lvalue, the program is ill-formed if the second
-operand is a pointer to member function with \grammarterm{ref-qualifier} \tcode{\&\&}.
+operand is
+a pointer to member function
+whose \grammarterm{ref-qualifier} is \tcode{\&\&}.
 The result of a \tcode{.*} expression
 whose second operand is a pointer to a data member is an lvalue if the first
 operand is an lvalue and an xvalue otherwise. The result of a \tcode{.*} expression whose

@@ -27,7 +27,8 @@ each of which can have an initializer.
 
 \begin{bnf}
 \nontermdef{init-declarator}\br
-    declarator initializer\opt
+    declarator initializer\opt\br
+    declarator requires-clause
 \end{bnf}
 
 \pnum
@@ -94,6 +95,32 @@ auto i = 1;             // OK: \tcode{i} deduced to have type \tcode{int}
 auto j = 2.0;           // OK: \tcode{j} deduced to have type \tcode{double}
 \end{codeblock}
 \end{note}
+
+\pnum
+The optional \grammarterm{requires-clause} (Clause~\ref{temp}) in an
+\grammarterm{init-declarator} or \grammarterm{member-declarator}
+shall not be present when the declarator does not declare a
+function (\ref{dcl.fct}).
+%
+When present after a declarator, the \grammarterm{requires-clause}
+is called the \defnx{trailing \grammarterm{requires-clause}{}}{%
+trailing requires-clause@trailing \grammarterm{requires-clause}}.
+The trailing \grammarterm{requires-clause} introduces the
+\grammarterm{constraint-expression} that results from interpreting
+its \grammarterm{constraint-logical-or-expression} as a
+\grammarterm{constraint-expression}.
+%
+\begin{example}
+\begin{codeblock}
+void f1(int a) requires true;               // OK
+auto f2(int a) -> bool requires true;       // OK
+auto f3(int a) requires true -> bool;       // error: \grammarterm{requires-clause} precedes \grammarterm{trailing-return-type}
+void (*pf)() requires true;                 // error: constraint on a variable
+void g(int (*)() requires true);            // error: constraint on a \grammarterm{parameter-declaration}
+
+auto* p = new void(*)(char) requires true;  // error: not a function declaration
+\end{codeblock}
+\end{example}
 
 \pnum
 Declarators have the syntax
@@ -1403,8 +1430,8 @@ contains a mechanism for accessing arguments passed using the ellipsis
 \indextext{type!function}%
 A single name can be used for several different functions in a single scope;
 this is function overloading (Clause~\ref{over}).
-All declarations for a function shall agree exactly
-in both the return type and the parameter-type-list.
+All declarations for a function shall have equivalent return types,
+parameter-type-lists, and \grammarterm{requires-clause}{s} (\ref{temp.over.link}).
 The type of a function is determined using the following rules.
 The type of each parameter (including function parameter packs) is
 determined from its own
@@ -1483,7 +1510,8 @@ struct S {
 The return type, the parameter-type-list, the \grammarterm{ref-qualifier},
 the \grammarterm{cv-qualifier-seq}, and
 the exception specification,
-but not the default arguments~(\ref{dcl.fct.default}),
+but not the default arguments~(\ref{dcl.fct.default})
+or \grammarterm{requires-clause}{s}~(Clause~\ref{temp}),
 are part of the function type.
 \begin{note}
 Function types are checked during the assignments and initializations of
@@ -1990,7 +2018,8 @@ Function definitions have the form
 %
 \begin{bnf}
 \nontermdef{function-definition}\br
-    attribute-specifier-seq\opt decl-specifier-seq\opt declarator virt-specifier-seq\opt function-body
+    attribute-specifier-seq\opt decl-specifier-seq\opt declarator virt-specifier-seq\opt function-body\br
+    attribute-specifier-seq\opt decl-specifier-seq\opt declarator requires-clause function-body
 \end{bnf}
 
 \begin{bnf}
@@ -2104,12 +2133,8 @@ void f(const char* s = __func__);   // error: \tcode{__func__} is undeclared
 \indextext{definition!function!explicitly-defaulted}%
 
 \pnum
-A function definition of the form:
-
-\begin{ncbnf}
-    attribute-specifier-seq\opt decl-specifier-seq\opt declarator virt-specifier-seq\opt{} \terminal{ = default ;}
-\end{ncbnf}
-
+A function definition
+with the \grammarterm{function-body} \tcode{= default ;}
 is called an \grammarterm{explicitly-defaulted} definition.
 A function that is explicitly defaulted shall
 
@@ -2202,12 +2227,8 @@ nontrivial1::nontrivial1() = default;   // not first declaration
 \indextext{definition!function!deleted}%
 
 \pnum
-A function definition of the form:
-
-\begin{ncbnf}
-    attribute-specifier-seq\opt decl-specifier-seq\opt declarator virt-specifier-seq\opt{} \terminal{ = delete ;}
-\end{ncbnf}
-
+A function definition
+with the \grammarterm{function-body} \tcode{= delete ;}
 is called a \term{deleted definition}. A function with a
 deleted definition is also called a \term{deleted function}.
 
@@ -2417,15 +2438,32 @@ the initialization of return values (\ref{stmt.return}).
 \end{bnf}
 
 \begin{bnf}
+\nontermdef{braced-init-list}\br
+    \terminal{\{} initializer-list \terminal{,\opt} \terminal{\}}\br
+    \terminal{\{} designated-initializer-list \terminal{,\opt} \terminal{\}}\br
+    \terminal{\{} \terminal{\}}
+\end{bnf}
+
+\begin{bnf}
 \nontermdef{initializer-list}\br
     initializer-clause \terminal{...}\opt\br
     initializer-list \terminal{,} initializer-clause \terminal{...}\opt
 \end{bnf}
 
 \begin{bnf}
-\nontermdef{braced-init-list}\br
-    \terminal{\{} initializer-list \terminal{,\opt} \terminal{\}}\br
-    \terminal{\{} \terminal{\}}
+\nontermdef{designated-initializer-list}\br
+    designated-initializer-clause\br
+    designated-initializer-list \terminal{,} designated-initializer-clause
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{designated-initializer-clause}\br
+    designator brace-or-equal-initializer
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{designator}\br
+    \tcode{.} identifier
 \end{bnf}
 
 \begin{bnf}
@@ -2497,20 +2535,22 @@ to a pointer type results in a null pointer value.
 if
 \tcode{T}
 is a (possibly cv-qualified) non-union class type,
+its padding bits~(\ref{basic.types}) are initialized to zero bits and
 each non-static data member,
 each non-virtual base class subobject, and,
 if the object is not a base class subobject,
 each virtual base class subobject
-is zero-initialized and padding is initialized to zero bits;
+is zero-initialized;
 
 \item
 if
 \tcode{T}
 is a (possibly cv-qualified) union type,
+its padding bits~(\ref{basic.types}) are initialized to zero bits and
 the
 object's first non-static named
 data member
-is zero-initialized and padding is initialized to zero bits;
+is zero-initialized;
 
 \item
 if
@@ -2893,6 +2933,11 @@ the expressions are evaluated in the order
 specified for function calls~(\ref{expr.call}).
 
 \pnum
+The same \grammarterm{identifier}
+shall not appear in multiple \grammarterm{designator}{s} of a
+\grammarterm{designated-initializer-list}.
+
+\pnum
 An object whose initialization has completed
 is deemed to be constructed,
 even if no constructor of the object's class
@@ -2958,15 +3003,53 @@ that are not members of an anonymous union, in declaration order.
 When an aggregate is initialized by an initializer list
 as specified in~\ref{dcl.init.list},
 the elements of the initializer list are taken as initializers
-for the elements of the aggregate, in order.
-Each element is copy-initialized
-from the corresponding \grammarterm{initializer-clause}.
-If the \grammarterm{initializer-clause} is an expression and
+for the elements of the aggregate.
+The \defnx{explicitly initialized elements}{explicitly initialized elements!aggregate}
+of the aggregate are determined as follows:
+\begin{itemize}
+\item
+If the initializer list is a \grammarterm{designated-initializer-list},
+the aggregate shall be of class type,
+the \grammarterm{identifier} in each \grammarterm{designator}
+shall name a direct non-static data member of the class, and
+the explicitly initialized elements of the aggregate
+are the elements that are, or contain, those members.
+\item
+If the initializer list is an \grammarterm{initializer-list},
+the explicitly initialized elements of the aggregate
+are the first $n$ elements of the aggregate,
+where $n$ is the number of elements in the initializer list.
+\item
+Otherwise, the initializer list must be \tcode{\{\}},
+and there are no explicitly initialized elements.
+\end{itemize}
+
+\pnum
+For each explicitly initialized element:
+\begin{itemize}
+\item
+If the element is an anonymous union object and
+the initializer list is a \grammarterm{designated-initializer-list},
+the anonymous union object is initialized by the
+\grammarterm{designated-initializer-list} \tcode{\{ }\placeholder{D}\tcode{ \}},
+where \placeholder{D} is the \grammarterm{designated-initializer-clause}
+naming a member of the anonymous union object.
+There shall be only one such \grammarterm{designated-initializer-clause}.
+\item
+Otherwise, the element is copy-initialized
+from the corresponding \grammarterm{initializer-clause}
+or the \grammarterm{brace-or-equal-initializer}
+of the corresponding \grammarterm{designated-initializer-clause}.
+If that initializer is of the form
+\grammarterm{assignment-expression} or
+\tcode{= }\grammarterm{assignment-expression}
+and
 a narrowing conversion~(\ref{dcl.init.list}) is required
 to convert the expression, the program is ill-formed.
-\begin{note} If an \grammarterm{initializer-clause} is itself an initializer list,
+\begin{note} If an initializer is itself an initializer list,
 the element is list-initialized, which will result in a recursive application
 of the rules in this section if the element is an aggregate. \end{note}
+\end{itemize}
 \begin{example}
 \begin{codeblock}
 struct A {
@@ -3010,6 +3093,79 @@ initializes
 \tcode{d2.b3} with 42,
 \tcode{d2.d} with 4.
 \end{example}
+
+\pnum
+For a non-union aggregate,
+each element that is not an explicitly initialized element
+is initialized as follows:
+\begin{itemize}
+\item
+If the element has a default member initializer~(\ref{class.mem}),
+the element is initialized from that initializer.
+\item
+Otherwise, if the element is not a reference, the element
+is copy-initialized from an empty initializer list~(\ref{dcl.init.list}).
+\item
+Otherwise, the program is ill-formed.
+\end{itemize}
+If the aggregate is a union and the initializer list is empty, then
+\begin{itemize}
+\item
+if any variant member has a default member initializer,
+that member is initialized from its default member initializer;
+\item
+otherwise, the first member of the union (if any)
+is copy-initialized from an empty initializer list.
+\end{itemize}
+\begin{example}
+
+\begin{codeblock}
+struct S { int a; const char* b; int c; int d = b[a]; };
+S ss = { 1, "asdf" };
+\end{codeblock}
+
+initializes
+\tcode{ss.a}
+with 1,
+\tcode{ss.b}
+with \tcode{"asdf"},
+\tcode{ss.c}
+with the value of an expression of the form
+\tcode{int\{\}}
+(that is, \tcode{0}), and \tcode{ss.d} with the value of \tcode{ss.b[ss.a]}
+(that is, \tcode{'s'}), and in
+
+\begin{codeblock}
+struct X { int i, j, k = 42; };
+X a[] = { 1, 2, 3, 4, 5, 6 };
+X b[2] = { { 1, 2, 3 }, { 4, 5, 6 } };
+\end{codeblock}
+
+\tcode{a} and \tcode{b} have the same value
+
+\begin{codeblock}
+struct A {
+  string a;
+  int b = 42;
+  int c = -1;
+};
+\end{codeblock}
+
+\tcode{A\{.c=21\}} has the following steps:
+\begin{itemize}
+\item Initialize \tcode{a} with \tcode{\{\}}
+\item Initialize \tcode{b} with \tcode{= 42}
+\item Initialize \tcode{c} with \tcode{= 21}
+\end{itemize}
+\end{example}
+
+\pnum
+The initializations of the elements of the aggregate
+are evaluated in the element order.
+That is,
+all value computations and side effects associated with a given element
+are sequenced before
+those of any element that follows it in order.
 
 \pnum
 An aggregate that is a class can also be initialized with a single
@@ -3061,8 +3217,11 @@ struct S {
 
 \pnum
 \begin{note}
-Static data members and unnamed bit-fields are not considered
-elements of the aggregate.
+Static data members,
+non-static data members of anonymous union members,
+and
+unnamed bit-fields
+are not considered elements of the aggregate.
 \begin{example}
 
 \begin{codeblock}
@@ -3088,7 +3247,7 @@ An
 \grammarterm{initializer-list}
 is ill-formed if the number of
 \grammarterm{initializer-clause}{s}
-exceeds the number of elements to initialize.
+exceeds the number of elements of the aggregate.
 \begin{example}
 
 \begin{codeblock}
@@ -3096,56 +3255,6 @@ char cv[4] = { 'a', 's', 'd', 'f', 0 };     // error
 \end{codeblock}
 
 is ill-formed.
-\end{example}
-
-\pnum
-If there are fewer \grammarterm{initializer-clause}{s} in the list than there
-are elements in a non-union aggregate, then each element not explicitly initialized
-is initialized as follows:
-\begin{itemize}
-\item
-If the element has a default member initializer~(\ref{class.mem}),
-the element is initialized from that initializer.
-\item
-Otherwise, if the element is not a reference, the element
-is copy-initialized from an empty initializer list~(\ref{dcl.init.list}).
-\item
-Otherwise, the program is ill-formed.
-\end{itemize}
-If the aggregate is a union and the initializer list is empty, then
-\begin{itemize}
-\item
-if any variant member has a default member initializer,
-that member is initialized from its default member initializer;
-\item
-otherwise, the first member of the union (if any)
-is copy-initialized from an empty initializer list.
-\end{itemize}
-\begin{example}
-
-\begin{codeblock}
-struct S { int a; const char* b; int c; int d = b[a]; };
-S ss = { 1, "asdf" };
-\end{codeblock}
-
-initializes
-\tcode{ss.a}
-with 1,
-\tcode{ss.b}
-with \tcode{"asdf"},
-\tcode{ss.c}
-with the value of an expression of the form
-\tcode{int\{\}}
-(that is, \tcode{0}), and \tcode{ss.d} with the value of \tcode{ss.b[ss.a]}
-(that is, \tcode{'s'}), and in
-
-\begin{codeblock}
-struct X { int i, j, k = 42; };
-X a[] = { 1, 2, 3, 4, 5, 6 };
-X b[2] = { { 1, 2, 3 }, { 4, 5, 6 } };
-\end{codeblock}
-
-\tcode{a} and \tcode{b} have the same value
 \end{example}
 
 \pnum
@@ -3372,12 +3481,10 @@ in~\ref{basic.start.static}, \ref{basic.start.dynamic}, and~\ref{stmt.dcl}.
 
 \pnum
 \indextext{initialization!\idxcode{union}}%
-When a union is initialized with a brace-enclosed initializer,
-the braces shall only contain an
-\grammarterm{initializer-clause}
-for the first non-static data member of the union.
+When a union is initialized with an initializer list,
+there shall not be more than one
+explicitly initialized element.
 \begin{example}
-
 \begin{codeblock}
 union u { int a; const char* b; };
 u a = { 1 };
@@ -3385,6 +3492,8 @@ u b = a;
 u c = 1;                        // error
 u d = { 0, "asdf" };            // error
 u e = { "asdf" };               // error
+u f = { .b = "asdf" };
+u g = { .a = 1, .b = "asdf" };  // error
 \end{codeblock}
 \end{example}
 
@@ -3728,9 +3837,15 @@ initializer expression.
 
 \pnum
 \defnx{List-initialization}{list-initialization} is initialization of an object or reference from a
-\grammarterm{braced-init-list}. Such an initializer is called an \term{initializer
-list}, and the comma-separated \grammarterm{initializer-clause}{s} of the list are
-called the \term{elements} of the initializer list. An initializer list may be empty.
+\grammarterm{braced-init-list}.
+Such an initializer is called an \term{initializer list}, and
+the comma-separated
+\grammarterm{initializer-clause}{s}
+of the \grammarterm{initializer-list}
+or
+\grammarterm{designated-initializer-clause}{s}
+of the \grammarterm{designated-initializer-list}
+are called the \term{elements} of the initializer list. An initializer list may be empty.
 List-initialization can occur in direct-initialization or copy-initialization contexts;
 list-initialization in a direct-initialization context is called
 \defn{direct-list-initialization} and list-initialization in a
@@ -3782,6 +3897,24 @@ named~(\ref{dcl.spec.auto}) --- the program is ill-formed.
 \pnum
 List-initialization of an object or reference of type \tcode{T} is defined as follows:
 \begin{itemize}
+\item
+If the \grammarterm{braced-init-list}
+contains a \grammarterm{designated-initializer-list},
+\tcode{T} shall be an aggregate class.
+The ordered \grammarterm{identifier}{s}
+in the \grammarterm{designator}{s}
+of the \grammarterm{designated-initializer-list}
+shall form a subsequence
+of the ordered \grammarterm{identifier}{s}
+in the direct non-static data members of \tcode{T}.
+Aggregate initialization is performed~(\ref{dcl.init.aggr}).
+\begin{example}
+\begin{codeblock}
+struct A { int x; int y; int z; };
+A a{.y = 2, .x = 1};           // error: designator order does not match declaration order
+A b{.x = 1, .z = 2};           // OK, \tcode{b.y} initialized to \tcode{0}
+\end{codeblock}
+\end{example}
 
 \item If \tcode{T} is an aggregate class and the initializer list has a single element
 of type \cvqual{cv} \tcode{U},
