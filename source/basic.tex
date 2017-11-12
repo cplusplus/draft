@@ -27,7 +27,9 @@ Clauses. \end{note}
 \indextext{scope}%
 \indextext{linkage}%
 \indextext{region!declarative}%
-An \defn{entity} is a value, object, reference, function, enumerator, type,
+An \defn{entity} is a value, object, reference,
+structured binding,
+function, enumerator, type,
 class member, bit-field, template, template specialization, namespace, or
 parameter pack.
 
@@ -50,6 +52,13 @@ A \defn{variable} is introduced by the
 declaration of
 a reference other than a non-static data member or of
 an object. The variable's name, if any, denotes the reference or object.
+
+\pnum
+A \defn{local entity} is a variable with
+automatic storage duration\iref{basic.stc.auto},
+a structured binding\iref{dcl.struct.bind}
+whose corresponding variable is such an entity,
+or the \tcode{*this} object\iref{expr.prim.this}.
 
 \pnum
 Some names denote types or templates. In general,
@@ -321,9 +330,16 @@ and, if \tcode{x} is an object, \tcode{ex} is an element of
 the set of potential results of an expression \tcode{e}, where either the lvalue-to-rvalue
 conversion\iref{conv.lval} is applied to \tcode{e}, or \tcode{e} is
 a discarded-value expression\iref{expr.prop}.
-\tcode{this} is odr-used if it appears as a potentially-evaluated expression
+
+\pnum
+A structured binding is odr-used if it appears as a potentially-evaluated expression.
+
+\pnum
+\tcode{*this} is odr-used if \tcode{this} appears as a potentially-evaluated expression
 (including as the result of the implicit transformation in the body of a non-static
 member function~(\ref{class.mfct.non-static})).
+
+\pnum
 A virtual member
 function is odr-used if it is not pure.
 A function whose name appears as a potentially-evaluated
@@ -353,6 +369,8 @@ destructor\iref{class.dtor}.\footnote{An implementation is not required
 to call allocation and
 deallocation functions from constructors or destructors; however, this
 is a permissible implementation technique.}
+
+\pnum
 An assignment operator function in a class is odr-used by an
 implicitly-defined
 copy-assignment or move-assignment function for another class as specified
@@ -360,6 +378,45 @@ in~\ref{class.copy}.
 A constructor for a class is odr-used as specified
 in~\ref{dcl.init}. A destructor for a class is odr-used if it is potentially
 invoked\iref{class.dtor}.
+
+\pnum
+A local entity\iref{basic}
+is \defn{odr-usable} in a declarative region\iref{basic.scope.declarative} if:
+
+\begin{itemize}
+\item the local entity is either
+not \tcode{*this}, or
+an enclosing class or non-lambda function parameter scope exists and,
+if the innermost such scope is a function parameter scope,
+it corresponds to a non-static member function, and
+\item
+for each intervening declarative region\iref{basic.scope.declarative}
+between the point at which the entity is introduced and the region
+(where \tcode{*this} is considered to be introduced
+within the innermost enclosing class or non-lambda function definition scope),
+either:
+\begin{itemize}
+\item the declarative region is a block scope, or
+\item the declarative region is the function parameter scope of a \grammarterm{lambda-expression}
+that has a \grammarterm{simple-capture} naming the entity or has a \grammarterm{capture-default}.
+\end{itemize}
+\end{itemize}
+
+If a local entity is odr-used
+in a declarative region in which it is not odr-usable,
+the program is ill-formed.
+\begin{example}
+\begin{codeblock}
+void f(int n) {
+  [] { n = 1; };                // error, \tcode{n} is not odr-usable due to intervening lambda-expression
+  struct A {
+    void f() { n = 2; }         // error, \tcode{n} is not odr-usable due to intervening function definition scope
+  };
+  void g(int = n);              // error, \tcode{n} is not odr-usable due to intervening function parameter scope
+  [&] { [n]{ return n; }; };    // OK
+}
+\end{codeblock}
+\end{example}
 
 \pnum
 Every program shall contain exactly one definition of every non-inline
@@ -605,6 +662,14 @@ also introduce a (possibly not visible) name into an enclosing
 namespace; these restrictions apply to both regions. \end{note}
 
 \pnum
+For a given declarative region \placeholder{R}
+and a point \placeholder{P} outside \placeholder{R},
+the set of \defnx{intervening}{region!declarative!intervening} declarative regions
+between \placeholder{P} and \placeholder{R}
+comprises all declarative regions
+that are or enclose \placeholder{R} and do not enclose \placeholder{P}.
+
+\pnum
 \begin{note} The name lookup rules are summarized in~\ref{basic.lookup}.
 \end{note}
 
@@ -769,23 +834,6 @@ declaration\iref{basic.scope.pdecl} and ends at the end of its block.
 A variable declared at block scope is a \defn{local variable}.
 
 \pnum
-\indextext{parameter!scope of}%
-The potential scope of a function parameter name
-(including one appearing in a
-\grammarterm{lambda-declarator})
-or of a function-local predefined variable
-in a function
-definition\iref{dcl.fct.def} begins at its point of declaration. If
-the function has a \grammarterm{function-try-block} the potential scope of
-a parameter
-or of a function-local predefined variable
-ends at the end of the last associated handler, otherwise it ends
-at the end of the outermost block of the function definition. A
-parameter name shall not be redeclared in the outermost block of the
-function definition nor in the outermost block of any handler associated
-with a \grammarterm{function-try-block}.
-
-\pnum
 \indextext{scope!exception declaration}%
 The name declared in an \grammarterm{exception-declaration}
 is local to the
@@ -802,15 +850,31 @@ that statement nor in the outermost block (or, for the \tcode{if}
 statement, any of the outermost blocks) of the controlled statement;
 see~\ref{stmt.select}.
 
-\rSec2[basic.scope.proto]{Function prototype scope}
+\rSec2[basic.scope.param]{Function parameter scope}
 
 \pnum
-\indextext{scope!function prototype}%
-\indextext{function prototype}%
-In a function declaration, or in any function declarator except the
-declarator of a function definition\iref{dcl.fct.def}, names of
-parameters (if supplied) have function prototype scope, which terminates
-at the end of the nearest enclosing function declarator.
+\indextext{scope!function parameter}%
+\indextext{scope!function prototype|see{scope, function parameter}}%
+\indextext{parameter!scope of}%
+A function parameter
+(including one appearing in a
+\grammarterm{lambda-declarator})
+or function-local predefined variable\iref{dcl.fct.def}
+has \defn{function parameter scope}.
+The potential scope of a parameter
+or function-local predefined variable
+begins at its point of declaration. If
+the nearest enclosing function declarator
+is not the declarator of a function definition,
+the potential scope ends at the end of that function declarator.
+Otherwise, if
+the function has a \grammarterm{function-try-block} the potential scope
+ends at the end of the last associated handler.
+Otherwise the potential scope ends
+at the end of the outermost block of the function definition. A
+parameter name shall not be redeclared in the outermost block of the
+function definition nor in the outermost block of any handler associated
+with a \grammarterm{function-try-block}.
 
 \rSec2[basic.funscope]{Function scope}
 

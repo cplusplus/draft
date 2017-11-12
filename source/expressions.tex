@@ -692,10 +692,47 @@ Within the definition of a non-static member function, an
 \grammarterm{identifier} that names a non-static member is transformed to a
 class member access expression~(\ref{class.mfct.non-static}).
 \end{note}
-The type of the expression is the type of the \grammarterm{identifier}. The
-result is the entity denoted by the identifier. The expression is an lvalue
-if the entity is a function, variable, or data member and a prvalue otherwise;
+
+\pnum
+The result is the entity denoted by the identifier.
+If the entity is a local entity
+and naming it from outside of an unevaluated operand
+within the declarative region where the \grammarterm{unqualified-id} appears
+would result in some intervening \grammarterm{lambda-expression}
+capturing it by copy\iref{expr.prim.lambda.capture},
+the type of the expression is
+the type of a class member access expression\iref{expr.ref}
+naming the non-static data member
+that would be declared for such a capture
+in the closure object of
+the innermost such intervening \grammarterm{lambda-expression}.
+\begin{note}
+If that \grammarterm{lambda-expression} is not declared \tcode{mutable},
+the type of such an identifier will typically be \tcode{const} qualified.
+\end{note}
+Otherwise, the type of the expression is the type of the result.
+\begin{note}
+The type will be adjusted as described in \ref{expr.type}
+if it is cv-qualified or is a reference type.
+\end{note}
+The expression is an lvalue
+if the entity is a function, variable, or data member
+and a prvalue otherwise\iref{basic.lval};
 it is a bit-field if the identifier designates a bit-field\iref{dcl.struct.bind}.
+\begin{example}
+\begin{codeblock}
+void f() {
+  float x, &r = x;
+  [=] {
+    decltype(x) y1;             // \tcode{y1} has type \tcode{float}
+    decltype((x)) y2 = y1;      // \tcode{y2} has type \tcode{float const\&} because this lambda
+                                // is not \tcode{mutable} and \tcode{x} is an lvalue
+    decltype(r) r1 = y1;        // \tcode{r1} has type \tcode{float\&}
+    decltype((r)) r2 = y2;      // \tcode{r2} has type \tcode{float const\&}
+  };
+}
+\end{codeblock}
+\end{example}
 
 \rSec3[expr.prim.id.qual]{Qualified names}
 
@@ -1230,25 +1267,26 @@ void S2::f(int i) {
 \end{example}
 
 \pnum
-A \grammarterm{lambda-expression} whose smallest enclosing scope is a block
-scope\iref{basic.scope.block} is a \defn{local lambda expression}; any other
+A \grammarterm{lambda-expression}
+is a \defn{local lambda expression}
+if its innermost enclosing scope is a block scope\iref{basic.scope.block},
+or if it appears within a default member initializer
+and its innermost enclosing scope is
+the corresponding class scope\iref{basic.scope.class};
+any other
 \grammarterm{lambda-expression} shall not have a \grammarterm{capture-default} or
 \grammarterm{simple-capture} in its
-\grammarterm{lambda-introducer}. The \defn{reaching scope} of a local lambda expression
-is the set of enclosing scopes up to and including the innermost enclosing function and
-its parameters. \begin{note} This reaching scope includes any intervening
-\grammarterm{lambda-expression}{s}. \end{note}
+\grammarterm{lambda-introducer}.
 
 \pnum
 The \grammarterm{identifier} in a \grammarterm{simple-capture} is looked up using the
 usual rules for unqualified name lookup\iref{basic.lookup.unqual}; each such lookup
-shall find an entity.  An entity that is designated by a
+shall find a local entity.
+The \grammarterm{simple-capture}{s} \tcode{this} and \tcode{* this}
+denote the local entity \tcode{*this}.
+An entity that is designated by a
 \grammarterm{simple-capture}
-is said to be \defn{explicitly captured}, and shall be \tcode{*this}
-(when the \grammarterm{simple-capture}
-is ``\tcode{this}'' or ``\tcode{* this}'') or
-a variable with automatic storage duration declared in
-the reaching scope of the local lambda expression.
+is said to be \defn{explicitly captured}.
 
 \pnum
 If an \grammarterm{identifier} in a \grammarterm{simple-capture} appears
@@ -1296,58 +1334,92 @@ auto z = [a = 42](int a) { return 1; } // error: parameter and local variable ha
 \end{example}
 
 \pnum
-A \grammarterm{lambda-expression} with an associated
-\grammarterm{capture-default} that does not explicitly capture \tcode{*this} or
-a variable with automatic storage duration (this excludes any \grammarterm{id-expression}
-that has been found to refer to an \grammarterm{init-capture}{'s} associated
-\indextext{implicit capture!definition of}%
-non-static data member), is said to \defnx{implicitly capture}{capture!implicit}
-the entity (i.e.,
-\tcode{*this} or a variable) if the \grammarterm{compound-statement}:
+For the purposes of lambda capture,
+an expression potentially references local entities as follows:
+
 \begin{itemize}
-\item odr-uses\iref{basic.def.odr} the entity (in the case of a variable),
-\item odr-uses\iref{basic.def.odr} \tcode{this}
-(in the case of the object designated by \tcode{*this}), or
-\item names the entity in a potentially-evaluated
-expression\iref{basic.def.odr} where the enclosing full-expression depends on
-a generic lambda parameter declared within the reaching scope of the
-\grammarterm{lambda-expression}.
+\item
+An \grammarterm{id-expression} that names a local entity
+potentially references that entity;
+an \grammarterm{id-expression} that names
+one or more non-static class members
+and does not form a pointer to member\iref{expr.unary.op}
+potentially references \tcode{*this}.
+\begin{note}
+This occurs even if overload resolution
+selects a static member function for the \grammarterm{id-expression}.
+\end{note}
+
+\item
+A \tcode{this} expression potentially references \tcode{*this}.
+
+\item
+A \grammarterm{lambda-expression} potentially references
+the local entities named by its \grammarterm{simple-capture}{s}.
 \end{itemize}
+
+If an expression potentially references a local entity
+within a declarative region in which it is odr-usable,
+and the expression would be potentially evaluated
+if the effect of any enclosing \tcode{typeid} expressions\iref{expr.typeid} were ignored,
+the entity is said to be \defnx{implicitly captured}{capture!implicit}
+by each intervening \grammarterm{lambda-expression} with an associated
+\grammarterm{capture-default} that does not explicitly capture it.
 \begin{example}
 \begin{codeblock}
-void f(int, const int (&)[2] = {})    { }   // \#1
-void f(const int&, const int (&)[1])  { }   // \#2
+void f(int, const int (&)[2] = {});         // \#1
+void f(const int&, const int (&)[1]);       // \#2
 void test() {
   const int x = 17;
   auto g = [](auto a) {
     f(x);                       // OK: calls \#1, does not capture \tcode{x}
   };
 
+  auto g1 = [=](auto a) {
+    f(x);                       // OK: calls \#1, captures \tcode{x}
+  };
+
   auto g2 = [=](auto a) {
     int selector[sizeof(a) == 1 ? 1 : 2]{};
-    f(x, selector);             // OK: is a dependent expression, so captures \tcode{x}
+    f(x, selector);             // OK: captures \tcode{x}, might call \#1 or \#2
+  };
+
+  auto g3 = [=](auto a) {
+    typeid(a + x);              // captures \tcode{x} regardless of whether \tcode{a + x} is an unevaluated operand
   };
 }
 \end{codeblock}
+Within \tcode{g1}, an implementation might optimize away
+the capture of \tcode{x} as it is not odr-used.
 \end{example}
-All such implicitly captured
-entities shall be declared within the reaching scope of the lambda expression.
-\begin{note} The implicit capture of an entity by a nested
-\grammarterm{lambda-expression} can cause its implicit capture by the containing
-\grammarterm{lambda-expression} (see below). Implicit odr-uses of \tcode{this} can result
-in implicit capture. \end{note}
+\begin{note}
+The set of captured entities is determined syntactically,
+and entities might be implicitly captured
+even if the expression denoting a local entity
+is within a discarded statement\iref{stmt.if}.
+\begin{example}
+\begin{codeblock}
+template<bool B>
+void f(int n) {
+  [=](auto a) {
+    if constexpr (B && sizeof(a) > 4) {
+      (void)n;                  // captures \tcode{n} regardless of the value of \tcode{B} and \tcode{sizeof(int)}
+    }
+  }(0);
+}
+\end{codeblock}
+\end{example}
+\end{note}
 
 \pnum
 An entity is \defn{captured} if it is captured explicitly or implicitly. An entity
 captured by a \grammarterm{lambda-expression} is odr-used\iref{basic.def.odr} in the scope
-containing the \grammarterm{lambda-expression}. If \tcode{*this} is captured by a local
-lambda expression, its nearest enclosing function shall be a non-static member function.
-If a \grammarterm{lambda-expression} or an instantiation of the function call
-operator template of a generic lambda odr-uses\iref{basic.def.odr} \tcode{this} or a
-variable with automatic storage duration from its reaching scope, that
-entity shall be captured by the \grammarterm{lambda-expression}. If a
-\grammarterm{lambda-expression} captures an entity and that entity is not defined or
-captured in the immediately enclosing lambda expression or function, the program is
+containing the \grammarterm{lambda-expression}.
+If a \grammarterm{lambda-expression}
+explicitly captures an entity that is not odr-usable
+or
+captures a structured binding (explicitly or implicitly),
+the program is
 ill-formed. \begin{example}
 \indextext{Bond!James Bond}%
 \begin{codeblock}
@@ -1366,10 +1438,11 @@ void f1(int i) {
       int m = n*n;
       int j = 40;
       auto m3 = [this,m] {
-        auto m4 = [&,j] {       // error: \tcode{j} not captured by \tcode{m3}
-          int x = n;            // error: \tcode{n} implicitly captured by \tcode{m4} but not captured by \tcode{m3}
+        auto m4 = [&,j] {       // error: \tcode{j} not odr-usable due to intervening lambda \tcode{m3}
+          int x = n;            // error: \tcode{n} is odr-used but not odr-usable due to intervening lambda \tcode{m3}
           x += m;               // OK: \tcode{m} implicitly captured by \tcode{m4} and explicitly captured by \tcode{m3}
-          x += i;               // error: \tcode{i} is outside of the reaching scope
+          x += i;               // error: \tcode{i} is odr-used but not odr-usable
+                                // due to intervening function and class scopes
           x += f;               // OK: \tcode{this} captured implicitly by \tcode{m4} and explicitly by \tcode{m3}
         };
       };
@@ -1438,13 +1511,12 @@ Every \grammarterm{id-expression} within the \grammarterm{compound-statement} of
 entity captured by copy is transformed into an access to the corresponding unnamed data
 member of the closure type.
 \begin{note} An \grammarterm{id-expression} that is not an odr-use refers to
-the original entity, never to a member of the closure type. Furthermore, such
-an \grammarterm{id-expression} does not cause the implicit capture of the
+the original entity, never to a member of the closure type.
+However, such
+an \grammarterm{id-expression} can still cause the implicit capture of the
 entity. \end{note}
-If \tcode{*this} is captured by copy, each odr-use of \tcode{this} is
-transformed into a pointer to the corresponding unnamed data member of the closure type,
-cast\iref{expr.cast} to the type of \tcode{this}. \begin{note} The cast ensures that the
-transformed expression is a prvalue. \end{note}
+If \tcode{*this} is captured by copy, each expression that odr-uses \tcode{*this} is
+transformed to instead refer to the corresponding unnamed data member of the closure type.
 \begin{example}
 \begin{codeblock}
 void f(const int*);
@@ -1523,26 +1595,6 @@ auto m1 = [a, &b, &c]() mutable {
 a = 2; b = 2; c = 2;
 m1();
 std::cout << a << b << c;
-\end{codeblock}
-\end{example}
-
-\pnum
-Every occurrence of \tcode{decltype((x))} where \tcode{x} is a possibly
-parenthesized \grammarterm{id-expression} that names an entity of automatic storage
-duration is treated as if \tcode{x} were transformed into an access to a corresponding
-data member of the closure type that would have been declared if \tcode{x} were an odr-use of
-the denoted entity. \begin{example}
-
-\begin{codeblock}
-void f3() {
-  float x, &r = x;
-  [=] {                     // \tcode{x} and \tcode{r} are not captured (appearance in a \tcode{decltype} operand is not an odr-use)
-    decltype(x) y1;         // \tcode{y1} has type \tcode{float}
-    decltype((x)) y2 = y1;  // \tcode{y2} has type \tcode{float const\&} because this lambda is not \tcode{mutable} and \tcode{x} is an lvalue
-    decltype(r) r1 = y1;    // \tcode{r1} has type \tcode{float\&} (transformation not considered)
-    decltype((r)) r2 = y2;  // \tcode{r2} has type \tcode{float const\&}
-  };
-}
 \end{codeblock}
 \end{example}
 
