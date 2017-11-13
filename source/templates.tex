@@ -3550,14 +3550,18 @@ if two function definitions containing the expressions would satisfy
 the one-definition rule\iref{basic.def.odr}, except that the tokens used
 to name the template parameters may differ as long as a token used to
 name a template parameter in one expression is replaced by another token
-that names the same template parameter in the other expression. For
-determining whether two dependent names\iref{temp.dep} are
+that names the same template parameter in the other expression.
+Two \grammarterm{lambda-expression}{s} are never considered equivalent.
+\begin{note}
+The intent is to avoid \grammarterm{lambda-expression}{s} appearing in the
+signature of a function template with external linkage.
+\end{note}
+For determining whether two dependent names\iref{temp.dep} are
 equivalent, only the name itself is considered, not the result of name
 lookup in the context of the template. If multiple declarations of the
 same function template differ in the result of this name lookup, the
 result for the first declaration is used.
 \begin{example}
-
 \begin{codeblock}
 template <int I, int J> void f(A<I+J>);         // \#1
 template <int K, int L> void f(A<K+L>);         // same as \#1
@@ -3568,6 +3572,14 @@ template <class T> decltype(g(T())) h()         // redeclaration of \tcode{h()} 
   { return g(T()); }                            // \ldots{} although the lookup here does find \tcode{g(int)}
 int i = h<int>();                               // template argument substitution fails; \tcode{g(int)}
                                                 // was not in scope at the first declaration of \tcode{h()}
+
+// ill-formed, no diagnostic required: the two expressions are functionally equivalent but not equivalent
+template <int N> void foo(const char (*s)[([]{}, N)]);
+template <int N> void foo(const char (*s)[([]{}, N)]);
+
+// two different declarations because the non-dependent portions are not considered equivalent
+template <class T> void spam(decltype([]{}) (*s)[sizeof(T)]);
+template <class T> void spam(decltype([]{}) (*s)[sizeof(T)]);
 \end{codeblock}
 \end{example}
 \indextext{expression!functionally equivalent|see{functionally equivalent, expressions}}%
@@ -3898,6 +3910,17 @@ template <class T> struct A {
   typedef B<T> U;
 };
 B<short> b;         // error: instantiation of \tcode{B<short>} uses own type via \tcode{A<short>::U}
+\end{codeblock}
+\end{example}
+
+\pnum
+The type of a lambda expression appearing in an alias template declaration
+is different between instantiations of that template, even when the lambda
+expression is not dependent.
+\begin{example}
+\begin{codeblock}
+template <class T>
+  using A = decltype([] { });   // \tcode{A<int>} and \tcode{A<char>} refer to different closure types
 \end{codeblock}
 \end{example}
 
@@ -7124,6 +7147,43 @@ in effects such as the instantiation of class template specializations and/or
 function template specializations, the generation of implicitly-defined functions,
 etc. Such effects are not in the ``immediate context'' and can result in the
 program being ill-formed.
+\end{note}
+
+\pnum
+A \grammarterm{lambda-expression} appearing in a function type
+or a template parameter is not considered part of the immediate context
+for the purposes of template argument deduction.
+\begin{note}
+The intent is to avoid requiring implementations to deal with
+substitution failure involving arbitrary statements.
+\begin{example}
+\begin{codeblock}
+template <class T>
+  auto f(T) -> decltype([]() { T::invalid; } ());
+void f(...);
+f(0);               // error: invalid expression not part of the immediate context
+
+template <class T, std::size_t = sizeof([]() { T::invalid; })>
+  void g(T);
+void g(...);
+g(0);               // error: invalid expression not part of the immediate context
+
+template <class T>
+  auto h(T) -> decltype([x = T::invalid]() { });
+void h(...);
+h(0);               // error: invalid expression not part of the immediate context
+
+template <class T>
+  auto i(T) -> decltype([]() -> typename T::invalid { });
+void i(...);
+i(0);               // error: invalid expression not part of the immediate context
+
+template <class T>
+  auto j(T t) -> decltype([](auto x) -> decltype(x.invalid) { } (t));   // \#1
+void j(...);                                                            // \#2
+j(0);               // deduction fails on \#1, calls \#2
+\end{codeblock}
+\end{example}
 \end{note}
 
 \pnum
