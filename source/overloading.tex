@@ -1058,9 +1058,29 @@ a type match with the left-most parameter of a built-in candidate.
 For all other operators, no such restrictions apply.
 
 \pnum
-The set of candidate functions for overload resolution is the
+The set of candidate functions for overload resolution
+for some operator \tcode{@}
+is the
 union of the member candidates, the non-member candidates, and
-the built-in candidates.
+the built-in candidates for that operator \tcode{@}.
+If that operator is a
+relational\iref{expr.rel} or equality\iref{expr.eq} operator
+with operands \tcode{x} and \tcode{y},
+then for each member, non-member, or built-in candidate
+for the operator \tcode{<=>}:
+\begin{itemize}
+\item
+that operator is added to the set of candidate functions for overload resolution
+if \tcode{x <=> y @ 0} is well-formed using that \tcode{operator<=>}; and
+\item
+a synthesized candidate is added to the candidate set
+where the order of the two parameters is reversed
+if \tcode{0 @ y <=> x} is well-formed using that \tcode{operator<=>};
+\end{itemize}
+where in each case \tcode{operator<=>} candidates
+are not considered for the recursive lookup of operator \tcode{@}.
+
+\pnum
 The argument list contains all of the
 operands of the operator.
 The best function from the set of candidate functions is selected
@@ -1081,7 +1101,17 @@ void m() {
 \end{codeblock}
 \end{example}
 
-% USA _136/_28 L6899 USA core-756/734/682 over.match.oper
+\pnum
+If an \tcode{operator<=>} candidate
+is selected by overload resolution for an operator \tcode{@},
+but \tcode{@} is not \tcode{<=>},
+\tcode{x @ y}
+is interpreted as \tcode{0 @ y <=> x}
+if the selected candidate is a synthesized candidate
+with reversed order of parameters,
+or \tcode{x <=> y @ 0} otherwise,
+using the selected \tcode{operator<=>} candidate.
+
 \pnum
 If a built-in candidate is selected by overload resolution, the
 operands of class type are converted to the types of the corresponding parameters
@@ -1718,6 +1748,39 @@ int main() {
 \end{codeblock}
 \end{example}
 or, if not that,
+
+\item
+\tcode{F1} is an operator function
+for a relational\iref{expr.rel} or equality\iref{expr.eq} operator
+and \tcode{F2} is an operator function
+for a three-way comparison operator\iref{expr.spaceship}
+\begin{example}
+\begin{codeblock}
+struct S {
+  auto operator<=>(const S&, const S&) = default; // \#1
+  bool operator<(const S&, const S&);             // \#2
+};
+bool b = S() < S();                               // calls \#2
+\end{codeblock}
+\end{example}
+or, if not that,
+
+\item
+\tcode{F1} and \tcode{F2} are operator functions
+for \tcode{operator<=>} and
+\tcode{F2} is a synthesized candidate
+with reversed order of parameters
+and \tcode{F1} is not
+\begin{example}
+\begin{codeblock}
+struct S {
+  std::weak_ordering operator<=>(const S&, int);  // \#1
+  std::weak_ordering operator<=>(int, const S&);  // \#2
+};
+bool b = 1 < S();                                 // calls \#2
+\end{codeblock}
+\end{example}
+or, if not that
 
 \item
 \tcode{F1} is generated from a
@@ -3007,14 +3070,12 @@ the operator named in its
 
 \begin{bnfkeywordtab}
 \nontermdef{operator} \textnormal{one of}\br
-\>new\>delete\>new[]\>delete[]\br
-\>+\>-\>*\>/\>\%\>\caret\>\&\>|\>\~\br
-\>!\>=\><\>>\>+=\>-=\>*=\>/=\>\%=\br
-\>\caret=\>\&=\>|=\><<\>>>\>>>=\><<=\>={=}\>!=\br
-\><=\>>=\>\&\&\>|{|}\>++\>-{-}\>,\>->*\>->\br
-\>(\,)\>[\,]
+\>new\>delete\>new[]\>delete[]\>(\,)\>[\,]\>->\>->*\>\~\br
+\>!\>+\>-\>*\>/\>\%\>\caret\>\&\>|\br
+\>=\>+=\>-=\>*=\>/=\>\%=\>\caret=\>\&=\>|=\br
+\>={=}\>!=\><\>>\><=\>>=\><=>\>\&\&\>|{|}\br
+\><<\>>>\><<=\>>>=\>++\>-{-}\>,\br
 \end{bnfkeywordtab}
-
 \begin{note}
 The last two operators are function call\iref{expr.call}
 and subscripting\iref{expr.sub}.
@@ -3699,6 +3760,23 @@ and
 \tcode{\placeholder{R}}.
 
 \pnum
+For every integral type \tcode{\placeholder{T}}
+there exists a candidate operator function of the form
+
+\begin{codeblock}
+std::strong_ordering operator<=>(@\placeholder{T}@, @\placeholder{T}@);
+\end{codeblock}
+
+\pnum
+For every pair of floating-point types
+\tcode{\placeholder{L}} and \tcode{\placeholder{R}},
+there exists a candidate operator function of the form
+
+\begin{codeblock}
+std::partial_ordering operator<=>(@\placeholder{L}@, @\placeholder{R}@);
+\end{codeblock}
+
+\pnum
 For every cv-qualified or cv-unqualified object type
 \tcode{\placeholder{T}}
 there exist candidate operator functions of the form
@@ -3734,7 +3812,10 @@ bool    operator<=(@\placeholder{T}@, @\placeholder{T}@);
 bool    operator>=(@\placeholder{T}@, @\placeholder{T}@);
 bool    operator==(@\placeholder{T}@, @\placeholder{T}@);
 bool    operator!=(@\placeholder{T}@, @\placeholder{T}@);
+@\placeholdernc{R}@       operator<=>(@\placeholder{T}@, @\placeholder{T}@);
 \end{codeblock}
+
+where \tcode{\placeholder{R}} is the result type specified in \ref{expr.spaceship}.
 
 \pnum
 For every \tcode{\placeholder{T}}, where \tcode{\placeholder{T}}
@@ -3742,8 +3823,9 @@ is a pointer-to-member type or \tcode{std::nullptr_t},
 there exist candidate operator functions of the form
 
 \begin{codeblock}
-bool    operator==(@\placeholder{T}@, @\placeholder{T}@);
-bool    operator!=(@\placeholder{T}@, @\placeholder{T}@);
+bool                 operator==(@\placeholder{T}@, @\placeholder{T}@);
+bool                 operator!=(@\placeholder{T}@, @\placeholder{T}@);
+std::strong_equality operator<=>(@\placeholder{T}@, @\placeholder{T}@);
 \end{codeblock}
 
 \pnum
