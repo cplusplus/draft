@@ -31,6 +31,7 @@ as summarized in Table~\ref{tab:iostreams.lib.summary}.
                               &                             & \tcode{<iomanip>}    \\ \rowsep
 \ref{string.streams}          & String streams              & \tcode{<sstream>}    \\ \rowsep
 \ref{file.streams}            & File streams                & \tcode{<fstream>}    \\ \rowsep
+\ref{syncstream}              & Synchronized output streams & \tcode{<syncstream>} \\ \rowsep
 \ref{filesystems}             & File systems                & \tcode{<filesystem>} \\ \rowsep
 \ref{c.files}                 & C library files             & \tcode{<cstdio>}     \\
                               &                             & \tcode{<cinttypes>}  \\
@@ -133,6 +134,8 @@ library call \textit{b} such that this does not result in a data race, then
 \indexlibrary{\idxcode{basic_fstream}}%
 \indexlibrary{\idxcode{basic_istreambuf_iterator}}%
 \indexlibrary{\idxcode{basic_ostreambuf_iterator}}%
+\indexlibrary{\idxcode{basic_syncbuf}}%
+\indexlibrary{\idxcode{basic_osyncstream}}%
 \indexlibrary{\idxcode{ios}}%
 \indexlibrary{\idxcode{streambuf}}%
 \indexlibrary{\idxcode{istream}}%
@@ -156,6 +159,10 @@ library call \textit{b} such that this does not result in a data race, then
 \indexlibrary{\idxcode{wifstream}}%
 \indexlibrary{\idxcode{wofstream}}%
 \indexlibrary{\idxcode{wfstream}}%
+\indexlibrary{\idxcode{syncbuf}}%
+\indexlibrary{\idxcode{wsyncbuf}}%
+\indexlibrary{\idxcode{osyncstream}}%
+\indexlibrary{\idxcode{wosyncstream}}%
 \begin{codeblock}
 namespace std {
   template<class charT> class char_traits;
@@ -199,6 +206,13 @@ namespace std {
   template <class charT, class traits = char_traits<charT>>
     class basic_fstream;
 
+  template <class charT, class traits = char_traits<charT>,
+            class Allocator = allocator<charT>>
+    class basic_syncbuf;
+  template <class charT, class traits = char_traits<charT>,
+            class Allocator = allocator<charT>>
+    class basic_osyncstream;
+
   template <class charT, class traits = char_traits<charT>>
     class istreambuf_iterator;
   template <class charT, class traits = char_traits<charT>>
@@ -222,6 +236,9 @@ namespace std {
   using ofstream = basic_ofstream<char>;
   using fstream  = basic_fstream<char>;
 
+  using syncbuf = basic_syncbuf<char>;
+  using osyncstream = basic_osyncstream<char>;
+
   using wstreambuf = basic_streambuf<wchar_t>;
   using wistream   = basic_istream<wchar_t>;
   using wostream   = basic_ostream<wchar_t>;
@@ -236,6 +253,9 @@ namespace std {
   using wifstream = basic_ifstream<wchar_t>;
   using wofstream = basic_ofstream<wchar_t>;
   using wfstream  = basic_fstream<wchar_t>;
+
+  using wsyncbuf = basic_syncbuf<wchar_t>;
+  using wosyncstream = basic_osyncstream<wchar_t>;
 
   template <class state> class fpos;
   using streampos  = fpos<char_traits<char>::state_type>;
@@ -9928,6 +9948,593 @@ calls
 \tcode{setstate(failbit)}
 (which may throw
 \tcode{ios_base::failure})\iref{iostate.flags}.
+\end{itemdescr}
+
+\rSec1[syncstream]{Synchronized output streams}
+
+\rSec2[syncstream.syn]{Header \tcode{<syncstream>} synopsis}
+\indextext{\idxhdr{<syncstream>}}%
+\indexlibrary{\idxhdr{<syncstream>}}%
+
+\indexlibrary{\idxcode{syncbuf}}%
+\indexlibrary{\idxcode{wsyncbuf}}%
+\indexlibrary{\idxcode{osyncstream}}%
+\indexlibrary{\idxcode{wosyncstream}}%
+\begin{codeblock}
+namespace std {
+  template <class charT, class traits, class Allocator>
+    class basic_syncbuf;
+
+  using syncbuf = basic_syncbuf<char>;
+  using wsyncbuf = basic_syncbuf<wchar_t>;
+
+  template <class charT, class traits, class Allocator>
+    class basic_osyncstream;
+
+  using osyncstream = basic_osyncstream<char>;
+  using wosyncstream = basic_osyncstream<wchar_t>;
+}
+\end{codeblock}
+
+\pnum
+The header \tcode{<syncstream>} provides a mechanism
+to synchronize execution agents writing to the same stream.
+
+\rSec2[syncstream.syncbuf]{Class template \tcode{basic_syncbuf}}
+
+\rSec3[syncstream.syncbuf.overview]{Overview}
+
+\indexlibrary{\idxcode{basic_syncbuf}}%
+\begin{codeblock}
+namespace std {
+  template <class charT, class traits, class Allocator>
+  class basic_syncbuf : public basic_streambuf<charT, traits> {
+  public:
+    using char_type      = charT;
+    using int_type       = typename traits::int_type;
+    using pos_type       = typename traits::pos_type;
+    using off_type       = typename traits::off_type;
+    using traits_type    = traits;
+    using allocator_type = Allocator;
+
+    using streambuf_type = basic_streambuf<charT, traits>;
+
+    // \ref{syncstream.syncbuf.cons}, construction and destruction
+    explicit basic_syncbuf(streambuf_type* obuf = nullptr)
+      : basic_syncbuf(obuf, Allocator()) {}
+    basic_syncbuf(streambuf_type*, const Allocator&);
+    basic_syncbuf(basic_syncbuf&&);
+    ~basic_syncbuf();
+
+    // \ref{syncstream.syncbuf.assign}, assignment and swap
+    basic_syncbuf& operator=(basic_syncbuf&&);
+    void swap(basic_syncbuf&);
+
+    // \ref{syncstream.syncbuf.members}, member functions
+    bool emit();
+    streambuf_type* get_wrapped() const noexcept;
+    allocator_type get_allocator() const noexcept;
+    void set_emit_on_sync(bool) noexcept;
+
+  protected:
+    // \ref{syncstream.syncbuf.virtuals}, overridden virtual functions
+    int sync() override;
+
+  private:
+    streambuf_type* wrapped;    // \expos
+    bool emit_on_sync{};        // \expos
+  };
+
+  // \ref{syncstream.syncbuf.special}, specialized algorithms
+  template <class charT, class traits, class Allocator>
+    void swap(basic_syncbuf<charT, traits, Allocator>&,
+              basic_syncbuf<charT, traits, Allocator>&);
+}
+\end{codeblock}
+
+\pnum
+Class template \tcode{basic_syncbuf} stores character data
+written to it, known as the associated output, into internal
+buffers allocated using the object's allocator.
+The associated output is transferred to the
+wrapped stream buffer object \tcode{*wrapped}
+when \tcode{emit()} is called
+or when the \tcode{basic_syncbuf} object is destroyed.
+Such transfers are atomic with respect to transfers
+by other \tcode{basic_syncbuf} objects
+with the same wrapped stream buffer object.
+
+\rSec3[syncstream.syncbuf.cons]{Construction and destruction}
+
+\indexlibrary{\idxcode{basic_syncbuf}!constructor}%
+\begin{itemdecl}
+basic_syncbuf(streambuf_type* obuf, const Allocator& allocator);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Constructs the \tcode{basic_syncbuf} object and
+sets \tcode{wrapped} to \tcode{obuf}.
+
+\pnum
+\remarks
+A copy of \tcode{allocator} is used
+to allocate memory for internal buffers
+holding the associated output.
+
+\pnum
+\throws
+Nothing unless an exception is thrown
+by the construction of a mutex or
+by memory allocation.
+
+\pnum
+\postconditions
+\tcode{get_wrapped() == obuf} and
+\tcode{get_allocator() == allocator} are \tcode{true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_syncbuf}!constructor}%
+\begin{itemdecl}
+basic_syncbuf(basic_syncbuf&& other);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Move constructs from \tcode{other} (Table~\ref{tab:moveconstructible}).
+
+\pnum
+\postconditions
+The value returned by \tcode{this->get_wrapped()}
+is the value returned by \tcode{other.get_wrapped()}
+prior to calling this constructor.
+Output stored in \tcode{other}
+prior to calling this constructor
+will be stored in \tcode{*this} afterwards.
+\tcode{other.rdbuf()->pbase() == other.rdbuf()->pptr()}
+and
+\tcode{other.get_wrapped() == nullptr}
+are \tcode{true}.
+
+\pnum
+\remarks
+This constructor disassociates \tcode{other}
+from its wrapped stream buffer,
+ensuring destruction of \tcode{other} produces no output.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_syncbuf}!destructor}%
+\begin{itemdecl}
+~basic_syncbuf();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Calls \tcode{emit()}.
+
+\pnum
+\throws
+Nothing.
+If an exception is thrown from \tcode{emit()},
+the destructor catches and ignores that exception.
+\end{itemdescr}
+
+\rSec3[syncstream.syncbuf.assign]{Assignment and swap}
+
+\indexlibrarymember{operator=}{basic_syncbuf}%
+\begin{itemdecl}
+basic_syncbuf& operator=(basic_syncbuf&& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Calls \tcode{emit()} then
+move assigns from \tcode{rhs}.
+After the move assignment \tcode{*this}
+has the observable state it would have had if
+it had been move constructed from \tcode{rhs}\iref{syncstream.syncbuf.cons}.
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\postconditions
+\begin{itemize}
+\item
+\tcode{rhs.get_wrapped() == nullptr} is \tcode{true}.
+\item
+\tcode{this->get_allocator() == rhs.get_allocator()} is \tcode{true} when
+\begin{codeblock}
+allocator_traits<Allocator>::propagate_on_container_move_assignment::value
+\end{codeblock}
+is \tcode{true}; otherwise, the allocator is unchanged.
+\end{itemize}
+
+\pnum
+\remarks
+This assignment operator disassociates \tcode{rhs}
+from its wrapped stream buffer,
+ensuring destruction of \tcode{rhs} produces no output.
+\end{itemdescr}
+
+\indexlibrarymember{swap}{basic_syncbuf}%
+\begin{itemdecl}
+void swap(basic_syncbuf& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+Either
+\tcode{allocator_traits<Allocator>::propagate_on_container_swap::value}
+is \tcode{true}
+or
+\tcode{this->get_allocator() == other.get_allocator()}
+is \tcode{true}.
+
+\pnum
+\effects
+Exchanges the state of \tcode{*this} and \tcode{other}.
+\end{itemdescr}
+
+\rSec3[syncstream.syncbuf.members]{Member functions}
+
+\indexlibrarymember{emit}{basic_syncbuf}%
+\begin{itemdecl}
+bool emit();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Atomically transfers the associated output of \tcode{*this}
+to the stream buffer \tcode{*wrapped},
+so that it appears in the output stream
+as a contiguous sequence of characters.
+\tcode{wrapped->pubsync()} is called
+if and only if a call was made to \tcode{sync()}
+since the most recent call to \tcode{emit()}, if any.
+
+\pnum
+\returns
+\tcode{true} if all of the following conditions hold;
+otherwise \tcode{false}:
+\begin{itemize}
+\item \tcode{wrapped == nullptr} is \tcode{false}.
+\item All of the characters in the associated output were successfully transferred.
+\item The call to \tcode{wrapped->pubsync()} (if any) succeeded.
+\end{itemize}
+
+\pnum
+\postconditions
+On success, the associated output is empty.
+
+\pnum
+\sync
+All \tcode{emit()} calls transferring characters
+to the same stream buffer object
+appear to execute in a total order
+consistent with the ``happens before'' relation\iref{intro.races},
+where each \tcode{emit()} call
+synchronizes with
+subsequent \tcode{emit()} calls in that total order.
+
+\pnum
+\remarks
+May call member functions of \tcode{wrapped}
+while holding a lock uniquely associated with \tcode{wrapped}.
+\end{itemdescr}
+
+\indexlibrarymember{get_wrapped}{basic_syncbuf}%
+\begin{itemdecl}
+streambuf_type* get_wrapped() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{wrapped}.
+\end{itemdescr}
+
+\indexlibrarymember{get_allocator}{basic_syncbuf}%
+\begin{itemdecl}
+allocator_type get_allocator() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+A copy of the allocator that was set in the constructor or assignment operator.
+\end{itemdescr}
+
+\indexlibrarymember{set_emit_on_sync}{basic_syncbuf}%
+\begin{itemdecl}
+void set_emit_on_sync(bool b) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\tcode{emit_on_sync = b}.
+\end{itemdescr}
+
+\rSec3[syncstream.syncbuf.virtuals]{Overridden virtual functions}
+
+\indexlibrarymember{sync}{basic_syncbuf}%
+\begin{itemdecl}
+int sync() override;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Records that the wrapped stream buffer is to be flushed.
+Then, if \tcode{emit_on_sync} is \tcode{true}, calls \tcode{emit()}.
+\begin{note}
+If \tcode{emit_on_sync} is \tcode{false},
+the actual flush is delayed until a call to \tcode{emit()}.
+\end{note}
+
+\pnum
+\returns
+If \tcode{emit()} was called and returned \tcode{false},
+returns \tcode{-1}; otherwise \tcode{0}.
+\end{itemdescr}
+
+\rSec3[syncstream.syncbuf.special]{Specialized algorithms}
+
+\indexlibrarymember{swap}{basic_syncbuf}%
+\begin{itemdecl}
+template <class charT, class traits, class Allocator>
+  void swap(basic_syncbuf<charT, traits, Allocator>& a,
+            basic_syncbuf<charT, traits, Allocator>& b) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{a.swap(b)}.
+\end{itemdescr}
+
+\rSec2[syncstream.osyncstream]{Class template \tcode{basic_osyncstream}}
+
+\rSec3[syncstream.osyncstream.overview]{Overview}
+
+\indexlibrary{\idxcode{basic_osyncstream}}%
+\begin{codeblock}
+namespace std {
+  template <class charT, class traits, class Allocator>
+  class basic_osyncstream : public basic_ostream<charT, traits> {
+  public:
+    using char_type   = charT;
+    using int_type    = typename traits::int_type;
+    using pos_type    = typename traits::pos_type;
+    using off_type    = typename traits::off_type;
+    using traits_type = traits;
+
+    using allocator_type = Allocator;
+    using streambuf_type = basic_streambuf<charT, traits>;
+    using syncbuf_type   = basic_syncbuf<charT, traits, Allocator>;
+
+    // \ref{syncstream.osyncstream.cons}, construction and destruction
+    basic_osyncstream(streambuf_type*, const Allocator&);
+    explicit basic_osyncstream(streambuf_type* obuf)
+      : basic_osyncstream(obuf, Allocator()) {}
+    basic_osyncstream(basic_ostream<charT, traits>& os, const Allocator& allocator)
+      : basic_osyncstream(os.rdbuf(), allocator) {}
+    explicit basic_osyncstream(basic_ostream<charT, traits>& os)
+      : basic_osyncstream(os, Allocator()) {}
+    basic_osyncstream(basic_osyncstream&&) noexcept;
+    ~basic_osyncstream();
+
+    // \ref{syncstream.osyncstream.assign}, assignment
+    basic_osyncstream& operator=(basic_osyncstream&&) noexcept;
+
+    // \ref{syncstream.osyncstream.members}, member functions
+    void emit();
+    streambuf_type* get_wrapped() const noexcept;
+    syncbuf_type* rdbuf() const noexcept { return &sb ; }
+
+  private:
+    syncbuf_type sb;    // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+\tcode{Allocator} shall meet the allocator requirements\iref{allocator.requirements}.
+
+\pnum
+\begin{example}
+A named variable can be used within a block statement for streaming.
+\begin{codeblock}
+{
+  osyncstream bout(cout);
+  bout << "Hello, ";
+  bout << "World!";
+  bout << endl; // flush is noted
+  bout << "and more!\n";
+}   // characters are transferred and \tcode{cout} is flushed
+\end{codeblock}
+\end{example}
+
+\pnum
+\begin{example}
+A temporary object can be used for streaming within a single statement.
+\begin{codeblock}
+osyncstream(cout) << "Hello, " << "World!" << '\n';
+\end{codeblock}
+In this example, \tcode{cout} is not flushed.
+\end{example}
+
+\rSec3[syncstream.osyncstream.cons]{Construction and destruction}
+
+\indexlibrary{\idxcode{basic_osyncstream}!constructor}%
+\begin{itemdecl}
+basic_osyncstream(streambuf_type* buf, const Allocator& allocator);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \tcode{sb} from \tcode{buf} and \tcode{allocator}.
+Initializes the base class with \tcode{basic_ostream(\&sb)}.
+
+\pnum
+\begin{note}
+The member functions of the provided stream buffer
+might be called from \tcode{emit()} while a lock is held.
+Care should be taken to ensure that this does not result in deadlock.
+\end{note}
+
+\pnum
+\postconditions
+\tcode{get_wrapped() == buf} is \tcode{true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_osyncstream}!constructor}%
+\begin{itemdecl}
+basic_osyncstream(basic_osyncstream&& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Move constructs the base class
+and \tcode{sb} from the corresponding subobjects of \tcode{other},
+and calls \tcode{basic_ostream<charT, traits>::set_rdbuf(\&sb)}.
+
+\pnum
+\postconditions
+The value returned by \tcode{get_wrapped()}
+is the value returned by \tcode{os.get_wrapped()}
+prior to calling this constructor.
+\tcode{nullptr == other.get_wrapped()} is \tcode{true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_osyncstream}!destructor}%
+\begin{itemdecl}
+~basic_osyncstream();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Calls \tcode{emit()}.
+If an exception is thrown from \tcode{emit()},
+that exception is caught and ignored.
+\end{itemdescr}
+
+\rSec3[syncstream.osyncstream.assign]{Assignment}
+
+\indexlibrarymember{operator=}{basic_osyncstream}%
+\begin{itemdecl}
+basic_osyncstream& operator=(basic_osyncstream&& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+First, calls \tcode{emit()}.
+If an exception is thrown from \tcode{emit()},
+that exception is caught and ignored.
+Move assigns \tcode{sb} from \tcode{rhs.sb}.
+\begin{note}
+This disassociates \tcode{rhs}
+from its wrapped stream buffer
+ensuring destruction of \tcode{rhs} produces no output.
+\end{note}
+
+\pnum
+\postconditions
+\tcode{nullptr == rhs.get_wrapped()} is \tcode{true}.
+\tcode{get_wrapped()} returns the value
+previously returned by \tcode{rhs.get_wrapped()}.
+\end{itemdescr}
+
+\rSec3[syncstream.osyncstream.members]{Member functions}
+
+\indexlibrarymember{set_emit_on_sync}{basic_osyncstream}%
+\begin{itemdecl}
+void emit();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Calls \tcode{sb.emit()}.
+If that call returns \tcode{false},
+calls \tcode{setstate(ios::badbit)}.
+
+\pnum
+\begin{example}
+A flush on a \tcode{basic_osyncstream} does not flush immediately:
+\begin{codeblock}
+{
+  osyncstream bout(cout);
+  bout << "Hello," << '\n';     // no flush
+  bout.emit();                  // characters transferred; \tcode{cout} not flushed
+  bout << "World!" << endl;     // flush noted; \tcode{cout} not flushed
+  bout.emit();                  // characters transferred; \tcode{cout} flushed
+  bout << "Greetings." << '\n'; // no flush
+}   // characters transferred; \tcode{cout} not flushed
+\end{codeblock}
+\end{example}
+
+\pnum
+\begin{example}
+The function \tcode{emit()} can be used to
+handle exceptions from operations on the underlying stream.
+\begin{codeblock}
+{
+  osyncstream bout(cout);
+  bout << "Hello, " << "World!" << '\n';
+  try {
+    bout.emit();
+  } catch (...) {
+    // handle exception
+  }
+}
+\end{codeblock}
+\end{example}
+\end{itemdescr}
+
+\indexlibrarymember{set_emit_on_sync}{basic_osyncstream}%
+\begin{itemdecl}
+streambuf_type* get_wrapped() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{sb.get_wrapped()}.
+
+\pnum
+\begin{example}
+Obtaining the wrapped stream buffer with \tcode{get_wrapped()}
+allows wrapping it again with an \tcode{osyncstream}.
+For example,
+\begin{codeblock}
+{
+  osyncstream bout1(cout);
+  bout1 << "Hello, ";
+  {
+    osyncstream(bout1.get_wrapped()) << "Goodbye, " << "Planet!" << '\n';
+  }
+  bout1 << "World!" << '\n';
+}
+\end{codeblock}
+produces the \textit{uninterleaved} output
+\begin{outputblock}
+Goodbye, Planet!
+Hello, World!
+\end{outputblock}
+\end{example}
 \end{itemdescr}
 
 \rSec1[filesystems]{File systems}
