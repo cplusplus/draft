@@ -9979,14 +9979,6 @@ namespace std {
 \pnum
 The header \tcode{<syncstream>} provides a mechanism
 to synchronize execution agents writing to the same stream.
-It defines class templates \tcode{basic_osyncstream} and \tcode{basic_syncbuf}.
-The latter buffers output and transfer the buffered content
-into an object of type \tcode{basic_streambuf<charT, traits>}
-atomically with respect to such transfers
-by other \tcode{basic_syncbuf<charT, traits, Allocator>} objects
-referring to the same \tcode{basic_streambuf<charT, traits>} object.
-The transfer occurs when \tcode{emit()} is called
-and when the \tcode{basic_syncbuf<charT, traits, Allocator>} object is destroyed.
 
 \rSec2[syncstream.syncbuf]{Class template \tcode{basic_syncbuf}}
 
@@ -10040,6 +10032,18 @@ namespace std {
 }
 \end{codeblock}
 
+\pnum
+Class template \tcode{basic_syncbuf} stores character data
+written to it, known as the associated output, into internal
+buffers allocated using the object's allocator.
+The associated output is transferred to the
+wrapped stream buffer object \tcode{*wrapped}
+when \tcode{emit()} is called
+or when the \tcode{basic_syncbuf} object is destroyed.
+Such transfers are atomic with respect to transfers
+by other \tcode{basic_syncbuf} objects
+with the same wrapped stream buffer object.
+
 \rSec3[syncstream.syncbuf.cons]{Construction and destruction}
 
 \indexlibrary{\idxcode{basic_syncbuf}!constructor}%
@@ -10051,8 +10055,7 @@ basic_syncbuf(streambuf_type* obuf, const Allocator& allocator);
 \pnum
 \effects
 Constructs the \tcode{basic_syncbuf} object and
-sets \tcode{wrapped} to \tcode{obuf}
-which will be the final destination of associated output.
+sets \tcode{wrapped} to \tcode{obuf}.
 
 \pnum
 \remarks
@@ -10062,11 +10065,14 @@ holding the associated output.
 
 \pnum
 \throws
-Nothing unless constructing a mutex or allocating memory throws.
+Nothing unless an exception is thrown
+by the construction of a mutex or
+by memory allocation.
 
 \pnum
 \postconditions
-\tcode{get_wrapped() == obuf \&\& get_allocator() == allocator}.
+\tcode{get_wrapped() == obuf} and
+\tcode{get_allocator() == allocator} are \tcode{true}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{basic_syncbuf}!constructor}%
@@ -10089,7 +10095,8 @@ prior to calling this constructor
 will be stored in \tcode{*this} afterwards.
 \tcode{other.rdbuf()->pbase() == other.rdbuf()->pptr()}
 and
-\tcode{other.get_wrapped() == nullptr}.
+\tcode{other.get_wrapped() == nullptr}
+are \tcode{true}.
 
 \pnum
 \remarks
@@ -10110,8 +10117,9 @@ Calls \tcode{emit()}.
 
 \pnum
 \throws
-Nothing. If an exception is thrown from \tcode{emit()},
-that exception is caught and ignored.
+Nothing.
+If an exception is thrown from \tcode{emit()},
+the destructor catches and ignores that exception.
 \end{itemdescr}
 
 \rSec3[syncstream.syncbuf.assign]{Assignment and swap}
@@ -10138,9 +10146,9 @@ it had been move constructed from \tcode{rhs}\iref{syncstream.syncbuf.cons}.
 \postconditions
 \begin{itemize}
 \item
-\tcode{rhs.get_wrapped() == nullptr}.
+\tcode{rhs.get_wrapped() == nullptr} is \tcode{true}.
 \item
-\tcode{this->get_allocator() == rhs.get_allocator()} when
+\tcode{this->get_allocator() == rhs.get_allocator()} is \tcode{true} when
 \begin{codeblock}
 allocator_traits<Allocator>::propagate_on_container_move_assignment::value
 \end{codeblock}
@@ -10162,8 +10170,12 @@ void swap(basic_syncbuf& other) noexcept;
 \begin{itemdescr}
 \pnum
 \requires
+Either
 \tcode{allocator_traits<Allocator>::propagate_on_container_swap::value}
-or \tcode{this->get_allocator() == other.get_allocator()}.
+is \tcode{true}
+or
+\tcode{this->get_allocator() == other.get_allocator()}
+is \tcode{true}.
 
 \pnum
 \effects
@@ -10180,27 +10192,27 @@ bool emit();
 \begin{itemdescr}
 \pnum
 \effects
-Atomically transfers the contents of the internal buffer
+Atomically transfers the associated output of \tcode{*this}
 to the stream buffer \tcode{*wrapped},
-so that they appear in the output stream
+so that it appears in the output stream
 as a contiguous sequence of characters.
-If and only if a call was made to \tcode{sync()}
-since the last call of \tcode{emit()},
-\tcode{wrapped->pubsync()} is called.
+\tcode{wrapped->pubsync()} is called
+if and only if a call was made to \tcode{sync()}
+since the most recent call to \tcode{emit()}, if any.
 
 \pnum
 \returns
 \tcode{true} if all of the following conditions hold;
 otherwise \tcode{false}:
 \begin{itemize}
-\item \tcode{wrapped != nullptr}.
+\item \tcode{wrapped == nullptr} is \tcode{false}.
 \item All of the characters in the associated output were successfully transferred.
 \item The call to \tcode{wrapped->pubsync()} (if any) succeeded.
 \end{itemize}
 
 \pnum
 \postconditions
-On success the associated output is empty.
+On success, the associated output is empty.
 
 \pnum
 \sync
@@ -10237,7 +10249,7 @@ allocator_type get_allocator() const noexcept;
 \begin{itemdescr}
 \pnum
 \returns
-A copy of the allocator set in the constructor or from assignment.
+A copy of the allocator that was set in the constructor or assignment operator.
 \end{itemdescr}
 
 \indexlibrarymember{set_emit_on_sync}{basic_syncbuf}%
@@ -10261,10 +10273,10 @@ int sync() override;
 \begin{itemdescr}
 \pnum
 \effects
-Record that the wrapped stream buffer is to be flushed.
-Then, if \tcode{emit_on_sync == true}, calls \tcode{emit()}.
+Records that the wrapped stream buffer is to be flushed.
+Then, if \tcode{emit_on_sync} is \tcode{true}, calls \tcode{emit()}.
 \begin{note}
-If \tcode{emit_on_sync == false},
+If \tcode{emit_on_sync} is \tcode{false},
 the actual flush is delayed until a call to \tcode{emit()}.
 \end{note}
 
@@ -10370,20 +10382,19 @@ basic_osyncstream(streambuf_type* buf, const Allocator& allocator);
 \begin{itemdescr}
 \pnum
 \effects
-Initializes \tcode{sb} from \tcode{buf} and \tcode{allocator} and
-initializes the base class with \tcode{basic_ostream(\&sb)}.
+Initializes \tcode{sb} from \tcode{buf} and \tcode{allocator}.
+Initializes the base class with \tcode{basic_ostream(\&sb)}.
 
 \pnum
 \begin{note}
-If the wrapped stream buffer pointer
-refers to a user provided stream buffer
-then its implementation must be aware that its member functions
+The member functions of the provided stream buffer
 might be called from \tcode{emit()} while a lock is held.
+Care should be taken to ensure that this does not result in deadlock.
 \end{note}
 
 \pnum
 \postconditions
-\tcode{get_wrapped() == buf}.
+\tcode{get_wrapped() == buf} is \tcode{true}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{basic_osyncstream}!constructor}%
@@ -10394,18 +10405,16 @@ basic_osyncstream(basic_osyncstream&& other) noexcept;
 \begin{itemdescr}
 \pnum
 \effects
-Move constructs from \tcode{other}.
-This is accomplished by move constructing the base class,
-and the contained \tcode{basic_syncbuf} \tcode{sb}.
-Next \tcode{basic_ostream<charT, traits>::set_rdbuf(\&sb)}
-is called to install the \tcode{basic_syncbuf} \tcode{sb}.
+Move constructs the base class
+and \tcode{sb} from the corresponding subobjects of \tcode{other},
+and calls \tcode{basic_ostream<charT, traits>::set_rdbuf(\&sb)}.
 
 \pnum
 \postconditions
 The value returned by \tcode{get_wrapped()}
 is the value returned by \tcode{os.get_wrapped()}
 prior to calling this constructor.
-\tcode{nullptr == other.get_wrapped()}.
+\tcode{nullptr == other.get_wrapped()} is \tcode{true}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{basic_osyncstream}!destructor}%
@@ -10443,7 +10452,7 @@ ensuring destruction of \tcode{rhs} produces no output.
 
 \pnum
 \postconditions
-\tcode{nullptr == rhs.get_wrapped()}.
+\tcode{nullptr == rhs.get_wrapped()} is \tcode{true}.
 \tcode{get_wrapped()} returns the value
 previously returned by \tcode{rhs.get_wrapped()}.
 \end{itemdescr}
@@ -10459,7 +10468,7 @@ void emit();
 \pnum
 \effects
 Calls \tcode{sb.emit()}.
-If this call returns \tcode{false},
+If that call returns \tcode{false},
 calls \tcode{setstate(ios::badbit)}.
 
 \pnum
