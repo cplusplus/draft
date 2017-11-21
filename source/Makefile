@@ -38,6 +38,7 @@ reindex:
 	$(STDPDF)
 	$(STDPDF)
 	makeindex generalindex
+	makeindex headerindex
 	makeindex libraryindex
 	makeindex grammarindex
 	makeindex impldefindex
