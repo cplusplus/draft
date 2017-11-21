@@ -42,6 +42,15 @@ Install the following packages:
 
    dnf install texlive texlive-isodate texlive-relsize texlive-ulem texlive-fixme texlive-extract
 
+-----------------------------
+Getting Started on Arch Linux
+-----------------------------
+
+Install the following packages:
+
+   latex-mk from the Arch User Repository.
+   pacman -S texlive-latexextra
+
 ------------
 Instructions
 ------------
