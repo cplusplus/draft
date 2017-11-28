@@ -43,6 +43,7 @@ reindex:
 	makeindex grammarindex
 	makeindex impldefindex
 	makeindex -s basic.gst -o xrefindex.gls xrefindex.glo
+	makeindex -s basic.gst -o xrefdelta.gls xrefdelta.glo
 	$(STDPDF)
 	$(STDPDF)
 
