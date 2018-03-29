@@ -7470,9 +7470,9 @@ namespace std {
     using propagate_on_container_move_assignment = true_type;
     using is_always_equal = true_type;
 
-    allocator() noexcept;
-    allocator(const allocator&) noexcept;
-    template<class U> allocator(const allocator<U>&) noexcept;
+    constexpr allocator() noexcept;
+    constexpr allocator(const allocator&) noexcept;
+    template<class U> constexpr allocator(const allocator<U>&) noexcept;
     ~allocator();
 
     [[nodiscard]] T* allocate(size_t n);
@@ -9741,7 +9741,7 @@ an exception thrown from \tcode{allocate} or from the initialization of the obje
   suitable to hold an object of type \tcode{U} and
   \tcode{a2} of type \tcode{A2} is a rebound copy of
   the allocator \tcode{a} passed to \tcode{allocate_shared}
-  such that its \tcode{value_type} is \tcode{U}.
+  such that its \tcode{value_type} is \tcode{remove_cv_t<U>}.
 \item
   When a (sub)object of non-array type \tcode{U} is specified to have
   a default initial value,
@@ -9758,13 +9758,14 @@ an exception thrown from \tcode{allocate} or from the initialization of the obje
   suitable to hold an object of type \tcode{U} and
   \tcode{a2} of type \tcode{A2} is a rebound copy of
   the allocator \tcode{a} passed to \tcode{allocate_shared}
-  such that its \tcode{value_type} is \tcode{U}.
+  such that its \tcode{value_type} is \tcode{remove_cv_t<U>}.
 \item
   Array elements are initialized in ascending order of their addresses.
 \item
   When the lifetime of the object managed by the return value ends, or
   when the initialization of an array element throws an exception,
-  the initialized elements should be destroyed in the reverse order of their construction.
+  the initialized elements are destroyed in the reverse order
+  of their original construction.
 \end{itemize}
 \begin{note}
 These functions will typically allocate more memory than \tcode{sizeof(T)} to
@@ -11251,9 +11252,10 @@ virtual void* do_allocate(size_t bytes, size_t alignment) = 0;
 
 \pnum
 \returns
-A derived class shall implement this function to return a pointer to allocated storage\iref{basic.stc.dynamic.allocation} with a size of at least \tcode{bytes}.
-The returned storage is aligned to the specified alignment, if such alignment is supported\iref{basic.align};
-otherwise it is aligned to \tcode{max_align}.
+A derived class shall implement this function to
+return a pointer to allocated storage\iref{basic.stc.dynamic.allocation}
+with a size of at least \tcode{bytes},
+aligned to the specified \tcode{alignment}.
 
 \pnum
 \throws
@@ -11481,7 +11483,7 @@ template<class T, class... Args>
 \pnum
 \requires
 Uses-allocator construction of \tcode{T}
-with allocator \tcode{resource()} (see~\ref{allocator.uses.construction})
+with allocator \tcode{*this} (see~\ref{allocator.uses.construction})
 and constructor arguments \tcode{std::forward<Args>(args)...} is well-formed.
 \begin{note}
 Uses-allocator construction is always well-formed
@@ -11491,12 +11493,17 @@ for types that do not use allocators.\end{note}
 \effects
 Construct a \tcode{T} object in the storage
 whose address is represented by \tcode{p}
-by uses-allocator construction with allocator \tcode{resource()}
+by uses-allocator construction with allocator \tcode{*this}
 and constructor arguments \tcode{std::forward<Args>(args)...}.
 
 \pnum
 \throws
 Nothing unless the constructor for \tcode{T} throws.
+
+\pnum
+\remarks
+This function shall not participate in overload resolution if
+\tcode{T} is a specialization of \tcode{pair}.
 \end{itemdescr}
 
 \indexlibrarymember{construct}{polymorphic_allocator}%
@@ -11521,32 +11528,32 @@ The following description can be summarized as
 constructing a \tcode{pair<T1, T2>} object
 in the storage whose address is represented by \tcode{p},
 as if by separate uses-allocator construction
-with allocator \tcode{resource()}\iref{allocator.uses.construction}
+with allocator \tcode{*this}\iref{allocator.uses.construction}
 of \tcode{p->first} using the elements of \tcode{x}
 and \tcode{p->second} using the elements of \tcode{y}.
 \end{note}
 \begin{itemize}
 \item
-If \tcode{uses_allocator_v<T1,memory_resource*>} is \tcode{false}
+If \tcode{uses_allocator_v<T1,polymorphic_allocator>} is \tcode{false}
 \\
 and
 \tcode{is_constructible_v<T1,Args1...>} is \tcode{true},
 \\
 then \tcode{xprime} is \tcode{x}.
 \item
-Otherwise, if \tcode{uses_allocator_v<T1,memory_resource*>} is \tcode{true}
+Otherwise, if \tcode{uses_allocator_v<T1,polymorphic_allocator>} is \tcode{true}
 \\
 and
-\tcode{is_constructible_v<T1,allocator_arg_t,memory_resource*,Args1...>} is \tcode{true},
+\tcode{is_constructible_v<T1,allocator_arg_t,polymorphic_allocator,Args1...>} is \tcode{true},
 \\
-then \tcode{xprime} is \tcode{tuple_cat(make_tuple(allocator_arg, resource()), std::move(x))}.
+then \tcode{xprime} is \tcode{tuple_cat(make_tuple(allocator_arg, *this), std::move(x))}.
 \item
-Otherwise, if \tcode{uses_allocator_v<T1,memory_resource*>} is \tcode{true}
+Otherwise, if \tcode{uses_allocator_v<T1,polymorphic_allocator>} is \tcode{true}
 \\
 and
-\tcode{is_constructible_v<T1,Args1...,memory_resource*>} is \tcode{true},
+\tcode{is_constructible_v<T1,Args1...,polymorphic_allocator>} is \tcode{true},
 \\
-then \tcode{xprime} is \tcode{tuple_cat(std::move(x), make_tuple(resource()))}.
+then \tcode{xprime} is \tcode{tuple_cat(std::move(x), make_tuple(*this))}.
 \item
 Otherwise the program is ill formed.
 \end{itemize}
@@ -11554,27 +11561,27 @@ Let \tcode{yprime} be a tuple constructed from \tcode{y}
 according to the appropriate rule from the following list:
 \begin{itemize}
 \item
-If \tcode{uses_allocator_v<T2,memory_resource*>} is \tcode{false}
+If \tcode{uses_allocator_v<T2,polymorphic_allocator>} is \tcode{false}
 \\
 and
 \tcode{is_constructible_v<T2,Args2...>} is \tcode{true},
 \\
 then \tcode{yprime} is \tcode{y}.
 \item
-Otherwise, if \tcode{uses_allocator_v<T2,memory_resource*>} is \tcode{true}
+Otherwise, if \tcode{uses_allocator_v<T2,polymorphic_allocator>} is \tcode{true}
 \\
 and
-\tcode{is_constructible_v<T2,allocator_arg_t,memory_resource*,Args2...>} is \tcode{true},
+\tcode{is_constructible_v<T2,allocator_arg_t,polymorphic_allocator,Args2...>} is \tcode{true},
 \\
-then \tcode{yprime} is \tcode{tuple_cat(make_tuple(allocator_arg, resource()), std::move(y))}.
+then \tcode{yprime} is \tcode{tuple_cat(make_tuple(allocator_arg, *this), std::move(y))}.
 \item
-Otherwise, if \tcode{uses_allocator_v<T2,memory_resource*>} is \tcode{true}
+Otherwise, if \tcode{uses_allocator_v<T2,polymorphic_allocator>} is \tcode{true}
 \\
 and
-\tcode{is_constructible_v<T2,Args2...,memory_resource*>} is \tcode{true},
+\tcode{is_constructible_v<T2,Args2...,polymorphic_allocator>} is \tcode{true},
 \\
 then
-\tcode{yprime} is \tcode{tuple_cat(std::move(y), make_tuple(resource()))}.
+\tcode{yprime} is \tcode{tuple_cat(std::move(y), make_tuple(*this))}.
 \item
 Otherwise the program is ill formed.
 \end{itemize}
@@ -12095,27 +12102,15 @@ Nothing.
 \end{itemdescr}
 
 \indexlibrarymember{do_is_equal}{synchronized_pool_resource}%
-\begin{itemdecl}
-bool synchronized_pool_resource::do_is_equal(
-    const memory_resource& other) const noexcept override;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\returns
-\tcode{this == dynamic_cast<const synchronized_pool_resource*>(\&other)}.
-\end{itemdescr}
-
 \indexlibrarymember{do_is_equal}{unsynchronized_pool_resource}%
 \begin{itemdecl}
-bool unsynchronized_pool_resource::do_is_equal(
-    const memory_resource& other) const noexcept override;
+bool do_is_equal(const memory_resource& other) const noexcept override;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \returns
-\tcode{this == dynamic_cast<const unsynchronized_pool_resource*>(\&other)}.
+\tcode{this == \&other}.
 \end{itemdescr}
 
 \rSec2[mem.res.monotonic.buffer]{Class \tcode{monotonic_buffer_resource}}
@@ -12331,7 +12326,7 @@ bool do_is_equal(const memory_resource& other) const noexcept override;
 \begin{itemdescr}
 \pnum
 \returns
-\tcode{this == dynamic_cast<const monotonic_buffer_resource*>(\&other)}.
+\tcode{this == \&other}.
 \end{itemdescr}
 
 
@@ -12750,6 +12745,11 @@ allocator. This definition prevents a silent failure to pass an inner allocator 
 contained element.
 \end{note}
 \end{itemize}
+
+\pnum
+\remarks
+This function shall not participate in overload resolution if
+\tcode{T} is a specialization of \tcode{pair}.
 \end{itemdescr}
 
 \indexlibrarymember{construct}{scoped_allocator_adaptor}%
@@ -13281,7 +13281,7 @@ void @\placeholdernc{FUN}@(T&&) = delete;
 \end{codeblock}
 This constructor shall not participate in overload resolution unless
 the expression \tcode{\placeholdernc{FUN}(declval<U>())} is well-formed and
-\tcode{is_same_v<decay_t<U>, reference_wrapper>} is \tcode{false}.
+\tcode{is_same_v<remove_cvref_t<U>, reference_wrapper>} is \tcode{false}.
 The expression inside \tcode{noexcept}
 is equivalent to \tcode{noexcept(\placeholdernc{FUN}(declval<U>()))}.
 
@@ -16854,7 +16854,7 @@ assert((is_same_v<remove_all_extents_t<int[][3]>, int>));
  The value of \textit{default-alignment} shall be the most
  stringent alignment requirement for any \Cpp{} object type whose size
  is no greater than \tcode{Len}\iref{basic.types}.
- The member typedef \tcode{type} shall be a trivial type
+ The member typedef \tcode{type} shall be a trivial standard-layout type
  suitable for use as uninitialized storage for any object whose size
  is at most \tcode{Len} and whose alignment is a divisor of \tcode{Align}.\br
  \requires{} \tcode{Len} shall not be zero. \tcode{Align} shall be equal to
@@ -16865,7 +16865,7 @@ assert((is_same_v<remove_all_extents_t<int[][3]>, int>));
   class... Types>\br
   struct aligned_union;}
   &
-  The member typedef \tcode{type} shall be a trivial type suitable for use as
+  The member typedef \tcode{type} shall be a trivial standard-layout type suitable for use as
   uninitialized storage for any object whose type is listed in \tcode{Types};
   its size shall be at least \tcode{Len}. The static member \tcode{alignment_value}
   shall be an integral constant of type \tcode{size_t} whose value is the
