@@ -76,7 +76,9 @@ If you can't use latexmk or make for some reason, you can run LaTeX manually ins
 #. run ``makeindex libraryindex``
 #. run ``makeindex grammarindex``
 #. run ``makeindex impldefindex``
+#. run ``pdflatex std`` once more.
 #. run ``makeindex -s basic.gst -o xrefindex.gls xrefindex.glo``
+#. run ``makeindex -s basic.gst -o xrefdelta.gls xrefdelta.glo``
 #. run ``pdflatex std`` twice more.
 
 Generated input files
