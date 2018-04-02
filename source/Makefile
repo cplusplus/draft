@@ -40,7 +40,7 @@ reindex:
 	makeindex generalindex
 	makeindex headerindex
 	makeindex libraryindex
-	makeindex grammarindex
+	xindy -M idxbfpage -M texindy -C utf8 -L english -t grammarindex.ilg grammarindex.idx
 	makeindex impldefindex
 	$(STDPDF)
 	makeindex -s basic.gst -o xrefindex.gls xrefindex.glo
