@@ -743,20 +743,31 @@ one more than the number of parameters in the macro definition (excluding the
 \pnum
 After the arguments for the invocation of a function-like macro have
 been identified, argument substitution takes place.
-A parameter in the replacement list, unless preceded by a
+A parameter in the replacement list --- unless it is
+\mname{VA_OPT}\tcode{(}\placeholder{content}\tcode{)}, preceded by a
 \tcode{\#}
 or
 \tcode{\#\#}
-preprocessing token or followed by a
+preprocessing token, or followed by a
 \tcode{\#\#}
-preprocessing token (see below),
+preprocessing token (see below) ---
 is replaced by the corresponding argument after all macros
-contained therein have been expanded.
-Before being substituted,
+contained therein have been expanded, in which case,
 each argument's preprocessing tokens are completely
-macro replaced as if they formed the rest of the
-preprocessing file;
-no other preprocessing tokens are available.
+macro replaced before being substituted as if they formed the rest of the
+preprocessing file with
+no other preprocessing tokens being available.
+The replacement for \mname{VA_OPT}\tcode{(}\placeholder{content}\tcode{)}, unless preceded by a
+\tcode{\#} or \tcode{\#\#} preprocessing token or followed by a \tcode{\#\#}
+preprocessing token, is the preprocessing token sequence for the corresponding argument.
+\begin{example}
+\begin{codeblock}
+#define LPAREN() (
+#define G(Q) 42
+#define F(R, X, ...)  __VA_OPT__(G R X) )
+int x = F(LPAREN(), 0, <:-);    // replaced by \tcode{int x = 42;}
+\end{codeblock}
+\end{example}
 
 \pnum
 \indextext{__VA_ARGS__@\mname{VA_ARGS}}%
@@ -767,8 +778,8 @@ the preprocessing tokens used to replace it.
 \pnum
 \indextext{__VA_OPT__@\mname{VA_OPT}}%
 The identifier \mname{VA_OPT}
-shall always occur as part of the token sequence
-\mname{VA_OPT}\tcode{(}\placeholder{content}\tcode{)},
+shall always occur as part of the preprocessing token sequence
+\mname{VA_OPT}\tcode{(}\placeholder{cont\-ent}\tcode{)},
 where \placeholder{content} is
 an arbitrary sequence of \grammarterm{preprocessing-token}s
 other than \mname{VA_OPT},
@@ -777,26 +788,33 @@ and skips intervening pairs of matching left and right parentheses.
 If \placeholder{content} would be ill-formed
 as the replacement list of the current function-like macro,
 the program is ill-formed.
-The token sequence
+The preprocessing token sequence
 \mname{VA_OPT}\tcode{(}\placeholder{content}\tcode{)}
 shall be treated as if it were a parameter,
-and the preprocessing tokens used to replace it
-are defined as follows.
-If the variable arguments consist of no tokens,
-the replacement consists of
+and the preprocessing token sequence for the corresponding
+argument is defined as follows.
+If the substitution of \mname{VA_ARGS} as neither an operand
+of \tcode{\#} nor \tcode{\#\#} consists of no preprocessing tokens,
+the argument consists of
 a single placemarker preprocessing token~(\ref{cpp.concat}, \ref{cpp.rescan}).
-Otherwise, the replacement consists of
+Otherwise, the argument consists of
 the results of the expansion of \placeholder{content}
 as the replacement list of the current function-like macro
-before rescanning and further replacement.
+before removal of placemarker tokens, rescanning, and further replacement.
+\begin{note}
+The placemarker tokens are removed before stringization\iref{cpp.stringize},
+and can be removed by rescanning and further replacement\iref{cpp.rescan}.
+\end{note}
 \begin{example}
 \begin{codeblock}
 #define F(...)           f(0 __VA_OPT__(,) __VA_ARGS__)
 #define G(X, ...)        f(0, X __VA_OPT__(,) __VA_ARGS__)
 #define SDEF(sname, ...) S sname __VA_OPT__(= { __VA_ARGS__ })
+#define EMP
 
 F(a, b, c)          // replaced by \tcode{f(0, a, b, c)}
 F()                 // replaced by \tcode{f(0)}
+F(EMP)              // replaced by \tcode{f(0)}
 
 G(a, b, c)          // replaced by \tcode{f(0, a, b, c)}
 G(a, )              // replaced by \tcode{f(0, a)}
@@ -807,9 +825,20 @@ SDEF(bar, 1, 2);    // replaced by \tcode{S bar = \{ 1, 2 \};}
 
 #define H1(X, ...) X __VA_OPT__(##) __VA_ARGS__ // ill-formed: \tcode{\#\#} may not appear at
                                                 // the beginning of a replacement list\iref{cpp.concat}
-#define H2(X, Y, ...) __VA_OPT__(X ## Y,) __VA_ARGS__
 
+#define H2(X, Y, ...) __VA_OPT__(X ## Y,) __VA_ARGS__
 H2(a, b, c, d)      // replaced by \tcode{ab, c, d}
+
+#define H3(X, ...) #__VA_OPT__(X##X X##X)
+H3(, 0)             // replaced by \tcode{""}
+
+#define H4(X, ...) __VA_OPT__(a X ## X) ## b
+H4(, 1)             // replaced by \tcode{a b}
+
+#define H5A(...) __VA_OPT__()@\tcode{/**/}@__VA_OPT__()
+#define H5B(X) a ## X ## b
+#define H5C(X) H5B(X)
+H5C(H5A())          // replaced by \tcode{ab}
 \end{codeblock}
 \end{example}
 
@@ -832,13 +861,15 @@ preceded by a
 preprocessing token,
 both are replaced by a single character string literal preprocessing token that
 contains the spelling of the preprocessing token sequence for the
-corresponding argument.
-Each occurrence of white space between the argument's preprocessing
+corresponding argument (excluding placemarker tokens).
+Let the \defn{stringizing argument} be the preprocessing token sequence
+for the corresponding argument with placemarker tokens removed.
+Each occurrence of white space between the stringizing argument's preprocessing
 tokens becomes a single space character in the character string literal.
 White space before the first preprocessing token and after the last
-preprocessing token comprising the argument is deleted.
+preprocessing token comprising the stringizing argument is deleted.
 Otherwise, the original spelling of each preprocessing token in the
-argument is retained in the character string literal,
+stringizing argument is retained in the character string literal,
 except for special handling for producing the spelling of
 string literals and character literals:
 a
@@ -853,7 +884,7 @@ character of a character literal or string literal
 characters).
 If the replacement that results is not a valid character string literal,
 the behavior is undefined. The character string literal corresponding to
-an empty argument is \tcode{""}.
+an empty stringizing argument is \tcode{""}.
 The order of evaluation of
 \tcode{\#}
 and
