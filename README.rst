@@ -32,7 +32,7 @@ Getting Started on Debian-based Systems
 
 Install the following packages:
 
-   sudo apt-get install latexmk texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended
+   sudo apt-get install latexmk texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended xindy
 
 -------------------------
 Getting Started on Fedora
@@ -40,7 +40,7 @@ Getting Started on Fedora
 
 Install the following packages:
 
-   dnf install texlive texlive-isodate texlive-relsize texlive-ulem texlive-fixme texlive-extract
+   dnf install texlive texlive-isodate texlive-relsize texlive-ulem texlive-fixme texlive-extract texlive-xindy
 
 -----------------------------
 Getting Started on Arch Linux
@@ -75,6 +75,7 @@ If you can't use latexmk or make for some reason, you can run LaTeX manually ins
 #. run ``makeindex generalindex``
 #. run ``makeindex libraryindex``
 #. run ``makeindex grammarindex``
+#. run ``xindy -M idxbfpage -M texindy -C utf8 -L english -t grammarindex.ilg grammarindex.idx``
 #. run ``makeindex impldefindex``
 #. run ``pdflatex std`` once more.
 #. run ``makeindex -s basic.gst -o xrefindex.gls xrefindex.glo``

@@ -37,12 +37,11 @@ reindex:
 	$(STDPDF)
 	$(STDPDF)
 	$(STDPDF)
-	makeindex generalindex
-	makeindex headerindex
-	makeindex libraryindex
-	makeindex grammarindex
-	makeindex impldefindex
-	$(STDPDF)
+	xindy -M texindy -M idxbfpage -C utf8 -L english -t generalindex.ilg generalindex.idx
+	xindy -M texindy -M idxbfpage -C utf8 -L english -t headerindex.ilg headerindex.idx
+	xindy -M texindy -M idxbfpage -C utf8 -L english -t libraryindex.ilg libraryindex.idx
+	xindy -M texindy -M idxbfpage -C utf8 -L english -t grammarindex.ilg grammarindex.idx
+	xindy -M texindy -M idxbfpage -C utf8 -L english -t impldefindex.ilg impldefindex.idx
 	makeindex -s basic.gst -o xrefindex.gls xrefindex.glo
 	makeindex -s basic.gst -o xrefdelta.gls xrefdelta.glo
 	$(STDPDF)
