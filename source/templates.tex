@@ -365,24 +365,21 @@ class Map {
 \end{note}
 
 \pnum
-A non-type
-\grammarterm{template-parameter}
-shall have one of the following (optionally
-cv-qualified)
-types:
+A non-type \grammarterm{template-parameter}
+shall have one of the following (optionally cv-qualified) types:
 
 \begin{itemize}
-\item integral or enumeration type,
+\item a type that is literal,
+has strong structural equality\iref{class.compare.default},
+has no \tcode{mutable} or \tcode{volatile} subobjects,
+and in which if there is a defaulted member \tcode{operator<=>},
+then it is declared public,
 
-\item pointer to object or pointer to function,
+\item an lvalue reference type,
 
-\item lvalue reference to object or lvalue reference to function,
+\item a type that contains a placeholder type\iref{dcl.spec.auto}, or
 
-\item pointer to member,
-
-\item \tcode{std::nullptr_t}, or
-
-\item a type that contains a placeholder type\iref{dcl.spec.auto}.
+\item a placeholder for a deduced class type\iref{dcl.type.class.deduct}.
 \end{itemize}
 
 \pnum
@@ -398,27 +395,38 @@ on the
 are ignored when determining its type.
 
 \pnum
-A non-type non-reference
-\grammarterm{template-parameter}
-is a prvalue.
-It shall not be assigned to or in any other way have its value changed.
-A non-type non-reference
-\grammarterm{template-parameter}
-cannot have its address taken.
-When a non-type non-reference
-\grammarterm{template-parameter}
+When a non-type \grammarterm{template-parameter}
+of non-reference and non-class type
 is used as an initializer for a reference, a temporary is always used.
+An \grammarterm{id-expression} naming
+a non-type \grammarterm{template-parameter} of class type \tcode{T}
+denotes a static storage duration object of type \tcode{const T},
+known as a \defn{template parameter object},
+whose value is that of the corresponding template argument
+after it has been converted
+to the type of the \grammarterm{template-parameter}.
+All such template parameters in the program of the same type
+with the same value denote the same template parameter object.
+\begin{note}
+If an \grammarterm{id-expression} names
+a non-type non-reference \grammarterm{template-parameter},
+then it is a prvalue if it has non-class type.
+Otherwise, if it is of class type \tcode{T},
+it is an lvalue and has type \tcode{const T}\iref{expr.prim.id.unqual}.
+\end{note}
 \begin{example}
 
 \begin{codeblock}
-template<const X& x, int i> void f() {
+struct A { auto operator<=>(A, A) = default; };
+template<const X& x, int i, A a> void f() {
   i++;                          // error: change of template-parameter value
 
   &x;                           // OK
   &i;                           // error: address of non-reference template-parameter
-
+  &a;                           // OK
   int& ri = i;                  // error: non-const reference bound to temporary
   const int& cri = i;           // OK: const reference bound to temporary
+  const A& ra = a;              // OK: const reference bound to a template parameter object
 }
 \end{codeblock}
 \end{example}
@@ -1284,27 +1292,28 @@ A template type argument may be an incomplete type\iref{basic.types}.
 \rSec2[temp.arg.nontype]{Template non-type arguments}
 
 \pnum
-If the type of a \grammarterm{template-parameter}
-contains a placeholder type~(\ref{dcl.spec.auto}, \ref{temp.param}),
-the deduced parameter type is determined
-from the type of the \grammarterm{template-argument}
-by placeholder type deduction\iref{dcl.type.auto.deduct}.
+If the type \tcode{T} of a \grammarterm{template-parameter}\iref{temp.param}
+contains a placeholder type\iref{dcl.spec.auto}
+or a placeholder for a deduced class type\iref{dcl.type.class.deduct},
+the type of the parameter is the type deduced
+for the variable \tcode{x} in the invented declaration
+\begin{codeblock}
+  T x = @\grammarterm{template-argument}\itcorr[-1]@ ;
+\end{codeblock}
 If a deduced parameter type is not permitted
 for a \grammarterm{template-parameter} declaration\iref{temp.param},
 the program is ill-formed.
 
 \pnum
-A
-\grammarterm{template-argument}
-for a non-type
-\grammarterm{template-parameter}
-shall be
-a converted
-constant expression\iref{expr.const}
+A \grammarterm{template-argument}
+for a non-type \grammarterm{template-parameter}
+shall be a converted constant expression\iref{expr.const}
 of the type of the \grammarterm{template-parameter}.
 For a non-type \grammarterm{template-parameter} of reference or pointer type,
-the value of the constant expression shall not refer to
-(or for a pointer type, shall not be the address of):
+or for each non-static data member of reference or pointer type
+in a non-type \grammarterm{template-parameter} of class type or subobject thereof,
+the reference or pointer value shall not refer to
+or be the address of (respectively):
 
 \begin{itemize}
 \item a subobject\iref{intro.object},
@@ -1353,9 +1362,9 @@ B<2.5> b3;                      // error: template parameter type cannot be \tco
 
 \pnum
 \begin{note}
-A string literal\iref{lex.string}
-is not an acceptable
-\grammarterm{template-argument}.
+A string literal\iref{lex.string} is
+not an acceptable \grammarterm{template-argument}
+for a \grammarterm{template-parameter} of non-class type.
 \begin{example}
 
 \begin{codeblock}
@@ -1367,6 +1376,10 @@ X<int, "Studebaker"> x1;        // error: string literal as template-argument
 
 const char p[] = "Vivisectionist";
 X<int,p> x2;                    // OK
+
+class A { constexpr A(const char*) {} };
+
+X<A, "Pyrophoricity"> x3;       // OK, string literal is a constructor argument to A
 \end{codeblock}
 \end{example}
 \end{note}
@@ -2013,17 +2026,17 @@ class, function, or variable if
 refer to the same template and}
 \item {their corresponding type \grammarterm{template-argument}{s} are the
 same type and}
-\item {their corresponding non-type
-template arguments of
-integral or enumeration type have identical values and}
-\item {their corresponding non-type \grammarterm{template-argument}{s} of
-pointer type refer to the same object or function or are both the null
-pointer value and}
 \item {their corresponding non-type \grammarterm{template-argument}{s} of
 pointer-to-member type refer to the same class member or are both the null member
 pointer value and}
 \item {their corresponding non-type \grammarterm{template-argument}{s} of
 reference type refer to the same object or function and}
+\item {their remaining corresponding
+non-type \grammarterm{template-argument}{s}
+have the same type and value
+after conversion to the type of the \grammarterm{template-parameter},
+where they are considered to have the same value if they compare equal
+with \tcode{operator<=>}, and}
 \item {their corresponding template \grammarterm{template-argument}{s} refer
 to the same template.}
 \end{itemize}
