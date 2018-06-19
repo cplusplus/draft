@@ -849,10 +849,11 @@ bool compare_exchange_strong(T& expected, T desired,
 \tcode{memory_order::acq_rel}.
 
 \pnum
-\effects Retrieves the value in \tcode{expected}. It then atomically
-compares the contents of the memory pointed to by \tcode{this}
+\effects
+Retrieves the value in \tcode{expected}. It then atomically
+compares the value representation of the value pointed to by \tcode{this}
 for equality with that previously retrieved from \tcode{expected},
-and if true, replaces the contents of the memory pointed to
+and if true, replaces the value pointed to
 by \tcode{this} with that in \tcode{desired}.
 If and only if the comparison is true, memory is affected according to the
 value of \tcode{success}, and if the comparison is false, memory is affected according
@@ -863,8 +864,8 @@ shall be replaced by the value \tcode{memory_order::acquire} and a value of
 \tcode{memory_order::release} shall be replaced by the value
 \tcode{memory_order::relaxed}.
 If and only if the comparison is false then, after the atomic operation,
-the contents of the memory in \tcode{expected} are replaced by the value
-read from the memory pointed to by \tcode{this} during the atomic comparison.
+the value in \tcode{expected} is replaced by the value
+pointed to by \tcode{this} during the atomic comparison.
 If the operation returns \tcode{true}, these
 operations are atomic read-modify-write
 operations\iref{intro.multithread} on the memory
@@ -875,8 +876,10 @@ Otherwise, these operations are atomic load operations on that memory.
 \returns The result of the comparison.
 
 \pnum
-\begin{note} For example, the effect of
-\tcode{compare_exchange_strong} is
+\begin{note}
+For example, the effect of
+\tcode{compare_exchange_strong}
+on objects without padding bits\iref{basic.types} is
 \begin{codeblock}
 if (memcmp(this, &expected, sizeof(*this)) == 0)
   memcpy(this, &desired, sizeof(*this));
@@ -928,14 +931,54 @@ would not, the strong one is preferable.
 \end{note}
 
 \pnum
-\begin{note} The \tcode{memcpy} and \tcode{memcmp} semantics of the compare-and-exchange
-operations may result in failed comparisons for values that compare equal with
-\tcode{operator==} if the underlying type has padding bits, trap bits, or alternate
+\begin{note}
+Under cases where the \tcode{memcpy} and \tcode{memcmp} semantics of the compare-and-exchange
+operations apply, the outcome might be failed comparisons for values that compare equal with
+\tcode{operator==} if the underlying type has trap bits or alternate
 representations of the same value. Notably, on implementations conforming to
 ISO/IEC/IEEE 60559, floating-point \tcode{-0.0} and \tcode{+0.0}
 will not compare equal with \tcode{memcmp} but will compare equal with \tcode{operator==},
 and NaNs with the same payload will compare equal with \tcode{memcmp} but will not
-compare equal with \tcode{operator==}.\end{note}
+compare equal with \tcode{operator==}.
+\end{note}
+\begin{note}
+Because compare-and-exchange acts on an object's value representation,
+padding bits that never participate in the object's value representation
+are ignored. As a consequence, the following code is guaranteed to avoid
+spurious failure:
+\begin{codeblock}
+struct padded {
+  char clank = 0x42;
+  // Padding here.
+  unsigned biff = 0xC0DEFEFE;
+};
+atomic<padded> pad = ATOMIC_VAR_INIT({});
+
+bool zap() {
+  padded expected, desired{0, 0};
+  return pad.compare_exchange_strong(expected, desired);
+}
+\end{codeblock}
+\end{note}
+\begin{note}
+For a union with bits that participate in the value representation
+of some members but not others, compare-and-exchange might always fail.
+This is because such padding bits have an indeteminate value when they
+do not participate in the value representation of the active member.
+As a consequence, the following code is not guaranteed to ever succeed:
+\begin{codeblock}
+union pony {
+  double celestia = 0.;
+  short luna; // padded
+};
+atomic<pony> princesses = ATOMIC_VAR_INIT({});
+
+bool party(pony desired) {
+  pony expected;
+  return princesses.compare_exchange_strong(expected, desired);
+}
+\end{codeblock}
+\end{note}
 \end{itemdescr}
 
 \rSec2[atomics.types.int]{Specializations for integers}
