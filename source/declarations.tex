@@ -2654,7 +2654,218 @@ namespace CWVLN = CWVLN;
 \end{codeblock}
 \end{example}
 
-\rSec2[namespace.udecl]{The \tcode{using} declaration}%
+\rSec2[namespace.udir]{Using directive}%
+\indextext{using-directive|(}
+
+\begin{bnf}
+\nontermdef{using-directive}\br
+    \opt{attribute-specifier-seq} \terminal{using  namespace} \opt{nested-name-specifier} namespace-name \terminal{;}
+\end{bnf}
+
+\pnum
+A \grammarterm{using-directive} shall not appear in class scope, but may
+appear in namespace scope or in block scope.
+\begin{note}
+When looking up a \grammarterm{namespace-name} in a
+\grammarterm{using-directive}, only namespace names are considered,
+see~\ref{basic.lookup.udir}.
+\end{note}
+The optional \grammarterm{attribute-specifier-seq} appertains to the \grammarterm{using-directive}.
+
+\pnum
+A \grammarterm{using-directive} specifies that the names in the nominated
+namespace can be used in the scope in which the
+\grammarterm{using-directive} appears after the \grammarterm{using-directive}.
+During unqualified name lookup\iref{basic.lookup.unqual}, the names
+appear as if they were declared in the nearest enclosing namespace which
+contains both the \grammarterm{using-directive} and the nominated
+namespace.
+\begin{note}
+In this context, ``contains'' means ``contains directly or indirectly''.
+\end{note}
+
+\pnum
+A \grammarterm{using-directive} does not add any members to the declarative
+region in which it appears.
+\begin{example}
+
+\begin{codeblock}
+namespace A {
+  int i;
+  namespace B {
+    namespace C {
+      int i;
+    }
+    using namespace A::B::C;
+    void f1() {
+      i = 5;        // OK, \tcode{C::i} visible in \tcode{B} and hides \tcode{A::i}
+    }
+  }
+  namespace D {
+    using namespace B;
+    using namespace C;
+    void f2() {
+      i = 5;        // ambiguous, \tcode{B::C::i} or \tcode{A::i}?
+    }
+  }
+  void f3() {
+    i = 5;          // uses \tcode{A::i}
+  }
+}
+void f4() {
+  i = 5;            // ill-formed; neither \tcode{i} is visible
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+For unqualified lookup\iref{basic.lookup.unqual}, the
+\grammarterm{using-directive} is transitive: if a scope contains a
+\grammarterm{using-directive} that nominates a second namespace that itself
+contains \grammarterm{using-directive}{s}, the effect is as if the
+\grammarterm{using-directive}{s} from the second namespace also appeared in
+the first.
+\begin{note} For qualified lookup, see~\ref{namespace.qual}. \end{note}
+\begin{example}
+
+\begin{codeblock}
+namespace M {
+  int i;
+}
+
+namespace N {
+  int i;
+  using namespace M;
+}
+
+void f() {
+  using namespace N;
+  i = 7;            // error: both \tcode{M::i} and \tcode{N::i} are visible
+}
+\end{codeblock}
+
+For another example,
+
+\begin{codeblock}
+namespace A {
+  int i;
+}
+namespace B {
+  int i;
+  int j;
+  namespace C {
+    namespace D {
+      using namespace A;
+      int j;
+      int k;
+      int a = i;    // \tcode{B::i} hides \tcode{A::i}
+    }
+    using namespace D;
+    int k = 89;     // no problem yet
+    int l = k;      // ambiguous: \tcode{C::k} or \tcode{D::k}
+    int m = i;      // \tcode{B::i} hides \tcode{A::i}
+    int n = j;      // \tcode{D::j} hides \tcode{B::j}
+  }
+}
+\end{codeblock}
+\end{example}
+
+
+\pnum
+If a namespace is extended\iref{namespace.def} after a
+\grammarterm{using-directive} for that namespace is given, the additional
+members of the extended namespace and the members of namespaces
+nominated by \grammarterm{using-directive}{s} in the
+extending \grammarterm{namespace-definition} can be used after the
+extending \grammarterm{namespace-definition}.
+
+\pnum
+\begin{note}
+If name lookup finds a declaration for a name in two different
+namespaces, and the declarations do not declare the same entity and do
+not declare functions or function templates, the use of the name is ill-formed\iref{basic.lookup}.
+In particular, the name of a variable, function or enumerator does not
+hide the name of a class or enumeration declared in a different
+namespace. For example,
+
+\begin{codeblock}
+namespace A {
+  class X { };
+  extern "C"   int g();
+  extern "C++" int h();
+}
+namespace B {
+  void X(int);
+  extern "C"   int g();
+  extern "C++" int h(int);
+}
+using namespace A;
+using namespace B;
+
+void f() {
+  X(1);             // error: name \tcode{X} found in two namespaces
+  g();              // OK: name \tcode{g} refers to the same entity
+  h();              // OK: overload resolution selects \tcode{A::h}
+}
+\end{codeblock}
+\end{note}
+
+\pnum
+\indextext{overloading!using directive and}%
+During overload resolution, all functions from the transitive search are
+considered for argument matching. The set of declarations found by the
+transitive search is unordered.
+\begin{note}
+In particular, the order in which namespaces were considered and the
+relationships among the namespaces implied by the
+\grammarterm{using-directive}{s} do not cause preference to be given to any
+of the declarations found by the search.
+\end{note}
+An ambiguity exists if the best match finds two functions with the same
+signature, even if one is in a namespace reachable through
+\grammarterm{using-directive}{s} in the namespace of the other.\footnote{During
+name lookup in a class hierarchy, some ambiguities may be
+resolved by considering whether one member hides the other along some
+paths\iref{class.member.lookup}. There is no such disambiguation when
+considering the set of names found as a result of following
+\grammarterm{using-directive}{s}.}
+\begin{example}
+
+\begin{codeblock}
+namespace D {
+  int d1;
+  void f(char);
+}
+using namespace D;
+
+int d1;             // OK: no conflict with \tcode{D::d1}
+
+namespace E {
+  int e;
+  void f(int);
+}
+
+namespace D {       // namespace extension
+  int d2;
+  using namespace E;
+  void f(int);
+}
+
+void f() {
+  d1++;             // error: ambiguous \tcode{::d1} or \tcode{D::d1}?
+  ::d1++;           // OK
+  D::d1++;          // OK
+  d2++;             // OK: \tcode{D::d2}
+  e++;              // OK: \tcode{E::e}
+  f(1);             // error: ambiguous: \tcode{D::f(int)} or \tcode{E::f(int)}?
+  f('a');           // OK: \tcode{D::f(char)}
+}
+\end{codeblock}
+\end{example}%
+\indextext{using-directive|)}%
+\indextext{namespaces|)}
+
+\rSec1[namespace.udecl]{The \tcode{using} declaration}%
 \indextext{using-declaration|(}
 
 \begin{bnf}
@@ -3138,217 +3349,6 @@ specifies a dependent name\iref{temp.dep}, the name introduced by the
 \grammarterm{using-declaration} is treated as a
 \grammarterm{typedef-name}\iref{dcl.typedef}.%
 \indextext{using-declaration|)}
-
-\rSec2[namespace.udir]{Using directive}%
-\indextext{using-directive|(}
-
-\begin{bnf}
-\nontermdef{using-directive}\br
-    \opt{attribute-specifier-seq} \terminal{using  namespace} \opt{nested-name-specifier} namespace-name \terminal{;}
-\end{bnf}
-
-\pnum
-A \grammarterm{using-directive} shall not appear in class scope, but may
-appear in namespace scope or in block scope.
-\begin{note}
-When looking up a \grammarterm{namespace-name} in a
-\grammarterm{using-directive}, only namespace names are considered,
-see~\ref{basic.lookup.udir}.
-\end{note}
-The optional \grammarterm{attribute-specifier-seq} appertains to the \grammarterm{using-directive}.
-
-\pnum
-A \grammarterm{using-directive} specifies that the names in the nominated
-namespace can be used in the scope in which the
-\grammarterm{using-directive} appears after the \grammarterm{using-directive}.
-During unqualified name lookup\iref{basic.lookup.unqual}, the names
-appear as if they were declared in the nearest enclosing namespace which
-contains both the \grammarterm{using-directive} and the nominated
-namespace.
-\begin{note}
-In this context, ``contains'' means ``contains directly or indirectly''.
-\end{note}
-
-\pnum
-A \grammarterm{using-directive} does not add any members to the declarative
-region in which it appears.
-\begin{example}
-
-\begin{codeblock}
-namespace A {
-  int i;
-  namespace B {
-    namespace C {
-      int i;
-    }
-    using namespace A::B::C;
-    void f1() {
-      i = 5;        // OK, \tcode{C::i} visible in \tcode{B} and hides \tcode{A::i}
-    }
-  }
-  namespace D {
-    using namespace B;
-    using namespace C;
-    void f2() {
-      i = 5;        // ambiguous, \tcode{B::C::i} or \tcode{A::i}?
-    }
-  }
-  void f3() {
-    i = 5;          // uses \tcode{A::i}
-  }
-}
-void f4() {
-  i = 5;            // ill-formed; neither \tcode{i} is visible
-}
-\end{codeblock}
-\end{example}
-
-\pnum
-For unqualified lookup\iref{basic.lookup.unqual}, the
-\grammarterm{using-directive} is transitive: if a scope contains a
-\grammarterm{using-directive} that nominates a second namespace that itself
-contains \grammarterm{using-directive}{s}, the effect is as if the
-\grammarterm{using-directive}{s} from the second namespace also appeared in
-the first.
-\begin{note} For qualified lookup, see~\ref{namespace.qual}. \end{note}
-\begin{example}
-
-\begin{codeblock}
-namespace M {
-  int i;
-}
-
-namespace N {
-  int i;
-  using namespace M;
-}
-
-void f() {
-  using namespace N;
-  i = 7;            // error: both \tcode{M::i} and \tcode{N::i} are visible
-}
-\end{codeblock}
-
-For another example,
-
-\begin{codeblock}
-namespace A {
-  int i;
-}
-namespace B {
-  int i;
-  int j;
-  namespace C {
-    namespace D {
-      using namespace A;
-      int j;
-      int k;
-      int a = i;    // \tcode{B::i} hides \tcode{A::i}
-    }
-    using namespace D;
-    int k = 89;     // no problem yet
-    int l = k;      // ambiguous: \tcode{C::k} or \tcode{D::k}
-    int m = i;      // \tcode{B::i} hides \tcode{A::i}
-    int n = j;      // \tcode{D::j} hides \tcode{B::j}
-  }
-}
-\end{codeblock}
-\end{example}
-
-
-\pnum
-If a namespace is extended\iref{namespace.def} after a
-\grammarterm{using-directive} for that namespace is given, the additional
-members of the extended namespace and the members of namespaces
-nominated by \grammarterm{using-directive}{s} in the
-extending \grammarterm{namespace-definition} can be used after the
-extending \grammarterm{namespace-definition}.
-
-\pnum
-\begin{note}
-If name lookup finds a declaration for a name in two different
-namespaces, and the declarations do not declare the same entity and do
-not declare functions or function templates, the use of the name is ill-formed\iref{basic.lookup}.
-In particular, the name of a variable, function or enumerator does not
-hide the name of a class or enumeration declared in a different
-namespace. For example,
-
-\begin{codeblock}
-namespace A {
-  class X { };
-  extern "C"   int g();
-  extern "C++" int h();
-}
-namespace B {
-  void X(int);
-  extern "C"   int g();
-  extern "C++" int h(int);
-}
-using namespace A;
-using namespace B;
-
-void f() {
-  X(1);             // error: name \tcode{X} found in two namespaces
-  g();              // OK: name \tcode{g} refers to the same entity
-  h();              // OK: overload resolution selects \tcode{A::h}
-}
-\end{codeblock}
-\end{note}
-
-\pnum
-\indextext{overloading!using directive and}%
-During overload resolution, all functions from the transitive search are
-considered for argument matching. The set of declarations found by the
-transitive search is unordered.
-\begin{note}
-In particular, the order in which namespaces were considered and the
-relationships among the namespaces implied by the
-\grammarterm{using-directive}{s} do not cause preference to be given to any
-of the declarations found by the search.
-\end{note}
-An ambiguity exists if the best match finds two functions with the same
-signature, even if one is in a namespace reachable through
-\grammarterm{using-directive}{s} in the namespace of the other.\footnote{During
-name lookup in a class hierarchy, some ambiguities may be
-resolved by considering whether one member hides the other along some
-paths\iref{class.member.lookup}. There is no such disambiguation when
-considering the set of names found as a result of following
-\grammarterm{using-directive}{s}.}
-\begin{example}
-
-\begin{codeblock}
-namespace D {
-  int d1;
-  void f(char);
-}
-using namespace D;
-
-int d1;             // OK: no conflict with \tcode{D::d1}
-
-namespace E {
-  int e;
-  void f(int);
-}
-
-namespace D {       // namespace extension
-  int d2;
-  using namespace E;
-  void f(int);
-}
-
-void f() {
-  d1++;             // error: ambiguous \tcode{::d1} or \tcode{D::d1}?
-  ::d1++;           // OK
-  D::d1++;          // OK
-  d2++;             // OK: \tcode{D::d2}
-  e++;              // OK: \tcode{E::e}
-  f(1);             // error: ambiguous: \tcode{D::f(int)} or \tcode{E::f(int)}?
-  f('a');           // OK: \tcode{D::f(char)}
-}
-\end{codeblock}
-\end{example}%
-\indextext{using-directive|)}%
-\indextext{namespaces|)}
 
 \rSec1[dcl.asm]{The \tcode{asm} declaration}%
 \indextext{declaration!\idxcode{asm}}%
