@@ -40,7 +40,7 @@ Getting Started on Fedora
 
 Install the following packages:
 
-   dnf install texlive texlive-isodate texlive-relsize texlive-ulem texlive-fixme texlive-extract
+   dnf install latexmk texlive texlive-isodate texlive-relsize texlive-ulem texlive-fixme texlive-extract
 
 -----------------------------
 Getting Started on Arch Linux
