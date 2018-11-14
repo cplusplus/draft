@@ -1268,6 +1268,12 @@ int j = sizeof(S::m + 42);      // OK
 
 \pnum
 An \grammarterm{id-expression}
+that denotes an immediate function\iref{dcl.constexpr}
+shall appear as a subexpression of an immediate invocation or
+in an immediate function context\iref{expr.const}.
+
+\pnum
+An \grammarterm{id-expression}
 that denotes the specialization of a concept\iref{temp.concept}
 results in a prvalue of type \tcode{bool}.
 The expression is \tcode{true} if
@@ -1554,7 +1560,7 @@ object\iref{function.objects}.\end{note}
 \pnum
 In the \grammarterm{decl-specifier-seq} of the \grammarterm{lambda-declarator},
 each \grammarterm{decl-specifier}
-shall either be \tcode{mutable} or \tcode{constexpr}.
+shall be one of \tcode{mutable}, \tcode{constexpr}, or \tcode{consteval}.
 \begin{note}
 The trailing \grammarterm{requires-clause} is described in \ref{dcl.decl}.
 \end{note}
@@ -1680,8 +1686,12 @@ to the type of the corresponding function call operator or operator template.
 The function call operator or any given operator template specialization
 is a constexpr function if either
 the corresponding \grammarterm{lambda-expression}{'s}
-\grammarterm{parameter-declaration-clause} is followed by \tcode{constexpr}, or
+\grammarterm{parameter-declaration-clause}
+is followed by \tcode{constexpr} or \tcode{consteval}, or
 it satisfies the requirements for a constexpr function\iref{dcl.constexpr}.
+It is an immediate function\iref{dcl.constexpr}
+if the corresponding \grammarterm{lambda-expression}{'s}
+\grammarterm{parameter-declaration-clause} is followed by \tcode{consteval}.
 \begin{note} Names referenced in
 the \grammarterm{lambda-declarator} are looked up in the context in which the
 \grammarterm{lambda-expression} appears. \end{note}
@@ -1759,7 +1769,9 @@ The value returned by this conversion function
 is the address of a function \tcode{F} that, when invoked,
 has the same effect as invoking the closure type's function call operator.
 \tcode{F} is a constexpr function
-if the function call operator is a constexpr function.
+if the function call operator is a constexpr function
+and is an immediate function
+if the function call operator is an immediate function.
 For a generic lambda with no \grammarterm{lambda-capture}, the closure type has a
 conversion function template to
 pointer to function. The conversion function template has the same invented
@@ -6807,8 +6819,12 @@ satisfies the following constraints:
   if the value is of pointer type, it contains
   the address of an object with static storage duration,
   the address past the end of such an object\iref{expr.add},
-  the address of a function,
-  or a null pointer value, and
+  the address of a non-immediate function,
+  or a null pointer value,
+
+  \item
+  if the value is of pointer-to-member-function type,
+  it does not designate an immediate function, and
 
   \item
   if the value is an object of class or array type,
@@ -6818,8 +6834,18 @@ An entity is a
 \defnx{permitted result of a constant expression}{constant expression!permitted result of}
 if it is an
 object with static storage duration that is either not a temporary object or is
-a temporary object whose value satisfies the above constraints, or it is a
-function.
+a temporary object whose value satisfies the above constraints, or
+it is a non-immediate function.
+\begin{example}
+\begin{codeblock}
+consteval int f() { return 42; }
+consteval auto g() { return f; }
+consteval int h(int (*p)() = g()) { return p(); }
+constexpr int r = h();                          // OK
+constexpr auto e = g();                         // ill-formed: a pointer to an immediate function is
+                                                // not a permitted result of a constant expression
+\end{codeblock}
+\end{example}
 
 \pnum
 \begin{note} Since this document
@@ -6841,13 +6867,29 @@ It is unspecified whether the value of \tcode{f()} will be \tcode{true} or \tcod
 \end{example} \end{note}%
 
 \pnum
+An expression or conversion is in an \defn{immediate function context}
+if it is potentially evaluated and
+its innermost non-block scope is
+a function parameter scope of an immediate function.
+An expression or conversion is an \defn{immediate invocation}
+if it is an explicit or implicit invocation of an immediate function and
+is not in an immediate function context.
+An immediate invocation shall be a constant expression.
+\begin{note}
+An immediate invocation is evaluated even in an unevaluated operand.
+\end{note}
+
+\pnum
 \indextext{expression!potentially constant evaluated}%
-An expression is \defn{potentially constant evaluated}
+An expression or conversion is \defn{potentially constant evaluated}
 if it is:
 
 \begin{itemize}
 \item
 a potentially-evaluated expression\iref{basic.def.odr},
+
+\item
+an immediate invocation,
 
 \item
 a \grammarterm{constraint-expression},
@@ -6885,5 +6927,22 @@ a variable whose name appears as a potentially constant evaluated expression
 that is either a constexpr variable or
 is of non-volatile const-qualified integral type or of reference type.
 \end{itemize}
+
+\begin{example}
+\begin{codeblock}
+struct N {
+  constexpr N() {}
+  N(N const&) = delete;
+};
+template<typename T> constexpr void bad_assert_copyable() { T t; T t2 = t; }
+using ineffective = decltype(bad_assert_copyable<N>());
+                        // \tcode{bad_assert_copyable<N>} is not needed for constant evaluation
+                        // (and thus not instantiated)
+template<typename T> consteval void assert_copyable() { T t; T t2 = t; }
+using check = decltype(assert_copyable<N>());
+                        // error: \tcode{assert_copyable<N>} is instantiated (because it is needed for constant
+                        // evaluation), but the attempt to copy \tcode{t} is ill-formed
+\end{codeblock}
+\end{example}
 
 \indextext{expression|)}
