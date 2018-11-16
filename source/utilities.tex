@@ -6584,6 +6584,29 @@ namespace std {
   // \ref{allocator.uses}, \tcode{uses_allocator}
   template<class T, class Alloc> struct uses_allocator;
 
+  // \ref{allocator.uses.trait}, \tcode{uses_allocator}
+  template<class T, class Alloc>
+    inline constexpr bool uses_allocator_v = uses_allocator<T, Alloc>::value;
+
+  // \ref{allocator.uses.construction}, uses-allocator construction
+  template <class T, class Alloc, class... Args>
+    auto uses_allocator_construction_args(const Alloc& alloc, Args&&... args) -> @\seebelow@;
+  template <class T, class Alloc, class Tuple1, class Tuple2>
+    auto uses_allocator_construction_args(const Alloc& alloc, piecewise_construct_t,
+                                          Tuple1&& x, Tuple2&& y) ->  @\seebelow@;
+  template <class T, class Alloc>
+    auto uses_allocator_construction_args(const Alloc& alloc) -> @\seebelow@;
+  template <class T, class Alloc, class U, class V>
+    auto uses_allocator_construction_args(const Alloc& alloc, U&& u, V&& v) -> @\seebelow@;
+  template <class T, class Alloc, class U, class V>
+    auto uses_allocator_construction_args(const Alloc& alloc, const pair<U,V>& pr) -> @\seebelow@;
+  template <class T, class Alloc, class U, class V>
+    auto uses_allocator_construction_args(const Alloc& alloc, pair<U,V>&& pr) -> @\seebelow@;
+  template <class T, class Alloc, class... Args>
+    T make_obj_using_allocator(const Alloc& alloc, Args&&... args);
+  template <class T, class Alloc, class... Args>
+    T* uninitialized_construct_using_allocator(T* p, const Alloc& alloc, Args&&... args);
+
   // \ref{allocator.traits}, allocator traits
   template<class Alloc> struct allocator_traits;
 
@@ -6866,10 +6889,6 @@ namespace std {
   // \ref{util.smartptr.atomic}, atomic smart pointers
   template<class T> struct atomic<shared_ptr<T>>;
   template<class T> struct atomic<weak_ptr<T>>;
-
-  // \ref{allocator.uses.trait}, \tcode{uses_allocator}
-  template<class T, class Alloc>
-    inline constexpr bool uses_allocator_v = uses_allocator<T, Alloc>::value;
 }
 \end{codeblock}
 
@@ -7274,30 +7293,236 @@ second argument has type \tcode{Alloc} or
 \rSec3[allocator.uses.construction]{Uses-allocator construction}
 
 \pnum
-\defnx{Uses-allocator construction}{uses-allocator construction} with allocator \tcode{Alloc} refers to the
-construction of an object \tcode{obj} of type \tcode{T}, using constructor arguments
-\tcode{v1, v2, ..., vN} of types \tcode{V1, V2, ..., VN}, respectively, and an allocator
-\tcode{alloc} of type \tcode{Alloc}, according to the following rules:
+\defnx{Uses-allocator construction}{uses-allocator construction}
+with allocator \tcode{alloc} and constructor arguments \tcode{args...}
+refers to the construction of an object of type \tcode{T}
+such that \tcode{alloc} is passed to the constructor of \tcode{T}
+if \tcode{T} uses an allocator type compatible with \tcode{alloc}.
+When applied to the construction of an object of type \tcode{T},
+it is equivalent to initializing it with the value of the expression
+\tcode{make_obj_using_allocator<T>(alloc, args...)}, described below.
 
+\pnum
+The following utility functions support
+three conventions for passing \tcode{alloc} to a constructor:
 \begin{itemize}
-\item if \tcode{uses_allocator_v<T, Alloc>} is \tcode{false} and
-\tcode{is_constructible_v<T, V1, V2, ..., VN>} is \tcode{true}, then \tcode{obj} is
-initialized as \tcode{obj(v1, v2, ..., vN)};
-
-\item otherwise, if \tcode{uses_allocator_v<T, Alloc>} is \tcode{true} and
-\tcode{is_constructible_v<T, allocator_arg_t, Alloc,} \tcode{V1, V2, ..., VN>} is
-\tcode{true}, then \tcode{obj} is initialized as \tcode{obj(allocator_arg, alloc, v1,
-v2, ..., vN)};
-
-\item otherwise, if \tcode{uses_allocator_v<T, Alloc>} is \tcode{true} and
-\tcode{is_constructible_v<T, V1, V2, ..., VN, Alloc>} is \tcode{true}, then
-\tcode{obj} is initialized as \tcode{obj(v1, v2, ..., vN, alloc)};
-
-\item otherwise, the request for uses-allocator construction is ill-formed. \begin{note}
-An error will result if \tcode{uses_allocator_v<T, Alloc>} is \tcode{true} but the
-specific constructor does not take an allocator. This definition prevents a silent
-failure to pass the allocator to an element. \end{note}
+\item
+  If \tcode{T} does not use an allocator compatible with \tcode{alloc},
+  then \tcode{alloc} is ignored.
+\item
+  Otherwise, if \tcode{T} has a constructor invocable as
+  \tcode{T(allocator_arg, alloc, args...)} (leading-allocator convention),
+  then uses-allocator construction chooses this constructor form.
+\item
+  Otherwise, if \tcode{T} has a constructor invocable as
+  \tcode{T(args..., allocator)} (trailing-allocator convention),
+  then uses-allocator construction chooses this constructor form.
 \end{itemize}
+
+\pnum
+The \tcode{uses_allocator_construction_args} function template
+takes an allocator and argument list and
+produces (as a tuple) a new argument list matching one of the above conventions.
+Additionally, overloads are provided
+that treat specializations of \tcode{pair}
+such that uses-allocator construction is applied individually
+to the \tcode{first} and \tcode{second} data members.
+The \tcode{make_obj_using_allocator} and
+\tcode{uninitialized_construct_using_allocator} function templates
+apply the modified constructor arguments
+to construct an object of type \tcode{T}
+as a return value or in-place, respectively.
+\begin{note}
+For \tcode{uses_allocator_construction_args} and
+\tcode{make_obj_using_allocator}, type \tcode{T}
+is not deduced and must therefore be specified explicitly by the caller.
+\end{note}
+
+\indexlibrary{\idxcode{uses_allocator_construction_args}}%
+\begin{itemdecl}
+template <class T, class Alloc, class... Args>
+  auto uses_allocator_construction_args(const Alloc& alloc, Args&&... args) -> @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{T} is not a specialization of \tcode{pair}.
+
+\pnum
+\returns
+A \tcode{tuple} value determined as follows:
+\begin{itemize}
+\item
+  If \tcode{uses_allocator_v<T, Alloc>} is \tcode{false} and
+  \tcode{is_constructible_v<T, Args...>} is \tcode{true},
+  return \tcode{forward_as_tuple(std::forward<Args>(args)...)}.
+\item
+  Otherwise,  if \tcode{uses_allocator_v<T, Alloc>} is \tcode{true} and
+  \tcode{is_constructible_v<T, allocator_arg_t, Alloc, Args...>}
+  is \tcode{true},
+  return
+\begin{codeblock}
+tuple<allocator_arg_t, const Alloc&, Args&&...>(
+  allocator_arg, alloc, std::forward<Args>(args)...)
+\end{codeblock}
+\item
+  Otherwise,  if \tcode{uses_allocator_v<T, Alloc>} is \tcode{true} and
+  \tcode{is_constructible_v<T, Args..., Alloc>} is \tcode{true},
+  return \tcode{forward_as_tuple(std::forward<Args>(args)..., alloc)}.
+\item
+  Otherwise, the program is ill-formed.
+\end{itemize}
+\begin{note}
+This definition prevents a silent failure
+to pass the allocator to a constructor of a type for which
+\tcode{uses_allocator_v<T, Alloc>} is \tcode{true}.
+\end{note}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{uses_allocator_construction_args}}%
+\begin{itemdecl}
+template <class T, class Alloc, class Tuple1, class Tuple2>
+  auto uses_allocator_construction_args(const Alloc& alloc, piecewise_construct_t,
+                                        Tuple1&& x, Tuple2&& y) -> @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{T} is a specialization of \tcode{pair}.
+
+\pnum
+\effects
+For \tcode{T} specified as \tcode{pair<T1, T2>}, equivalent to:
+\begin{codeblock}
+return make_tuple(
+  piecewise_construct,
+  apply([&alloc](auto&&... args1) {
+          return uses_allocator_construction_args<T1>(
+            alloc, std::forward<decltype(args1)>(args1)...);
+        }, std::forward<Tuple1>(x)),
+  apply([&alloc](auto&&... args2) {
+          return uses_allocator_construction_args<T2>(
+            alloc, std::forward<decltype(args2)>(args2)...);
+        }, std::forward<Tuple2>(y)));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{uses_allocator_construction_args}}%
+\begin{itemdecl}
+template <class T, class Alloc>
+  auto uses_allocator_construction_args(const Alloc& alloc) -> @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{T} is a specialization of \tcode{pair}.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return uses_allocator_construction_args<T>(alloc, piecewise_construct,
+                                           tuple<>{}, tuple<>{});
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{uses_allocator_construction_args}}%
+\begin{itemdecl}
+template <class T, class Alloc, class U, class V>
+  auto uses_allocator_construction_args(const Alloc& alloc, U&& u, V&& v) -> @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{T} is a specialization of \tcode{pair}.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return uses_allocator_construction_args<T>(alloc, piecewise_construct,
+                                           forward_as_tuple(std::forward<U>(u)),
+                                           forward_as_tuple(std::forward<V>(v)));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{uses_allocator_construction_args}}%
+\begin{itemdecl}
+template <class T, class Alloc, class U, class V>
+  auto uses_allocator_construction_args(const Alloc& alloc, const pair<U,V>& pr) -> @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{T} is a specialization of \tcode{pair}.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return uses_allocator_construction_args<T>(alloc, piecewise_construct,
+                                           forward_as_tuple(pr.first),
+                                           forward_as_tuple(pr.second));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{uses_allocator_construction_args}}%
+\begin{itemdecl}
+template <class T, class Alloc, class U, class V>
+  auto uses_allocator_construction_args(const Alloc& alloc, pair<U,V>&& pr) -> @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{T} is a specialization of \tcode{pair}.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return uses_allocator_construction_args<T>(alloc, piecewise_construct,
+                                           forward_as_tuple(std::move(pr).first),
+                                           forward_as_tuple(std::move(pr).second));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{make_obj_using_allocator}}%
+\begin{itemdecl}
+template <class T, class Alloc, class... Args>
+  T make_obj_using_allocator(const Alloc& alloc, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return make_from_tuple<T>(uses_allocator_construction_args<T>(
+                            alloc, std::forward<Args>(args)...));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{uninitialized_construct_using_allocator}}%
+\begin{itemdecl}
+template <class T, class Alloc, class... Args>
+  T* uninitialized_construct_using_allocator(T* p, const Alloc& alloc, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return ::new(static_cast<void*>(p))
+  T(make_obj_using_allocator<T>(alloc, std::forward<Args>(args)...));
+\end{codeblock}
+\end{itemdescr}
 
 \rSec2[allocator.traits]{Allocator traits}
 
@@ -11612,18 +11837,6 @@ namespace std::pmr {
     template<class T, class... Args>
       void construct(T* p, Args&&... args);
 
-    template<class T1, class T2, class... Args1, class... Args2>
-      void construct(pair<T1, T2>* p, piecewise_construct_t,
-                     tuple<Args1...> x, tuple<Args2...> y);
-    template<class T1, class T2>
-      void construct(pair<T1, T2>* p);
-    template<class T1, class T2, class U, class V>
-      void construct(pair<T1, T2>* p, U&& x, V&& y);
-    template<class T1, class T2, class U, class V>
-      void construct(pair<T1, T2>* p, const pair<U, V>& pr);
-    template<class T1, class T2, class U, class V>
-      void construct(pair<T1, T2>* p, pair<U, V>&& pr);
-
     template<class T>
       void destroy(T* p);
 
@@ -11729,13 +11942,10 @@ template<class T, class... Args>
 
 \begin{itemdescr}
 \pnum
-\requires
+\mandates
 Uses-allocator construction of \tcode{T}
 with allocator \tcode{*this} (see~\ref{allocator.uses.construction})
 and constructor arguments \tcode{std::forward<Args>(args)...} is well-formed.
-\begin{note}
-Uses-allocator construction is always well-formed
-for types that do not use allocators.\end{note}
 
 \pnum
 \effects
@@ -11747,163 +11957,6 @@ and constructor arguments \tcode{std::forward<Args>(args)...}.
 \pnum
 \throws
 Nothing unless the constructor for \tcode{T} throws.
-
-\pnum
-\remarks
-This function shall not participate in overload resolution if
-\tcode{T} is a specialization of \tcode{pair}.
-\end{itemdescr}
-
-\indexlibrarymember{construct}{polymorphic_allocator}%
-\begin{itemdecl}
-template<class T1, class T2, class... Args1, class... Args2>
-  void construct(pair<T1, T2>* p, piecewise_construct_t, tuple<Args1...> x, tuple<Args2...> y);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\begin{note}
-This member function and the \tcode{construct} member functions that follow
-are overloads for piecewise construction of pairs\iref{pairs.pair}.
-\end{note}
-
-\pnum
-\effects
-Let \tcode{xprime} be a \tcode{tuple} constructed from \tcode{x}
-according to the appropriate rule from the following list.
-\begin{note}
-The following description can be summarized as
-constructing a \tcode{pair<T1, T2>} object
-in the storage whose address is represented by \tcode{p},
-as if by separate uses-allocator construction
-with allocator \tcode{*this}\iref{allocator.uses.construction}
-of \tcode{p->first} using the elements of \tcode{x}
-and \tcode{p->second} using the elements of \tcode{y}.
-\end{note}
-\begin{itemize}
-\item
-If \tcode{uses_allocator_v<T1,polymorphic_allocator>} is \tcode{false}
-\\
-and
-\tcode{is_constructible_v<T1,Args1...>} is \tcode{true},
-\\
-then \tcode{xprime} is \tcode{x}.
-\item
-Otherwise, if \tcode{uses_allocator_v<T1,polymorphic_allocator>} is \tcode{true}
-\\
-and
-\tcode{is_constructible_v<T1,allocator_arg_t,polymorphic_allocator,Args1...>} is \tcode{true},
-\\
-then \tcode{xprime} is \tcode{tuple_cat(make_tuple(allocator_arg, *this), std::move(x))}.
-\item
-Otherwise, if \tcode{uses_allocator_v<T1,polymorphic_allocator>} is \tcode{true}
-\\
-and
-\tcode{is_constructible_v<T1,Args1...,polymorphic_allocator>} is \tcode{true},
-\\
-then \tcode{xprime} is \tcode{tuple_cat(std::move(x), make_tuple(*this))}.
-\item
-Otherwise the program is ill formed.
-\end{itemize}
-Let \tcode{yprime} be a tuple constructed from \tcode{y}
-according to the appropriate rule from the following list:
-\begin{itemize}
-\item
-If \tcode{uses_allocator_v<T2,polymorphic_allocator>} is \tcode{false}
-\\
-and
-\tcode{is_constructible_v<T2,Args2...>} is \tcode{true},
-\\
-then \tcode{yprime} is \tcode{y}.
-\item
-Otherwise, if \tcode{uses_allocator_v<T2,polymorphic_allocator>} is \tcode{true}
-\\
-and
-\tcode{is_constructible_v<T2,allocator_arg_t,polymorphic_allocator,Args2...>} is \tcode{true},
-\\
-then \tcode{yprime} is \tcode{tuple_cat(make_tuple(allocator_arg, *this), std::move(y))}.
-\item
-Otherwise, if \tcode{uses_allocator_v<T2,polymorphic_allocator>} is \tcode{true}
-\\
-and
-\tcode{is_constructible_v<T2,Args2...,polymorphic_allocator>} is \tcode{true},
-\\
-then
-\tcode{yprime} is \tcode{tuple_cat(std::move(y), make_tuple(*this))}.
-\item
-Otherwise the program is ill formed.
-\end{itemize}
-
-Then, using \tcode{piecewise_construct}, \tcode{xprime}, and \tcode{yprime}
-as the constructor arguments,
-this function constructs a \tcode{pair<T1, T2>} object
-in the storage whose address is represented by \tcode{p}.
-\end{itemdescr}
-
-\indexlibrarymember{construct}{polymorphic_allocator}%
-\begin{itemdecl}
-template<class T1, class T2>
-  void construct(pair<T1, T2>* p);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to:
-\begin{codeblock}
-construct(p, piecewise_construct, tuple<>(), tuple<>());
-\end{codeblock}
-\end{itemdescr}
-
-\indexlibrarymember{construct}{polymorphic_allocator}%
-\begin{itemdecl}
-template<class T1, class T2, class U, class V>
-  void construct(pair<T1, T2>* p, U&& x, V&& y);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to:
-\begin{codeblock}
-construct(p, piecewise_construct,
-          forward_as_tuple(std::forward<U>(x)),
-          forward_as_tuple(std::forward<V>(y)));
-\end{codeblock}
-\end{itemdescr}
-
-\indexlibrarymember{construct}{polymorphic_allocator}%
-\begin{itemdecl}
-template<class T1, class T2, class U, class V>
-  void construct(pair<T1, T2>* p, const pair<U, V>& pr);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to:
-\begin{codeblock}
-construct(p, piecewise_construct,
-          forward_as_tuple(pr.first),
-          forward_as_tuple(pr.second));
-\end{codeblock}
-\end{itemdescr}
-
-\indexlibrarymember{construct}{polymorphic_allocator}%
-\begin{itemdecl}
-template<class T1, class T2, class U, class V>
-  void construct(pair<T1, T2>* p, pair<U, V>&& pr);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to:
-\begin{codeblock}
-construct(p, piecewise_construct,
-          forward_as_tuple(std::forward<U>(pr.first)),
-          forward_as_tuple(std::forward<V>(pr.second)));
-\end{codeblock}
 \end{itemdescr}
 
 \indexlibrarymember{destroy}{polymorphic_allocator}%
@@ -12689,17 +12742,6 @@ namespace std {
 
     template<class T, class... Args>
       void construct(T* p, Args&&... args);
-    template<class T1, class T2, class... Args1, class... Args2>
-      void construct(pair<T1, T2>* p, piecewise_construct_t,
-                     tuple<Args1...> x, tuple<Args2...> y);
-    template<class T1, class T2>
-      void construct(pair<T1, T2>* p);
-    template<class T1, class T2, class U, class V>
-      void construct(pair<T1, T2>* p, U&& x, V&& y);
-    template<class T1, class T2, class U, class V>
-      void construct(pair<T1, T2>* p, const pair<U, V>& x);
-    template<class T1, class T2, class U, class V>
-      void construct(pair<T1, T2>* p, pair<U, V>&& x);
 
     template<class T>
       void destroy(T* p);
@@ -12963,173 +13005,15 @@ template<class T, class... Args>
 \begin{itemdescr}
 \pnum
 \effects
-\begin{itemize}
-\item If \tcode{uses_allocator_v<T, inner_allocator_type>} is \tcode{false} and
-\tcode{is_constructible_v<T,\\ Args...>} is \tcode{true}, calls:
+Equivalent to:
 \begin{codeblock}
-@\placeholdernc{OUTERMOST_ALLOC_TRAITS}@(*this)::construct(
-    @\placeholdernc{OUTERMOST}@(*this), p, std::forward<Args>(args)...)
-\end{codeblock}
-
-\item Otherwise, if \tcode{uses_allocator_v<T, inner_allocator_type>} is \tcode{true} and
-\tcode{is_constructible_v<T, allocator_arg_t, inner_allocator_type\&, Args...>} is \tcode{true}, calls:
-\begin{codeblock}
-@\placeholdernc{OUTERMOST_ALLOC_TRAITS}@(*this)::construct(
-    @\placeholdernc{OUTERMOST}@(*this), p, allocator_arg, inner_allocator(), std::forward<Args>(args)...)
-\end{codeblock}
-
-\item Otherwise, if \tcode{uses_allocator_v<T, inner_allocator_type>} is \tcode{true} and
-\tcode{is_constructible_v<T, Args..., inner_allocator_type\&>} is \tcode{true}, calls:
-\begin{codeblock}
-@\placeholdernc{OUTERMOST_ALLOC_TRAITS}@(*this)::construct(
-    @\placeholdernc{OUTERMOST}@(*this), p, std::forward<Args>(args)..., inner_allocator())
-\end{codeblock}
-
-\item Otherwise, the program is ill-formed.
-\begin{note}
-An error will result if
-\tcode{uses_allocator} evaluates to \tcode{true} but the specific constructor does not take an
-allocator. This definition prevents a silent failure to pass an inner allocator to a
-contained element.
-\end{note}
-\end{itemize}
-
-\pnum
-\remarks
-This function shall not participate in overload resolution if
-\tcode{T} is a specialization of \tcode{pair}.
-\end{itemdescr}
-
-\indexlibrarymember{construct}{scoped_allocator_adaptor}%
-\begin{itemdecl}
-template<class T1, class T2, class... Args1, class... Args2>
-  void construct(pair<T1, T2>* p, piecewise_construct_t, tuple<Args1...> x, tuple<Args2...> y);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Constructs a \tcode{tuple} object \tcode{xprime} from \tcode{x} by the
-following rules:
-\begin{itemize}
-\item If \tcode{uses_allocator_v<T1, inner_allocator_type>} is \tcode{false} and
-\tcode{is_constructible_v<T1,\\ Args1...>} is \tcode{true},
-then \tcode{xprime} is \tcode{tuple<Args1\&\&...>(std::move(x))}.
-
-\item Otherwise, if \tcode{uses_allocator_v<T1, inner_allocator_type>} is \tcode{true}
-and
-\tcode{is_construct\-ible_v<T1, allocator_arg_t, inner_allocator_type\&, Args1...>}
-is
-\tcode{true}, then \tcode{xprime} is:
-\begin{codeblock}
-tuple_cat(
-    tuple<allocator_arg_t, inner_allocator_type&>(allocator_arg, inner_allocator()),
-    tuple<Args1&&...>(std::move(x)))
-\end{codeblock}
-
-\item Otherwise, if \tcode{uses_allocator_v<T1, inner_allocator_type>} is
-\tcode{true} and
-\tcode{is_construct\-ible_v<T1, Args1..., inner_allocator_type\&>} is \tcode{true},
-then \tcode{xprime} is:
-\begin{codeblock}
-tuple_cat(tuple<Args1&&...>(std::move(x)),
-          tuple<inner_allocator_type&>(inner_allocator()))
-\end{codeblock}
-
-\item Otherwise, the program is ill-formed.
-\end{itemize}
-and constructs a \tcode{tuple} object \tcode{yprime} from \tcode{y} by the following rules:
-\begin{itemize}
-\item If \tcode{uses_allocator_v<T2, inner_allocator_type>} is \tcode{false} and
-\tcode{is_constructible_v<T2,\\ Args2...>} is \tcode{true}, then \tcode{yprime} is \tcode{tuple<Args2\&\&...>(std::move(y)}.
-
-\item Otherwise, if \tcode{uses_allocator_v<T2, inner_allocator_type>} is \tcode{true}
-and
-\tcode{is_constructible_v<T2, allocator_arg_t, inner_allocator_type\&, Args2...>}
-is
-\tcode{true}, then \tcode{yprime} is:
-\begin{codeblock}
-tuple_cat(
-    tuple<allocator_arg_t, inner_allocator_type&>(allocator_arg, inner_allocator()),
-    tuple<Args2&&...>(std::move(y)))
-\end{codeblock}
-
-\item Otherwise, if \tcode{uses_allocator_v<T2, inner_allocator_type>} is
-\tcode{true} and
-\tcode{is_constructible_v<T2, Args2..., inner_allocator_type\&>} is \tcode{true},
-then \tcode{yprime} is:
-\begin{codeblock}
-tuple_cat(tuple<Args2&&...>(std::move(y)),
-          tuple<inner_allocator_type&>(inner_allocator()))
-\end{codeblock}
-
-\item Otherwise, the program is ill-formed.
-\end{itemize}
-then calls:
-\begin{codeblock}
-@\placeholdernc{OUTERMOST_ALLOC_TRAITS}@(*this)::construct(
-    @\placeholdernc{OUTERMOST}@(*this), p, piecewise_construct, std::move(xprime), std::move(yprime))
-\end{codeblock}
-\end{itemdescr}
-
-\indexlibrarymember{construct}{scoped_allocator_adaptor}%
-\begin{itemdecl}
-template<class T1, class T2>
-  void construct(pair<T1, T2>* p);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to:
-\begin{codeblock}
-construct(p, piecewise_construct, tuple<>(), tuple<>());
-\end{codeblock}
-\end{itemdescr}
-
-\indexlibrarymember{construct}{scoped_allocator_adaptor}%
-\begin{itemdecl}
-template<class T1, class T2, class U, class V>
-  void construct(pair<T1, T2>* p, U&& x, V&& y);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to:
-\begin{codeblock}
-construct(p, piecewise_construct,
-          forward_as_tuple(std::forward<U>(x)),
-          forward_as_tuple(std::forward<V>(y)));
-\end{codeblock}
-\end{itemdescr}
-
-\indexlibrarymember{construct}{scoped_allocator_adaptor}%
-\begin{itemdecl}
-template<class T1, class T2, class U, class V>
-  void construct(pair<T1, T2>* p, const pair<U, V>& x);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to:
-\begin{codeblock}
-construct(p, piecewise_construct,
-          forward_as_tuple(x.first),
-          forward_as_tuple(x.second));
-\end{codeblock}
-\end{itemdescr}
-
-\indexlibrarymember{construct}{scoped_allocator_adaptor}%
-\begin{itemdecl}
-template<class T1, class T2, class U, class V>
-  void construct(pair<T1, T2>* p, pair<U, V>&& x);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to:
-\begin{codeblock}
-construct(p, piecewise_construct,
-          forward_as_tuple(std::forward<U>(x.first)),
-          forward_as_tuple(std::forward<V>(x.second)));
+apply([p, this](auto&&... newargs) {
+        @\placeholdernc{OUTERMOST_ALLOC_TRAITS}@(*this)::construct(
+          @\placeholdernc{OUTERMOST}@(*this), p,
+          std::forward<decltype(newargs)>(newargs)...);
+      },
+      uses_allocator_construction_args<T>(inner_allocator(),
+                                          std::forward<Args>(args)...));
 \end{codeblock}
 \end{itemdescr}
 
