@@ -6511,6 +6511,34 @@ during translation.\end{note}
 \end{bnf}
 
 \pnum
+A \defn{constant initializer} for a variable or temporary object \tcode{o} is
+an initializer for which interpreting its full-expression
+as a \grammarterm{constant-expression} results in a constant expression,
+except that if \tcode{o} is an object,
+such an initializer may also invoke constexpr constructors
+for \tcode{o} and its subobjects
+even if those objects are of non-literal class types.
+\begin{note}
+Such a class may have a non-trivial destructor.
+Within this evaluation,
+\tcode{std::is_constant_evaluated()}\iref{meta.const.eval}
+returns \tcode{true}.
+\end{note}
+
+\pnum
+A variable is
+\defn{usable in constant expressions} after
+its initializing declaration is encountered if it is a constexpr variable, or
+it is of reference type or of const-qualified integral or enumeration type, and
+its initializer is a constant initializer.
+An object or reference is \defn{usable in constant expressions}
+if it is a variable that is usable in constant expressions,
+a template parameter object\iref{temp.param},
+a string literal object\iref{lex.string},
+or a non-mutable subobject or reference member
+of an object that is usable in constant expressions.
+
+\pnum
 An expression \tcode{e} is a \defnadj{core constant}{expression}
 unless the evaluation of \tcode{e}, following the rules of the abstract
 machine\iref{intro.execution}, would evaluate one of the following expressions:
@@ -6558,20 +6586,8 @@ it is applied to
 
 \begin{itemize}
   \item
-  a non-volatile glvalue of integral or enumeration type that refers
-  to a complete non-volatile const object with a preceding initialization,
-  initialized with a constant expression, or
-
-  \item
-  a non-volatile glvalue that refers to a subobject of a string
-  literal\iref{lex.string}, or
-
-  \item
-  a non-volatile glvalue that refers to a non-volatile object
-  defined with \tcode{constexpr} or
-  a template parameter object\iref{temp.param},
-  or that refers to a non-mutable subobject
-  of such an object, or
+  a non-volatile glvalue that refers to an object that is
+  usable in constant expressions, or
 
   \item
   a non-volatile glvalue of literal type that refers to a non-volatile object
@@ -6601,7 +6617,7 @@ unless the reference has a preceding initialization and either
 
 \begin{itemize}
   \item
-  it is initialized with a constant expression or
+  it is usable in constant expressions or
 
   \item
   its lifetime began within the evaluation of \tcode{e};
@@ -6880,21 +6896,53 @@ An immediate invocation is evaluated even in an unevaluated operand.
 \end{note}
 
 \pnum
+An expression or conversion \tcode{e} is \defn{manifestly constant-evaluated}
+if it is:
+\begin{itemize}
+\item a \grammarterm{constant-expression}, or
+\item the condition of a constexpr if statement\iref{stmt.if}, or
+\item an immediate invocation, or
+\item a \grammarterm{constraint-expression}\iref{temp.constr.decl}
+including one formed from the \grammarterm{constraint-logical-or-expression}
+of a \grammarterm{requires-clause}, or
+\item the initializer of a variable
+that is usable in constant expressions or
+has constant initialization.\footnote{Testing this condition
+may involve a trial evaluation of its initializer as described above.}
+\begin{example}
+\begin{codeblock}
+template<bool> struct X {};
+X<std::is_constant_evaluated()> x;                      // type \tcode{X<true>}
+int y;
+const int a = std::is_constant_evaluated() ? y : 1;     // dynamic initialization to 1
+double z[a];                                            // ill-formed: \tcode{a} is not usable
+                                                        // in constant expressions
+const int b = std::is_constant_evaluated() ? 2 : y;     // static initialization to 2
+int c = y + (std::is_constant_evaluated() ? 2 : y);     // dynamic initialization to \tcode{y+y}
+
+constexpr int f() {
+  const int n = std::is_constant_evaluated() ? 13 : 17; // \tcode{n} is 13
+  int m = std::is_constant_evaluated() ? 13 : 17;       // \tcode{m} might be 13 or 17 (see below)
+  char arr[n] = {}; // char[13]
+  return m + sizeof(arr);
+}
+int p = f();                                            // \tcode{m} is 13; initialized to 26
+int q = p + f();                                        // \tcode{m} is 17 for this call; initialized to 56
+\end{codeblock}
+\end{example}
+\end{itemize}
+
+\pnum
 \indextext{expression!potentially constant evaluated}%
 An expression or conversion is \defn{potentially constant evaluated}
 if it is:
 
 \begin{itemize}
 \item
+a manifestly constant-evaluated expression,
+
+\item
 a potentially-evaluated expression\iref{basic.def.odr},
-
-\item
-an immediate invocation,
-
-\item
-a \grammarterm{constraint-expression},
-including one formed from the \grammarterm{constraint-logical-or-expression}
-of a \grammarterm{requires-clause},
 
 \item
 an immediate subexpression of a \grammarterm{braced-init-list},%
