@@ -13721,6 +13721,9 @@ namespace std {
   // \ref{func.not_fn}, function template \tcode{not_fn}
   template<class F> @\unspec@ not_fn(F&& f);
 
+  // \ref{func.bind_front}, function template \tcode{bind_front}
+  template <class F, class... Args> @\unspec@ bind_front(F&&, Args&&...);
+
   // \ref{func.bind}, bind
   template<class T> struct is_bind_expression;
   template<class T> struct is_placeholder;
@@ -13868,6 +13871,17 @@ A \defn{call wrapper} is an object of a call wrapper type.
 \pnum
 A \defn{target object} is the callable object held by a call wrapper.
 
+\pnum
+A call wrapper type may additionally hold
+a sequence of objects and references
+that may be passed as arguments to the target object.
+These entities are collectively referred to
+as \defnx{bound argument entities}{bound argument entity}.
+
+\pnum
+The target object and bound argument entities of the call wrapper are
+collectively referred to as \defnx{state entities}{state entity}.
+
 \rSec2[func.require]{Requirements}
 
 \pnum
@@ -13914,27 +13928,63 @@ to \tcode{R}.
 \indextext{call wrapper}%
 \indextext{call wrapper!simple}%
 \indextext{call wrapper!forwarding}%
-Every call wrapper\iref{func.def} shall be
-\oldconcept{MoveConstructible}.
-A \defn{forwarding call wrapper} is a
+Every call wrapper\iref{func.def} is \oldconcept{MoveConstructible}.
+A \defn{argument forwarding call wrapper} is a
 call wrapper that can be called with an arbitrary argument list
 and delivers the arguments to the wrapped callable object as references.
-This forwarding step shall ensure that rvalue arguments are delivered as rvalue references
-and lvalue arguments are delivered as lvalue references.
-A \defn{simple call wrapper} is a forwarding call wrapper that is
+This forwarding step delivers rvalue arguments as rvalue references
+and lvalue arguments as lvalue references.
+A \defn{simple call wrapper} is an argument forwarding call wrapper that is
 \oldconcept{CopyConstructible} and \oldconcept{CopyAssignable} and
 whose copy constructor, move constructor, copy assignment operator,
 and move assignment operator do not throw exceptions.
 \begin{note}
-In a typical implementation
-forwarding call wrappers have an overloaded function call
-operator of
-the form
+In a typical implementation, argument forwarding call wrappers have
+an overloaded function call operator of the form
 \begin{codeblock}
 template<class... UnBoundArgs>
   R operator()(UnBoundArgs&&... unbound_args) @\textit{cv-qual}@;
 \end{codeblock}
 \end{note}
+
+\pnum
+\indextext{call wrapper!perfect forwarding}%
+A \defn{perfect forwarding call wrapper} is
+an argument forwarding call wrapper
+that forwards its state entities to the underlying call expression.
+This forwarding step delivers a state entity of type \tcode{T}
+as \cv{} \tcode{T\&}
+when the call is performed on an lvalue of the call wrapper type and
+as \cv{} \tcode{T\&\&} otherwise,
+where \cv{} represents the cv-qualifiers of the call wrapper and
+where \cv{} shall be neither \tcode{volatile} nor \tcode{const volatile}.
+
+\pnum
+A \defn{call pattern} defines the semantics of invoking
+a perfect forwarding call wrapper.
+A postfix call performed on a perfect forwarding call wrapper is
+expression-equivalent\iref{defns.expression-equivalent} to
+an expression \tcode{e} determined from its call pattern \tcode{cp}
+by replacing all occurrences
+of the arguments of the call wrapper and its state entities
+with references as described in the corresponding forwarding steps.
+
+\pnum
+The copy/move constructor of a perfect forwarding call wrapper has
+the same apparent semantics
+as if memberwise copy/move of its state entities
+were performed\iref{class.copy.ctor}.
+\begin{note}
+This implies that each of the copy/move constructors has
+the same exception-specification as
+the corresponding implicit definition and is declared as \tcode{constexpr}
+if the corresponding implicit definition would be considered to be constexpr.
+\end{note}
+
+\pnum
+Perfect forwarding call wrappers returned by
+a given standard library function template have the same type
+if the types of their corresponding state entities are the same.
 
 \rSec2[func.invoke]{Function template \tcode{invoke}}
 \indexlibrary{\idxcode{invoke}}%
@@ -15193,93 +15243,95 @@ template<class F> @\unspec@ not_fn(F&& f);
 
 \begin{itemdescr}
 \pnum
-\effects
-Equivalent to: \tcode{return \placeholder{call-wrapper}(std::forward<F>(f));}
-where \tcode{\placeholder{call-wrapper}} is an exposition only class defined as follows:
-\begin{codeblock}
-class @\placeholder{call-wrapper}@ {
-  using FD = decay_t<F>;
-  FD fd;
-
-  explicit @\placeholder{call-wrapper}@(F&& f);
-
-public:
-  @\placeholder{call-wrapper}@(@\placeholder{call-wrapper}@&&) = default;
-  @\placeholder{call-wrapper}@(const @\placeholder{call-wrapper}@&) = default;
-
-  template<class... Args>
-    auto operator()(Args&&...) &
-      -> decltype(!declval<invoke_result_t<FD&, Args...>>());
-
-  template<class... Args>
-    auto operator()(Args&&...) const&
-      -> decltype(!declval<invoke_result_t<const FD&, Args...>>());
-
-  template<class... Args>
-    auto operator()(Args&&...) &&
-      -> decltype(!declval<invoke_result_t<FD, Args...>>());
-
-  template<class... Args>
-    auto operator()(Args&&...) const&&
-      -> decltype(!declval<invoke_result_t<const FD, Args...>>());
-};
-\end{codeblock}
-\end{itemdescr}
-
-\begin{itemdecl}
-explicit @\placeholdernc{call-wrapper}@(F&& f);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\requires
-\tcode{FD} shall satisfy the \oldconcept{MoveConstructible} requirements.
-\tcode{is_constructible_v<FD, F>} shall be \tcode{true}.
-\tcode{fd} shall be a callable object\iref{func.def}.
+In the text that follows:
+\begin{itemize}
+\item \tcode{g} is a value of the result of a \tcode{not_fn} invocation,
+\item \tcode{FD} is the type \tcode{decay_t<F>},
+\item \tcode{fd} is the target object of \tcode{g}\iref{func.def}
+  of type \tcode{FD},
+  initialized with
+  the \grammarterm{initializer} \tcode{(std::forward<F>(f\brk{}))}\iref{dcl.init},
+\item \tcode{call_args} is an argument pack
+  used in a function call expression\iref{expr.call} of \tcode{g}.
+\end{itemize}
 
 \pnum
-\effects
-Initializes \tcode{fd} from \tcode{std::forward<F>(f)}.
+\mandates
+\tcode{is_constructible_v<FD, F> \&\& is_move_constructible_v<FD>}
+shall be true.
+
+\pnum
+\expects
+\tcode{FD} shall meet the requirements of \oldconcept{MoveConstructible}.
+
+\pnum
+\returns
+A perfect forwarding call wrapper \tcode{g}
+with call pattern \tcode{!invoke(fd, call_args...)}.
 
 \pnum
 \throws
-Any exception thrown by construction of \tcode{fd}.
+Any exception thrown by the initialization of \tcode{fd}.
 \end{itemdescr}
 
+\rSec2[func.bind_front]{Function template \tcode{bind_front}}
+
+\indexlibrary{\idxcode{bind_front}}%
 \begin{itemdecl}
-template<class... Args>
-  auto operator()(Args&&... args) &
-    -> decltype(!declval<invoke_result_t<FD&, Args...>>());
-template<class... Args>
-  auto operator()(Args&&... args) const&
-    -> decltype(!declval<invoke_result_t<const FD&, Args...>>());
+template <class F, class... Args>
+  @\unspec@ bind_front(F&& f, Args&&... args);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
-\effects
-Equivalent to:
-\begin{codeblock}
-return !@\placeholdernc{INVOKE}@(fd, std::forward<Args>(args)...);              // see \ref{func.require}
-\end{codeblock}
-\end{itemdescr}
+In the text that follows:
+\begin{itemize}
+\item \tcode{g} is a value of the result of a \tcode{bind_front} invocation,
+\item \tcode{FD} is the type \tcode{decay_t<F>},
+\item \tcode{fd} is the target object of \tcode{g}\iref{func.def}
+  of type \tcode{FD} initialized with
+  the \grammarterm{initializer} \tcode{(std::forward<F>(\brk{}f))}\iref{dcl.init},
+\item \tcode{BoundArgs} is a pack of types
+  equivalent to \tcode{\placeholdernc{DECAY_UNWRAP}(Args)...},
+\item \tcode{bound_args} is
+  a pack of bound argument entities of \tcode{g}\iref{func.def}
+  of types \tcode{BoundArgs...},
+  initialized with
+  \grammarterm{initializer}{s} \tcode{(std::forward<Args>(args))...},
+  respectively,
+\item \tcode{call_args} is an argument pack used in
+  a function call expression\iref{expr.call} of \tcode{g},
+\end{itemize}
+where \tcode{\placeholdernc{DECAY_UNWRAP}(T)} is determined as follows:
+Let \tcode{U} be \tcode{decay_t<T>}.
+Then \tcode{\placeholdernc{DECAY_UNWRAP}(T)} is \tcode{X\&}
+if \tcode{U} is a specialization \tcode{reference_wrapper<X>},
+otherwise \tcode{\placeholdernc{DECAY_UNWRAP}(T)} is \tcode{U}.
 
-\begin{itemdecl}
-template<class... Args>
-  auto operator()(Args&&... args) &&
-    -> decltype(!declval<invoke_result_t<FD, Args...>>());
-template<class... Args>
-  auto operator()(Args&&... args) const&&
-    -> decltype(!declval<invoke_result_t<const FD, Args...>>());
-\end{itemdecl}
-
-\begin{itemdescr}
 \pnum
-\effects
-Equivalent to:
+\mandates
 \begin{codeblock}
-return !@\placeholdernc{INVOKE}@(std::move(fd), std::forward<Args>(args)...);   // see \ref{func.require}
+conjunction_v<is_constructible<FD, F>, is_move_constructible<FD>,
+              is_constructible<BoundArgs, Args>..., is_move_constructible<BoundArgs>...>
 \end{codeblock}
+shall be true.
+
+\pnum
+\expects
+\tcode{FD} shall meet the requirements of \oldconcept{MoveConstructible}.
+For each $\tcode{T}_i$ in \tcode{BoundArgs},
+if $\tcode{T}_i$ is an object type,
+$\tcode{T}_i$ shall meet the requirements of \oldconcept{MoveConstructible}.
+
+\pnum
+\returns
+A perfect forwarding call wrapper \tcode{g}
+with call pattern \tcode{invoke(fd, bound_args..., call_args...)}.
+
+\pnum
+\throws
+Any exception thrown by
+the initialization of the state entities of \tcode{g}\iref{func.def}.
 \end{itemdescr}
 
 \rSec2[func.bind]{Function object binders}%
@@ -15353,7 +15405,7 @@ In the text that follows:
 \item $\tcode{t}_i$ is the $i^\text{th}$ argument in the function parameter pack \tcode{bound_args},
 \item $\tcode{td}_i$ is an lvalue of type $\tcode{TD}_i$ constructed from \tcode{std::forward<$\tcode{T}_i$>($\tcode{t}_i$)},
 \item $\tcode{U}_j$ is the $j^\text{th}$ deduced type of the \tcode{UnBoundArgs\&\&...} parameter
-  of the forwarding call wrapper, and
+  of the argument forwarding call wrapper, and
 \item $\tcode{u}_j$ is the $j^\text{th}$ argument associated with $\tcode{U}_j$.
 \end{itemize}
 
@@ -15376,7 +15428,7 @@ The cv-qualifiers \cv{} of the call wrapper \tcode{g},
 as specified below, shall be neither \tcode{volatile} nor \tcode{const volatile}.
 
 \pnum\returns
-A forwarding call wrapper \tcode{g}\iref{func.require}.
+An argument forwarding call wrapper \tcode{g}\iref{func.require}.
 The effect of \tcode{g($\tcode{u}_1$, $\tcode{u}_2$, $\dotsc$, $\tcode{u}_M$)} shall
 be
 \begin{codeblock}
@@ -15384,7 +15436,7 @@ be
 \end{codeblock}
 where the values and types of the bound
 arguments $\tcode{v}_1$, $\tcode{v}_2$, $\dotsc$, $\tcode{v}_N$ are determined as specified below.
-The copy constructor and move constructor of the forwarding call wrapper shall throw an
+The copy constructor and move constructor of the argument forwarding call wrapper shall throw an
 exception if and only if the corresponding constructor of \tcode{FD} or of any of the types
 $\tcode{TD}_i$ throws an exception.
 
@@ -15419,7 +15471,7 @@ as specified below, shall be neither \tcode{volatile} nor \tcode{const volatile}
 
 \pnum
 \returns
-A forwarding call wrapper \tcode{g}\iref{func.require}.
+An argument forwarding call wrapper \tcode{g}\iref{func.require}.
 The effect of
 \tcode{g($\tcode{u}_1$, $\tcode{u}_2$, $\dotsc$, $\tcode{u}_M$)} shall be
 \begin{codeblock}
@@ -15427,7 +15479,7 @@ The effect of
 \end{codeblock}
 where the values and types of the bound
 arguments $\tcode{v}_1$, $\tcode{v}_2$, $\dotsc$, $\tcode{v}_N$ are determined as specified below.
-The copy constructor and move constructor of the forwarding call wrapper shall throw an
+The copy constructor and move constructor of the argument forwarding call wrapper shall throw an
 exception if and only if the corresponding constructor of \tcode{FD} or of any of the types
 $\tcode{TD}_i$ throws an exception.
 
