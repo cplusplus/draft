@@ -18,6 +18,7 @@ as summarized in \tref{range.summary}.
   \ref{range.prim}         & Range primitives  & \\
   \ref{range.req}          & Requirements      & \\
   \ref{range.utility}      & Range utilities   & \\
+  \ref{range.factories}    & Range factories   & \\
   \ref{range.adaptors}     & Range adaptors    & \\
 \end{libsumtab}
 
@@ -121,6 +122,30 @@ namespace std::ranges {
   template<@\placeholder{forwarding-range}@ R>
     using safe_subrange_t = subrange<iterator_t<R>>;
 
+  // \ref{range.empty}, empty view
+  template<class T>
+    requires is_object_v<T>
+  class empty_view;
+
+  namespace view {
+    template<class T>
+      inline constexpr empty_view<T> empty{};
+  }
+
+  // \ref{range.single}, single view
+  template<CopyConstructible T>
+    requires is_object_v<T>
+  class single_view;
+
+  namespace view { inline constexpr @\unspec@ single = @\unspec@; }
+
+  // \ref{range.iota}, iota view
+  template<WeaklyIncrementable W, Semiregular Bound = unreachable_sentinel_t>
+    requires @\placeholder{weakly-equality-comparable-with}@<W, Bound>
+  class iota_view;
+
+  namespace view { inline constexpr @\unspec@ iota = @\unspec@; }
+
   // \ref{range.all}, all view
   namespace view { inline constexpr @\unspec@ all = @\unspec@; }
 
@@ -142,13 +167,6 @@ namespace std::ranges {
 
   namespace view { inline constexpr @\unspec@ transform = @\unspec@; }
 
-  // \ref{range.iota}, iota view
-  template<WeaklyIncrementable W, Semiregular Bound = unreachable_sentinel_t>
-    requires @\placeholder{weakly-equality-comparable-with}@<W, Bound>
-  class iota_view;
-
-  namespace view { inline constexpr @\unspec@ iota = @\unspec@; }
-
   // \ref{range.take}, take view
   template<View> class take_view;
 
@@ -162,23 +180,6 @@ namespace std::ranges {
   class join_view;
 
   namespace view { inline constexpr @\unspec@ join = @\unspec@; }
-
-  // \ref{range.empty}, empty view
-  template<class T>
-    requires is_object_v<T>
-  class empty_view;
-
-  namespace view {
-    template<class T>
-      inline constexpr empty_view<T> empty{};
-  }
-
-  // \ref{range.single}, single view
-  template<CopyConstructible T>
-    requires is_object_v<T>
-  class single_view;
-
-  namespace view { inline constexpr @\unspec@ single = @\unspec@; }
 
   // \ref{range.split}, split view
   template<class R>
@@ -1449,6 +1450,775 @@ else
 \end{codeblock}
 \end{itemdescr}
 
+\rSec1[range.factories]{Range factories}
+
+\pnum
+This subclause defines \term{range factories},
+which are utilities to create a \libconcept{View}.
+
+\pnum
+Range factories are declared in namespace \tcode{std::ranges::view}.
+
+\rSec2[range.empty]{Empty view}
+
+\rSec3[range.empty.overview]{Overview}
+
+\pnum
+\tcode{empty_view} produces a \libconcept{View} of no elements of
+a particular type.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+empty_view<int> e;
+static_assert(ranges::empty(e));
+static_assert(0 == e.size());
+\end{codeblock}
+\end{example}
+
+\rSec3[range.empty.view]{Class template \tcode{empty_view}}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<class T>
+    requires is_object_v<T>
+  class empty_view : public view_interface<empty_view<T>> {
+  public:
+    static constexpr T* begin() noexcept { return nullptr; }
+    static constexpr T* end() noexcept { return nullptr; }
+    static constexpr T* data() noexcept { return nullptr; }
+    static constexpr ptrdiff_t size() noexcept { return 0; }
+    static constexpr bool empty() noexcept { return true; }
+
+    friend constexpr T* begin(empty_view) noexcept { return nullptr; }
+    friend constexpr T* end(empty_view) noexcept { return nullptr; }
+  };
+}
+\end{codeblock}
+
+\rSec2[range.single]{Single view}
+
+\rSec3[range.single.overview]{Overview}
+
+\pnum
+\tcode{single_view} produces a \libconcept{View} that contains
+exactly one element of a specified value.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+single_view s{4};
+for (int i : s)
+  cout << i; // prints 4
+\end{codeblock}
+\end{example}
+
+\rSec3[range.single.view]{Class template \tcode{single_view}}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<CopyConstructible T>
+    requires is_object_v<T>
+  class single_view : public view_interface<single_view<T>> {
+  private:
+    @\placeholdernc{semiregular}@<T> value_;      // \expos
+  public:
+    single_view() = default;
+    constexpr explicit single_view(const T& t);
+    constexpr explicit single_view(T&& t);
+    template<class... Args>
+      requires Constructible<T, Args...>
+    constexpr single_view(in_place_t, Args&&... args);
+
+    constexpr T* begin() noexcept;
+    constexpr const T* begin() const noexcept;
+    constexpr T* end() noexcept;
+    constexpr const T* end() const noexcept;
+    static constexpr ptrdiff_t size() noexcept;
+    constexpr T* data() noexcept;
+    constexpr const T* data() const noexcept;
+  };
+}
+\end{codeblock}
+
+\indexlibrary{\idxcode{single_view}!\idxcode{single_view}}%
+\begin{itemdecl}
+constexpr explicit single_view(const T& t);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Initializes \tcode{value_} with \tcode{t}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{single_view}!\idxcode{single_view}}%
+\begin{itemdecl}
+constexpr explicit single_view(T&& t);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Initializes \tcode{value_} with \tcode{std::move(t)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{single_view}!\idxcode{single_view}}%
+\begin{itemdecl}
+template<class... Args>
+constexpr single_view(in_place_t, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Initializes \tcode{value_} as if by
+\tcode{value_\{in_place, std::forward<Args>(args)...\}}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{begin}!\idxcode{single_view}}%
+\begin{itemdecl}
+constexpr T* begin() noexcept;
+constexpr const T* begin() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return data();}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{end}!\idxcode{single_view}}%
+\begin{itemdecl}
+constexpr T* end() noexcept;
+constexpr const T* end() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return data() + 1;}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{size}!\idxcode{single_view}}%
+\begin{itemdecl}
+static constexpr ptrdiff_t size() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return 1;}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{data}!\idxcode{single_view}}%
+\begin{itemdecl}
+constexpr T* data() noexcept;
+constexpr const T* data() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return value_.operator->();}
+\end{itemdescr}
+
+\rSec3[range.single.adaptor]{\tcode{view::single}}
+
+\pnum
+The name \tcode{view::single} denotes a
+customization point object\iref{customization.point.object}.
+For some subexpression \tcode{E}, the expression
+\tcode{view::single(E)} is expression-equivalent to
+\tcode{single_view\{E\}}.
+
+\rSec2[range.iota]{Iota view}
+
+\rSec3[range.iota.overview]{Overview}
+
+\pnum
+\tcode{iota_view} generates a
+sequence of elements by repeatedly incrementing an initial value.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+for (int i : iota_view{1, 10})
+  cout << i << ' '; // prints: 1 2 3 4 5 6 7 8 9
+\end{codeblock}
+\end{example}
+
+\rSec3[range.iota.view]{Class template \tcode{iota_view}}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<class I>
+    concept @\placeholdernc{Decrementable}@ =     // \expos
+      @\seebelow@;
+  template<class I>
+    concept @\placeholdernc{Advanceable}@ =       // \expos
+      @\seebelow@;
+
+  template<WeaklyIncrementable W, Semiregular Bound = unreachable_sentinel_t>
+    requires @\placeholdernc{weakly-equality-comparable-with}@<W, Bound>
+  class iota_view : public view_interface<iota_view<W, Bound>> {
+  private:
+    struct iterator;            // \expos
+    struct sentinel;            // \expos
+    W value_ = W();             // \expos
+    Bound bound_ = Bound();     // \expos
+  public:
+    iota_view() = default;
+    constexpr explicit iota_view(W value);
+    constexpr iota_view(type_identity_t<W> value,
+                        type_identity_t<Bound> bound);
+
+    constexpr iterator begin() const;
+    constexpr sentinel end() const;
+    constexpr iterator end() const requires Same<W, Bound>;
+
+    constexpr auto size() const
+      requires (Same<W, Bound> && @\placeholdernc{Advanceable}@<W>) ||
+               (Integral<W> && Integral<Bound>) ||
+               SizedSentinel<Bound, W>
+    { return bound_ - value_; }
+  };
+
+  template<class W, class Bound>
+    requires (!Integral<W> || !Integral<Bound> || is_signed_v<W> == is_signed_v<Bound>)
+  iota_view(W, Bound) -> iota_view<W, Bound>;
+}
+\end{codeblock}
+
+\pnum
+The exposition-only \tcode{\placeholder{Decrementable}} concept is equivalent to:
+\begin{itemdecl}
+template<class I>
+  concept @\placeholder{Decrementable}@ =
+    Incrementable<I> && requires(I i) {
+      { --i } -> Same<I&>;
+      { i-- } -> Same<I>;
+    };
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+When an object is in the domain of both pre- and post-decrement,
+the object is said to be \term{decrementable}.
+
+\pnum
+Let \tcode{a} and \tcode{b} be equal objects of type \tcode{I}.
+\tcode{I} models \tcode{\placeholdernc{Decrementable}} only if
+\begin{itemize}
+\item If \tcode{a} and \tcode{b} are decrementable,
+  then the following are all true:
+  \begin{itemize}
+  \item \tcode{addressof(--a) == addressof(a)}
+  \item \tcode{bool(a-- == b)}
+  \item \tcode{bool(((void)a--, a) == --b)}
+  \item \tcode{bool(++(--a) == b)}.
+  \end{itemize}
+\item If \tcode{a} and \tcode{b} are incrementable,
+  then \tcode{bool(--(++a) == b)}.
+\end{itemize}
+\end{itemdescr}
+
+\pnum
+The exposition-only \tcode{\placeholder{Advanceable}} concept is equivalent to:
+\begin{itemdecl}
+template<class I>
+  concept @\placeholder{Advanceable}@ =
+    @\placeholdernc{Decrementable}@<I> && StrictTotallyOrdered<I> &&
+    requires(I i, const I j, const iter_difference_t<I> n) {
+      { i += n } -> Same<I&>;
+      { i -= n } -> Same<I&>;
+      { j +  n } -> Same<I>;
+      { n +  j } -> Same<I>;
+      { j -  n } -> Same<I>;
+      { j -  j } -> Same<iter_difference_t<I>>;
+    };
+\end{itemdecl}
+
+Let \tcode{a} and \tcode{b} be objects of type \tcode{I} such that
+\tcode{b} is reachable from \tcode{a}
+after \tcode{n} applications of \tcode{++a},
+for some value \tcode{n} of type \tcode{iter_difference_t<I>},
+and let \tcode{D} be \tcode{iter_difference_t<I>}.
+\tcode{I} models \tcode{\placeholdernc{Advanceable}} only if
+\begin{itemize}
+\item \tcode{(a += n)} is equal to \tcode{b}.
+\item \tcode{addressof(a += n)} is equal to \tcode{addressof(a)}.
+\item \tcode{(a + n)} is equal to \tcode{(a += n)}.
+\item For any two positive values
+  \tcode{x} and \tcode{y} of type \tcode{D},
+  if \tcode{(a + D(x + y))} is well-defined, then
+  \tcode{(a + D(x + y))} is equal to \tcode{((a + x) + y)}.
+\item \tcode{(a + D(0))} is equal to \tcode{a}.
+\item If \tcode{(a + D(n - 1))} is well-defined, then
+  \tcode{(a + n)} is equal to \tcode{++(a + D(n - 1))}.
+\item \tcode{(b += -n)} is equal to \tcode{a}.
+\item \tcode{(b -= n)} is equal to \tcode{a}.
+\item \tcode{addressof(b -= n)} is equal to \tcode{addressof(b)}.
+\item \tcode{(b - n)} is equal to \tcode{(b -= n)}.
+\item \tcode{(b - a)} is equal to \tcode{n}.
+\item \tcode{(a - b)} is equal to \tcode{-n}.
+\item \tcode{bool(a <= b)} is \tcode{true}.
+\end{itemize}
+
+\indexlibrary{\idxcode{iota_view}!\idxcode{iota_view}}%
+\begin{itemdecl}
+constexpr explicit iota_view(W value);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{Bound} denotes \tcode{unreachable_sentinel_t} or
+\tcode{Bound()} is reachable from \tcode{value}.
+
+\pnum
+\effects Initializes \tcode{value_} with \tcode{value}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{iota_view}!\idxcode{iota_view}}%
+\begin{itemdecl}
+constexpr iota_view(type_identity_t<W> value, type_identity_t<Bound> bound);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{Bound} denotes \tcode{unreachable_sentinel_t} or
+\tcode{bound} is reachable from \tcode{value}.
+
+\pnum
+\effects Initializes \tcode{value_} with \tcode{value} and
+\tcode{bound_} with \tcode{bound}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{begin}!\idxcode{iota_view}}%
+\begin{itemdecl}
+constexpr iterator begin() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return iterator\{value_\};}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{end}!\idxcode{iota_view}}%
+\begin{itemdecl}
+constexpr sentinel end() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return sentinel\{bound_\};}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{end}!\idxcode{iota_view}}%
+\begin{itemdecl}
+constexpr iterator end() const requires Same<W, Bound>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return iterator\{bound_\};}
+\end{itemdescr}
+
+\rSec3[range.iota.iterator]{Class \tcode{iota_view::iterator}}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<class W, class Bound>
+  struct iota_view<W, Bound>::iterator {
+  private:
+    W value_ = W();             // \expos
+  public:
+    using iterator_category = @\seebelow@;
+    using value_type = W;
+    using difference_type = iter_difference_t<W>;
+
+    iterator() = default;
+    constexpr explicit iterator(W value);
+
+    constexpr W operator*() const noexcept(is_nothrow_copy_constructible_v<W>);
+
+    constexpr iterator& operator++();
+    constexpr void operator++(int);
+    constexpr iterator operator++(int) requires Incrementable<W>;
+
+    constexpr iterator& operator--() requires @\placeholdernc{Decrementable}@<W>;
+    constexpr iterator operator--(int) requires @\placeholdernc{Decrementable}@<W>;
+
+    constexpr iterator& operator+=(difference_type n)
+      requires @\placeholdernc{Advanceable}@<W>;
+    constexpr iterator& operator-=(difference_type n)
+      requires @\placeholdernc{Advanceable}@<W>;
+    constexpr W operator[](difference_type n) const
+      requires @\placeholdernc{Advanceable}@<W>;
+
+    friend constexpr bool operator==(const iterator& x, const iterator& y)
+      requires EqualityComparable<W>;
+    friend constexpr bool operator!=(const iterator& x, const iterator& y)
+      requires EqualityComparable<W>;
+
+    friend constexpr bool operator<(const iterator& x, const iterator& y)
+      requires StrictTotallyOrdered<W>;
+    friend constexpr bool operator>(const iterator& x, const iterator& y)
+      requires StrictTotallyOrdered<W>;
+    friend constexpr bool operator<=(const iterator& x, const iterator& y)
+      requires StrictTotallyOrdered<W>;
+    friend constexpr bool operator>=(const iterator& x, const iterator& y)
+      requires StrictTotallyOrdered<W>;
+
+    friend constexpr iterator operator+(iterator i, difference_type n)
+      requires @\placeholdernc{Advanceable}@<W>;
+    friend constexpr iterator operator+(difference_type n, iterator i)
+      requires @\placeholdernc{Advanceable}@<W>;
+
+    friend constexpr iterator operator-(iterator i, difference_type n)
+      requires @\placeholdernc{Advanceable}@<W>;
+    friend constexpr difference_type operator-(const iterator& x, const iterator& y)
+      requires @\placeholdernc{Advanceable}@<W>;
+  };
+}
+\end{codeblock}
+
+\pnum
+\tcode{iterator::iterator_category} is defined as follows:
+\begin{itemize}
+\item If \tcode{W} models \tcode{\placeholder{Advanceable}}, then
+\tcode{iterator_category} is \tcode{random_access_iterator_tag}.
+\item Otherwise, if \tcode{W} models \tcode{\placeholder{Decrementable}}, then
+\tcode{iterator_category} is \tcode{bidirectional_iterator_tag}.
+\item Otherwise, if \tcode{W} models \libconcept{Incrementable}, then
+\tcode{iterator_category} is \tcode{forward_iterator_tag}.
+\item Otherwise, \tcode{iterator_category} is \tcode{input_iterator_tag}.
+\end{itemize}
+
+\pnum
+\begin{note}
+Overloads for \tcode{iter_move} and \tcode{iter_swap} are omitted intentionally.
+\end{note}
+
+\indexlibrary{\idxcode{iterator}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+constexpr explicit iterator(W value);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Initializes \tcode{value_} with \tcode{value}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator*}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+constexpr W operator*() const noexcept(is_nothrow_copy_constructible_v<W>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return value_;}
+
+\pnum
+\begin{note}
+The \tcode{noexcept} clause is needed by the default \tcode{iter_move}
+implementation.
+\end{note}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator++}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+constexpr iterator& operator++();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to:
+\begin{codeblock}
+++value_;
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator++}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+constexpr void operator++(int);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to \tcode{++*this}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator++}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+constexpr iterator operator++(int) requires Incrementable<W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to:
+\begin{codeblock}
+auto tmp = *this;
+++*this;
+return tmp;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator\dcr}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+constexpr iterator& operator--() requires @\placeholdernc{Decrementable}@<W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to:
+\begin{codeblock}
+--value_;
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator\dcr}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+constexpr iterator operator--(int) requires @\placeholdernc{Decrementable}@<W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to:
+\begin{codeblock}
+auto tmp = *this;
+--*this;
+return tmp;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator+=}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+constexpr iterator& operator+=(difference_type n)
+  requires @\placeholdernc{Advanceable}@<W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to:
+\begin{codeblock}
+value_ += n;
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator-=}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+constexpr iterator& operator-=(difference_type n)
+  requires @\placeholdernc{Advanceable}@<W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to:
+\begin{codeblock}
+value_ -= n;
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator[]}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+constexpr W operator[](difference_type n) const
+  requires @\placeholdernc{Advanceable}@<W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return value_ + n;}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator==}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+friend constexpr bool operator==(const iterator& x, const iterator& y)
+  requires EqualityComparable<W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return x.value_ == y.value_;}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator!=}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+friend constexpr bool operator!=(const iterator& x, const iterator& y)
+  requires EqualityComparable<W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return !(x == y);}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+friend constexpr bool operator<(const iterator& x, const iterator& y)
+  requires StrictTotallyOrdered<W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return x.value_ < y.value_;}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+friend constexpr bool operator>(const iterator& x, const iterator& y)
+  requires StrictTotallyOrdered<W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return y < x;}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator<=}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+friend constexpr bool operator<=(const iterator& x, const iterator& y)
+  requires StrictTotallyOrdered<W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return !(y < x);}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator>=}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+friend constexpr bool operator>=(const iterator& x, const iterator& y)
+  requires StrictTotallyOrdered<W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return !(x < y);}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator+}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+friend constexpr iterator operator+(iterator i, difference_type n)
+  requires @\placeholdernc{Advanceable}@<W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return iterator\{i.value_ + n\};}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator+}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+friend constexpr iterator operator+(difference_type n, iterator i)
+  requires @\placeholdernc{Advanceable}@<W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return i + n;}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator-}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+friend constexpr iterator operator-(iterator i, difference_type n)
+  requires @\placeholdernc{Advanceable}@<W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return i + -n;}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator-}!\idxcode{iota_view::iterator}}
+\begin{itemdecl}
+friend constexpr difference_type operator-(const iterator& x, const iterator& y)
+  requires @\placeholdernc{Advanceable}@<W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return x.value_ - y.value_;}
+\end{itemdescr}
+
+\rSec3[range.iota.sentinel]{Class \tcode{iota_view::sentinel}}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<class W, class Bound>
+  struct iota_view<W, Bound>::sentinel {
+  private:
+    Bound bound_ = Bound();     // \expos
+  public:
+    sentinel() = default;
+    constexpr explicit sentinel(Bound bound);
+
+    friend constexpr bool operator==(const iterator& x, const sentinel& y);
+    friend constexpr bool operator==(const sentinel& x, const iterator& y);
+    friend constexpr bool operator!=(const iterator& x, const sentinel& y);
+    friend constexpr bool operator!=(const sentinel& x, const iterator& y);
+  };
+}
+\end{codeblock}
+
+\indexlibrary{\idxcode{sentinel}!\idxcode{iota_view::sentinel}}
+\begin{itemdecl}
+constexpr explicit sentinel(Bound bound);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Initializes \tcode{bound_} with \tcode{bound}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator==}!\idxcode{iota_view::sentinel}}
+\begin{itemdecl}
+friend constexpr bool operator==(const iterator& x, const sentinel& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return x.value_ == y.bound_;}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator==}!\idxcode{iota_view::sentinel}}
+\begin{itemdecl}
+friend constexpr bool operator==(const sentinel& x, const iterator& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return y == x;}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator!=}!\idxcode{iota_view::sentinel}}
+\begin{itemdecl}
+friend constexpr bool operator!=(const iterator& x, const sentinel& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return !(x == y);}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{operator!=}!\idxcode{iota_view::sentinel}}
+\begin{itemdecl}
+friend constexpr bool operator!=(const sentinel& x, const iterator& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return !(y == x);}
+\end{itemdescr}
+
+\rSec3[range.iota.adaptor]{\tcode{view::iota}}
+
+\pnum
+The name \tcode{view::iota} denotes a
+customization point object\iref{customization.point.object}.
+For some subexpressions \tcode{E} and \tcode{F}, the expressions
+\tcode{view::iota(E)} and \tcode{view::iota(E, F)}
+are expression-equivalent to
+\tcode{iota_view\{E\}} and \tcode{iota_view\{E, F\}}, respectively.
 
 \rSec1[range.adaptors]{Range adaptors}
 
@@ -2776,602 +3546,6 @@ For some subexpressions \tcode{E} and \tcode{F}, the expression
 \tcode{transform_view\{E, F\}}.
 
 
-\rSec2[range.iota]{Iota view}
-
-\rSec3[range.iota.overview]{Overview}
-
-\pnum
-\tcode{iota_view} generates a
-sequence of elements by repeatedly incrementing an initial value.
-
-\pnum
-\begin{example}
-\begin{codeblock}
-for (int i : iota_view{1, 10})
-  cout << i << ' '; // prints: 1 2 3 4 5 6 7 8 9
-\end{codeblock}
-\end{example}
-
-\rSec3[range.iota.view]{Class template \tcode{iota_view}}
-
-\begin{codeblock}
-namespace std::ranges {
-  template<class I>
-    concept @\placeholdernc{Decrementable}@ =     // \expos
-      @\seebelow@;
-  template<class I>
-    concept @\placeholdernc{Advanceable}@ =       // \expos
-      @\seebelow@;
-
-  template<WeaklyIncrementable W, Semiregular Bound = unreachable_sentinel_t>
-    requires @\placeholdernc{weakly-equality-comparable-with}@<W, Bound>
-  class iota_view : public view_interface<iota_view<W, Bound>> {
-  private:
-    struct iterator;            // \expos
-    struct sentinel;            // \expos
-    W value_ = W();             // \expos
-    Bound bound_ = Bound();     // \expos
-  public:
-    iota_view() = default;
-    constexpr explicit iota_view(W value);
-    constexpr iota_view(type_identity_t<W> value,
-                        type_identity_t<Bound> bound);
-
-    constexpr iterator begin() const;
-    constexpr sentinel end() const;
-    constexpr iterator end() const requires Same<W, Bound>;
-
-    constexpr auto size() const
-      requires (Same<W, Bound> && @\placeholdernc{Advanceable}@<W>) ||
-               (Integral<W> && Integral<Bound>) ||
-               SizedSentinel<Bound, W>
-    { return bound_ - value_; }
-  };
-
-  template<class W, class Bound>
-    requires (!Integral<W> || !Integral<Bound> || is_signed_v<W> == is_signed_v<Bound>)
-  iota_view(W, Bound) -> iota_view<W, Bound>;
-}
-\end{codeblock}
-
-\pnum
-The exposition-only \tcode{\placeholder{Decrementable}} concept is equivalent to:
-\begin{itemdecl}
-template<class I>
-  concept @\placeholder{Decrementable}@ =
-    Incrementable<I> && requires(I i) {
-      { --i } -> Same<I&>;
-      { i-- } -> Same<I>;
-    };
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-When an object is in the domain of both pre- and post-decrement,
-the object is said to be \term{decrementable}.
-
-\pnum
-Let \tcode{a} and \tcode{b} be equal objects of type \tcode{I}.
-\tcode{I} models \tcode{\placeholdernc{Decrementable}} only if
-\begin{itemize}
-\item If \tcode{a} and \tcode{b} are decrementable,
-  then the following are all true:
-  \begin{itemize}
-  \item \tcode{addressof(--a) == addressof(a)}
-  \item \tcode{bool(a-- == b)}
-  \item \tcode{bool(((void)a--, a) == --b)}
-  \item \tcode{bool(++(--a) == b)}.
-  \end{itemize}
-\item If \tcode{a} and \tcode{b} are incrementable,
-  then \tcode{bool(--(++a) == b)}.
-\end{itemize}
-\end{itemdescr}
-
-\pnum
-The exposition-only \tcode{\placeholder{Advanceable}} concept is equivalent to:
-\begin{itemdecl}
-template<class I>
-  concept @\placeholder{Advanceable}@ =
-    @\placeholdernc{Decrementable}@<I> && StrictTotallyOrdered<I> &&
-    requires(I i, const I j, const iter_difference_t<I> n) {
-      { i += n } -> Same<I&>;
-      { i -= n } -> Same<I&>;
-      { j +  n } -> Same<I>;
-      { n +  j } -> Same<I>;
-      { j -  n } -> Same<I>;
-      { j -  j } -> Same<iter_difference_t<I>>;
-    };
-\end{itemdecl}
-
-Let \tcode{a} and \tcode{b} be objects of type \tcode{I} such that
-\tcode{b} is reachable from \tcode{a}
-after \tcode{n} applications of \tcode{++a},
-for some value \tcode{n} of type \tcode{iter_difference_t<I>},
-and let \tcode{D} be \tcode{iter_difference_t<I>}.
-\tcode{I} models \tcode{\placeholdernc{Advanceable}} only if
-\begin{itemize}
-\item \tcode{(a += n)} is equal to \tcode{b}.
-\item \tcode{addressof(a += n)} is equal to \tcode{addressof(a)}.
-\item \tcode{(a + n)} is equal to \tcode{(a += n)}.
-\item For any two positive values
-  \tcode{x} and \tcode{y} of type \tcode{D},
-  if \tcode{(a + D(x + y))} is well-defined, then
-  \tcode{(a + D(x + y))} is equal to \tcode{((a + x) + y)}.
-\item \tcode{(a + D(0))} is equal to \tcode{a}.
-\item If \tcode{(a + D(n - 1))} is well-defined, then
-  \tcode{(a + n)} is equal to \tcode{++(a + D(n - 1))}.
-\item \tcode{(b += -n)} is equal to \tcode{a}.
-\item \tcode{(b -= n)} is equal to \tcode{a}.
-\item \tcode{addressof(b -= n)} is equal to \tcode{addressof(b)}.
-\item \tcode{(b - n)} is equal to \tcode{(b -= n)}.
-\item \tcode{(b - a)} is equal to \tcode{n}.
-\item \tcode{(a - b)} is equal to \tcode{-n}.
-\item \tcode{bool(a <= b)} is \tcode{true}.
-\end{itemize}
-
-\indexlibrary{\idxcode{iota_view}!\idxcode{iota_view}}%
-\begin{itemdecl}
-constexpr explicit iota_view(W value);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\expects
-\tcode{Bound} denotes \tcode{unreachable_sentinel_t} or
-\tcode{Bound()} is reachable from \tcode{value}.
-
-\pnum
-\effects Initializes \tcode{value_} with \tcode{value}.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{iota_view}!\idxcode{iota_view}}%
-\begin{itemdecl}
-constexpr iota_view(type_identity_t<W> value, type_identity_t<Bound> bound);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\expects
-\tcode{Bound} denotes \tcode{unreachable_sentinel_t} or
-\tcode{bound} is reachable from \tcode{value}.
-
-\pnum
-\effects Initializes \tcode{value_} with \tcode{value} and
-\tcode{bound_} with \tcode{bound}.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{begin}!\idxcode{iota_view}}%
-\begin{itemdecl}
-constexpr iterator begin() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return iterator\{value_\};}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{end}!\idxcode{iota_view}}%
-\begin{itemdecl}
-constexpr sentinel end() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return sentinel\{bound_\};}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{end}!\idxcode{iota_view}}%
-\begin{itemdecl}
-constexpr iterator end() const requires Same<W, Bound>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return iterator\{bound_\};}
-\end{itemdescr}
-
-\rSec3[range.iota.iterator]{Class \tcode{iota_view::iterator}}
-
-\begin{codeblock}
-namespace std::ranges {
-  template<class W, class Bound>
-  struct iota_view<W, Bound>::iterator {
-  private:
-    W value_ = W();             // \expos
-  public:
-    using iterator_category = @\seebelow@;
-    using value_type = W;
-    using difference_type = iter_difference_t<W>;
-
-    iterator() = default;
-    constexpr explicit iterator(W value);
-
-    constexpr W operator*() const noexcept(is_nothrow_copy_constructible_v<W>);
-
-    constexpr iterator& operator++();
-    constexpr void operator++(int);
-    constexpr iterator operator++(int) requires Incrementable<W>;
-
-    constexpr iterator& operator--() requires @\placeholdernc{Decrementable}@<W>;
-    constexpr iterator operator--(int) requires @\placeholdernc{Decrementable}@<W>;
-
-    constexpr iterator& operator+=(difference_type n)
-      requires @\placeholdernc{Advanceable}@<W>;
-    constexpr iterator& operator-=(difference_type n)
-      requires @\placeholdernc{Advanceable}@<W>;
-    constexpr W operator[](difference_type n) const
-      requires @\placeholdernc{Advanceable}@<W>;
-
-    friend constexpr bool operator==(const iterator& x, const iterator& y)
-      requires EqualityComparable<W>;
-    friend constexpr bool operator!=(const iterator& x, const iterator& y)
-      requires EqualityComparable<W>;
-
-    friend constexpr bool operator<(const iterator& x, const iterator& y)
-      requires StrictTotallyOrdered<W>;
-    friend constexpr bool operator>(const iterator& x, const iterator& y)
-      requires StrictTotallyOrdered<W>;
-    friend constexpr bool operator<=(const iterator& x, const iterator& y)
-      requires StrictTotallyOrdered<W>;
-    friend constexpr bool operator>=(const iterator& x, const iterator& y)
-      requires StrictTotallyOrdered<W>;
-
-    friend constexpr iterator operator+(iterator i, difference_type n)
-      requires @\placeholdernc{Advanceable}@<W>;
-    friend constexpr iterator operator+(difference_type n, iterator i)
-      requires @\placeholdernc{Advanceable}@<W>;
-
-    friend constexpr iterator operator-(iterator i, difference_type n)
-      requires @\placeholdernc{Advanceable}@<W>;
-    friend constexpr difference_type operator-(const iterator& x, const iterator& y)
-      requires @\placeholdernc{Advanceable}@<W>;
-  };
-}
-\end{codeblock}
-
-\pnum
-\tcode{iterator::iterator_category} is defined as follows:
-\begin{itemize}
-\item If \tcode{W} models \tcode{\placeholder{Advanceable}}, then
-\tcode{iterator_category} is \tcode{random_access_iterator_tag}.
-\item Otherwise, if \tcode{W} models \tcode{\placeholder{Decrementable}}, then
-\tcode{iterator_category} is \tcode{bidirectional_iterator_tag}.
-\item Otherwise, if \tcode{W} models \libconcept{Incrementable}, then
-\tcode{iterator_category} is \tcode{forward_iterator_tag}.
-\item Otherwise, \tcode{iterator_category} is \tcode{input_iterator_tag}.
-\end{itemize}
-
-\pnum
-\begin{note}
-Overloads for \tcode{iter_move} and \tcode{iter_swap} are omitted intentionally.
-\end{note}
-
-\indexlibrary{\idxcode{iterator}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-constexpr explicit iterator(W value);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Initializes \tcode{value_} with \tcode{value}.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator*}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-constexpr W operator*() const noexcept(is_nothrow_copy_constructible_v<W>);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return value_;}
-
-\pnum
-\begin{note}
-The \tcode{noexcept} clause is needed by the default \tcode{iter_move}
-implementation.
-\end{note}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator++}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-constexpr iterator& operator++();
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to:
-\begin{codeblock}
-++value_;
-return *this;
-\end{codeblock}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator++}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-constexpr void operator++(int);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to \tcode{++*this}.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator++}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-constexpr iterator operator++(int) requires Incrementable<W>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to:
-\begin{codeblock}
-auto tmp = *this;
-++*this;
-return tmp;
-\end{codeblock}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator\dcr}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-constexpr iterator& operator--() requires @\placeholdernc{Decrementable}@<W>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to:
-\begin{codeblock}
---value_;
-return *this;
-\end{codeblock}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator\dcr}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-constexpr iterator operator--(int) requires @\placeholdernc{Decrementable}@<W>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to:
-\begin{codeblock}
-auto tmp = *this;
---*this;
-return tmp;
-\end{codeblock}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator+=}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-constexpr iterator& operator+=(difference_type n)
-  requires @\placeholdernc{Advanceable}@<W>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to:
-\begin{codeblock}
-value_ += n;
-return *this;
-\end{codeblock}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator-=}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-constexpr iterator& operator-=(difference_type n)
-  requires @\placeholdernc{Advanceable}@<W>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to:
-\begin{codeblock}
-value_ -= n;
-return *this;
-\end{codeblock}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator[]}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-constexpr W operator[](difference_type n) const
-  requires @\placeholdernc{Advanceable}@<W>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return value_ + n;}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator==}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-friend constexpr bool operator==(const iterator& x, const iterator& y)
-  requires EqualityComparable<W>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return x.value_ == y.value_;}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator!=}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-friend constexpr bool operator!=(const iterator& x, const iterator& y)
-  requires EqualityComparable<W>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return !(x == y);}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator<}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-friend constexpr bool operator<(const iterator& x, const iterator& y)
-  requires StrictTotallyOrdered<W>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return x.value_ < y.value_;}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator>}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-friend constexpr bool operator>(const iterator& x, const iterator& y)
-  requires StrictTotallyOrdered<W>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return y < x;}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator<=}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-friend constexpr bool operator<=(const iterator& x, const iterator& y)
-  requires StrictTotallyOrdered<W>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return !(y < x);}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator>=}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-friend constexpr bool operator>=(const iterator& x, const iterator& y)
-  requires StrictTotallyOrdered<W>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return !(x < y);}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator+}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-friend constexpr iterator operator+(iterator i, difference_type n)
-  requires @\placeholdernc{Advanceable}@<W>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return iterator\{i.value_ + n\};}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator+}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-friend constexpr iterator operator+(difference_type n, iterator i)
-  requires @\placeholdernc{Advanceable}@<W>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return i + n;}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator-}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-friend constexpr iterator operator-(iterator i, difference_type n)
-  requires @\placeholdernc{Advanceable}@<W>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return i + -n;}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator-}!\idxcode{iota_view::iterator}}
-\begin{itemdecl}
-friend constexpr difference_type operator-(const iterator& x, const iterator& y)
-  requires @\placeholdernc{Advanceable}@<W>;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return x.value_ - y.value_;}
-\end{itemdescr}
-
-\rSec3[range.iota.sentinel]{Class \tcode{iota_view::sentinel}}
-
-\begin{codeblock}
-namespace std::ranges {
-  template<class W, class Bound>
-  struct iota_view<W, Bound>::sentinel {
-  private:
-    Bound bound_ = Bound();     // \expos
-  public:
-    sentinel() = default;
-    constexpr explicit sentinel(Bound bound);
-
-    friend constexpr bool operator==(const iterator& x, const sentinel& y);
-    friend constexpr bool operator==(const sentinel& x, const iterator& y);
-    friend constexpr bool operator!=(const iterator& x, const sentinel& y);
-    friend constexpr bool operator!=(const sentinel& x, const iterator& y);
-  };
-}
-\end{codeblock}
-
-\indexlibrary{\idxcode{sentinel}!\idxcode{iota_view::sentinel}}
-\begin{itemdecl}
-constexpr explicit sentinel(Bound bound);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Initializes \tcode{bound_} with \tcode{bound}.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator==}!\idxcode{iota_view::sentinel}}
-\begin{itemdecl}
-friend constexpr bool operator==(const iterator& x, const sentinel& y);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return x.value_ == y.bound_;}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator==}!\idxcode{iota_view::sentinel}}
-\begin{itemdecl}
-friend constexpr bool operator==(const sentinel& x, const iterator& y);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return y == x;}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator!=}!\idxcode{iota_view::sentinel}}
-\begin{itemdecl}
-friend constexpr bool operator!=(const iterator& x, const sentinel& y);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return !(x == y);}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{operator!=}!\idxcode{iota_view::sentinel}}
-\begin{itemdecl}
-friend constexpr bool operator!=(const sentinel& x, const iterator& y);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return !(y == x);}
-\end{itemdescr}
-
-\rSec3[range.iota.adaptor]{\tcode{view::iota}}
-
-\pnum
-The name \tcode{view::iota} denotes a
-customization point object\iref{customization.point.object}.
-For some subexpressions \tcode{E} and \tcode{F}, the expressions
-\tcode{view::iota(E)} and \tcode{view::iota(E, F)}
-are expression-equivalent to
-\tcode{iota_view\{E\}} and \tcode{iota_view\{E, F\}}, respectively.
-
-
 \rSec2[range.take]{Take view}
 
 \rSec3[range.take.overview]{Overview}
@@ -4104,175 +4278,6 @@ range adaptor object\iref{range.adaptor.object}.
 For some subexpression \tcode{E}, the expression
 \tcode{view::join(E)} is expression-equivalent to
 \tcode{join_view\{E\}}.
-
-
-\rSec2[range.empty]{Empty view}
-
-\rSec3[range.empty.overview]{Overview}
-
-\pnum
-\tcode{empty_view} produces a \libconcept{View} of no elements of
-a particular type.
-
-\pnum
-\begin{example}
-\begin{codeblock}
-empty_view<int> e;
-static_assert(ranges::empty(e));
-static_assert(0 == e.size());
-\end{codeblock}
-\end{example}
-
-\rSec3[range.empty.view]{Class template \tcode{empty_view}}
-
-\begin{codeblock}
-namespace std::ranges {
-  template<class T>
-    requires is_object_v<T>
-  class empty_view : public view_interface<empty_view<T>> {
-  public:
-    static constexpr T* begin() noexcept { return nullptr; }
-    static constexpr T* end() noexcept { return nullptr; }
-    static constexpr T* data() noexcept { return nullptr; }
-    static constexpr ptrdiff_t size() noexcept { return 0; }
-    static constexpr bool empty() noexcept { return true; }
-
-    friend constexpr T* begin(empty_view) noexcept { return nullptr; }
-    friend constexpr T* end(empty_view) noexcept { return nullptr; }
-  };
-}
-\end{codeblock}
-
-
-\rSec2[range.single]{Single view}
-
-\rSec3[range.single.overview]{Overview}
-
-\pnum
-\tcode{single_view} produces a \libconcept{View} that contains
-exactly one element of a specified value.
-
-\pnum
-\begin{example}
-\begin{codeblock}
-single_view s{4};
-for (int i : s)
-  cout << i; // prints 4
-\end{codeblock}
-\end{example}
-
-\rSec3[range.single.view]{Class template \tcode{single_view}}
-
-\begin{codeblock}
-namespace std::ranges {
-  template<CopyConstructible T>
-    requires is_object_v<T>
-  class single_view : public view_interface<single_view<T>> {
-  private:
-    @\placeholdernc{semiregular}@<T> value_;      // \expos
-  public:
-    single_view() = default;
-    constexpr explicit single_view(const T& t);
-    constexpr explicit single_view(T&& t);
-    template<class... Args>
-      requires Constructible<T, Args...>
-    constexpr single_view(in_place_t, Args&&... args);
-
-    constexpr T* begin() noexcept;
-    constexpr const T* begin() const noexcept;
-    constexpr T* end() noexcept;
-    constexpr const T* end() const noexcept;
-    static constexpr ptrdiff_t size() noexcept;
-    constexpr T* data() noexcept;
-    constexpr const T* data() const noexcept;
-  };
-}
-\end{codeblock}
-
-\indexlibrary{\idxcode{single_view}!\idxcode{single_view}}%
-\begin{itemdecl}
-constexpr explicit single_view(const T& t);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Initializes \tcode{value_} with \tcode{t}.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{single_view}!\idxcode{single_view}}%
-\begin{itemdecl}
-constexpr explicit single_view(T&& t);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Initializes \tcode{value_} with \tcode{std::move(t)}.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{single_view}!\idxcode{single_view}}%
-\begin{itemdecl}
-template<class... Args>
-constexpr single_view(in_place_t, Args&&... args);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Initializes \tcode{value_} as if by
-\tcode{value_\{in_place, std::forward<Args>(args)...\}}.
-\end{itemdescr}
-
-\indexlibrary{\idxcode{begin}!\idxcode{single_view}}%
-\begin{itemdecl}
-constexpr T* begin() noexcept;
-constexpr const T* begin() const noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return data();}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{end}!\idxcode{single_view}}%
-\begin{itemdecl}
-constexpr T* end() noexcept;
-constexpr const T* end() const noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return data() + 1;}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{size}!\idxcode{single_view}}%
-\begin{itemdecl}
-static constexpr ptrdiff_t size() noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return 1;}
-\end{itemdescr}
-
-\indexlibrary{\idxcode{data}!\idxcode{single_view}}%
-\begin{itemdecl}
-constexpr T* data() noexcept;
-constexpr const T* data() const noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects Equivalent to: \tcode{return value_.operator->();}
-\end{itemdescr}
-
-\rSec3[range.single.adaptor]{\tcode{view::single}}
-
-\pnum
-The name \tcode{view::single} denotes a
-customization point object\iref{customization.point.object}.
-For some subexpression \tcode{E}, the expression
-\tcode{view::single(E)} is expression-equivalent to
-\tcode{single_view\{E\}}.
-
 
 \rSec2[range.split]{Split view}
 
