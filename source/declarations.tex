@@ -817,6 +817,9 @@ its return type shall be a literal type;
 each of its parameter types shall be a literal type;
 
 \item
+it shall not be a coroutine\iref{dcl.fct.def.coroutine};
+
+\item
 its \grammarterm{function-body} shall not enclose\iref{stmt.stmt}
 \begin{itemize}
 \item an \grammarterm{asm-definition},
@@ -1816,6 +1819,10 @@ auto frf(int i) { return i; }                   // not a friend of \tcode{A<int>
 \pnum
 A function declared with a return type that uses a placeholder type shall not
 be \tcode{virtual}\iref{class.virtual}.
+
+\pnum
+A function declared with a return type that uses a placeholder type shall not
+be a coroutine\iref{dcl.fct.def.coroutine}.
 
 \pnum
 An explicit instantiation declaration\iref{temp.explicit} does not cause the
@@ -6207,6 +6214,226 @@ sometype::sometype() = delete;  // ill-formed; not first declaration
 \end{codeblock}
 \end{example}%
 \indextext{definition!function|)}
+
+\rSec2[dcl.fct.def.coroutine]{Coroutine definitions}%
+\indextext{definition!coroutine}%
+
+\pnum
+A function is a \defn{coroutine} if it contains a
+\grammarterm{coroutine-return-statement}\iref{stmt.return.coroutine},
+an \grammarterm{await-expression}\iref{expr.await},
+or a \grammarterm{yield-expression}\iref{expr.yield}.
+The \grammarterm{parameter-declaration-clause} of the coroutine shall not
+terminate with an ellipsis that is not part of
+a \grammarterm{parameter-declaration}.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+task<int> f();
+
+task<void> g1() {
+  int i = co_await f();
+  std::cout << "f() => " << i << std::endl;
+}
+
+template <typename... Args>
+task<void> g2(Args&&...) {      // OK, ellipsis is a pack expansion
+  int i = co_await f();
+  std::cout << "f() => " << i << std::endl;
+}
+
+task<void> g3(int a, ...) {     // error: variable parameter list not allowed
+  int i = co_await f();
+  std::cout << "f() => " << i << std::endl;
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+For a coroutine \placeholder{f} that is a non-static member function, let
+$\placeholder{P}_1$ denote the type of the implicit object
+parameter\iref{over.match.funcs} and
+$\placeholder{P}_2 \dotsc \placeholder{P}_n$ be the types of the function
+parameters;
+otherwise let $\placeholder{P}_1 \dotsc \placeholder{P}_n$ be the types of
+the function parameters.
+Let $\placeholder{p}_1 \dotsc \placeholder{p}_n$ be lvalues denoting those
+objects.
+Let \placeholder{R} be the return type and \placeholder{F} be the
+\grammarterm{function-body} of \placeholder{f}, \placeholder{T} be the type
+\tcode{std::coroutine_traits<$\placeholder{R}$, $\placeholder{P}_1$, $\dotsc$, $\placeholder{P}_n$>},
+and \placeholder{S} be the class type denoted by
+\placeholder{T}\tcode{::promise_type}.
+Then, the coroutine behaves as if its body were:
+\begin{codeblock}
+{
+  @\placeholder{S} \placeholder{s} \placeholder{promise-constructor-arguments}@;
+  co_await @\placeholder{s}@.initial_suspend(); // initial suspend point
+  try { @\placeholder{F}@ } catch(...) { @\placeholder{s}@.unhandled_exception(); }
+@\placeholder{final-suspend}@:
+  co_await @\placeholdernc{p}@.final_suspend(); // final suspend point
+}
+\end{codeblock}
+where an object denoted as \placeholder{s} is the \defn{promise object} of
+the coroutine and its type \placeholder{S} is the \defn{promise type}
+of the coroutine,
+and \placeholder{promise-constructor-arguments} is determined as follows:
+overload resolution is performed on a promise constructor call created by
+assembling an argument list with lvalues $p_1 \dotsc p_n$. If a viable
+constructor is found\iref{over.match.viable}, then
+\placeholder{promise-constructor-arguments} is
+\tcode{($\placeholder{p}_1$, $\dotsc$, $\placeholder{p}_n$)}, otherwise
+\placeholder{promise-constructor-arguments} is empty.
+
+\pnum
+The \grammarterm{unqualified-id}{s} \tcode{return_void}
+and \tcode{return_value} are looked up in the scope of class \placeholder{S}.
+If both are found, the program is ill-formed.
+\begin{note}
+If the \grammarterm{unqualified-id} \tcode{return_void} is found, flowing off
+the end of a coroutine is equivalent to a \tcode{co_return} with no operand.
+Otherwise, flowing off the end of a coroutine
+results in undefined behavior\iref{stmt.return.coroutine}.
+\end{note}
+
+\pnum
+When a coroutine returns to its caller, the return value is produced by a call
+to \mbox{\tcode{\placeholder{s}.get_return_object()}}. A call to a
+\tcode{get_return_object} is sequenced before the call to
+\mbox{\tcode{initial_suspend}} and is invoked at most once.
+
+\pnum
+A suspended coroutine can be resumed to continue execution by invoking
+a resumption member function\iref{coroutine.handle.resumption} of an object of
+type \tcode{coroutine_handle<\placeholder{S}>} associated with this instance
+of the coroutine. The function that invoked a resumption member function is
+called the \term{resumer}. Invoking a resumption member function for a coroutine
+that is not suspended results in undefined behavior.
+
+\pnum
+An implementation may need to allocate additional storage for a coroutine.
+This storage is known as the \defn{coroutine state} and is obtained by calling
+a non-array allocation function\iref{basic.stc.dynamic.allocation}.
+The allocation function's name is looked up in the scope of \placeholder{S}.
+If this lookup fails, the allocation function's name is looked up in the
+global scope.
+If the lookup finds an allocation function in the scope of \placeholder{S},
+overload resolution is performed on a function call created by assembling an
+argument list. The first argument is the amount of space requested, and has
+type \tcode{std::size_t}. The lvalues $p_1 \dotsc p_n$ are the succeeding
+arguments. If no viable function is found\iref{over.match.viable}, overload
+resolution is performed again on a function call created by passing just the
+amount of space required as an argument of type \tcode{std::size_t}.
+
+\pnum
+The \grammarterm{unqualified-id} \tcode{get_return_object_on_allocation_failure}
+is looked up in the scope of class \placeholder{S} by class member access
+lookup\iref{basic.lookup.classref}. If a declaration is found, then the result
+of a call to an allocation function used to obtain storage for the coroutine
+state is assumed to return \tcode{nullptr} if it fails to obtain storage, and
+if a global allocation function is selected, the
+\tcode{::operator new(size_t, nothrow_t)} form shall be used.
+If an allocation function returns \tcode{nullptr}, the coroutine returns
+control to the caller of the coroutine and the return value is obtained by a
+call to \placeholder{S}\tcode{::get_return_object_on_allocation_failure()}.
+The allocation function used in this case must have a non-throwing
+\grammarterm{noexcept-specification}.
+
+\begin{example}
+\begin{codeblock}
+#include <iostream>
+#include <coroutine>
+
+// \tcode{::operator new(size_t, nothrow_t)} will be used if allocation is needed
+struct generator {
+  struct promise_type;
+  using handle = std::coroutine_handle<promise_type>;
+  struct promise_type {
+    int current_value;
+    static auto get_return_object_on_allocation_failure() { return generator{nullptr}; }
+    auto get_return_object() { return generator{handle::from_promise(*this)}; }
+    auto initial_suspend() { return std::suspend_always{}; }
+    auto final_suspend() { return std::suspend_always{}; }
+    void unhandled_exception() { std::terminate(); }
+    void return_void() {}
+    auto yield_value(int value) {
+      current_value = value;
+      return std::suspend_always{};
+    }
+  };
+  bool move_next() { return coro ? (coro.resume(), !coro.done()) : false; }
+  int current_value() { return coro.promise().current_value; }
+  generator(generator const&) = delete;
+  generator(generator && rhs) : coro(rhs.coro) { rhs.coro = nullptr; }
+  ~generator() { if (coro) coro.destroy(); }
+private:
+  generator(handle h) : coro(h) {}
+  handle coro;
+};
+generator f() { co_yield 1; co_yield 2; }
+int main() {
+  auto g = f();
+  while (g.move_next()) std::cout << g.current_value() << std::endl;
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+The coroutine state is destroyed when control flows off the end of the
+coroutine or the \tcode{destroy} member
+function\iref{coroutine.handle.resumption} of an object of type
+\tcode{std::coroutine_handle<\placeholder{S}>} associated with this coroutine
+is invoked. In the latter case objects with automatic storage duration that
+are in scope at the suspend point are destroyed in the reverse order of the
+construction. The storage for the coroutine state is released by calling a
+non-array deallocation function\iref{basic.stc.dynamic.deallocation}.
+If \tcode{destroy} is called for a coroutine that is not suspended, the
+program has undefined behavior.
+
+\pnum
+The deallocation function's name is looked up in the scope of \placeholder{S}.
+If this lookup fails, the deallocation function's name is looked up in the
+global scope. If deallocation function lookup finds both a usual deallocation
+function with only a pointer parameter and a usual deallocation function with
+both a pointer parameter and a size parameter, then the selected deallocation
+function shall be the one with two parameters. Otherwise, the selected
+deallocation function shall be the function with one parameter. If no usual
+deallocation function is found, the program is ill-formed.
+The selected deallocation function shall be called with the address of the
+block of storage to be reclaimed as its first argument. If a deallocation
+function with a parameter of type \tcode{std::size_t} is used, the size of
+the block is passed as the corresponding argument.
+
+\pnum
+When a coroutine is invoked, a copy is created for each coroutine parameter.
+Each such copy is an object with automatic storage duration that is
+direct-initialized from an lvalue referring to the corresponding parameter if
+the parameter is an lvalue reference, and from an xvalue referring to it
+otherwise. A reference to a parameter in the function-body of the coroutine
+and in the call to the coroutine promise constructor is replaced by a
+reference to its copy.
+The initialization and destruction of each parameter copy occurs in the
+context of the called coroutine.
+Initializations of parameter copies are sequenced before the call to the
+coroutine promise constructor and indeterminately sequenced with respect to
+each other.
+The lifetime of parameter copies ends immediately after the lifetime of the
+coroutine promise object ends.
+\begin{note}
+If a coroutine has a parameter passed by reference, resuming the coroutine
+after the lifetime of the entity referred to by that parameter has ended is
+likely to result in undefined behavior.
+\end{note}
+
+\pnum
+If the evaluation of the expression
+\placeholdernc{p}\tcode{.unhandled_exception()} exits via an exception,
+the coroutine is considered suspended at the final suspend point.
+
+\pnum
+The expression \tcode{co_await} \placeholdernc{p}\tcode{.final_suspend()}
+shall not be potentially-throwing\iref{except.spec}.
 
 \rSec1[dcl.struct.bind]{Structured binding declarations}%
 \indextext{structured binding declaration}%
