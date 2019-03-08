@@ -810,7 +810,7 @@ its return type shall be a literal type;
 each of its parameter types shall be a literal type;
 
 \item
-its \grammarterm{function-body} shall not contain
+its \grammarterm{function-body} shall not enclose\iref{stmt.stmt}
 \begin{itemize}
 \item an \grammarterm{asm-definition},
 \item a \tcode{goto} statement,
@@ -822,7 +822,7 @@ for which no initialization is performed.
 \end{itemize}
 \begin{note}
 A \grammarterm{function-body} that is \tcode{= delete} or \tcode{= default}
-contains none of the above.
+encloses none of the above.
 \end{note}
 \end{itemize}
 
@@ -955,7 +955,7 @@ non-constexpr function in all respects except that
 a call to a constexpr
 function can appear in a constant expression\iref{expr.const} and
 \item
-copy elision is mandatory in a constant expression\iref{class.copy.elision}.
+copy elision is not performed in a constant expression\iref{class.copy.elision}.
 \end{itemize}
 
 \pnum
@@ -1310,8 +1310,11 @@ A \grammarterm{type-specifier} of the form
 \opt{\tcode{typename}} \opt{\grammarterm{nested-name-specifier}} \grammarterm{template-name}
 is a placeholder for
 a deduced class type\iref{dcl.type.class.deduct}.
-The \grammarterm{template-name} shall name a class template
-that is not an injected-class-name.
+The \grammarterm{template-name} shall name a class template.
+\begin{note}
+An injected-class-name is never interpreted as a \grammarterm{template-name}
+in contexts where class template argument deduction would be performed\iref{temp.local}.
+\end{note}
 The other
 \grammarterm{simple-type-specifier}{s}
 specify either a previously-declared type, a type determined from an
@@ -4469,13 +4472,18 @@ shall not appear in multiple \grammarterm{designator}{s} of a
 \pnum
 An object whose initialization has completed
 is deemed to be constructed,
-even if no constructor of the object's class
+even if the object is of non-class type or
+no constructor of the object's class
 is invoked for the initialization.
 \begin{note}
 Such an object might have been value-initialized
 or initialized by aggregate initialization\iref{dcl.init.aggr}
 or by an inherited constructor\iref{class.inhctor.init}.
 \end{note}
+Destroying an object of class type invokes the destructor of the class.
+Destroying a scalar type has no effect other than
+ending the lifetime of the object\iref{basic.life}.
+Destroying an array destroys each element in reverse subscript order.
 
 \pnum
 A declaration that specifies the initialization of a variable,
@@ -4804,7 +4812,7 @@ is ill-formed.
 \end{example}
 
 \pnum
-If a reference member is initialized from its default member initializer
+If a member has a default member initializer
 and a potentially-evaluated subexpression thereof is an aggregate
 initialization that would use that default member initializer,
 the program is ill-formed.
@@ -4817,6 +4825,10 @@ the program is ill-formed.
     const A& a2 { A{} };        // error
   };
   A a{a,a};                     // OK
+
+  struct B {
+    int n = B{}.n;              // error
+  };
 \end{codeblock}
 \end{example}
 
@@ -5166,29 +5178,17 @@ extern int& r2;                 // OK
 Given types ``\cvqual{cv1} \tcode{T1}'' and ``\cvqual{cv2} \tcode{T2}'',
 ``\cvqual{cv1} \tcode{T1}'' is \defn{reference-related} to
 ``\cvqual{cv2} \tcode{T2}'' if
-\tcode{T1} is the same type as \tcode{T2}, or
+\tcode{T1} is similar\iref{conv.qual} to \tcode{T2}, or
 \tcode{T1} is a base class of \tcode{T2}.
 ``\cvqual{cv1} \tcode{T1}'' is \defn{reference-compatible}
 with ``\cvqual{cv2} \tcode{T2}'' if
-\begin{itemize}
-\item \tcode{T1} is reference-related to \tcode{T2}, or
-\item \tcode{T2} is ``\tcode{noexcept} function'' and \tcode{T1} is ``function'',
-where the function types are otherwise the same,
-\end{itemize}
-and
-\cvqual{cv1}
-is the same cv-qualification as, or greater cv-qualification than,
-\cvqual{cv2}.
-In all cases where the reference-related or reference-compatible relationship
-of two types is used to establish the validity of a reference binding, and
-\tcode{T1}
-is a base class of
-\tcode{T2},
-a program that necessitates such a binding is ill-formed if
-\tcode{T1}
-is an inaccessible\iref{class.access} or ambiguous\iref{class.member.lookup}
-base class of
-\tcode{T2}.
+a prvalue of type ``pointer to \cvqual{cv2} \tcode{T2}'' can be converted to
+the type ``pointer to \cvqual{cv1} \tcode{T1}''
+via a standard conversion sequence\iref{conv}.
+In all cases where the reference-compatible relationship
+of two types is used to establish the validity of a reference binding and
+the standard conversion sequence would be ill-formed,
+a program that necessitates such a binding is ill-formed.
 
 \pnum
 A reference to type ``\cvqual{cv1} \tcode{T1}'' is initialized by
@@ -5586,9 +5586,7 @@ int x2 {2.0};                       // error: narrowing
 
 \item Otherwise, if \tcode{T} is a reference type, a prvalue of the type
 referenced by \tcode{T} is generated.
-The prvalue initializes its result object by
-copy-list-initialization or direct-list-initialization,
-depending on the kind of initialization for the reference.
+The prvalue initializes its result object by copy-list-initialization.
 The prvalue is then used to direct-initialize the reference.
 \begin{note} As usual, the binding will fail and the program is ill-formed if
 the reference type is an lvalue reference to a non-const type. \end{note}
@@ -5606,6 +5604,10 @@ S& r3 = { 1, 2, 3 };                // error: initializer is not an lvalue
 const int& i1 = { 1 };              // OK
 const int& i2 = { 1.1 };            // error: narrowing
 const int (&iar)[2] = { 1, 2 };     // OK: \tcode{iar} is bound to temporary array
+
+struct A { } a;
+struct B { explicit B(const A&); };
+const B &b2{a};                     // error: cannot copy-list-initialize \tcode{B} temporary from \tcode{A}
 \end{codeblock}
 \end{example}
 
@@ -8780,15 +8782,19 @@ no \grammarterm{attribute-argument-clause} shall be present.
 
 \pnum
 The attribute may be applied to the declaration of a class,
-a \grammarterm{typedef-name}, a variable, a non-static data member,
+a \grammarterm{typedef-name},
+a variable (including a structured binding declaration),
+a non-static data member,
 a function, an enumeration, or an enumerator.
 
 \pnum
-\begin{note}
-For an entity marked \tcode{maybe_unused}, implementations
-should not emit a warning that the entity is unused, or
-that the entity is used despite the presence of the attribute.
-\end{note}
+For an entity marked \tcode{maybe_unused},
+implementations should not emit a warning
+that the entity or its structured bindings (if any)
+are used or unused.
+For a structured binding declaration not marked \tcode{maybe_unused},
+implementations should not emit such a warning unless
+all of its structured bindings are unused.
 
 \pnum
 A name or entity declared without the \tcode{maybe_unused} attribute
