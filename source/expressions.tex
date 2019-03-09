@@ -284,32 +284,26 @@ is ill-formed~(\ref{expr.ass}, \ref{expr.post.incr}, \ref{expr.pre.incr}).
 
 \pnum
 If a program attempts to access the stored value of an object through a glvalue
-of other than one of the following types the behavior is
+whose type is not similar\iref{conv.qual} to
+one of the following types the behavior is
 undefined:\footnote{The intent of this list is to specify those circumstances in which an
 object may or may not be aliased.}
 \begin{itemize}
 \item the dynamic type of the object,
 
-\item a cv-qualified version of the dynamic type of the object,
-
-\item a type similar (as defined in~\ref{conv.qual}) to the dynamic type
-of the object,
-
 \item a type that is the signed or unsigned type corresponding to the
-dynamic type of the object,
-
-\item a type that is the signed or unsigned type corresponding to a
-cv-qualified version of the dynamic type of the object,
-
-\item an aggregate or union type that includes one of the aforementioned types among its
-elements or non-static data members (including, recursively, an element or non-static data member of a
-subaggregate or contained union),
-
-\item a type that is a (possibly cv-qualified) base class type of the dynamic type of
-the object,
+dynamic type of the object, or
 
 \item a \tcode{char}, \tcode{unsigned char}, or \tcode{std::byte} type.
 \end{itemize}
+If a program invokes
+a defaulted copy/move constructor or copy/move assignment operator
+for a union of type \tcode{U} with a glvalue argument
+that does not denote an object of type \cv{}~\tcode{U} within its lifetime,
+the behavior is undefined.
+\begin{note}
+Unlike in C, \Cpp{} has no accesses of class type.
+\end{note}
 
 \rSec2[expr.type]{Type}
 
@@ -386,8 +380,23 @@ of \tcode{T1} and \tcode{T2} or the cv-combined type of \tcode{T2} and \tcode{T1
 respectively;
 
 \item
-if \tcode{T1} is ``pointer to member of \tcode{C1} of type \cvqual{cv1} \tcode{U1}'' and \tcode{T2} is
-``pointer to member of \tcode{C2} of type \cvqual{cv2} \tcode{U2}'' where \tcode{C1} is
+if \tcode{T1} or \tcode{T2} is
+``pointer to member of \tcode{C1} of type function'',
+the other type is
+``pointer to member of \tcode{C2} of type \tcode{noexcept} function'', and
+\tcode{C1} is reference-related to \tcode{C1} or
+\tcode{C2} is reference-related to \tcode{C1}\iref{dcl.init.ref},
+where the function types are otherwise the same,
+``pointer to member of \tcode{C2} of type function'' or
+``pointer to member of \tcode{C1} of type function'', respectively;
+
+\item
+if \tcode{T1} is
+``pointer to member of \tcode{C1} of type \cvqual{cv1} \tcode{U}'' and
+\tcode{T2} is
+``pointer to member of \tcode{C2} of type \cvqual{cv2} \tcode{U}'',
+for some non-function type \tcode{U},
+where \tcode{C1} is
 reference-related to \tcode{C2} or \tcode{C2} is reference-related to
 \tcode{C1}\iref{dcl.init.ref}, the cv-combined type of \tcode{T2} and \tcode{T1} or the cv-combined type
 of \tcode{T1} and \tcode{T2}, respectively;
@@ -713,7 +722,7 @@ is a sequence of
 $\cv{}_i$ and $P_i$
 such that \tcode{T} is
 \begin{indented}
-``$\cv{}_0$ $P_0$ $\cv{}_1$ $P_1$ $\cdots$ $\cv{}_{n-1}$ $P_{n-1}$ $\cv{}_n$ \tcode{U}'' for $n > 0$,
+``$\cv{}_0$ $P_0$ $\cv{}_1$ $P_1$ $\cdots$ $\cv{}_{n-1}$ $P_{n-1}$ $\cv{}_n$ \tcode{U}'' for $n \geq 0$,
 \end{indented}
 where
 each $\cv{}_i$ is a set of cv-qualifiers\iref{basic.type.qualifier}, and
@@ -1475,9 +1484,13 @@ In a \grammarterm{qualified-id}, if the
 \grammarterm{unqualified-id}
 is a
 \grammarterm{conversion-function-id}, its \grammarterm{conversion-type-id}
-shall denote the same type in both the context in which the entire
-\grammarterm{qualified-id} occurs and in the context of the class denoted
-by the \grammarterm{nested-name-specifier}.
+is first looked up in the class denoted by
+the \grammarterm{nested-name-specifier} of the \grammarterm{qualified-id} and
+the name, if found, is used.
+Otherwise, it is looked up in the context in which
+the entire \grammarterm{qualified-id} occurs.
+In each of these lookups, only names that denote types or
+templates whose specializations are types are considered.
 
 \rSec3[expr.prim.id.dtor]{Destruction}
 
@@ -1766,11 +1779,14 @@ if the function call operator
 has a non-throwing exception specification.
 The value returned by this conversion function
 is the address of a function \tcode{F} that, when invoked,
-has the same effect as invoking the closure type's function call operator.
+has the same effect as invoking the closure type's function call operator
+on a default-constructed instance of the closure type.
 \tcode{F} is a constexpr function
 if the function call operator is a constexpr function
 and is an immediate function
 if the function call operator is an immediate function.
+
+\pnum
 For a generic lambda with no \grammarterm{lambda-capture}, the closure type has a
 conversion function template to
 pointer to function. The conversion function template has the same invented
@@ -1835,9 +1851,11 @@ int& (*fpi)(int*) = [](auto* a) -> auto& { return *a; };        // OK
 The value returned by any given specialization of this conversion function
 template is the address of a function \tcode{F} that, when invoked, has the same
 effect as invoking the generic lambda's corresponding function call operator
-template specialization.
+template specialization on a default-constructed instance of the closure type.
 \tcode{F} is a constexpr function
-if the corresponding specialization is a constexpr function.
+if the corresponding specialization is a constexpr function and
+\tcode{F} is an immediate function
+if the function call operator template specialization is an immediate function.
 \begin{note}
 This will result in the implicit instantiation of the generic lambda's body.
 The instantiated generic lambda's return type and parameter types shall match
@@ -3368,14 +3386,12 @@ the result is
 \tcode{v} (converted if necessary).
 
 \pnum
-If the value of \tcode{v} is a null pointer value in the pointer case,
-the result is the null pointer value of type \tcode{T}.
-
-\pnum
 If \tcode{T} is ``pointer to \cvqual{cv1} \tcode{B}'' and \tcode{v} has
 type ``pointer to \cvqual{cv2} \tcode{D}'' such that \tcode{B} is a base
 class of \tcode{D}, the result is a pointer to the unique \tcode{B}
-subobject of the \tcode{D} object pointed to by \tcode{v}. Similarly, if
+subobject of the \tcode{D} object pointed to by \tcode{v}, or
+a null pointer value if \tcode{v} is a null pointer value.
+Similarly, if
 \tcode{T} is ``reference to \cvqual{cv1} \tcode{B}'' and \tcode{v} has
 type \cvqual{cv2} \tcode{D} such that \tcode{B} is a base class of
 \tcode{D}, the result is the unique \tcode{B} subobject of the \tcode{D}
@@ -3400,6 +3416,9 @@ void foo(D* dp) {
 \pnum
 Otherwise, \tcode{v} shall be a pointer to or a glvalue of a polymorphic
 type\iref{class.virtual}.
+
+\pnum
+If \tcode{v} is a null pointer value, the result is a null pointer value.
 
 \pnum
 If \tcode{T} is ``pointer to \cv{} \tcode{void}'', then the result
@@ -5901,9 +5920,11 @@ Otherwise, the pointers compare unequal.
 \end{itemize}
 
 \pnum
-If at least one of the operands is a pointer to member, pointer-to-member
-conversions\iref{conv.mem} and qualification
-conversions\iref{conv.qual} are performed on both operands to bring them to
+If at least one of the operands is a pointer to member,
+pointer-to-member conversions\iref{conv.mem},
+function pointer conversions\iref{conv.fctptr}, and
+qualification conversions\iref{conv.qual}
+are performed on both operands to bring them to
 their composite pointer type\iref{expr.type}.
 Comparing pointers to members is defined as follows:
 
@@ -6275,8 +6296,10 @@ composite pointer type\iref{expr.type}. The result is of the composite
 pointer type.
 
 \item One or both of the second and third operands have pointer-to-member type;
-pointer to member conversions\iref{conv.mem} and qualification
-conversions\iref{conv.qual} are performed to bring them to their composite
+pointer to member conversions\iref{conv.mem},
+function pointer conversions\iref{conv.fctptr}, and
+qualification conversions\iref{conv.qual}
+are performed to bring them to their composite
 pointer type\iref{expr.type}. The result is of the composite pointer type.
 
 \item
@@ -6696,12 +6719,8 @@ a \grammarterm{new-expression}\iref{expr.new};
 a \grammarterm{delete-expression}\iref{expr.delete};
 
 \item
-a three-way comparison\iref{expr.spaceship}
-comparing pointers that do not point to the same
-complete object or to any subobject thereof;
-
-\item
-a relational\iref{expr.rel} or equality\iref{expr.eq}
+a three-way comparison\iref{expr.spaceship},
+relational\iref{expr.rel}, or equality\iref{expr.eq}
 operator where the result is unspecified;
 
 \item

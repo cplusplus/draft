@@ -279,8 +279,10 @@ variable, function, class type, enumeration type, or template.
 
 \pnum
 \indextext{expression!potentially evaluated}%
-An expression is \defn{potentially evaluated} unless it is an
-unevaluated operand\iref{expr.prop} or a subexpression thereof.
+An expression or conversion is \defn{potentially evaluated} unless it is
+an unevaluated operand\iref{expr.prop},
+a subexpression thereof, or
+a conversion in an initialization or conversion sequence in such a context.
 The set of \defn{potential results} of an expression \tcode{e} is
 defined as follows:
 \begin{itemize}
@@ -290,12 +292,17 @@ contains only \tcode{e}.
 \item If \tcode{e} is a subscripting operation\iref{expr.sub} with
 an array operand, the set contains the potential results of that operand.
 \item If \tcode{e} is a class member access
-expression\iref{expr.ref}, the set contains the potential results of
-the object expression.
+expression\iref{expr.ref} of the form
+\tcode{e1 . \opt{template} e2}
+naming a non-static data member,
+the set contains the potential results of \tcode{e1}.
+\item if \tcode{e} is a class member access expression
+naming a static data member,
+the set contains the \grammarterm{id-expression} designating the data member.
 \item If \tcode{e} is a pointer-to-member
-expression\iref{expr.mptr.oper} whose second operand is a constant
-expression, the set contains the potential results of the object
-expression.
+expression\iref{expr.mptr.oper} of the form
+\tcode{e1 .* e2},
+the set contains the potential results of \tcode{e1}.
 \item If \tcode{e} has the form \tcode{(e1)}, the set contains the
 potential results of \tcode{e1}.
 \item If \tcode{e} is a glvalue conditional
@@ -322,48 +329,62 @@ int n = b ? (1, S::x)           // \tcode{S::x} is not odr-used here
 \end{note}
 
 \pnum
-\indextext{function!named by an expression}%
-A function is \defn{named by an expression} as follows:
+A function is \defnx{named by}{function!named by expression or conversion}
+an expression or conversion as follows:
 \begin{itemize}
 \item
-  A function whose name appears in an expression
-  is named by that expression
-  if it is the unique lookup result or the selected member
-  of a set of overloaded functions~(\ref{basic.lookup}, \ref{over.match}, \ref{over.over}),
+  A function is named by an expression or conversion
+  if it is the unique result of a name lookup or the selected member
+  of a set of overloaded functions~(\ref{basic.lookup}, \ref{over.match}, \ref{over.over})
+  in an overload resolution performed
+  as part of forming that expression or conversion,
   unless it is a pure virtual function and either
-  its name is not explicitly qualified or
+  the expression is not an \grammarterm{id-expression} naming the function with
+  an explicitly qualified name or
   the expression forms a pointer to member\iref{expr.unary.op}.
   \begin{note} This covers
   taking the address of functions~(\ref{conv.func}, \ref{expr.unary.op}),
   calls to named functions\iref{expr.call},
   operator overloading\iref{over},
   user-defined conversions\iref{class.conv.fct},
-  allocation functions for placement \grammarterm{new-expression}{s}\iref{expr.new}, as well as
+  allocation functions for \grammarterm{new-expression}{s}\iref{expr.new}, as well as
   non-default initialization\iref{dcl.init}.
   A constructor selected to copy or move an object of class type
-  is considered to be named by an expression
+  is considered to be named by an expression or conversion
   even if the call is actually elided by the implementation\iref{class.copy.elision}. \end{note}
 \item
-  An allocation or deallocation function for a class
+  A deallocation function for a class
   is named by a \grammarterm{new-expression}
-  as specified in~\ref{expr.new} and~\ref{class.free}.
+  if it is the single matching deallocation function
+  for the allocation function selected by overload resolution,
+  as specified in~\ref{expr.new}.
 \item
   A deallocation function for a class
-  is named by a delete expression
+  is named by a \grammarterm{delete-expression}
+  if it is the selected usual deallocation function
   as specified in~\ref{expr.delete} and~\ref{class.free}.
 \end{itemize}
 
 \pnum
 A variable \tcode{x} whose name appears as a
-potentially-evaluated expression \tcode{ex} is \defnx{odr-used}{odr-use} by \tcode{ex} unless
-applying the lvalue-to-rvalue conversion\iref{conv.lval} to \tcode{x} yields
-a constant expression\iref{expr.const}
-that does not invoke a function
-other than a trivial special member function\iref{special}
-and, if \tcode{x} is an object, \tcode{ex} is an element of
-the set of potential results of an expression \tcode{e}, where either the lvalue-to-rvalue
-conversion\iref{conv.lval} is applied to \tcode{e}, or \tcode{e} is
-a discarded-value expression\iref{expr.prop}.
+potentially-evaluated expression \tcode{e}
+is \defnx{odr-used}{odr-use} by \tcode{e} unless
+\begin{itemize}
+\item
+  \tcode{x} is a reference that is
+  usable in constant expressions\iref{expr.const}, or
+\item
+  \tcode{x} is a variable of non-reference type that is
+  usable in constant expressions and has no mutable subobjects, and
+  \tcode{e} is an element of the set of potential results of an expression
+  of non-volatile-qualified non-class type
+  to which the lvalue-to-rvalue conversion\iref{conv.lval} is applied, or
+\item
+  \tcode{x} is a variable of non-reference type, and
+  \tcode{e} is an element of the set of potential results
+  of a discarded-value expression\iref{expr.prop}
+  to which the lvalue-to-rvalue conversion is not applied.
+\end{itemize}
 
 \pnum
 A structured binding is odr-used if it appears as a potentially-evaluated expression.
@@ -376,7 +397,8 @@ member function~(\ref{class.mfct.non-static})).
 \pnum
 A virtual member
 function is odr-used if it is not pure.
-A function is odr-used if it is named by a potentially-evaluated expression.
+A function is odr-used if it is named by
+a potentially-evaluated expression or conversion.
 A non-placement allocation or deallocation
 function for a class is odr-used by the definition of a constructor of that
 class. A non-placement deallocation function for a class is odr-used by the
@@ -415,7 +437,10 @@ either:
 \begin{itemize}
 \item the intervening declarative region is a block scope, or
 \item the intervening declarative region is the function parameter scope of a \grammarterm{lambda-expression}
-that has a \grammarterm{simple-capture} naming the entity or has a \grammarterm{capture-default}.
+that has a \grammarterm{simple-capture}
+naming the entity or has a \grammarterm{capture-default}, and
+the block scope of the \grammarterm{lambda-expression}
+is also an intervening declarative region.
 \end{itemize}
 \end{itemize}
 
@@ -425,11 +450,13 @@ the program is ill-formed.
 \begin{example}
 \begin{codeblock}
 void f(int n) {
-  [] { n = 1; };                // error, \tcode{n} is not odr-usable due to intervening lambda-expression
+  [] { n = 1; };                // error: \tcode{n} is not odr-usable due to intervening lambda-expression
   struct A {
-    void f() { n = 2; }         // error, \tcode{n} is not odr-usable due to intervening function definition scope
+    void f() { n = 2; }         // error: \tcode{n} is not odr-usable due to intervening function definition scope
   };
-  void g(int = n);              // error, \tcode{n} is not odr-usable due to intervening function parameter scope
+  void g(int = n);              // error: \tcode{n} is not odr-usable due to intervening function parameter scope
+  [=](int k = n) {};            // error: \tcode{n} is not odr-usable due to being
+                                // outside the block scope of the \grammarterm{lambda-expression}
   [&] { [n]{ return n; }; };    // OK
 }
 \end{codeblock}
@@ -696,9 +723,13 @@ name that is not a typedef name and the other declarations shall
 all refer to the same variable, non-static data member, or enumerator,
 or all refer to functions and function templates;
 in this case the class name or enumeration name is
-hidden\iref{basic.scope.hiding}. \begin{note} A namespace name or a
-class template name must be unique in its declarative
-region~(\ref{namespace.alias}, \ref{temp}). \end{note}
+hidden\iref{basic.scope.hiding}.
+\begin{note}
+A structured binding\iref{dcl.struct.bind},
+namespace name\iref{basic.namespace}, or
+class template name\iref{temp}
+must be unique in its declarative region.
+\end{note}
 \end{itemize}
 \begin{note} These restrictions apply to the declarative region into which
 a name is introduced, which is not necessarily the same as the region in
@@ -2373,15 +2404,20 @@ A name having namespace scope\iref{basic.scope.namespace} has internal
 linkage if it is the name of
 \begin{itemize}
 \item
-  a variable, function or function template that is
+  a variable, variable template, function, or function template that is
   explicitly declared \tcode{static}; or,
 \item
-  a non-inline variable of non-volatile const-qualified type that is
+  a non-inline non-template variable of non-volatile const-qualified type
+  that is
   neither explicitly declared \tcode{extern} nor previously
   declared to have external linkage; or
 \item
   a data member of an anonymous union.
 \end{itemize}
+\begin{note}
+An instantiated variable template that has const-qualified type
+can have external linkage, even if not declared \tcode{extern}.
+\end{note}
 
 \pnum
 An unnamed namespace or a namespace declared directly or indirectly within an
@@ -2414,8 +2450,12 @@ member.
 \pnum
 The name of a function declared in block scope and the name of a variable declared by a
 block scope \tcode{extern} declaration have linkage. If there is a visible declaration
-of an entity with linkage having the same name and type, ignoring entities declared
-outside the innermost enclosing namespace scope, the block scope declaration declares
+of an entity with linkage, ignoring entities declared
+outside the innermost enclosing namespace scope,
+such that the block scope declaration would be
+a (possibly ill-formed) redeclaration
+if the two declarations appeared in the same declarative region,
+the block scope declaration declares
 that same entity and receives the linkage of the previous declaration. If there is more
 than one such matching entity, the program is ill-formed. Otherwise, if no matching
 entity is found, the block scope entity receives external linkage.
@@ -2424,9 +2464,11 @@ internal and external linkage, the program is ill-formed.
 \begin{example}
 \begin{codeblock}
 static void f();
+extern "C" void h();
 static int i = 0;               // \#1
 void g() {
   extern void f();              // internal linkage
+  extern void h();              // C language linkage
   int i;                        // \#2: \tcode{i} has no linkage
   {
     extern void f();            // internal linkage
