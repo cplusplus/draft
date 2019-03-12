@@ -130,6 +130,8 @@ struct matrix_constants {
 A
 \grammarterm{template-declaration}
 can appear only as a namespace scope or class scope declaration.
+Its \grammarterm{declaration} shall not be an
+\grammarterm{export-declaration}.
 In a function template declaration, the last component of the
 \grammarterm{declarator-id}
 shall not be a
@@ -5392,18 +5394,27 @@ point for the specialization or specializations specified by the explicit
 instantiation.
 
 \pnum
-The instantiation context of an expression that depends on the template
-arguments is the set of declarations with external linkage declared prior to the
-point of instantiation of the template specialization in the same translation
-unit.
-
-\pnum
 A specialization for a function template, a member function template,
 or of a member function or static data member of a class template may have
 multiple points of instantiations within a translation unit, and in addition
-to the points of instantiation described above, for any such specialization
-that has a point of instantiation within the translation unit, the end of the
-translation unit is also considered a point of instantiation.
+to the points of instantiation described above,
+\begin{itemize}
+\item
+for any such
+specialization that has a point of instantiation within the
+\grammarterm{top-level-declaration-seq} of the
+translation unit,
+prior to the \grammarterm{private-module-fragment} (if any),
+the point after the \grammarterm{top-level-declaration-seq}
+of the \grammarterm{translation-unit}
+is also considered a point of instantiation,
+and
+\item
+for any such specialization that has a point of instantiation
+within the \grammarterm{private-module-fragment},
+the end of the translation unit is also
+considered a point of instantiation.
+\end{itemize}
 A specialization for a class template has at most one point of instantiation
 within a translation unit.
 A specialization for any template may have points of instantiation in multiple
@@ -5419,25 +5430,179 @@ the program is ill-formed, no diagnostic required.
 For a function call where the \grammarterm{postfix-expression} is a
 dependent name,
 the candidate functions are found using the usual lookup
-rules~(\ref{basic.lookup.unqual}, \ref{basic.lookup.argdep}) except that:
-
-\begin{itemize}
-\item
-For the part of the lookup using unqualified name lookup\iref{basic.lookup.unqual},
-only function declarations
-from the template definition context are found.
-\item
+rules from the template definition context
+(\ref{basic.lookup.unqual}, \ref{basic.lookup.argdep}).
+\begin{note}
 For the part of the lookup using associated namespaces\iref{basic.lookup.argdep},
-only function declarations found in either the template
-definition context or the template instantiation context are found.
-\end{itemize}
-
+function declarations found in the template instantiation context
+are found by this lookup, as described in \ref{basic.lookup.argdep}.
+\end{note}
 If
 the call would be ill-formed or would find a better match had the lookup
 within the associated namespaces considered all the function declarations with
 external linkage introduced in those namespaces in all translation units,
 not just considering those declarations found in the template definition and
 template instantiation contexts, then the program has undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblocktu}{Source file \tcode{"X.h"}}
+namespace Q {
+  struct X { };
+}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Source file \tcode{"G.h"}}
+namespace Q {
+  void g_impl(X, X);
+}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Module interface unit of \tcode{M1}}
+module;
+#include "X.h"
+#include "G.h"
+export module M1;
+export template<typename T>
+void g(T t) {
+  g_impl(t, Q::X{ });   // ADL in definition context finds \tcode{Q::g_impl}, \tcode{g_impl} not discarded
+}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Module interface unit of \tcode{M2}}
+module;
+#include "X.h"
+export module M2;
+import M1;
+void h(Q::X x) {
+   g(x);                // OK
+}
+\end{codeblocktu}
+\end{example}
+
+\pnum
+\begin{example}
+\begin{codeblocktu}{Module interface unit of \tcode{Std}}
+export module Std;
+export template<typename Iter>
+void indirect_swap(Iter lhs, Iter rhs)
+{
+  swap(*lhs, *rhs);     // \tcode{swap} not found by unqualified lookup, can be found only via ADL
+}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Module interface unit of \tcode{M}}
+export module M;
+import Std;
+
+struct S { /* ...*/ };
+void swap(S&, S&);      // \#1
+
+void f(S* p, S* q)
+{
+  indirect_swap(p, q);  // finds \#1 via ADL in instantiation context
+}
+\end{codeblocktu}
+\end{example}
+
+\pnum
+\begin{example}
+\begin{codeblocktu}{Source file \tcode{"X.h"}}
+struct X { /* ... */ };
+X operator+(X, X);
+\end{codeblocktu}
+
+\begin{codeblocktu}{Module interface unit of \tcode{F}}
+export module F;
+export template<typename T>
+void f(T t) {
+  t + t;
+}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Module interface unit of \tcode{M}}
+module;
+#include "X.h"
+export module M;
+import F;
+void g(X x) {
+  f(x);             // OK: instantiates \tcode{f} from \tcode{F},
+                    // \tcode{operator+} is visible in instantiation context
+}
+\end{codeblocktu}
+\end{example}
+
+\pnum
+\begin{example}
+\begin{codeblocktu}{Module interface unit of \tcode{A}}
+export module A;
+export template<typename T>
+void f(T t) {
+  cat(t, t);         // \#1
+  dog(t, t);         // \#2
+}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Module interface unit of \tcode{B}}
+export module B;
+import A;
+export template<typename T, typename U>
+void g(T t, U u) {
+  f(t);
+}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Source file \tcode{"foo.h"}, not an importable header}
+struct foo {
+  friend int cat(foo, foo);
+};
+int dog(foo, foo);
+\end{codeblocktu}
+
+\begin{codeblocktu}{Module interface unit of \tcode{C1}}
+module;
+#include "foo.h" // \tcode{dog} not referenced, discarded
+export module C1;
+import B;
+export template<typename T>
+void h(T t) {
+  g(foo{ }, t);
+}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit}
+import C1;
+void i() {
+   h(0);        // error: \tcode{dog} not found at \#2
+}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Importable header \tcode{"bar.h"}}
+struct bar {
+  friend int cat(bar, bar);
+};
+int dog(bar, bar);
+\end{codeblocktu}
+
+\begin{codeblocktu}{Module interface unit of \tcode{C2}}
+module;
+#include "bar.h" // imports header unit \tcode{"bar.h"}
+export module C2;
+import B;
+export template<typename T>
+void j(T t) {
+  g(bar{ }, t);
+}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit}
+import C2;
+void k() {
+   j(0);        // OK, \tcode{dog} found in instantiation context:
+                // visible at end of module interface unit of \tcode{C2}
+}
+\end{codeblocktu}
+\end{example}
 
 \rSec2[temp.inject]{Friend names declared within a class template}
 
