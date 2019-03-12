@@ -6642,28 +6642,56 @@ shall be a non-template function
 declared in the \grammarterm{member-specification} of \tcode{C}
 that is
 \begin{itemize}
-\item a non-static member of \tcode{C} having one parameter of type \tcode{const C\&}, or
+\item a non-static const member of \tcode{C} having one parameter of type \tcode{const C\&}, or
 \item a friend of \tcode{C} having two parameters of type \tcode{const C\&}.
 \end{itemize}
 
 \pnum
-\indextext{structural comparison operator|see{operator, structural comparison}}%
-A three-way comparison operator for a class type \tcode{C}
-is a \defnadj{structural comparison}{operator}
-if it is defined as defaulted in the definition of \tcode{C},
-and all three-way comparison operators it invokes
-are structural comparison operators.
-\indextext{strong structural equality|see{equality, strong structural}}%
-A type \tcode{T}
-has \defnadj{strong structural}{equality}
-if, for a glvalue \tcode{x} of type \tcode{const T},
-\tcode{x <=> x} is a valid expression
-of type \tcode{std::strong_ordering} or \tcode{std::strong_equality}
-and either does not invoke a three-way comparison operator
-or invokes a structural comparison operator.
+If the class definition
+does not explicitly declare an \tcode{==} operator function,
+but declares a defaulted three-way comparison operator function,
+an \tcode{==} operator function is declared implicitly
+with the same access as the three-way comparison operator function.
+The implicitly-declared \tcode{==} operator for a class \tcode{X}
+is an inline member and is defined as defaulted in the definition of \tcode{X}.
+If the three-way comparison operator function
+is declared as a non-static const member,
+the implicitly-declared \tcode{==} operator function is a member of the form
+\begin{codeblock}
+bool X::operator==(const X&) const;
+\end{codeblock}
+Otherwise, the implicitly-declared \tcode{==} operator function is of the form
+\begin{codeblock}
+friend bool operator==(const X&, const X&);
+\end{codeblock}
+\begin{note}
+Such a friend function is visible
+to argument-dependent lookup\iref{basic.lookup.argdep}
+only\iref{namespace.memdef}.
+\end{note}
+The operator is a \tcode{constexpr} function if its definition
+would satisfy the requirements for a \tcode{constexpr} function.
+\begin{note}
+The \tcode{==} operator function is declared implicitly even if
+the defaulted three-way comparison operator function is defined as deleted.
+\end{note}
 
-\rSec2[class.spaceship]{Three-way comparison}
-\indextext{operator!three-way comparison!defaulted}%
+\pnum
+\indextext{structural comparison operator|see{operator, structural comparison}}%
+A type \tcode{C} has \defnadj{strong structural}{equality} if,
+given a glvalue \tcode{x} of type \tcode{const C}, either:
+\begin{itemize}
+\item
+  \tcode{C} is a non-class type and \tcode{x <=> x} is a valid expression
+  of type \tcode{std::strong_ordering} or \tcode{std::strong_equality}, or
+\item
+  \tcode{C} is a class type with an \tcode{==} operator
+  defined as defaulted in the definition of \tcode{C},
+  \tcode{x == x} is well-formed when contextually converted to \tcode{bool},
+  all of \tcode{C}'s base class subobjects and non-static data members
+  have strong structural equality, and
+  \tcode{C} has no \tcode{mutable} or \tcode{volatile} subobjects.
+\end{itemize}
 
 \pnum
 The direct base class subobjects of \tcode{C},
@@ -6681,12 +6709,70 @@ formed by a sequence of
 derived-to-base conversions\iref{over.best.ics},
 class member access expressions\iref{expr.ref}, and
 array subscript expressions\iref{expr.sub} applied to \tcode{x}.
-The type of the expression $\tcode{x}_i$ \tcode{<=>} $\tcode{x}_i$
-is denoted by $\tcode{R}_i$.
-It is unspecified
-whether virtual base class subobjects are compared more than once.
+It is unspecified whether virtual base class subobjects
+appear more than once in the expanded list of subobjects.
+
+\rSec2[class.eq]{Equality operators}
+\indextext{operator!equality!defaulted}%
+\indextext{operator!inequality!defaulted}%
 
 \pnum
+A defaulted equality operator\iref{expr.eq} function
+shall have a declared return type \tcode{bool}.
+
+\pnum
+A defaulted \tcode{==} operator function for a class \tcode{C}
+is defined as deleted
+unless, for each $\tcode{x}_i$ in the expanded list of subobjects
+for an object \tcode{x} of type \tcode{C},
+$\tcode{x}_i\tcode{ == }\tcode{x}_i$ is a valid expression and
+contextually convertible to \tcode{bool}.
+
+\pnum
+The return value \tcode{V} of a defaulted \tcode{==} operator function
+with parameters \tcode{x} and \tcode{y} is determined
+by comparing corresponding elements $\tcode{x}_i$ and $\tcode{y}_i$
+in the expanded lists of subobjects for \tcode{x} and \tcode{y}
+until the first index $i$
+where $\tcode{x}_i\tcode{ == }\tcode{y}_i$ yields a result value which,
+when contextually converted to \tcode{bool}, yields \tcode{false}.
+If no such index exists, \tcode{V} is \tcode{true}.
+Otherwise, \tcode{V} is \tcode{false}.
+
+\pnum
+A defaulted \tcode{!=} operator function for a class \tcode{C}
+with parameters \tcode{x} and \tcode{y} is defined as deleted if
+\begin{itemize}
+\item
+  overload resolution\iref{over.match}, as applied to \tcode{x == y}
+  (also considering synthesized candidates
+  with reversed order of parameters\iref{over.match.oper}),
+  results in an ambiguity or a function
+  that is deleted or inaccessible from the operator function, or
+\item
+  \tcode{x == y} cannot be contextually converted to \tcode{bool}.
+\end{itemize}
+Otherwise, the operator function yields \tcode{(x == y) ?\ false :\ true}.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct D {
+  int i;
+  friend bool operator==(const D& x, const D& y) = default;
+                                                // OK, returns \tcode{x.i == y.i}
+  bool operator!=(const D& z) const = default;  // OK, returns \tcode{(*this == z) ?\ false :\ true}
+};
+\end{codeblock}
+\end{example}
+
+\rSec2[class.spaceship]{Three-way comparison}
+\indextext{operator!three-way comparison!defaulted}%
+
+\pnum
+Given an expanded list of subobjects for an object \tcode{x} of type \tcode{C},
+the type of the expression $\tcode{x}_i$ \tcode{<=>} $\tcode{x}_i$
+is denoted by $\tcode{R}_i$.
 If the declared return type
 of a defaulted three-way comparison operator function
 is \tcode{auto},
@@ -6756,13 +6842,11 @@ In particular, this is the result when $n$ is 0.
 \end{note}
 \end{itemize}
 
-\rSec2[class.rel.eq]{Other comparison operators}
+\rSec2[class.rel]{Relational operators}
 \indextext{operator!relational!defaulted}%
-\indextext{operator!equality!defaulted}%
-\indextext{operator!inequality!defaulted}%
 
 \pnum
-A defaulted relational\iref{expr.rel} or equality\iref{expr.eq} operator function
+A defaulted relational\iref{expr.rel} operator function
 for some operator \tcode{@}
 shall have a declared return type \tcode{bool}.
 
@@ -6796,7 +6880,6 @@ otherwise.
 \begin{codeblock}
 struct C {
   friend std::strong_equality operator<=>(const C&, const C&);
-  friend bool operator==(const C&, const C&) = default; // OK, returns \tcode{x <=> y == 0}
   bool operator<(const C&) const = default;             // OK, function is deleted
 };
 \end{codeblock}
