@@ -4330,17 +4330,17 @@ auxiliary types, expressions, and objects:
 \item
 \placeholder{p} is an lvalue naming the promise
 object\iref{dcl.fct.def.coroutine}
-of the enclosing coroutine and \placeholder{P} is the type of that object.
+of the enclosing coroutine and \tcode{P} is the type of that object.
 
 \item \placeholder{a} is the \grammarterm{cast-expression} if
 the \grammarterm{await-expression} was implicitly produced by a
 \grammarterm{yield-expression}\iref{expr.yield}, an initial suspend point,
 or a final suspend point\iref{dcl.fct.def.coroutine}.
 Otherwise, the \grammarterm{unqualified-id} \tcode{await_transform} is
-looked up within the scope of \placeholder{P} by class member access
+looked up within the scope of \tcode{P} by class member access
 lookup\iref{basic.lookup.classref},
 and if this lookup finds at least one declaration, then \placeholder{a} is
-\mbox{\tcode{\placeholder{p}.await_transform(\grammarterm{cast-expression});}}
+\mbox{\placeholder{p}\tcode{.await_transform(}\grammarterm{cast-expression}\tcode{)}};
 otherwise, \placeholder{a} is the  \grammarterm{cast-expression}.
 
 \item
@@ -4350,32 +4350,39 @@ otherwise, \placeholder{a} is the  \grammarterm{cast-expression}.
 overload resolution\iref{over.match}. If overload resolution is ambiguous,
 the program is ill-formed.
 If no viable functions are found, \placeholder{o} is \placeholder{a}.
-Otherwise, \placeholder{o} is a call to the selected function.
+Otherwise, \placeholder{o} is a call to the selected function
+with the argument \placeholder{a}.
+If \placeholder{o} would be a prvalue,
+the temporary materialization conversion\iref{conv.rval} is applied.
 
 \item
-\placeholder{e} is a temporary object copy-initialized from \placeholder{o}
-if \placeholder{o} is a prvalue; otherwise \placeholder{e} is an lvalue
-referring to the result of evaluating \placeholder{o}.
+\placeholder{e} is an lvalue
+referring to the result of evaluating
+the (possibly-converted) \placeholder{o}.
 
 \item
+% FIXME: h needs to be an expression so we can use it as an argument
+% to await_suspend. What should its value category be?
+% Don't forget to remove "and objects" from the intro sentence when
+% this is fixed.
 \placeholder{h} is an object of type
-\tcode{std::coroutine_handle<\placeholder{P}>}
+\tcode{std::coroutine_handle<P>}
 referring to the enclosing coroutine.
 
 \item
 \placeholder{await-ready} is the expression
-\tcode{\placeholder{e}.await_ready()},
+\placeholder{e}\tcode{.await_ready()},
 contextually converted to \tcode{bool}.
 
 \item
 \placeholder{await-suspend} is the expression
-\tcode{\placeholder{e}.await_suspend(\placeholder{h})},
+\placeholder{e}\tcode{.await_suspend(}\placeholder{h}\tcode{)},
 which shall be a prvalue of type \tcode{void}, \tcode{bool}, or
-\tcode{std::coroutine_handle<\placeholder{Z}>} for some type \placeholder{Z}.
+\tcode{std::coroutine_handle<Z>} for some type \tcode{Z}.
 
 \item
 \placeholder{await-resume} is the expression
-\tcode{\placeholder{e}.await_resume()}.
+\placeholder{e}\tcode{.await_resume()}.
 \end{itemize}
 
 \pnum
@@ -4384,30 +4391,45 @@ as the \placeholder{await-resume} expression.
 
 \pnum
 The \grammarterm{await-expression} evaluates
+the (possibly-converted) \placeholder{o} expression and
 the \placeholder{await-ready} expression, then:
 \begin{itemize}
 \item
-If the result is \tcode{false}, the coroutine is considered suspended.
-Then, the \placeholder{await-suspend} expression is evaluated.
-If that expression has type \tcode{std::coroutine_handle<\placeholdernc{Z}>}
-and evaluates to a value \placeholder{s}, the coroutine referred to by
-\placeholder{s}
-is resumed as if by a call \placeholder{s}\tcode{.resume()}.
+If the result of \placeholder{await-ready} is \tcode{false},
+the coroutine is considered suspended.
+Then:
+\begin{itemize}
+\item
+If the type of \placeholder{await-suspend}
+is \tcode{std::coroutine_handle<Z>},
+\placeholder{await-suspend}\tcode{.resume()} is evaluated.
 \begin{note}
+This resumes the coroutine referred to
+by the result of \placeholder{await-suspend}.
 Any number of coroutines may be successively resumed in this fashion,
 eventually returning control flow to the current coroutine caller or
 resumer\iref{dcl.fct.def.coroutine}.
 \end{note}
-If that expression has type \tcode{bool} and evaluates to \tcode{false},
-the coroutine is resumed.
-If that expression exits via an exception, the exception is caught,
+
+\item
+Otherwise, if the type of \placeholder{await-suspend}
+is \tcode{bool},
+\placeholder{await-suspend} is evaluated,
+and the coroutine is resumed if the result is \tcode{false}.
+
+\item
+Otherwise, \placeholder{await-suspend} is evaluated.
+\end{itemize}
+If the evaluation of \placeholder{await-suspend}
+exits via an exception, the exception is caught,
 the coroutine is resumed, and the exception is immediately
 re-thrown\iref{except.throw}. Otherwise, control flow returns
 to the current coroutine caller or resumer\iref{dcl.fct.def.coroutine}
 without exiting any scopes\iref{stmt.jump}.
 
 \item
-If the result is \tcode{true}, or when the coroutine is resumed,
+If the result of \placeholder{await-ready} is \tcode{true},
+or when the coroutine is resumed,
 the \placeholder{await-resume} expression is evaluated, and
 its result is the result of the \grammarterm{await-expression}.
 \end{itemize}
@@ -4417,7 +4439,7 @@ its result is the result of the \grammarterm{await-expression}.
 \begin{codeblock}
 template <typename T>
 struct my_future {
-  ...
+  @\commentellip@
   bool await_ready();
   void await_suspend(std::coroutine_handle<>);
   T await_resume();
@@ -4427,11 +4449,11 @@ template <class Rep, class Period>
 auto operator co_await(std::chrono::duration<Rep, Period> d) {
   struct awaiter {
     std::chrono::system_clock::duration duration;
-    ...
-    awaiter(std::chrono::system_clock::duration d) : duration(d){}
+    @\commentellip@
+    awaiter(std::chrono::system_clock::duration d) : duration(d) {}
     bool await_ready() const { return duration.count() <= 0; }
     void await_resume() {}
-    void await_suspend(std::coroutine_handle<> h){...}
+    void await_suspend(std::coroutine_handle<> h) { @\commentellip@ }
   };
   return awaiter{d};
 }
@@ -4447,8 +4469,8 @@ my_future<void> g() {
   co_await h();
 }
 
-auto f(int x = co_await h()); // error: await-expression outside of function suspension context
-int a[] = { co_await h() }; // error: await-expression outside of function suspension context
+auto f(int x = co_await h());   // error: \grammarterm{await-expression} outside of function suspension context
+int a[] = { co_await h() };     // error: \grammarterm{await-expression} outside of function suspension context
 
 \end{codeblock}
 \end{example}
