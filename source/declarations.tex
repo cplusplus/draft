@@ -6251,44 +6251,73 @@ task<void> g3(int a, ...) {     // error: variable parameter list not allowed
 \end{example}
 
 \pnum
-For a coroutine \placeholder{f} that is a non-static member function, let
-$\placeholder{P}_1$ denote the type of the implicit object
-parameter\iref{over.match.funcs} and
-$\placeholder{P}_2 \dotsc \placeholder{P}_n$ be the types of the function
-parameters;
-otherwise let $\placeholder{P}_1 \dotsc \placeholder{P}_n$ be the types of
-the function parameters.
-Let $\placeholder{p}_1 \dotsc \placeholder{p}_n$ be lvalues denoting those
-objects.
-Let \placeholder{R} be the return type and \placeholder{F} be the
-\grammarterm{function-body} of \placeholder{f}, \placeholder{T} be the type
-\tcode{std::coroutine_traits<$\placeholder{R}$, $\placeholder{P}_1$, $\dotsc$, $\placeholder{P}_n$>},
-and \placeholder{S} be the class type denoted by
-\placeholder{T}\tcode{::promise_type}.
-Then, the coroutine behaves as if its body were:
-\begin{codeblock}
-{
-  @\placeholder{S} \placeholder{s} \placeholder{promise-constructor-arguments}@;
-  co_await @\placeholder{s}@.initial_suspend(); // initial suspend point
-  try { @\placeholder{F}@ } catch(...) { @\placeholder{s}@.unhandled_exception(); }
-@\placeholder{final-suspend}@:
-  co_await @\placeholdernc{p}@.final_suspend(); // final suspend point
-}
-\end{codeblock}
-where an object denoted as \placeholder{s} is the \defn{promise object} of
-the coroutine and its type \placeholder{S} is the \defn{promise type}
-of the coroutine,
-and \placeholder{promise-constructor-arguments} is determined as follows:
+\indextext{promise type|see{coroutine!promise type}}%
+The \defnx{promise type}{coroutine!promise type} of a coroutine is
+\tcode{std::coroutine_traits<R, P$_1$, $\dotsc$, P$_n$>::promise_type},
+where
+\tcode{R} is the return type of the function, and
+$\tcode{P}_1 \dotsc \tcode{P}_n$ are the sequence of types of the function parameters,
+preceded by the type of the implicit object parameter\iref{over.match.funcs}
+if the coroutine is a non-static member function.
+The promise type shall be a class type.
+
+\pnum
+In the following, $\tcode{p}_i$ is an lvalue of type $\tcode{P}_i$,
+where
+$\tcode{p}_1$ denotes \tcode{*this} and
+$\tcode{p}_{i+1}$ denotes the $i^\textrm{th}$ function parameter
+for a non-static member function, and
+$\tcode{p}_i$ denotes
+the $i^\textrm{th}$ function parameter otherwise.
+
+\pnum
+A coroutine behaves as if its \grammarterm{function-body} were replaced by:
+\begin{ncsimplebnf}
+\terminal{\{}\br
+\bnfindent promise-type \terminal{__promise} promise-constructor-arguments \terminal{;}\br
+% FIXME: \bnfindent \terminal{__promise.get_return_object()} \terminal{;}
+% ... except that it's not a discarded-value expression
+\bnfindent \terminal{co_await} \terminal{__promise.initial_suspend()} \terminal{;}\br
+\bnfindent \terminal{try \{}\br
+\bnfindent\bnfindent function-body\br
+\bnfindent \terminal{\} catch ( ... ) \{}\br
+\bnfindent\bnfindent \terminal{__promise.unhandled_exception()} \terminal{;}\br
+\bnfindent \terminal{\}}\br
+\terminal{__final_suspend} \terminal{:}\br
+\bnfindent \terminal{co_await} \terminal{__promise.final_suspend()} \terminal{;}\br
+\terminal{\}}
+\end{ncsimplebnf}
+where
+\begin{itemize}
+\item
+the \grammarterm{await-expression} containing
+the call to \tcode{initial_suspend}
+is the \defn{initial suspend point}, and
+\item
+the \grammarterm{await-expression} containing
+the call to \tcode{final_suspend}
+is the \defn{final suspend point}, and
+\item
+\placeholder{promise-type} denotes the promise type, and
+\item
+the object denoted by the exposition-only name \tcode{__promise}
+is the \defn{promise object} of the coroutine, and
+\item
+the label denoted by the name \tcode{__final_suspend}
+is defined for exposition only\iref{stmt.return.coroutine}, and
+\item
+\placeholder{promise-constructor-arguments} is determined as follows:
 overload resolution is performed on a promise constructor call created by
-assembling an argument list with lvalues $p_1 \dotsc p_n$. If a viable
+assembling an argument list with lvalues $\tcode{p}_1 \dotsc \tcode{p}_n$. If a viable
 constructor is found\iref{over.match.viable}, then
 \placeholder{promise-constructor-arguments} is
-\tcode{($\placeholder{p}_1$, $\dotsc$, $\placeholder{p}_n$)}, otherwise
+\tcode{(p$_1$, $\dotsc$, p$_n$)}, otherwise
 \placeholder{promise-constructor-arguments} is empty.
+\end{itemize}
 
 \pnum
 The \grammarterm{unqualified-id}{s} \tcode{return_void}
-and \tcode{return_value} are looked up in the scope of class \placeholder{S}.
+and \tcode{return_value} are looked up in the scope of the promise type.
 If both are found, the program is ill-formed.
 \begin{note}
 If the \grammarterm{unqualified-id} \tcode{return_void} is found, flowing off
@@ -6298,47 +6327,56 @@ results in undefined behavior\iref{stmt.return.coroutine}.
 \end{note}
 
 \pnum
-When a coroutine returns to its caller, the return value is produced by a call
-to \mbox{\tcode{\placeholder{s}.get_return_object()}}. A call to a
-\tcode{get_return_object} is sequenced before the call to
-\mbox{\tcode{initial_suspend}} and is invoked at most once.
+The expression \tcode{__promise.get_return_object()} is used
+to initialize
+the glvalue result or prvalue result object of a call to a coroutine.
+The call to \tcode{get_return_object}
+is sequenced before
+the call to \tcode{initial_suspend}
+and is invoked at most once.
 
 \pnum
 A suspended coroutine can be resumed to continue execution by invoking
-a resumption member function\iref{coroutine.handle.resumption} of an object of
-type \tcode{coroutine_handle<\placeholder{S}>} associated with this instance
-of the coroutine. The function that invoked a resumption member function is
-called the \term{resumer}. Invoking a resumption member function for a coroutine
+a resumption member function\iref{coroutine.handle.resumption}
+of a coroutine handle\iref{coroutine.handle}
+that refers to the coroutine.
+The function that invoked a resumption member function is
+called the \defnx{resumer}{coroutine!resumer}.
+Invoking a resumption member function for a coroutine
 that is not suspended results in undefined behavior.
 
 \pnum
 An implementation may need to allocate additional storage for a coroutine.
 This storage is known as the \defn{coroutine state} and is obtained by calling
 a non-array allocation function\iref{basic.stc.dynamic.allocation}.
-The allocation function's name is looked up in the scope of \placeholder{S}.
+The allocation function's name is looked up in the scope of the promise type.
 If this lookup fails, the allocation function's name is looked up in the
 global scope.
-If the lookup finds an allocation function in the scope of \placeholder{S},
+If the lookup finds an allocation function in the scope of the promise type,
 overload resolution is performed on a function call created by assembling an
 argument list. The first argument is the amount of space requested, and has
-type \tcode{std::size_t}. The lvalues $p_1 \dotsc p_n$ are the succeeding
-arguments. If no viable function is found\iref{over.match.viable}, overload
-resolution is performed again on a function call created by passing just the
-amount of space required as an argument of type \tcode{std::size_t}.
+type \tcode{std::size_t}.
+The lvalues $\tcode{p}_1 \dotsc \tcode{p}_n$ are the succeeding arguments.
+If no viable function is found\iref{over.match.viable},
+overload resolution is performed again
+on a function call created by passing just
+the amount of space required as an argument of type \tcode{std::size_t}.
 
 \pnum
 The \grammarterm{unqualified-id} \tcode{get_return_object_on_allocation_failure}
-is looked up in the scope of class \placeholder{S} by class member access
-lookup\iref{basic.lookup.classref}. If a declaration is found, then the result
+is looked up in the scope of the promise type by class member access
+lookup\iref{basic.lookup.classref}.
+If any declarations are found, then the result
 of a call to an allocation function used to obtain storage for the coroutine
-state is assumed to return \tcode{nullptr} if it fails to obtain storage, and
-if a global allocation function is selected, the
-\tcode{::operator new(size_t, nothrow_t)} form shall be used.
-If an allocation function returns \tcode{nullptr}, the coroutine returns
-control to the caller of the coroutine and the return value is obtained by a
-call to \placeholder{S}\tcode{::get_return_object_on_allocation_failure()}.
-The allocation function used in this case must have a non-throwing
+state is assumed to return \tcode{nullptr} if it fails to obtain storage,
+and if a global allocation function is selected,
+the \tcode{::operator new(size_t, nothrow_t)} form is used.
+The allocation function used in this case shall have a non-throwing
 \grammarterm{noexcept-specification}.
+If the allocation function returns \tcode{nullptr}, the coroutine returns
+control to the caller of the coroutine and the return value is obtained by a
+call to \tcode{T::get_return_object_on_allocation_failure()}, where \tcode{T}
+is the promise type.
 
 \begin{example}
 \begin{codeblock}
@@ -6382,9 +6420,11 @@ int main() {
 \pnum
 The coroutine state is destroyed when control flows off the end of the
 coroutine or the \tcode{destroy} member
-function\iref{coroutine.handle.resumption} of an object of type
-\tcode{std::coroutine_handle<\placeholder{S}>} associated with this coroutine
-is invoked. In the latter case objects with automatic storage duration that
+function\iref{coroutine.handle.resumption}
+of a coroutine handle\iref{coroutine.handle}
+that refers to the coroutine
+is invoked.
+In the latter case objects with automatic storage duration that
 are in scope at the suspend point are destroyed in the reverse order of the
 construction. The storage for the coroutine state is released by calling a
 non-array deallocation function\iref{basic.stc.dynamic.deallocation}.
@@ -6392,7 +6432,7 @@ If \tcode{destroy} is called for a coroutine that is not suspended, the
 program has undefined behavior.
 
 \pnum
-The deallocation function's name is looked up in the scope of \placeholder{S}.
+The deallocation function's name is looked up in the scope of the promise type.
 If this lookup fails, the deallocation function's name is looked up in the
 global scope. If deallocation function lookup finds both a usual deallocation
 function with only a pointer parameter and a usual deallocation function with
@@ -6428,11 +6468,11 @@ likely to result in undefined behavior.
 
 \pnum
 If the evaluation of the expression
-\placeholdernc{p}\tcode{.unhandled_exception()} exits via an exception,
+\tcode{__promise.unhandled_exception()} exits via an exception,
 the coroutine is considered suspended at the final suspend point.
 
 \pnum
-The expression \tcode{co_await} \placeholdernc{p}\tcode{.final_suspend()}
+The expression \tcode{co_await} \tcode{__promise.final_suspend()}
 shall not be potentially-throwing\iref{except.spec}.
 
 \rSec1[dcl.struct.bind]{Structured binding declarations}%
