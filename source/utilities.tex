@@ -12369,7 +12369,7 @@ satisfy the allocator completeness requirements\iref{allocator.requirements.comp
 \indexlibrarymember{value_type}{polymorphic_allocator}%
 \begin{codeblock}
 namespace std::pmr {
-  template<class Tp> class polymorphic_allocator {
+  template<class Tp = byte> class polymorphic_allocator {
     memory_resource* memory_rsrc;     // \expos
 
   public:
@@ -12389,6 +12389,13 @@ namespace std::pmr {
     // \ref{mem.poly.allocator.mem}, member functions
     [[nodiscard]] Tp* allocate(size_t n);
     void deallocate(Tp* p, size_t n);
+
+    void* allocate_bytes(size_t nbytes, size_t alignment = alignof(max_align_t));
+    void deallocate_bytes(void* p, size_t nbytes, size_t alignment = alignof(max_align_t));
+    template <class T> T* allocate_object(size_t n = 1);
+    template <class T> void deallocate_object(T* p, size_t n = 1);
+    template <class T, class... CtorArgs> T* new_object(CtorArgs&&... ctor_args);
+    template <class T> void delete_object(T* p);
 
     template<class T, class... Args>
       void construct(T* p, Args&&... args);
@@ -12488,6 +12495,119 @@ Equivalent to \tcode{memory_rsrc->deallocate(p, n * sizeof(Tp), alignof(Tp))}.
 \pnum
 \throws
 Nothing.
+\end{itemdescr}
+
+\indexlibrarymember{allocate_bytes}{polymorphic_allocator}%
+\begin{itemdecl}
+void* allocate_bytes(size_t nbytes, size_t alignment = alignof(max_align_t));
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return memory_rsrc->allocate(nbytes, alignment);}
+
+\pnum
+\begin{note}
+The return type is \tcode{void*} (rather than, e.g., \tcode{byte*})
+to support conversion to an arbitrary pointer type \tcode{U*}
+by \tcode{static_cast<U*>}, thus facilitating construction of a \tcode{U}
+object in the allocated memory.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarymember{deallocate_bytes}{polymorphic_allocator}%
+\begin{itemdecl}
+void deallocate_bytes(void* p, size_t nbytes, size_t alignment = alignof(max_align_t));
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{memory_rsrc->deallocate(p, nbytes, alignment)}.
+\end{itemdescr}
+
+\indexlibrarymember{allocate_object}{polymorphic_allocator}%
+\begin{itemdecl}
+template <class T>
+  T* allocate_object(size_t n = 1);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Allocates memory suitable for holding
+an array of \tcode{n} objects of type \tcode{T}, as follows:
+\begin{itemize}
+\item
+  if \tcode{SIZE_MAX / sizeof(T) < n}, throws \tcode{length_error},
+\item
+  otherwise equivalent to:
+\begin{codeblock}
+return static_cast<T*>(allocate_bytes(n*sizeof(T), alignof(T)));
+\end{codeblock}
+\end{itemize}
+
+\pnum
+\begin{note}
+\tcode{T} is not deduced and must therefore be provided as a template argument.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarymember{deallocate_object}{polymorphic_allocator}%
+\begin{itemdecl}
+template <class T>
+  void deallocate_object(T* p, size_t n = 1);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{deallocate_bytes(p, n*sizeof(T), alignof(T))}.
+\end{itemdescr}
+
+\indexlibrarymember{new_object}{polymorphic_allocator}%
+\begin{itemdecl}
+template <class T, class CtorArgs...>
+  T* new_object(CtorArgs&&... ctor_args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Allocates and constructs an object of type \tcode{T}, as follows.\newline
+Equivalent to:
+\begin{codeblock}
+T* p = allocate_object<T>();
+try {
+  construct(p, std::forward<CtorArgs>(ctor_args)...);
+} catch (...) {
+  deallocate_object(p);
+  throw;
+}
+return p;
+\end{codeblock}
+
+\pnum
+\begin{note}
+\tcode{T} is not deduced and must therefore be provided as a template argument.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarymember{new_object}{polymorphic_allocator}%
+\begin{itemdecl}
+template <class T>
+  void delete_object(T* p);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+destroy(p);
+deallocate_object(p);
+\end{codeblock}
 \end{itemdescr}
 
 \indexlibrarymember{construct}{polymorphic_allocator}%
