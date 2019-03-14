@@ -313,6 +313,35 @@ The \tcode{sort} function may invoke the following element access functions:
 \end{itemize}
 \end{example}
 
+\pnum
+A standard library function is \defn{vectorization-unsafe}
+if it is specified to synchronize with another function invocation, or
+another function invocation is specified to synchronize with it,
+and if it is not a memory allocation or deallocation function.
+\begin{note}
+Implementations must ensure that internal synchronization
+inside standard library functions does not prevent forward progress
+when those functions are executed by threads of execution
+with weakly parallel forward progress guarantees.
+\end{note}
+\begin{example}
+\begin{codeblock}
+int x = 0;
+std::mutex m;
+void f() {
+  int a[] = {1,2};
+  std::for_each(std::execution::par_unseq, std::begin(a), std::end(a), [&](int) {
+    std::lock_guard<mutex> guard(m);            // incorrect: \tcode{lock_guard} constructor calls \tcode{m.lock()}
+  ++x;
+  });
+}
+\end{codeblock}
+The above program may result in two consecutive calls to \tcode{m.lock()}
+on the same thread of execution (which may deadlock),
+because the applications of the function object are not guaranteed
+to run on different threads of execution.
+\end{example}
+
 \rSec2[algorithms.parallel.user]{Requirements on user-provided function objects}
 
 \pnum
@@ -380,6 +409,29 @@ The invocations are not interleaved; see~\ref{intro.execution}.
 
 \pnum
 The invocations of element access functions in parallel algorithms invoked with
+an execution policy object of type \tcode{execution::unsequenced_policy}
+are permitted to execute in an unordered fashion
+in the calling thread of execution,
+unsequenced with respect to one another in the calling thread of execution.
+\begin{note}
+This means that multiple function object invocations
+may be interleaved on a single thread of execution,
+which overrides the usual guarantee from \ref{intro.execution}
+that function executions do not overlap with one another.
+\end{note}
+The behavior of a program is undefined if
+it invokes a vectorization-unsafe standard library function
+from user code
+called from a \tcode{execution::unsequenced_policy} algorithm.
+\begin{note}
+Because \tcode{execution::unsequenced_policy} allows
+the execution of element access functions
+to be interleaved on a single thread of execution,
+blocking synchronization, including the use of mutexes, risks deadlock.
+\end{note}
+
+\pnum
+The invocations of element access functions in parallel algorithms invoked with
 an execution policy object of type \tcode{execution::parallel_policy}
 are permitted to execute
 in either the invoking thread of execution or
@@ -439,7 +491,7 @@ ensuring that it is incremented correctly.
 
 \pnum
 The invocations of element access functions in parallel algorithms invoked with
-an execution policy of type \tcode{execution::parallel_unsequenced_policy} are
+an execution policy object of type \tcode{execution::parallel_unsequenced_policy} are
 permitted to execute
 in an unordered fashion in unspecified threads of execution, and
 unsequenced with respect to one another within each thread of execution.
@@ -451,48 +503,28 @@ the latter will provide weakly parallel forward progress guarantees.
 This means that multiple function object invocations may be interleaved
 on a single thread of execution,
 which overrides the usual guarantee from \ref{intro.execution}
-that function executions do not interleave with one another.
+that function executions do not overlap with one another.
 \end{note}
-Since \tcode{execution::parallel_unsequenced_policy} allows
+The behavior of a program is undefined if
+it invokes a vectorization-unsafe standard library function
+from user code
+called from a \tcode{execution::parallel_unsequenced_policy} algorithm.
+\begin{note}
+Because \tcode{execution::parallel_unsequenced_policy} allows
 the execution of element access functions
 to be interleaved on a single thread of execution,
 blocking synchronization, including the use of mutexes, risks deadlock.
-Thus, the synchronization with \tcode{execution::parallel_unsequenced_policy}
-is restricted as follows:
-A standard library function is \defn{vectorization-unsafe}
-if it is specified to synchronize with another function invocation, or
-another function invocation is specified to synchronize with it, and
-if it is not a memory allocation or deallocation function.
-Vectorization-unsafe standard library functions may not be invoked by user code
-called from \tcode{execution::parallel_unsequenced_policy} algorithms.
-\begin{note}
-Implementations must ensure
-that internal synchronization inside standard library functions
-does not prevent forward progress
-when those functions are executed
-by threads of execution with weakly parallel forward progress guarantees.
 \end{note}
-\begin{example}
-\begin{codeblock}
-int x = 0;
-std::mutex m;
-int a[] = {1,2};
-std::for_each(std::execution::par_unseq, std::begin(a), std::end(a), [&](int) {
-  std::lock_guard<mutex> guard(m); // incorrect: \tcode{lock_guard} constructor calls \tcode{m.lock()}
-  ++x;
-});
-\end{codeblock}
-The above program may result in two consecutive calls to \tcode{m.lock()}
-on the same thread of execution (which may deadlock),
-because the applications of the function object are not guaranteed
-to run on different threads of execution.
-\end{example}
+
+\pnum
 \begin{note}
-The semantics of the \tcode{execution::parallel_policy} or
-the \tcode{execution::parallel_unsequenced_policy} invocation
+The semantics of invocation with
+\tcode{execution::unsequenced_policy},
+\tcode{execution::parallel_policy}, or
+\tcode{execution::parallel_unsequenced_policy}
 allow the implementation to fall back to sequential execution
-if the system cannot parallelize an algorithm invocation
-due to lack of resources.
+if the system cannot parallelize an algorithm invocation,
+e.g., due to lack of resources.
 \end{note}
 
 \pnum
