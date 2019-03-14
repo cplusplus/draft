@@ -4089,9 +4089,10 @@ Expressions with unary operators group right-to-left.
 \begin{bnf}
 \nontermdef{unary-expression}\br
     postfix-expression\br
+    unary-operator cast-expression\br
     \terminal{++} cast-expression\br
     \terminal{-{-}} cast-expression\br
-    unary-operator cast-expression\br
+    await-expression\br
     \terminal{sizeof} unary-expression\br
     \terminal{sizeof (} type-id \terminal{)}\br
     \terminal{sizeof ...} \terminal{(} identifier \terminal{)}\br
@@ -4290,6 +4291,189 @@ those of prefix \tcode{++}.
 \begin{note}
 For postfix increment and decrement, see~\ref{expr.post.incr}.
 \end{note}
+
+\rSec3[expr.await]{Await}
+\indextext{expression!await}%
+\indextext{\idxcode{co_await}}%
+
+\pnum
+The \tcode{co_await} expression is used to suspend evaluation of a
+coroutine\iref{dcl.fct.def.coroutine} while awaiting completion of
+the computation represented by the operand expression.
+
+\begin{bnf}
+\nontermdef{await-expression}\br
+    \terminal{co_await} cast-expression
+\end{bnf}
+
+\pnum
+An \grammarterm{await-expression} shall appear only in a potentially-evaluated
+expression within the \grammarterm{compound-statement} of a
+\grammarterm{function-body} outside of a \grammarterm{handler}\iref{except}.
+In a \grammarterm{declaration-statement} or in the
+\grammarterm{simple-declaration} (if any)
+of a \grammarterm{for-init-statement}, an \grammarterm{await-expression}
+shall appear only in an \grammarterm{initializer} of that
+\grammarterm{declaration-statement} or \grammarterm{simple-declaration}.
+An \grammarterm{await-expression} shall not appear in a
+default argument\iref{dcl.fct.default}.
+An \grammarterm{await-expression} shall not appear in the initializer of
+a block-scope variable with static or thread storage duration.
+A context within a function where an \grammarterm{await-expression} can appear
+is called a \term{suspension context} of the function.
+
+\pnum
+Evaluation of an \grammarterm{await-expression} involves the following
+auxiliary types, expressions, and objects:
+
+\begin{itemize}
+\item
+\placeholder{p} is an lvalue naming the promise
+object\iref{dcl.fct.def.coroutine}
+of the enclosing coroutine and \tcode{P} is the type of that object.
+
+\item \placeholder{a} is the \grammarterm{cast-expression} if
+the \grammarterm{await-expression} was implicitly produced by a
+\grammarterm{yield-expression}\iref{expr.yield}, an initial suspend point,
+or a final suspend point\iref{dcl.fct.def.coroutine}.
+Otherwise, the \grammarterm{unqualified-id} \tcode{await_transform} is
+looked up within the scope of \tcode{P} by class member access
+lookup\iref{basic.lookup.classref},
+and if this lookup finds at least one declaration, then \placeholder{a} is
+\mbox{\placeholder{p}\tcode{.await_transform(}\grammarterm{cast-expression}\tcode{)}};
+otherwise, \placeholder{a} is the  \grammarterm{cast-expression}.
+
+\item
+\placeholder{o} is determined by enumerating the applicable
+\tcode{operator co_await} functions for an argument
+\placeholder{a}\iref{over.match.oper}, and choosing the best one through
+overload resolution\iref{over.match}. If overload resolution is ambiguous,
+the program is ill-formed.
+If no viable functions are found, \placeholder{o} is \placeholder{a}.
+Otherwise, \placeholder{o} is a call to the selected function
+with the argument \placeholder{a}.
+If \placeholder{o} would be a prvalue,
+the temporary materialization conversion\iref{conv.rval} is applied.
+
+\item
+\placeholder{e} is an lvalue
+referring to the result of evaluating
+the (possibly-converted) \placeholder{o}.
+
+\item
+% FIXME: h needs to be an expression so we can use it as an argument
+% to await_suspend. What should its value category be?
+% Don't forget to remove "and objects" from the intro sentence when
+% this is fixed.
+\placeholder{h} is an object of type
+\tcode{std::coroutine_handle<P>}
+referring to the enclosing coroutine.
+
+\item
+\placeholder{await-ready} is the expression
+\placeholder{e}\tcode{.await_ready()},
+contextually converted to \tcode{bool}.
+
+\item
+\placeholder{await-suspend} is the expression
+\placeholder{e}\tcode{.await_suspend(}\placeholder{h}\tcode{)},
+which shall be a prvalue of type \tcode{void}, \tcode{bool}, or
+\tcode{std::coroutine_handle<Z>} for some type \tcode{Z}.
+
+\item
+\placeholder{await-resume} is the expression
+\placeholder{e}\tcode{.await_resume()}.
+\end{itemize}
+
+\pnum
+The \grammarterm{await-expression} has the same type and value category
+as the \placeholder{await-resume} expression.
+
+\pnum
+The \grammarterm{await-expression} evaluates
+the (possibly-converted) \placeholder{o} expression and
+the \placeholder{await-ready} expression, then:
+\begin{itemize}
+\item
+If the result of \placeholder{await-ready} is \tcode{false},
+the coroutine is considered suspended.
+Then:
+\begin{itemize}
+\item
+If the type of \placeholder{await-suspend}
+is \tcode{std::coroutine_handle<Z>},
+\placeholder{await-suspend}\tcode{.resume()} is evaluated.
+\begin{note}
+This resumes the coroutine referred to
+by the result of \placeholder{await-suspend}.
+Any number of coroutines may be successively resumed in this fashion,
+eventually returning control flow to the current coroutine caller or
+resumer\iref{dcl.fct.def.coroutine}.
+\end{note}
+
+\item
+Otherwise, if the type of \placeholder{await-suspend}
+is \tcode{bool},
+\placeholder{await-suspend} is evaluated,
+and the coroutine is resumed if the result is \tcode{false}.
+
+\item
+Otherwise, \placeholder{await-suspend} is evaluated.
+\end{itemize}
+If the evaluation of \placeholder{await-suspend}
+exits via an exception, the exception is caught,
+the coroutine is resumed, and the exception is immediately
+re-thrown\iref{except.throw}. Otherwise, control flow returns
+to the current coroutine caller or resumer\iref{dcl.fct.def.coroutine}
+without exiting any scopes\iref{stmt.jump}.
+
+\item
+If the result of \placeholder{await-ready} is \tcode{true},
+or when the coroutine is resumed,
+the \placeholder{await-resume} expression is evaluated, and
+its result is the result of the \grammarterm{await-expression}.
+\end{itemize}
+
+\pnum
+\begin{example}
+\begin{codeblock}
+template <typename T>
+struct my_future {
+  @\commentellip@
+  bool await_ready();
+  void await_suspend(std::coroutine_handle<>);
+  T await_resume();
+};
+
+template <class Rep, class Period>
+auto operator co_await(std::chrono::duration<Rep, Period> d) {
+  struct awaiter {
+    std::chrono::system_clock::duration duration;
+    @\commentellip@
+    awaiter(std::chrono::system_clock::duration d) : duration(d) {}
+    bool await_ready() const { return duration.count() <= 0; }
+    void await_resume() {}
+    void await_suspend(std::coroutine_handle<> h) { @\commentellip@ }
+  };
+  return awaiter{d};
+}
+
+using namespace std::chrono;
+
+my_future<int> h();
+
+my_future<void> g() {
+  std::cout << "just about go to sleep...\n";
+  co_await 10ms;
+  std::cout << "resumed\n";
+  co_await h();
+}
+
+auto f(int x = co_await h());   // error: \grammarterm{await-expression} outside of function suspension context
+int a[] = { co_await h() };     // error: \grammarterm{await-expression} outside of function suspension context
+
+\end{codeblock}
+\end{example}
 
 \rSec3[expr.sizeof]{Sizeof}
 
@@ -6316,6 +6500,60 @@ that type and the other is a null pointer constant. The result is of type
 
 \end{itemize}
 
+\rSec2[expr.yield]{Yielding a value}%
+\indextext{expression!yield}%
+\indextext{\idxcode{co_yield}}%
+
+\begin{bnf}
+  \nontermdef{yield-expression}\br
+  \terminal{co_yield} assignment-expression\br
+  \terminal{co_yield} braced-init-list
+\end{bnf}
+
+\pnum
+A \grammarterm{yield-expression} shall appear only within a suspension context
+of a function\iref{expr.await}.
+Let \placeholder{e} be the operand of the \grammarterm{yield-expression} and
+\placeholder{p} be an lvalue naming the promise object of the enclosing
+coroutine\iref{dcl.fct.def.coroutine}, then the \grammarterm{yield-expression}
+is equivalent to the expression
+\tcode{co_await }\placeholder{p}\tcode{.yield_value(}\placeholder{e}\tcode{)}.
+
+\begin{example}
+\begin{codeblock}
+template <typename T>
+struct my_generator {
+  struct promise_type {
+    T current_value;
+    @\commentellip@
+    auto yield_value(T v) {
+      current_value = std::move(v);
+      return std::suspend_always{};
+    }
+  };
+  struct iterator { @\commentellip@ };
+  iterator begin();
+  iterator end();
+};
+
+my_generator<pair<int,int>> g1() {
+  for (int i = i; i < 10; ++i) co_yield {i,i};
+}
+my_generator<pair<int,int>> g2() {
+  for (int i = i; i < 10; ++i) co_yield make_pair(i,i);
+}
+
+auto f(int x = co_yield 5);     // error: \grammarterm{yield-expression} outside of function suspension context
+int a[] = { co_yield 1 };       // error: \grammarterm{yield-expression} outside of function suspension context
+
+int main() {
+  auto r1 = g1();
+  auto r2 = g2();
+  assert(std::equal(r1.begin(), r1.end(), r2.begin(), r2.end()));
+}
+\end{codeblock}
+\end{example}
+
 \rSec2[expr.throw]{Throwing an exception}%
 \indextext{expression!\idxcode{throw}}%
 \indextext{exception handling!throwing}%
@@ -6410,6 +6648,7 @@ single compound assignment operator.
 \nontermdef{assignment-expression}\br
     conditional-expression\br
     logical-or-expression assignment-operator initializer-clause\br
+    yield-expression\br
     throw-expression
 \end{bnf}
 
@@ -6724,6 +6963,12 @@ a \grammarterm{new-expression}\iref{expr.new};
 
 \item
 a \grammarterm{delete-expression}\iref{expr.delete};
+
+\item
+an \grammarterm{await-expression}\iref{expr.await};
+
+\item
+a \grammarterm{yield-expression}\iref{expr.yield};
 
 \item
 a three-way comparison\iref{expr.spaceship},

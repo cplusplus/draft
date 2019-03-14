@@ -37,6 +37,7 @@ as summarized in \tref{lang.sup.lib.summary}.
 \ref{support.exception}   & Exception handling        &   \tcode{<exception>} \\ \rowsep
 \ref{support.initlist}    & Initializer lists    & \tcode{<initializer_list>} \\ \rowsep
 \ref{cmp}                 & Comparisons               &   \tcode{<compare>}   \\ \rowsep
+\ref{support.coroutine}   & Coroutines                &   \tcode{<coroutine>} \\ \rowsep
 \ref{support.runtime}     & Other runtime support     &   \tcode{<csignal>}   \\
                           &                           &   \tcode{<csetjmp>}   \\
                           &                           &   \tcode{<cstdarg>}   \\
@@ -4960,6 +4961,493 @@ Otherwise, the function is defined as deleted.
 \end{itemize}
 \end{itemdescr}
 
+\rSec1[support.coroutine]{Coroutines}
+
+\pnum
+The header
+\tcode{<coroutine>}
+defines several types providing
+compile and run-time support for
+coroutines in a \Cpp{} program.
+
+\rSec2[coroutine.syn]{Header \tcode{<coroutine>} synopsis}
+
+\indextext{\idxhdr{coroutine}}%
+\indexlibrary{\idxhdr{coroutine}}%
+\indexlibrary{\idxcode{noop_coroutine_handle}}%
+\begin{codeblock}
+namespace std {
+  // \ref{coroutine.traits}, coroutine traits
+  template<class R, class... ArgTypes>
+    struct coroutine_traits;
+
+  // \ref{coroutine.handle}, coroutine handle
+  template<class Promise = void>
+    struct coroutine_handle;
+
+  // \ref{coroutine.handle.compare}, comparison operators
+  constexpr bool operator==(coroutine_handle<> x, coroutine_handle<> y) noexcept;
+  constexpr bool operator!=(coroutine_handle<> x, coroutine_handle<> y) noexcept;
+  constexpr bool operator<(coroutine_handle<> x, coroutine_handle<> y) noexcept;
+  constexpr bool operator>(coroutine_handle<> x, coroutine_handle<> y) noexcept;
+  constexpr bool operator<=(coroutine_handle<> x, coroutine_handle<> y) noexcept;
+  constexpr bool operator>=(coroutine_handle<> x, coroutine_handle<> y) noexcept;
+
+  // \ref{coroutine.handle.hash}, hash support
+  template<class T> struct hash;
+  template<class P> struct hash<coroutine_handle<P>>;
+
+  // \ref{coroutine.noop}, no-op coroutines
+  struct noop_coroutine_promise;
+
+  template<> struct coroutine_handle<noop_coroutine_promise>;
+  using noop_coroutine_handle = coroutine_handle<noop_coroutine_promise>;
+
+  noop_coroutine_handle noop_coroutine() noexcept;
+
+  // \ref{coroutine.trivial.awaitables}, trivial awaitables
+  struct suspend_never;
+  struct suspend_always;
+}
+\end{codeblock}
+
+\rSec2[coroutine.traits]{Coroutine traits}
+
+\pnum
+This subclause defines requirements on classes representing
+\term{coroutine traits},
+and defines the class template
+\tcode{coroutine_traits}
+that satisfies those requirements.
+
+\rSec3[coroutine.traits.primary]{Class template \tcode{coroutine_traits}}
+
+\pnum
+The header \tcode{<coroutine>} defines the primary template
+\tcode{coroutine_traits} such that
+if \tcode{ArgTypes} is a parameter pack of types and
+if the \grammarterm{qualified-id} \tcode{R::promise_type} is valid and
+denotes a type\iref{temp.deduct},
+then \tcode{coroutine_traits<R,ArgTypes...>} has the following publicly
+accessible member:
+
+\begin{codeblock}
+  using promise_type = typename R::promise_type;
+\end{codeblock}
+
+Otherwise, \tcode{coroutine_traits<R,ArgTypes...>} has no members.
+
+\pnum
+Program defined specializations of this template shall define a publicly
+accessible nested type named \tcode{promise_type}.
+
+\rSec2[coroutine.handle]{Class template \tcode{coroutine_handle}}
+
+\indexlibrary{\idxcode{coroutine_handle}}%
+\begin{codeblock}
+namespace std {
+  template<>
+  struct coroutine_handle<void>
+  {
+    // \ref{coroutine.handle.con}, construct/reset
+    constexpr coroutine_handle() noexcept;
+    constexpr coroutine_handle(nullptr_t) noexcept;
+    coroutine_handle& operator=(nullptr_t) noexcept;
+
+    // \ref{coroutine.handle.export.import}, export/import
+    constexpr void* address() const noexcept;
+    constexpr static coroutine_handle from_address(void* addr);
+
+    // \ref{coroutine.handle.observers}, observers
+    constexpr explicit operator bool() const noexcept;
+    bool done() const;
+
+    // \ref{coroutine.handle.resumption}, resumption
+    void operator()() const;
+    void resume() const;
+    void destroy() const;
+
+  private:
+    void* ptr; // exposition only
+  };
+
+  template<class Promise>
+  struct coroutine_handle : coroutine_handle<>
+  {
+    // \ref{coroutine.handle.con}, construct/reset
+    using coroutine_handle<>::coroutine_handle;
+    static coroutine_handle from_promise(Promise&);
+    coroutine_handle& operator=(nullptr_t) noexcept;
+
+    // \ref{coroutine.handle.export.import}, export/import
+    constexpr static coroutine_handle from_address(void* addr);
+
+    // \ref{coroutine.handle.promise}, promise access
+    Promise& promise() const;
+  };
+}
+\end{codeblock}
+
+\pnum
+An object of type
+\tcode{coroutine_handle<T>} is called a \term{coroutine handle}
+and can be used to refer to a suspended or executing coroutine.
+A default-constructed \tcode{coroutine_handle} object does not refer to any
+coroutine.
+
+\pnum
+If a program declares an explicit or partial specialization of
+\tcode{coroutine_handle}, the behavior is undefined.
+
+\rSec3[coroutine.handle.con]{Construct/reset}
+
+\indexlibrary{\idxcode{coroutine_handle}!constructor}%
+\begin{itemdecl}
+constexpr coroutine_handle() noexcept;
+constexpr coroutine_handle(nullptr_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\ensures \tcode{address() == nullptr}.
+\end{itemdescr}
+
+\indexlibrarymember{from_promise}{coroutine_handle}%
+\begin{itemdecl}
+static coroutine_handle from_promise(Promise& p);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{p} is a reference to a promise object of a coroutine.
+
+\pnum
+\returns A coroutine handle \tcode{h} referring to the coroutine.
+
+\pnum
+\ensures \tcode{addressof(h.promise()) == addressof(p)}.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{coroutine_handle}%
+\begin{itemdecl}
+coroutine_handle& operator=(nullptr_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\ensures \tcode{address() == nullptr}.
+
+\pnum
+\returns \tcode{*this}.
+\end{itemdescr}
+
+\rSec3[coroutine.handle.export.import]{Export/import}
+
+\indexlibrarymember{address}{coroutine_handle}%
+\begin{itemdecl}
+constexpr void* address() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{ptr}.
+\end{itemdescr}
+
+\indexlibrarymember{from_address}{coroutine_handle}%
+\begin{itemdecl}
+constexpr static coroutine_handle<> coroutine_handle<>::from_address(void* addr);
+constexpr static coroutine_handle<Promise> coroutine_handle<Promise>::from_address(void* addr);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{addr} was obtained via a prior call to \tcode{address}.
+
+\pnum
+\ensures \tcode{from_address(address()) == *this}.
+\end{itemdescr}
+
+\rSec3[coroutine.handle.observers]{Observers}
+
+\indexlibrarymember{operator bool}{coroutine_handle}%
+\begin{itemdecl}
+constexpr explicit operator bool() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{address() != nullptr}.
+\end{itemdescr}
+
+\indexlibrarymember{done}{coroutine_handle}%
+\begin{itemdecl}
+bool done() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{*this} refers to a suspended coroutine.
+
+\pnum
+\returns \tcode{true} if the coroutine is suspended at its
+final suspend point, otherwise \tcode{false}.
+\end{itemdescr}
+
+\rSec3[coroutine.handle.resumption]{Resumption}
+
+\pnum
+Resuming a coroutine via \tcode{resume}, \tcode{operator()}, or \tcode{destroy}
+on an execution agent other than the one on which it was suspended
+has implementation-defined behavior unless
+each execution agent is either
+an instance of \tcode{std::thread} or
+the thread that executes \tcode{main}.
+\begin{note}
+A coroutine that is resumed on a different execution agent should
+avoid relying on consistent thread identity throughout, such as holding
+a mutex object across a suspend point.
+\end{note}
+\begin{note}
+A concurrent resumption of the coroutine may result in a data race.
+\end{note}
+
+\indexlibrarymember{operator()}{coroutine_handle}%
+\indexlibrarymember{resume}{coroutine_handle}%
+\begin{itemdecl}
+void operator()() const;
+void resume() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{*this} refers to a suspended coroutine.
+
+\pnum
+\effects Resumes the execution of the coroutine. If the coroutine
+was suspended at its final suspend point, behavior is undefined.
+\end{itemdescr}
+
+\indexlibrarymember{destroy}{coroutine_handle}%
+\begin{itemdecl}
+void destroy() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{*this} refers to a suspended coroutine.
+
+\pnum
+\effects Destroys the coroutine\iref{dcl.fct.def.coroutine}.
+\end{itemdescr}
+
+\rSec3[coroutine.handle.promise]{Promise access}
+
+\indexlibrarymember{promise}{coroutine_handle}%
+\begin{itemdecl}
+Promise& promise() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires \tcode{*this} refers to a coroutine.
+
+\pnum
+\returns A reference to the promise of the coroutine.
+\end{itemdescr}
+
+\rSec3[coroutine.handle.compare]{Comparison operators}
+
+\indexlibrarymember{operator==}{coroutine_handle}%
+\indexlibrarymember{operator"!=}{coroutine_handle}%
+\begin{itemdecl}
+constexpr bool operator==(coroutine_handle<> x, coroutine_handle<> y) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum \returns \tcode{x.address() == y.address()}.
+\end{itemdescr}
+
+\indexlibrarymember{operator<}{coroutine_handle}%
+\indexlibrarymember{operator>}{coroutine_handle}%
+\indexlibrarymember{operator<=}{coroutine_handle}%
+\indexlibrarymember{operator>=}{coroutine_handle}%
+\begin{itemdecl}
+constexpr bool operator<(coroutine_handle<> x, coroutine_handle<> y) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum \returns \tcode{less<>()(x.address(), y.address())}.
+\end{itemdescr}
+
+\rSec3[coroutine.handle.hash]{Hash support}
+
+\indexlibrary{\idxcode{hash}!\idxcode{coroutine_handle}}%
+\begin{itemdecl}
+template <class P> struct hash<coroutine_handle<P>>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum The specialization is enabled\iref{unord.hash}.
+\end{itemdescr}
+
+\rSec2[coroutine.noop]{No-op coroutines}
+
+\rSec3[coroutine.promise.noop]{Class \tcode{noop_coroutine_promise}}
+
+\indexlibrary{\idxcode{noop_coroutine_promise}}%
+\begin{itemdecl}
+struct noop_coroutine_promise {};
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum The class \tcode{noop_coroutine_promise} defines the promise type for
+the coroutine referred to
+by \tcode{noop_coroutine_handle}\iref{coroutine.syn}.
+\end{itemdescr}
+
+\rSec3[coroutine.handle.noop]{Class \tcode{coroutine_handle<noop_coroutine_promise>}}
+
+\indexlibrary{\idxcode{coroutine_handle<noop_coroutine_promise>}}%
+\begin{codeblock}
+namespace std {
+  template<>
+  struct coroutine_handle<noop_coroutine_promise> : coroutine_handle<>
+  {
+    // \ref{coroutine.handle.noop.observers}, observers
+    constexpr explicit operator bool() const noexcept;
+    constexpr bool done() const noexcept;
+
+    // \ref{coroutine.handle.noop.resumption}, resumption
+    constexpr void operator()() const noexcept;
+    constexpr void resume() const noexcept;
+    constexpr void destroy() const noexcept;
+
+    // \ref{coroutine.handle.noop.promise}, promise access
+    noop_coroutine_promise& promise() const noexcept;
+
+    // \ref{coroutine.handle.noop.address}, address
+    constexpr void* address() const noexcept;
+  private:
+    coroutine_handle(@\unspec@);
+  };
+}
+\end{codeblock}
+
+\rSec4[coroutine.handle.noop.observers]{Observers}
+
+\indexlibrarymember{operator bool}{coroutine_handle<noop_coroutine_promise>}%
+\begin{itemdecl}
+constexpr explicit operator bool() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum \returns \tcode{true}.
+\end{itemdescr}
+
+\indexlibrarymember{done}{coroutine_handle<noop_coroutine_promise>}%
+\begin{itemdecl}
+constexpr bool done() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum \returns \tcode{false}.
+\end{itemdescr}
+
+\rSec4[coroutine.handle.noop.resumption]{Resumption}
+
+\indexlibrarymember{operator()}{coroutine_handle<noop_coroutine_promise>}%
+\indexlibrarymember{resume}{coroutine_handle<noop_coroutine_promise>}%
+\indexlibrarymember{destroy}{coroutine_handle<noop_coroutine_promise>}%
+\begin{itemdecl}
+constexpr void operator()() const noexcept;
+constexpr void resume() const noexcept;
+constexpr void destroy() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum \effects None.
+
+\pnum
+\remarks
+If \tcode{noop_coroutine_handle} is converted to \tcode{coroutine_handle<>},
+calls to \tcode{operator()}, \tcode{resume} and \tcode{destroy} on that handle
+will also have no observable effects.
+\end{itemdescr}
+
+\rSec4[coroutine.handle.noop.promise]{Promise access}
+
+\indexlibrarymember{promise}{coroutine_handle<noop_coroutine_promise>}%
+\begin{itemdecl}
+noop_coroutine_promise& promise() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum \returns A reference to the promise object associated with this
+coroutine handle.
+\end{itemdescr}
+
+\rSec4[coroutine.handle.noop.address]{Address}
+
+\indexlibrarymember{address}{coroutine_handle<noop_coroutine_promise>}%
+\begin{itemdecl}
+constexpr void* address() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum \returns \tcode{ptr}.
+
+\pnum \remarks A \tcode{noop_coroutine_handle}'s \tcode{ptr} is always a
+non-null pointer value.
+\end{itemdescr}
+
+\rSec3[coroutine.noop.coroutine]{Function \tcode{noop_coroutine}}
+
+\indexlibrary{noop_coroutine}%
+\begin{itemdecl}
+noop_coroutine_handle noop_coroutine() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum \returns A handle to a coroutine that has no observable effects
+when resumed or destroyed.
+
+\pnum \remarks A handle returned from \tcode{noop_coroutine} may or may not
+compare equal to a handle returned from another invocation
+of \tcode{noop_coroutine}.
+\end{itemdescr}
+
+\rSec2[coroutine.trivial.awaitables]{Trivial awaitables}
+
+\indexlibrary{\idxcode{suspend_never}}%
+\indexlibrarymember{await_ready}{suspend_never}%
+\indexlibrarymember{await_suspend}{suspend_never}%
+\indexlibrarymember{await_resume}{suspend_never}%
+\indexlibrary{\idxcode{suspend_always}}%
+\indexlibrarymember{await_ready}{suspend_always}%
+\indexlibrarymember{await_suspend}{suspend_always}%
+\indexlibrarymember{await_resume}{suspend_always}%
+\begin{codeblock}
+namespace std {
+  struct suspend_never {
+    constexpr bool await_ready() const noexcept { return true; }
+    constexpr void await_suspend(coroutine_handle<>) const noexcept {}
+    constexpr void await_resume() const noexcept {}
+  };
+  struct suspend_always {
+    constexpr bool await_ready() const noexcept { return false; }
+    constexpr void await_suspend(coroutine_handle<>) const noexcept {}
+    constexpr void await_resume() const noexcept {}
+  };
+}
+\end{codeblock}
+
+\pnum
+\begin{note}
+The types \tcode{suspend_never} and \tcode{suspend_always} can be used
+to indicate that an \grammarterm{await-expression} should either never
+suspend or always suspend, and in either case not produce a value.
+\end{note}
+
 \rSec1[support.runtime]{Other runtime support}
 
 \pnum
@@ -5078,6 +5566,8 @@ A \tcode{setjmp}/\tcode{longjmp} call pair has undefined
 behavior if replacing the \tcode{setjmp} and \tcode{longjmp}
 by \tcode{catch} and \tcode{throw} would invoke any non-trivial destructors for any automatic
 objects.
+A call to \tcode{setjmp} or \tcode{longjmp} has undefined
+behavior if invoked in a suspension context of a coroutine\iref{expr.await}.
 
 \xrefc{7.13}
 
