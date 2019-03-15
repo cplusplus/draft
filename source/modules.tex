@@ -1,0 +1,982 @@
+%!TEX root = std.tex
+\rSec0[module]{Modules}%
+
+\gramSec[gram.module]{Modules}
+
+\rSec1[module.unit]{Module units and purviews}
+
+\begin{bnf}
+\nontermdef{module-declaration}\br
+    \opt{\keyword{export}} \keyword{module} module-name \opt{module-partition} \opt{attribute-specifier-seq} \terminal{;}
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{module-name}\br
+    \opt{module-name-qualifier} identifier
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{module-partition}\br
+    \terminal{:} \opt{module-name-qualifier} identifier
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{module-name-qualifier}\br
+    identifier \terminal{.}\br
+    module-name-qualifier identifier \terminal{.}
+\end{bnf}
+
+\pnum
+A \defn{module unit} is a translation unit that contains
+a \grammarterm{module-declaration}.
+A \defnadj{named}{module} is the
+collection of module units with the same \grammarterm{module-name}.
+The identifiers \tcode{module} and \tcode{import}
+shall not appear as \grammarterm{identifier}{s}
+in a \grammarterm{module-name} or \grammarterm{module-partition}.
+The optional \grammarterm{attribute-specifier-seq}
+appertains to the \grammarterm{module-declaration}.
+
+\pnum
+A \defn{module interface unit} is a module unit whose
+\grammarterm{module-declaration} contains the \tcode{export} keyword;
+any other module unit is a \defn{module implementation unit}.
+A named module shall contain exactly one module interface unit
+with no \grammarterm{module-partition}, known as the
+\defn{primary module interface unit} of the module;
+no diagnostic is required.
+
+\pnum
+A \defn{module partition} is
+a module unit whose \grammarterm{module-declaration} contains
+a \grammarterm{module-partition}.
+A named module shall not contain multiple module partitions with
+the same \grammarterm{module-partition}.
+All module partitions of a module
+that are module interface units
+shall be directly or indirectly exported
+by the primary module interface unit\iref{module.import}.
+No diagnostic is required for a violation of these rules.
+\begin{note}
+Module partitions can be imported only by
+other module units in the same module.
+The division of a module into module units
+is not visible outside the module.
+\end{note}
+
+\pnum
+\begin{example}
+\begin{codeblocktu}{Translation unit \#1}
+export module A;
+export import :Foo;
+export int baz();
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#2}
+export module A:Foo;
+import :Internals;
+export int foo() { return 2 * (bar() + 1); }
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#3}
+module A:Internals;
+int bar();
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#4}
+module A;
+import :Internals;
+int bar() { return baz() - 10; }
+int baz() { return 30; }
+\end{codeblocktu}
+
+Module \tcode{A} contains four translation units:
+\begin{itemize}
+\item a primary module interface unit,
+\item a module partition \tcode{A:Foo}, which is a module interface unit
+forming part of the interface of module \tcode{A},
+\item a module partition \tcode{A:Internals}, which does not contribute
+to the external interface of module \tcode{A}, and
+\item a module implementation unit providing
+a definition of \tcode{bar} and \tcode{baz},
+which cannot be imported because
+it does not have a partition name.
+\end{itemize}
+\end{example}
+
+\pnum
+A \defnadj{module unit}{purview} is
+the sequence of \grammarterm{token}{s}
+starting at the \grammarterm{module-declaration}
+and extending to the end of the translation unit.
+The \defnx{purview}{purview!named module}
+of a named module \tcode{M} is the set of module unit purviews
+of \tcode{M}'s module units.
+
+\pnum
+The \defnadj{global}{module} is the collection of all
+\grammarterm{global-module-fragment}{s}
+and all translation units that are not module units.
+Declarations appearing in such a context
+are said to be in the \defnx{purview}{purview!global module} of the global module.
+\begin{note}
+The global module has no name, no module interface unit, and is not
+introduced by any \grammarterm{module-declaration}.
+\end{note}
+
+\pnum
+A \defn{module} is either a named module or the global module.
+A declaration is \defnx{attached}{attached!declaration} to a module as follows:
+\begin{itemize}
+\item If the declaration
+\begin{itemize}
+\item is a replaceable global allocation or deallocation
+function (\ref{new.delete.single}, \ref{new.delete.array}), or
+\item is a \grammarterm{namespace-declaration} with external linkage, or
+\item appears within a \grammarterm{linkage-specification},
+\end{itemize}
+it is attached to the global module.
+
+\item Otherwise, the declaration is
+attached to the module in whose purview it appears.
+\end{itemize}
+
+\pnum
+A \grammarterm{module-declaration}
+that contains neither \tcode{export}
+nor a \grammarterm{module-partition}
+implicitly imports the primary module interface unit of the module
+as if by a \grammarterm{module-import-declaration}.
+\begin{example}
+\begin{codeblocktu}{Translation unit \#1}
+module B:Y;                     // does not implicitly import \tcode{B}
+int y();
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#2}
+export module B;
+import :Y;                      // OK, does not create interface dependency cycle
+int n = y();
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#3}
+module B:X1;                    // does not implicitly import \tcode{B}
+int &a = n;                     // error: \tcode{n} not visible here
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#4}
+module B:X2;                    // does not implicitly import \tcode{B}
+import B;
+int &b = n;                     // OK
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#5}
+module B;                       // implicitly imports \tcode{B}
+int &c = n;                     // OK
+\end{codeblocktu}
+\end{example}
+
+\rSec1[module.interface]{Export declaration}%
+
+\begin{bnf}
+\nontermdef{export-declaration}\br
+    \keyword{export} declaration\br
+    \keyword{export} \terminal{\{} \opt{declaration-seq} \terminal{\}}
+\end{bnf}
+
+\pnum
+An \grammarterm{export-declaration} shall appear only
+at namespace scope and only in the purview of a module interface unit.
+An \grammarterm{export-declaration} shall not appear directly
+or indirectly within an unnamed namespace
+or a \grammarterm{private-module-fragment}.
+An \grammarterm{export-declaration}
+has the declarative effects of its \grammarterm{declaration}
+or its \grammarterm{declaration-seq} (if any).
+An \grammarterm{export-declaration} does not
+establish a scope and its \grammarterm{declaration}
+or \grammarterm{declaration-seq}
+shall not contain an \grammarterm{export-declaration}.
+
+\pnum
+A declaration is \defnx{exported}{declaration!exported} if it is
+\begin{itemize}
+\item a namespace-scope declaration declared within an
+      \grammarterm{export-declaration}, or
+\item a \grammarterm{module-import-declaration} declared with
+      the \tcode{export} keyword\iref{module.import}, or
+\item a \grammarterm{namespace-definition} that contains an
+      exported declaration, or
+\item a declaration within a header unit\iref{module.import}
+      that introduces at least one name.
+\end{itemize}
+The \defnx{interface}{module!interface} of a module \tcode{M}
+is the set of all exported declarations within its purview.
+\begin{example}
+\begin{codeblock}
+export module M;
+namespace A {                   // exported
+  export int f();               // exported
+  int g();                      // not exported
+}
+\end{codeblock}
+The interface of \tcode{M} comprises \tcode{A} and \tcode{A::f}.
+\end{example}
+
+\pnum
+An exported declaration shall declare at least one name.
+If the declaration is not within a header unit,
+it shall not declare a name with internal linkage.
+
+\pnum
+\begin{example}
+\begin{codeblocktu}{Source file \tcode{"a.h"}}
+export int x;
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#1}
+module;
+#include "a.h"                  // error: declaration of \tcode{x} is not in the
+                                // purview of a module interface unit
+export module M;
+export namespace {}             // error: does not introduce any names
+export namespace {
+  int a1;                       // error: export of name with internal linkage
+}
+namespace {
+  export int a2;                // error: export of name with internal linkage
+}
+export static int b;            // error: b explicitly declared static
+export int f();                 // OK
+export namespace N { }          // OK
+export using namespace N;       // error: does not declare a name
+\end{codeblocktu}
+\end{example}
+
+\pnum
+If the declaration is a \grammarterm{using-declaration}\iref{namespace.udecl}
+and is not within a header unit,
+all entities to which all of the
+\grammarterm{using-declarator}{s} ultimately refer (if any)
+shall have been introduced with a name having external linkage.
+\begin{example}
+\begin{codeblocktu}{Source file \tcode{"b.h"}}
+int f();
+\end{codeblocktu}
+
+\begin{codeblocktu}{Importable header \tcode{"c.h"}}
+int g();
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#1}
+export module X;
+export int h();
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#2}
+module;
+#include "b.h"
+export module M;
+import "c.h";
+import X;
+export using ::f, ::g, ::h;     // OK
+struct S;
+export using ::S;               // error: \tcode{S} has module linkage
+namespace N {
+  export int h();
+  static int h(int);            // \#1
+}
+export using N::h;              // error: \#1 has internal linkage
+\end{codeblocktu}
+\end{example}
+\begin{note}
+These constraints do not apply to
+type names introduced by \tcode{typedef} declarations
+and \grammarterm{alias-declaration}{s}.
+\begin{example}
+\begin{codeblock}
+export module M;
+struct S;
+export using T = S;             // OK, exports name \tcode{T} denoting type \tcode{S}
+\end{codeblock}
+\end{example}
+\end{note}
+
+\pnum
+A redeclaration of an exported declaration of an entity
+is implicitly exported.
+An exported redeclaration of a non-exported declaration
+of an entity is ill-formed.
+\begin{example}
+\begin{codeblock}
+export module M;
+struct S { int n; };
+typedef S S;
+export typedef S S;             // OK, does not redeclare an entity
+export struct S;                // error: exported declaration follows non-exported declaration
+\end{codeblock}
+\end{example}
+
+\pnum
+A name is \defnx{exported}{name!exported} by a module
+if it is introduced or redeclared
+by an exported declaration in the purview of that module.
+\begin{note}
+Exported names have either external linkage or no linkage; see \ref{basic.link}.
+Namespace-scope names exported by a module are visible to name lookup
+in any translation unit importing that module; see \ref{basic.scope.namespace}.
+Class and enumeration member names are visible to name lookup in any
+context in which a definition of the type is reachable.
+\end{note}
+\begin{example}
+\begin{codeblocktu}{Interface unit of \tcode{M}}
+export module M;
+export struct X {
+  static void f();
+  struct Y { };
+};
+
+namespace {
+  struct S { };
+}
+export void f(S);               // OK
+struct T { };
+export T id(T);                 // OK
+
+export struct A;                // \tcode{A} exported as incomplete
+
+export auto rootFinder(double a) {
+  return [=](double x) { return (x + a/x)/2; };
+}
+
+export const int n = 5;         // OK, \tcode{n} has external linkage
+\end{codeblocktu}
+
+\begin{codeblocktu}{Implementation unit of \tcode{M}}
+module M;
+struct A {
+  int value;
+};
+\end{codeblocktu}
+
+\begin{codeblocktu}{Main program}
+import M;
+int main() {
+  X::f();                       // OK, \tcode{X} is exported and definition of \tcode{X} is reachable
+  X::Y y;                       // OK, \tcode{X::Y} is exported as a complete type
+  auto f = rootFinder(2);       // OK
+  return A{45}.value;           // error: \tcode{A} is incomplete
+}
+\end{codeblocktu}
+\end{example}
+
+\pnum
+\begin{note}
+Redeclaring a name in an \grammarterm{export-declaration}
+cannot change the linkage of the name\iref{basic.link}.
+\begin{example}
+\begin{codeblocktu}{Interface unit of \tcode{M}}
+export module M;
+static int f();                 // \#1
+export int f();                 // error: \#1 gives internal linkage
+struct S;                       // \#2
+export struct S;                // error: \#2 gives module linkage
+namespace {
+  namespace N {
+    extern int x;               // \#3
+  }
+}
+export int N::x;                // error: \#3 gives internal linkage
+\end{codeblocktu}
+\end{example}
+\end{note}
+
+\pnum
+\begin{note}
+Declarations in an exported \grammarterm{namespace-definition}
+or in an exported \grammarterm{linkage-specification}\iref{dcl.link}
+are exported and subject to the rules of exported declarations.
+\begin{example}
+\begin{codeblock}
+export module M;
+export namespace N {
+  int x;                        // OK
+  static_assert(1 == 1);        // error: does not declare a name
+}
+\end{codeblock}
+\end{example}
+\end{note}
+
+\rSec1[module.import]{Import declaration}%
+
+\begin{bnf}
+\nontermdef{module-import-declaration}\br
+    \opt{\keyword{export}} \keyword{import} module-name \opt{attribute-specifier-seq} \terminal{;}\br
+    \opt{\keyword{export}} \keyword{import} module-partition \opt{attribute-specifier-seq} \terminal{;}\br
+    \opt{\keyword{export}} \keyword{import} header-name \opt{attribute-specifier-seq} \terminal{;}
+\end{bnf}
+
+\pnum
+In a module unit, all \grammarterm{module-import-declaration}{s}
+shall precede all other \grammarterm{top-level-declaration}{s} in
+the \grammarterm{top-level-declaration-seq} of the
+\grammarterm{translation-unit}
+and of the \grammarterm{private-module-fragment} (if any).
+The optional \grammarterm{attribute-specifier-seq}
+appertains to the \grammarterm{module-import-declaration}.
+
+\pnum
+A \grammarterm{module-import-declaration} \defnx{imports}{import} a set of
+translation units determined as described below.
+\begin{note}
+Namespace-scope names exported by the imported translation units
+become visible\iref{basic.scope.namespace}
+in the importing translation unit
+and declarations within the imported translation units
+become reachable\iref{module.reach}
+in the importing translation unit
+after the import declaration.
+\end{note}
+
+\pnum
+A \grammarterm{module-import-declaration} that specifies
+a \grammarterm{module-name} \tcode{M}
+imports all module interface units of \tcode{M}.
+
+\pnum
+A \grammarterm{module-import-declaration} that specifies
+a \grammarterm{module-partition} shall only appear after
+the \grammarterm{module-declaration} in a module unit of
+some module \tcode{M}.
+Such a declaration imports the so-named
+module partition of \tcode{M}.
+
+\pnum
+A \grammarterm{module-import-declaration} that specifies
+a \grammarterm{header-name} \tcode{H} imports
+a synthesized \defn{header unit},
+which is a translation unit formed by applying
+phases 1 to 7 of translation\iref{lex.phases}
+to the source file or header nominated by \tcode{H},
+which shall not contain a \grammarterm{module-declaration}.
+\begin{note}
+All declarations within a header unit are implicitly
+exported\iref{module.interface},
+and are attached to the global module\iref{module.unit}.
+\end{note}
+An \defnadj{importable}{header} is a member of an
+\impldef{how the set of importable headers is determined}
+set of headers.
+\tcode{H} shall identify an importable header.
+Two
+\grammarterm{module-import-declaration}{s}
+import the same header unit if and only if
+their \grammarterm{header-name}{s} identify the same
+header or source file\iref{cpp.include}.
+\begin{note}
+A \grammarterm{module-import-declaration} nominating
+a \grammarterm{header-name} is also recognized by the
+preprocessor, and results in macros defined at the
+end of phase 4 of translation of the header unit
+being made visible as described in \ref{cpp.module}.
+\end{note}
+A declaration of a name with internal linkage is
+permitted within a header unit despite all
+declarations being implicitly exported\iref{module.interface}.
+If such a declaration declares an entity
+that is odr-used outside the
+header unit, or by a template
+instantiation whose point of instantiation is outside
+the header unit, the program is ill-formed.
+
+\pnum
+When a \grammarterm{module-import-declaration} imports
+a translation unit $T$, it also imports
+all translation units imported by
+exported \grammarterm{module-import-declaration}{s}
+in $T$; such translation units are
+said to be \defnx{exported}{module!exported} by $T$.
+When a \grammarterm{module-import-declaration} in a module unit imports
+another module unit of the same module, it also imports
+all translation units imported by
+all \grammarterm{module-import-declaration}{s}
+in that module unit.
+These rules may in turn lead to the importation of yet more
+translation units.
+
+\pnum
+A module implementation unit shall not be exported.
+\begin{example}
+\begin{codeblocktu}{Translation unit \#1}
+module M:Part;
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#2}
+export module M;
+export import :Part;    // error: exported partition \tcode{:Part} is an implementation unit
+\end{codeblocktu}
+\end{example}
+
+\pnum
+A module implementation unit of a module \tcode{M}
+that is not a module partition
+shall not contain a \grammarterm{module-import-declaration}
+nominating \tcode{M}.
+\begin{example}
+\begin{codeblock}
+module M;
+import M;               // error: cannot import \tcode{M} in its own unit
+\end{codeblock}
+\end{example}
+
+\pnum
+A translation unit has an \defn{interface dependency} on a module unit \tcode{U}
+if it contains a \grammarterm{module-declaration} or
+\grammarterm{module-import-declaration} that imports \tcode{U} or if it has
+an interface dependency on a module unit that has an interface dependency on \tcode{U}.
+A translation unit shall not have an interface dependency on itself.
+\begin{example}
+\begin{codeblocktu}{Interface unit of \tcode{M1}}
+export module M1;
+import M2;
+\end{codeblocktu}
+
+\begin{codeblocktu}{Interface unit of \tcode{M2}}
+export module M2;
+import M3;
+\end{codeblocktu}
+
+\begin{codeblocktu}{Interface unit of \tcode{M3}}
+export module M3;
+import M1;              // error: cyclic interface dependency $\mathtt{M3} \rightarrow \mathtt{M1} \rightarrow \mathtt{M2} \rightarrow \mathtt{M3}$
+\end{codeblocktu}
+\end{example}
+
+\rSec1[module.global]{Global module fragment}
+
+\begin{bnf}
+\nontermdef{global-module-fragment}\br
+    \keyword{module} \terminal{;} \opt{top-level-declaration-seq}
+\end{bnf}
+
+\pnum
+A \grammarterm{global-module-fragment} specifies the contents of the
+\defn{global module fragment} for a module unit.
+The global module fragment can be used to provide declarations
+that are attached to the global module and usable within the module unit.
+\begin{note}
+Prior to phase 4 of translation,
+only preprocessing directives can appear
+in the global module fragment\iref{cpp.glob.frag}.
+\end{note}
+
+\pnum
+A declaration $D$ is \defn{decl-reachable} from a declaration $S$
+in the same translation unit if:
+\begin{itemize}
+\item
+$D$ does not declare a function or function template and
+$S$ contains an
+\grammarterm{id-expression},
+\grammarterm{namespace-name},
+\grammarterm{type-name},
+\grammarterm{template-name}, or
+\grammarterm{concept-name}
+naming $D$, or
+
+\item
+$D$ declares a function or function template that
+is named by an expression\iref{basic.def.odr}
+appearing in $S$, or
+
+\item
+$S$ contains an expression \tcode{E} of the form
+
+\begin{ncsimplebnf}
+postfix-expression \terminal{(} \opt{expression-list} \terminal{)}
+\end{ncsimplebnf}
+whose \grammarterm{postfix-expression} denotes a dependent name,
+or for an operator expression whose operator denotes a dependent name,
+and $D$ is found by name lookup for the corresponding name
+in an expression synthesized from \tcode{E}
+by replacing each type-dependent argument or operand
+with a value of a placeholder type
+with no associated namespaces or entities, or
+
+\item
+$S$ contains an expression that
+takes the address of an overloaded function\iref{over.over}
+whose set of overloads contains $D$ and
+for which the target type is dependent, or
+
+\item
+there exists a declaration $M$ that is not a \grammarterm{namespace-definition}
+for which $M$ is decl-reachable from $S$ and either
+\begin{itemize}
+\item
+$D$ is decl-reachable from $M$, or
+\item
+$D$ redeclares the entity declared by $M$ or
+$M$ redeclares the entity declared by $D$,
+and $D$ is neither a friend declaration
+nor a block-scope declaration, or
+\item
+$D$ declares a namespace $N$ and $M$ is a member of $N$, or
+\item
+one of $M$ and $D$ declares a class or class template $C$
+and the other declares a member or friend of $C$, or
+\item
+one of $D$ and $M$ declares an enumeration $E$
+and the other declares an enumerator of $E$, or
+\item
+$D$ declares a function or variable and $M$ is declared in $D$,%
+\footnote{A declaration can appear within a \grammarterm{lambda-expression}
+in the initializer of a variable.} or
+\item
+one of $M$ and $D$ declares a template and the other declares
+a partial or explicit specialization or
+an implicit or explicit instantiation of that template, or
+\item
+one of $M$ and $D$ declares a class or enumeration type
+and the other introduces a typedef name for linkage purposes for that type.
+\end{itemize}
+\end{itemize}
+In this determination, it is unspecified
+\begin{itemize}
+\item
+whether a reference to an
+\grammarterm{alias-declaration},
+\tcode{typedef} declaration,
+\grammarterm{using-declaration}, or
+\grammarterm{namespace-alias-declaration}
+is replaced by the declarations they name
+prior to this determination,
+
+\item
+whether a \grammarterm{simple-template-id}
+that does not denote a dependent type
+and whose \grammarterm{template-name} names an alias template
+is replaced by its denoted type
+prior to this determination,
+
+\item
+whether a \grammarterm{decltype-specifier}
+that does not denote a dependent type
+is replaced by its denoted type
+prior to this determination,
+and
+
+\item
+whether a non-value-dependent constant expression
+is replaced by the result of constant evaluation
+prior to this determination.
+\end{itemize}
+
+\pnum
+A declaration \tcode{D} in a global module fragment of a module unit
+is \defnx{discarded}{discarded!declaration} if \tcode{D}
+is not decl-reachable from any \grammarterm{top-level-declaration}
+in the \grammarterm{top-level-declaration-seq}
+of the \grammarterm{translation unit}.
+\begin{note}
+A discarded declaration is neither reachable
+nor visible to name lookup outside the module unit,
+nor in template instantiations whose points of instantiation\iref{temp.point}
+are outside the module unit,
+even when the instantiation context\iref{module.context}
+includes the module unit.
+\end{note}
+
+\pnum
+\begin{example}
+\begin{codeblock}
+const int size = 2;
+int ary1[size];                 // unspecified whether \tcode{size} is decl-reachable from \tcode{ary1}
+constexpr int identity(int x) { return x; }
+int ary2[identity(2)];          // unspecified whether \tcode{identity} is decl-reachable from \tcode{ary2}
+
+template<typename> struct S;
+template<typename, int> struct S2;
+constexpr int g(int);
+
+template<typename T, int N>
+S<S2<T, g(N)>> f();             // \tcode{S}, \tcode{S2}, \tcode{g}, and \tcode{::} are decl-reachable from \tcode{f}
+
+template<int N>
+void h() noexcept(g(N) == N);   // \tcode{g} and \tcode{::} are decl-reachable from \tcode{h}
+\end{codeblock}
+\end{example}
+
+\pnum
+\begin{example}
+\begin{codeblocktu}{Source file \tcode{"foo.h"}}
+namespace N {
+  struct X {};
+  int d();
+  int e();
+  inline int f(X, int = d()) { return e(); }
+  int g(X);
+  int h(X);
+}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Module \tcode{M} interface}
+module;
+#include "foo.h"
+export module M;
+template<typename T> int use_f() {
+  N::X x;                       // \tcode{N::X}, \tcode{N}, and \tcode{::} are decl-reachable from \tcode{use_f}
+  return f(x, 123);             // \tcode{N::f} is decl-reachable from \tcode{use_f},
+                                // \tcode{N::e} is indirectly decl-reachable from \tcode{use_f}
+                                //   because it is decl-reachable from \tcode{N::f}, and
+                                // \tcode{N::d} is decl-reachable from \tcode{use_f}
+                                //   because it is decl-reachable from \tcode{N::f}
+                                //   even though it is not used in this call
+}
+template<typename T> int use_g() {
+  N::X x;                       // \tcode{N::X}, \tcode{N}, and \tcode{::} are decl-reachable from \tcode{use_f}
+  return g((T(), x));           // \tcode{N::g} is not decl-reachable from \tcode{use_g}
+}
+template<typename T> int use_h() {
+  N::X x;                       // \tcode{N::X}, \tcode{N}, and \tcode{::} are decl-reachable from \tcode{use_h}
+  return h((T(), x));           // \tcode{N::h} is not decl-reachable from \tcode{use_h}, but
+                                // \tcode{N::h} is decl-reachable from \tcode{use_h<int>}
+}
+int k = use_h<int>();
+  // \tcode{use_h<int>} is decl-reachable from \tcode{k}, so
+  // \tcode{N::h} is decl-reachable from \tcode{k}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Module \tcode{M} implementation}
+module M;
+int a = use_f<int>();           // OK
+int b = use_g<int>();           // error: no viable function for call to \tcode{g};
+                                // \tcode{g} is not decl-reachable from purview of
+                                // module \tcode{M}{'s} interface, so is discarded
+int c = use_h<int>();           // OK
+\end{codeblocktu}
+\end{example}
+
+\rSec1[module.context]{Instantiation context}
+
+\pnum
+The \defn{instantiation context} is a set of points within the program
+that determines which names are visible
+to argument-dependent name lookup\iref{basic.lookup.argdep}
+and which declarations are reachable\iref{module.reach}
+in the context of a particular declaration or template instantiation.
+
+\pnum
+During the implicit definition of
+a defaulted special member function\iref{special},
+the instantiation context is the union of
+the instantiation context from the definition of the class and
+the instantiation context of the program construct that
+resulted in the implicit definition of the special member function.
+
+\pnum
+During the implicit instantiation of a template
+whose point of instantiation is specified as
+that of an enclosing specialization\iref{temp.point},
+the instantiation context is the union of
+the instantiation context of the enclosing specialization and,
+if the template is defined in a module interface unit of a module $M$
+and the point of instantiation is not in a module interface unit of $M$,
+the point at the end of the
+\grammarterm{top-level-declaration-seq} of the
+primary module interface unit of $M$
+(prior to the \grammarterm{private-module-fragment}, if any).
+
+\pnum
+During the implicit instantiation of a template
+that is implicitly instantiated because it is referenced
+from within the implicit definition of a defaulted special member function,
+the instantiation context is the instantiation context of
+the defaulted special member function.
+
+\pnum
+During the instantiation of any other template specialization,
+the instantiation context comprises the point of instantiation
+of the template.
+
+\pnum
+In any other case, the instantiation context
+at a point within the program
+comprises that point.
+
+\pnum
+\begin{example}
+\begin{codeblocktu}{Translation unit \#1}
+export module stuff;
+export template<typename T, typename U> void foo(T, U u) { auto v = u; }
+export template<typename T, typename U> void bar(T, U u) { auto v = *u; }
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#2}
+export module M1;
+import "defn.h";        // provides \tcode{struct X \{\};}
+import stuff;
+export template<typename T> void f(T t) {
+  X x;
+  foo(t, x);
+}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#3}
+export module M2;
+import "decl.h";        // provides \tcode{struct X;} (not a definition)
+import stuff;
+export template<typename T> void g(T t) {
+  X *x;
+  bar(t, x);
+}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#4}
+import M1;
+import M2;
+void test() {
+  f(0);
+  g(0);
+}
+\end{codeblocktu}
+The call to \tcode{f(0)} is valid;
+the instantiation context of \tcode{foo<int, X>} comprises
+\begin{itemize}
+\item the point at the end of translation unit \#1,
+\item the point at the end of translation unit \#2, and
+\item the point of the call to \tcode{f(0)},
+\end{itemize}
+so the definition of \tcode{X} is reachable (\ref{module.reach}).
+
+It is unspecified whether the call to \tcode{g(0)} is valid:
+the instantiation context of \tcode{bar<int, X>} comprises
+\begin{itemize}
+\item the point at the end of translation unit \#1,
+\item the point at the end of translation unit \#3, and
+\item the point of the call to \tcode{g(0)},
+\end{itemize}
+so the definition of \tcode{X} is not necessarily reachable,
+as described in \ref{module.reach}.
+\end{example}
+
+\rSec1[module.reach]{Reachability}
+
+\indextext{necessarily reachable|see{reachable!necessarily}}
+\pnum
+A translation unit $U$ is
+\defnx{necessarily reachable}{reachable!necessarily!translation unit}
+from a point $P$ if
+$U$ is a module interface unit on which the translation unit containing $P$
+has an interface dependency, or
+the translation unit containing $P$ imports $U$,
+in either case prior to $P$ (\ref{module.import}).
+\begin{note}
+While module interface units are reachable even when they are only
+transitively imported via a non-exported import declaration,
+namespace-scope names from such module interface units are not visible
+to name lookup\iref{basic.scope.namespace}.
+\end{note}
+
+\pnum
+All translation units that are necessarily reachable are
+\defnx{reachable}{reachable!translation unit}.
+It is unspecified whether additional translation units on which the
+point within the program has an interface dependency are considered reachable,
+and under what circumstances.%
+\footnote{Implementations are therefore not required to prevent the semantic
+effects of additional translation units involved in the compilation from being
+observed.}
+\begin{note}
+It is advisable to avoid
+depending on the reachability of any additional translation units
+in programs intending to be portable.
+\end{note}
+
+\pnum
+A declaration $D$ is
+\defnx{reachable}{reachable!declaration} or
+\defnx{necessarily reachable}{reachable!necessarily!declaration},
+respectively, if,
+for any point $P$ in the
+instantiation context\iref{module.context},
+\begin{itemize}
+\item $D$ appears prior to $P$ in the same translation unit, or
+\item $D$ is not discarded\iref{module.global},
+appears in a translation unit that is
+reachable or necessarily reachable from $P$, respectively,
+and
+either does not appear within a \grammarterm{private-module-fragment}
+or appears in a \grammarterm{private-module-fragment}
+of the module containing $P$.
+\end{itemize}
+\begin{note}
+Whether a declaration is exported has no bearing on whether it is reachable.
+\end{note}
+
+\pnum
+The accumulated properties of all reachable declarations of
+an entity within a context
+determine the behavior of the entity within that context.
+\begin{note}
+These reachable semantic properties include type completeness,
+type definitions, initializers,
+default arguments of functions or template declarations, attributes,
+visibility of class or enumeration member names to ordinary lookup,
+etc.
+Since default arguments are evaluated in the context of the call expression,
+the reachable semantic properties of the corresponding parameter types apply in
+that context.
+\begin{example}
+\begin{codeblocktu}{Translation unit \#1}
+export module M:A;
+export struct B;
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#2}
+module M:B;
+struct B {
+  operator int();
+};
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#3}
+module M:C;
+import :A;
+B b1;                           // error: no reachable definition of \tcode{struct B}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#4}
+export module M;
+export import :A;
+import :B;
+B b2;
+export void f(B b = B());
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#5}
+module X;
+import M;
+B b3;                           // error: no reachable definition of \tcode{struct B}
+void g() { f(); }               // error: no reachable definition of \tcode{struct B}
+\end{codeblocktu}
+\end{example}
+\end{note}
+
+\pnum
+\begin{note}
+An entity can have reachable declarations
+even if it is not visible to name lookup.
+\end{note}
+\begin{example}
+\begin{codeblock}
+export module A;
+struct X {};
+export using Y = X;
+
+module B;
+import A;
+Y y;                // OK, definition of \tcode{X} is reachable
+X x;                // ill-formed: \tcode{X} not visible to unqualified lookup
+\end{codeblock}
+\end{example}

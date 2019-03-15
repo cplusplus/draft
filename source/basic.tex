@@ -99,7 +99,7 @@ A declaration\iref{dcl.dcl} may introduce
 one or more names into a translation
 unit or redeclare names introduced by previous declarations.
 If so, the
-declaration specifies the interpretation and attributes of these names.
+declaration specifies the interpretation and semantic properties of these names.
 A declaration may also have effects including:
 \begin{itemize}
 \item a static assertion\iref{dcl.dcl},
@@ -135,7 +135,7 @@ definition~(\ref{class.mem}, \ref{class.static}),
 \item
 it declares a static data member outside a class definition
 and the variable was defined within the class with the \tcode{constexpr}
-specifier (this usage is deprecated; see \ref{depr.static_constexpr}),
+specifier (this usage is deprecated; see \ref{depr.static.constexpr}),
 \item
 \indextext{declaration!class name}%
 it is introduced by an \grammarterm{elaborated-type-specifier}\iref{class.name},
@@ -274,13 +274,16 @@ a (possibly multi-dimensional) array thereof.
 \rSec1[basic.def.odr]{One-definition rule}
 
 \pnum
-No translation unit shall contain more than one definition of any
-variable, function, class type, enumeration type, or template.
+A variable, function, class type, enumeration type, or template
+shall not be defined where a prior definition is necessarily reachable\iref{module.reach};
+no diagnostic is required if the prior declaration is in another translation unit.
 
 \pnum
 \indextext{expression!potentially evaluated}%
-An expression is \defn{potentially evaluated} unless it is an
-unevaluated operand\iref{expr.prop} or a subexpression thereof.
+An expression or conversion is \defn{potentially evaluated} unless it is
+an unevaluated operand\iref{expr.prop},
+a subexpression thereof, or
+a conversion in an initialization or conversion sequence in such a context.
 The set of \defn{potential results} of an expression \tcode{e} is
 defined as follows:
 \begin{itemize}
@@ -290,12 +293,17 @@ contains only \tcode{e}.
 \item If \tcode{e} is a subscripting operation\iref{expr.sub} with
 an array operand, the set contains the potential results of that operand.
 \item If \tcode{e} is a class member access
-expression\iref{expr.ref}, the set contains the potential results of
-the object expression.
+expression\iref{expr.ref} of the form
+\tcode{e1 . \opt{template} e2}
+naming a non-static data member,
+the set contains the potential results of \tcode{e1}.
+\item if \tcode{e} is a class member access expression
+naming a static data member,
+the set contains the \grammarterm{id-expression} designating the data member.
 \item If \tcode{e} is a pointer-to-member
-expression\iref{expr.mptr.oper} whose second operand is a constant
-expression, the set contains the potential results of the object
-expression.
+expression\iref{expr.mptr.oper} of the form
+\tcode{e1 .* e2},
+the set contains the potential results of \tcode{e1}.
 \item If \tcode{e} has the form \tcode{(e1)}, the set contains the
 potential results of \tcode{e1}.
 \item If \tcode{e} is a glvalue conditional
@@ -322,48 +330,62 @@ int n = b ? (1, S::x)           // \tcode{S::x} is not odr-used here
 \end{note}
 
 \pnum
-\indextext{function!named by an expression}%
-A function is \defn{named by an expression} as follows:
+A function is \defnx{named by}{function!named by expression or conversion}
+an expression or conversion as follows:
 \begin{itemize}
 \item
-  A function whose name appears in an expression
-  is named by that expression
-  if it is the unique lookup result or the selected member
-  of a set of overloaded functions~(\ref{basic.lookup}, \ref{over.match}, \ref{over.over}),
+  A function is named by an expression or conversion
+  if it is the unique result of a name lookup or the selected member
+  of a set of overloaded functions~(\ref{basic.lookup}, \ref{over.match}, \ref{over.over})
+  in an overload resolution performed
+  as part of forming that expression or conversion,
   unless it is a pure virtual function and either
-  its name is not explicitly qualified or
+  the expression is not an \grammarterm{id-expression} naming the function with
+  an explicitly qualified name or
   the expression forms a pointer to member\iref{expr.unary.op}.
   \begin{note} This covers
   taking the address of functions~(\ref{conv.func}, \ref{expr.unary.op}),
   calls to named functions\iref{expr.call},
   operator overloading\iref{over},
   user-defined conversions\iref{class.conv.fct},
-  allocation functions for placement \grammarterm{new-expression}{s}\iref{expr.new}, as well as
+  allocation functions for \grammarterm{new-expression}{s}\iref{expr.new}, as well as
   non-default initialization\iref{dcl.init}.
   A constructor selected to copy or move an object of class type
-  is considered to be named by an expression
+  is considered to be named by an expression or conversion
   even if the call is actually elided by the implementation\iref{class.copy.elision}. \end{note}
 \item
-  An allocation or deallocation function for a class
+  A deallocation function for a class
   is named by a \grammarterm{new-expression}
-  as specified in~\ref{expr.new} and~\ref{class.free}.
+  if it is the single matching deallocation function
+  for the allocation function selected by overload resolution,
+  as specified in~\ref{expr.new}.
 \item
   A deallocation function for a class
-  is named by a delete expression
+  is named by a \grammarterm{delete-expression}
+  if it is the selected usual deallocation function
   as specified in~\ref{expr.delete} and~\ref{class.free}.
 \end{itemize}
 
 \pnum
 A variable \tcode{x} whose name appears as a
-potentially-evaluated expression \tcode{ex} is \defnx{odr-used}{odr-use} by \tcode{ex} unless
-applying the lvalue-to-rvalue conversion\iref{conv.lval} to \tcode{x} yields
-a constant expression\iref{expr.const}
-that does not invoke a function
-other than a trivial special member function\iref{special}
-and, if \tcode{x} is an object, \tcode{ex} is an element of
-the set of potential results of an expression \tcode{e}, where either the lvalue-to-rvalue
-conversion\iref{conv.lval} is applied to \tcode{e}, or \tcode{e} is
-a discarded-value expression\iref{expr.prop}.
+potentially-evaluated expression \tcode{e}
+is \defnx{odr-used}{odr-use} by \tcode{e} unless
+\begin{itemize}
+\item
+  \tcode{x} is a reference that is
+  usable in constant expressions\iref{expr.const}, or
+\item
+  \tcode{x} is a variable of non-reference type that is
+  usable in constant expressions and has no mutable subobjects, and
+  \tcode{e} is an element of the set of potential results of an expression
+  of non-volatile-qualified non-class type
+  to which the lvalue-to-rvalue conversion\iref{conv.lval} is applied, or
+\item
+  \tcode{x} is a variable of non-reference type, and
+  \tcode{e} is an element of the set of potential results
+  of a discarded-value expression\iref{expr.prop}
+  to which the lvalue-to-rvalue conversion is not applied.
+\end{itemize}
 
 \pnum
 A structured binding is odr-used if it appears as a potentially-evaluated expression.
@@ -376,7 +398,8 @@ member function~(\ref{class.mfct.non-static})).
 \pnum
 A virtual member
 function is odr-used if it is not pure.
-A function is odr-used if it is named by a potentially-evaluated expression.
+A function is odr-used if it is named by
+a potentially-evaluated expression or conversion.
 A non-placement allocation or deallocation
 function for a class is odr-used by the definition of a constructor of that
 class. A non-placement deallocation function for a class is odr-used by the
@@ -401,8 +424,7 @@ A local entity\iref{basic}
 is \defn{odr-usable} in a declarative region\iref{basic.scope.declarative} if:
 
 \begin{itemize}
-\item the local entity is either
-not \tcode{*this}, or
+\item either the local entity is not \tcode{*this}, or
 an enclosing class or non-lambda function parameter scope exists and,
 if the innermost such scope is a function parameter scope,
 it corresponds to a non-static member function, and
@@ -415,7 +437,10 @@ either:
 \begin{itemize}
 \item the intervening declarative region is a block scope, or
 \item the intervening declarative region is the function parameter scope of a \grammarterm{lambda-expression}
-that has a \grammarterm{simple-capture} naming the entity or has a \grammarterm{capture-default}.
+that has a \grammarterm{simple-capture}
+naming the entity or has a \grammarterm{capture-default}, and
+the block scope of the \grammarterm{lambda-expression}
+is also an intervening declarative region.
 \end{itemize}
 \end{itemize}
 
@@ -425,11 +450,13 @@ the program is ill-formed.
 \begin{example}
 \begin{codeblock}
 void f(int n) {
-  [] { n = 1; };                // error, \tcode{n} is not odr-usable due to intervening lambda-expression
+  [] { n = 1; };                // error: \tcode{n} is not odr-usable due to intervening lambda-expression
   struct A {
-    void f() { n = 2; }         // error, \tcode{n} is not odr-usable due to intervening function definition scope
+    void f() { n = 2; }         // error: \tcode{n} is not odr-usable due to intervening function definition scope
   };
-  void g(int = n);              // error, \tcode{n} is not odr-usable due to intervening function parameter scope
+  void g(int = n);              // error: \tcode{n} is not odr-usable due to intervening function parameter scope
+  [=](int k = n) {};            // error: \tcode{n} is not odr-usable due to being
+                                // outside the block scope of the \grammarterm{lambda-expression}
   [&] { [n]{ return n; }; };    // OK
 }
 \end{codeblock}
@@ -443,12 +470,27 @@ The definition can appear explicitly in the program, it can be found in
 the standard or a user-defined library, or (when appropriate) it is
 implicitly defined (see~\ref{class.default.ctor}, \ref{class.copy.ctor},
 \ref{class.dtor}, and \ref{class.copy.assign}).
-An inline function or variable shall be defined in every
+A definition of an inline function or variable shall be reachable in every
 translation unit in which it is odr-used outside of a discarded statement.
+\begin{example}
+\begin{codeblock}
+auto f() {
+  struct A {};
+  return A{};
+}
+decltype(f()) g();
+auto x = g();
+\end{codeblock}
+A program containing this translation unit is ill-formed
+because \tcode{g} is odr-used but not defined,
+and cannot be defined in any other translation unit
+because the local class \tcode{A} cannot be named outside this
+translation unit.
+\end{example}
 
 \pnum
 \indextext{type!incomplete}%
-Exactly one definition of a class is required in a translation unit if
+A definition of a class is required to be reachable in every context in which
 the class is used in a way that requires the class type to be complete.
 \begin{example} The following complete translation unit is well-formed,
 even though it never defines \tcode{X}:
@@ -506,9 +548,17 @@ concept\iref{temp.concept},
 static data member of a class template\iref{temp.static}, member
 function of a class template\iref{temp.mem.func}, or template
 specialization for which some template parameters are not
-specified~(\ref{temp.spec}, \ref{temp.class.spec}) in a program provided
-that each definition appears in a different translation unit, and
-provided the definitions satisfy the following requirements. Given such
+specified~(\ref{temp.spec}, \ref{temp.class.spec}) in a program
+provided that
+no prior definition is necessarily reachable\iref{module.reach}
+at the point where a definition appears, and
+provided the definitions satisfy the following requirements.
+There shall not be more than one definition
+of an entity
+that is attached to a named module\iref{module.unit};
+no diagnostic is required unless a prior definition
+is reachable at a point where a later definition appears.
+Given such
 an entity named \tcode{D} defined in more than one translation unit,
 then
 \begin{itemize}
@@ -681,9 +731,13 @@ name that is not a typedef name and the other declarations shall
 all refer to the same variable, non-static data member, or enumerator,
 or all refer to functions and function templates;
 in this case the class name or enumeration name is
-hidden\iref{basic.scope.hiding}. \begin{note} A namespace name or a
-class template name must be unique in its declarative
-region~(\ref{namespace.alias}, \ref{temp}). \end{note}
+hidden\iref{basic.scope.hiding}.
+\begin{note}
+A structured binding\iref{dcl.struct.bind},
+namespace name\iref{basic.namespace}, or
+class template name\iref{temp}
+must be unique in its declarative region.
+\end{note}
 \end{itemize}
 \begin{note} These restrictions apply to the declarative region into which
 a name is introduced, which is not necessarily the same as the region in
@@ -939,7 +993,8 @@ declaration\iref{basic.scope.pdecl} onwards; and for each
 \grammarterm{using-directive}\iref{namespace.udir} that nominates the
 member's namespace, the member's potential scope includes that portion
 of the potential scope of the \grammarterm{using-directive} that follows
-the member's point of declaration. \begin{example}
+the member's point of declaration.
+\begin{example}
 
 \begin{codeblock}
 namespace N {
@@ -966,6 +1021,42 @@ namespace N {
 }
 \end{codeblock}
 \end{example}
+
+\pnum
+If a translation unit $Q$ is imported into a translation unit $R$\iref{module.import},
+the potential scope of a name $X$ declared with namespace scope in $Q$
+is extended to include the portion of the corresponding namespace
+scope in $R$ following the first \grammarterm{module-import-declaration}
+or \grammarterm{module-declaration}
+in $R$ that imports $Q$ (directly or indirectly) if
+\begin{itemize}
+\item $X$ does not have internal linkage, and
+\item $X$ is declared after the \grammarterm{module-declaration} in $Q$ (if any), and
+\item either $X$ is exported or $Q$ and $R$ are part of the same module.
+\end{itemize}
+\begin{note}
+A \grammarterm{module-import-declaration} imports both
+the named translation unit(s) and
+any modules named by exported
+\grammarterm{module-import-declaration}{s} within them,
+recursively.
+\begin{example}
+\begin{codeblocktu}{Translation unit \#1}
+export module Q;
+export int sq(int i) { return i*i; }
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#2}
+export module R;
+export import Q;
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#3}
+import R;
+int main() { return sq(9); }   // OK: \tcode{sq} from module \tcode{Q}
+\end{codeblocktu}
+\end{example}
+\end{note}
 
 \pnum
 A namespace member can also be referred to after the \tcode{::} scope
@@ -1205,12 +1296,14 @@ takes place after name lookup has succeeded. The access rules\iref{class.access}
 are considered only once name lookup and
 function overload resolution (if applicable) have succeeded. Only after
 name lookup, function overload resolution (if applicable) and access
-checking have succeeded are the attributes introduced by the name's
-declaration used further in expression processing\iref{expr}.
+checking have succeeded
+are the semantic properties introduced by the name's declaration
+and its reachable\iref{module.reach} redeclarations
+used further in expression processing\iref{expr}.
 
 \pnum
-A name ``looked up in the context of an expression'' is looked up as an
-unqualified name in the scope where the expression is found.
+A name ``looked up in the context of an expression'' is looked up
+in the scope where the expression is found.
 
 \pnum
 The injected-class-name of a class\iref{class} is also
@@ -1590,51 +1683,69 @@ void g() {
 \end{example}
 
 \pnum
-For each argument type \tcode{T} in the function call, there is a set of
-zero or more \defnx{associated namespaces}{namespace!associated}
-and a set of zero or more \defnx{associated classes}{class!associated}
-to be considered. The sets of namespaces and classes are
-determined entirely by the types of the function arguments (and the
-namespace of any template template argument). Typedef names and
-\grammarterm{using-declaration}{s} used to specify the types do not
-contribute to this set. The sets of namespaces and classes are
-determined in the following way:
+For each argument type \tcode{T} in the function call,
+there is a set of zero or more
+\defnx{associated namespaces}{namespace!associated}
+and a set of zero or more
+\defnx{associated entities}{entity!associated}
+(other than namespaces)
+to be considered.
+The sets of namespaces and entities
+are determined entirely by
+the types of the function arguments
+(and the namespace of any template template argument).
+Typedef names and \grammarterm{using-declaration}{s}
+used to specify the types
+do not contribute to this set.
+The sets of namespaces and entities
+are determined in the following way:
 \begin{itemize}
 \item If \tcode{T} is a fundamental type, its associated sets of
-namespaces and classes are both empty.
+namespaces and entities are both empty.
 
-\item If \tcode{T} is a class type (including unions), its associated
-classes are: the class itself; the class of which it is a member, if
-any; and its direct and indirect base classes. Its associated namespaces
-are the innermost enclosing namespaces of its associated classes.
-Furthermore, if \tcode{T} is a class template specialization, its
-associated namespaces and classes also include: the namespaces and
-classes associated with the types of the template arguments provided for
-template type parameters (excluding template template parameters); the
-namespaces of which any template template arguments are members; and the
+\item If \tcode{T} is a class type (including unions),
+its associated entities are:
+the class itself;
+the class of which it is a member, if any;
+and its direct and indirect base classes.
+Its associated namespaces are
+the innermost enclosing namespaces of its associated entities.
+Furthermore, if \tcode{T} is a class template specialization,
+its associated namespaces and entities also include:
+the namespaces and entities
+associated with the types of the template arguments
+provided for template type parameters
+(excluding template template parameters);
+the templates used as template template arguments;
+the namespaces of which any template template arguments are members; and the
 classes of which any member templates used as template template
-arguments are members. \begin{note} Non-type template arguments do not
-contribute to the set of associated namespaces.\end{note}
+arguments are members.
+\begin{note}
+Non-type template arguments do not
+contribute to the set of associated namespaces.
+\end{note}
 
-\item If \tcode{T} is an enumeration type, its associated namespace is
-the innermost enclosing namespace of its declaration. If it is a class member, its
-associated class is the member's class; else it has no associated class.
+\item If \tcode{T} is an enumeration type,
+its associated namespace is
+the innermost enclosing namespace of its declaration, and
+its associated entities are \tcode{T}
+and, if it is a class member, the member's class.
 
 \item If \tcode{T} is a pointer to \tcode{U} or an array of \tcode{U},
-its associated namespaces and classes are those associated with
+its associated namespaces and entities are those associated with
 \tcode{U}.
 
 \item If \tcode{T} is a function type, its associated namespaces and
-classes are those associated with the function parameter types and those
+entities are those associated with the function parameter types and those
 associated with the return type.
 
 \item If \tcode{T} is a pointer to a member function of a class
-\tcode{X}, its associated namespaces and classes are those associated
+\tcode{X}, its associated namespaces and entities are those associated
 with the function parameter types and return type, together with those
 associated with \tcode{X}.
 
 \item If \tcode{T} is a pointer to a data member of class \tcode{X}, its
-associated namespaces and classes are those associated with the member
+associated namespaces and entities are those associated with the member
 type together with those associated with \tcode{X}.
 \end{itemize}
 If an associated namespace is an inline namespace\iref{namespace.def}, its
@@ -1642,12 +1753,12 @@ enclosing namespace is also included in the set. If an associated namespace
 directly contains inline namespaces, those inline namespaces are also included
 in the set.
 In addition, if the argument is the name or address of a set of
-overloaded functions and/or function templates, its associated classes
+overloaded functions and/or function templates, its associated entities
 and namespaces are the union of those associated with each of the
-members of the set, i.e., the classes and namespaces associated with its
+members of the set, i.e., the entities and namespaces associated with its
 parameter types and return type.
 Additionally, if the aforementioned set of overloaded functions is named with
-a \grammarterm{template-id}, its associated classes and namespaces also include
+a \grammarterm{template-id}, its associated entities and namespaces also include
 those of its type \grammarterm{template-argument}{s} and its template
 \grammarterm{template-argument}{s}.
 
@@ -1663,8 +1774,8 @@ by argument dependent lookup (defined as follows). If \placeholder{X} contains
 then \placeholder{Y} is empty. Otherwise \placeholder{Y} is the set of declarations
 found in the namespaces associated with the argument types as described
 below. The set of declarations found by the lookup of the name is the
-union of \placeholder{X} and \placeholder{Y}. \begin{note} The namespaces and classes
-associated with the argument types can include namespaces and classes
+union of \placeholder{X} and \placeholder{Y}. \begin{note} The namespaces and entities
+associated with the argument types can include namespaces and entities
 already considered by the ordinary unqualified lookup. \end{note}
 \begin{example}
 
@@ -1685,21 +1796,82 @@ int main() {
 \end{example}
 
 \pnum
-When considering an associated namespace, the lookup is the same as the
-lookup performed when the associated namespace is used as a
-qualifier\iref{namespace.qual} except that:
+When considering an associated namespace \tcode{N},
+the lookup is the same as the
+lookup performed when \tcode{N}
+is used as a qualifier\iref{namespace.qual}
+except that:
 \begin{itemize}
-\item Any \grammarterm{using-directive}{s} in the associated namespace are
-ignored.
-
-\item Any namespace-scope friend functions or friend function templates\iref{class.friend}
-declared in associated classes are visible within their respective
-namespaces even if they are not visible during an ordinary
-lookup\iref{namespace.memdef}.
+\item Any \grammarterm{using-directive}{s} in \tcode{N} are ignored.
 
 \item All names except those of (possibly overloaded) functions and
 function templates are ignored.
+
+\item Any namespace-scope friend functions or friend function templates\iref{class.friend}
+declared in classes with reachable definitions in the set of associated entities
+are visible within their respective
+namespaces even if they are not visible during an ordinary
+lookup\iref{namespace.memdef}.
+
+\item
+Any declaration \tcode{D} in \tcode{N}
+that is in the interface of
+a named module \tcode{M}\iref{module.interface}
+is visible
+if there is an associated entity attached to \tcode{M}
+with the same innermost enclosing non-inline namespace as \tcode{D}.
+
+\item
+If the lookup is for a dependent name (\ref{temp.dep}, \ref{temp.dep.candidate}),
+any declaration \tcode{D} in \tcode{N}
+is visible
+if \tcode{D} would be visible to qualified name lookup\iref{namespace.qual}
+at any point in the instantiation context\iref{module.context} of the lookup,
+unless \tcode{D} is declared in another translation unit, attached to the global module,
+and is either discarded\iref{module.global} or has internal linkage.
 \end{itemize}
+
+\pnum
+\begin{example}
+\begin{codeblocktu}{Translation unit \#1}
+export module M;
+namespace R {
+  export struct X {};
+  export void f(X);
+}
+namespace S {
+  export void f(X, X);
+}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#2}
+export module N;
+import M;
+export R::X make();
+namespace R { static int g(X); }
+template<typename T, typename U> void apply(T t, U u) {
+  f(t, u);
+  g(t);
+}
+\end{codeblocktu}
+
+\begin{codeblocktu}{Translation unit \#3}
+module Q;
+import N;
+namespace S {
+  struct Z { template<typename T> operator T(); };
+}
+void test() {
+  auto x = make();              // OK, \tcode{decltype(x)} is \tcode{R::X} in module \tcode{M}
+  R::f(x);                      // ill-formed: \tcode{R} and \tcode{R::f} are not visible here
+  f(x);                         // OK, calls \tcode{R::f} from interface of \tcode{M}
+  f(x, S::Z());                 // ill-formed: \tcode{S::f} in module \tcode{M} not considered
+                                // even though \tcode{S} is an associated namespace
+  apply(x, S::Z());             // OK, \tcode{S::f} is visible in instantiation context, and
+                                // \tcode{R::g} is visible even though it has internal linkage
+}
+\end{codeblocktu}
+\end{example}
 
 \rSec2[basic.lookup.qual]{Qualified name lookup}
 
@@ -1899,7 +2071,11 @@ entire \grammarterm{postfix-expression} occurs.
 For a namespace \tcode{X} and name \tcode{m}, the namespace-qualified lookup set
 $S(X, m)$ is defined as follows: Let $S'(X, m)$ be the set of all
 declarations of \tcode{m} in \tcode{X} and the inline namespace set of
-\tcode{X}\iref{namespace.def}. If $S'(X, m)$ is not empty, $S(X, m)$
+\tcode{X}\iref{namespace.def}
+whose potential scope\iref{basic.scope.namespace}
+would include the namespace in which \tcode{m} is declared
+at the location of the \grammarterm{nested-name-specifier}.
+If $S'(X, m)$ is not empty, $S(X, m)$
 is $S'(X, m)$; otherwise, $S(X, m)$ is the union of $S(N_i, m)$ for
 all namespaces $N_i$ nominated by \grammarterm{using-directive}{s} in
 \tcode{X} and its inline namespace set.
@@ -2046,7 +2222,7 @@ void f()
 During the lookup of a qualified namespace member name, if the lookup
 finds more than one declaration of the member, and if one declaration
 introduces a class name or enumeration name and the other declarations
-either introduce the same variable, the same enumerator or a set of
+introduce either the same variable, the same enumerator, or a set of
 functions, the non-type name hides the class or enumeration name if and
 only if the declarations are from the same namespace; otherwise (the
 declarations are from different namespaces), the program is ill-formed.
@@ -2209,15 +2385,17 @@ or \tcode{->} token is immediately followed by an \grammarterm{identifier}
 followed by a \tcode{<}, the identifier must be looked up to determine
 whether the \tcode{<} is the beginning of a template argument
 list\iref{temp.names} or a less-than operator. The identifier is first
-looked up in the class of the object expression. If the identifier is
-not found, it is then looked up in the context of the entire
+looked up in the class of the object expression\iref{class.member.lookup}.
+If the identifier is not found,
+it is then looked up in the context of the entire
 \grammarterm{postfix-expression} and shall name a class template.
 
 \pnum
 If the \grammarterm{id-expression} in a class member
 access\iref{expr.ref} is an \grammarterm{unqualified-id}, and the type of
 the object expression is of a class type \tcode{C}, the
-\grammarterm{unqualified-id} is looked up in the scope of class \tcode{C}.
+\grammarterm{unqualified-id} is looked up
+in the scope of class \tcode{C}\iref{class.member.lookup}.
 
 \pnum
 If the \grammarterm{unqualified-id} is \tcode{\~}\grammarterm{type-name}, the
@@ -2248,7 +2426,8 @@ If the \grammarterm{id-expression} in a class member access is a
 \end{codeblock}
 the \tcode{\placeholder{class-name-or-namespace-name}} following the \tcode{.} or
 \tcode{->} operator is
-first looked up in the class of the object expression and the name, if found,
+first looked up in the class of the object expression\iref{class.member.lookup}
+and the name, if found,
 is used. Otherwise it is looked up in the context of the entire
 \grammarterm{postfix-expression}. \begin{note} See~\ref{basic.lookup.qual}, which
 describes the lookup of a name before \tcode{::}, which will only find a type
@@ -2271,7 +2450,9 @@ entire \grammarterm{postfix-expression} occurs.
 \pnum
 If the \grammarterm{id-expression} is a \grammarterm{conversion-function-id},
 its \grammarterm{conversion-type-id}
-is first looked up in the class of the object expression and the name, if
+is first looked up
+in the class of the object expression\iref{class.member.lookup}
+and the name, if
 found, is used. Otherwise it is looked up in the context
 of the entire \grammarterm{postfix-expression}.
 In each of these lookups, only names that denote types or templates whose
@@ -2316,8 +2497,41 @@ of a sequence of declarations.
 
 \begin{bnf}
 \nontermdef{translation-unit}\br
-    \opt{declaration-seq}
+    \opt{top-level-declaration-seq}\br
+    \opt{global-module-fragment} module-declaration \opt{top-level-declaration-seq} \opt{private-module-fragment}
 \end{bnf}
+
+\begin{bnf}
+\nontermdef{private-module-fragment}\br
+    \keyword{module} \terminal{:} \keyword{private} \terminal{;} \opt{top-level-declaration-seq}
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{top-level-declaration-seq}\br
+    top-level-declaration\br
+    top-level-declaration-seq top-level-declaration
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{top-level-declaration}\br
+    module-import-declaration\br
+    declaration
+\end{bnf}
+
+\pnum
+A \grammarterm{private-module-fragment} shall appear only
+in a primary module interface unit\iref{module.unit}.
+A module unit with a \grammarterm{private-module-fragment}
+shall be the only module unit of its module;
+no diagnostic is required.
+
+\pnum
+A token sequence beginning with
+\opt{\tcode{export}} \tcode{module} or
+\opt{\tcode{export}} \tcode{import}
+and not immediately followed by \tcode{::}
+is never interpreted as the \grammarterm{declaration}
+of a \grammarterm{top-level-declaration}.
 
 \pnum
 \indextext{linkage}%
@@ -2332,6 +2546,11 @@ name introduced by a declaration in another scope:
 the entity it denotes
 can be referred to by names from scopes of other translation units or
 from other scopes of the same translation unit.
+
+\item When a name has \defnx{module linkage}{linkage!module},
+the entity it denotes
+can be referred to by names from other scopes of the same module unit\iref{module.unit} or
+from scopes of other module units of that same module.
 
 \item When a name has \indextext{linkage!internal}\defn{internal linkage},
 the entity it denotes
@@ -2353,22 +2572,30 @@ A name having namespace scope\iref{basic.scope.namespace} has internal
 linkage if it is the name of
 \begin{itemize}
 \item
-  a variable, function or function template that is
-  explicitly declared \tcode{static}; or,
+  a variable, variable template, function, or function template that is
+  explicitly declared \tcode{static}; or
 \item
-  a non-inline variable of non-volatile const-qualified type that is
-  neither explicitly declared \tcode{extern} nor previously
-  declared to have external linkage; or
+  a non-template variable of non-volatile const-qualified type, unless
+  \begin{itemize}
+  \item it is explicitly declared \tcode{extern}, or
+  \item it is inline or exported, or
+  \item it was previously declared and the prior declaration did
+  not have internal linkage; or
+  \end{itemize}
 \item
   a data member of an anonymous union.
 \end{itemize}
+\begin{note}
+An instantiated variable template that has const-qualified type
+can have external or module linkage, even if not declared \tcode{extern}.
+\end{note}
 
 \pnum
 An unnamed namespace or a namespace declared directly or indirectly within an
 unnamed namespace has internal linkage. All other namespaces have external linkage.
 A name having namespace scope
 that has not been given internal linkage above
-has the same linkage as the enclosing namespace if it is the name of
+and that is the name of
 \begin{itemize}
 \item a variable; or
 \item a function; or
@@ -2380,7 +2607,22 @@ purposes\iref{dcl.typedef}; or
 a named enumeration\iref{dcl.enum}, or an unnamed enumeration defined
 in a typedef declaration in which the enumeration has the typedef name
 for linkage purposes\iref{dcl.typedef}; or
-\item a template.
+\item a template
+\end{itemize}
+has its linkage determined as follows:
+\begin{itemize}
+\item
+if the enclosing namespace has internal linkage,
+the name has internal linkage;
+\item
+otherwise,
+if the declaration of the name is
+attached to a named module\iref{module.unit}
+and is not exported\iref{module.interface},
+the name has module linkage;
+\item
+otherwise,
+the name has external linkage.
 \end{itemize}
 
 \pnum
@@ -2392,10 +2634,18 @@ the same linkage, if any, as the name of the class of which it is a
 member.
 
 \pnum
-The name of a function declared in block scope and the name of a variable declared by a
-block scope \tcode{extern} declaration have linkage. If there is a visible declaration
-of an entity with linkage having the same name and type, ignoring entities declared
-outside the innermost enclosing namespace scope, the block scope declaration declares
+The name of a function declared in block scope and
+the name of a variable declared by a block scope \tcode{extern} declaration
+have linkage.
+If such a declaration is attached to a named module,
+the program is ill-formed.
+If there is a visible declaration
+of an entity with linkage, ignoring entities declared
+outside the innermost enclosing namespace scope,
+such that the block scope declaration would be
+a (possibly ill-formed) redeclaration
+if the two declarations appeared in the same declarative region,
+the block scope declaration declares
 that same entity and receives the linkage of the previous declaration. If there is more
 than one such matching entity, the program is ill-formed. Otherwise, if no matching
 entity is found, the block scope entity receives external linkage.
@@ -2404,9 +2654,11 @@ internal and external linkage, the program is ill-formed.
 \begin{example}
 \begin{codeblock}
 static void f();
+extern "C" void h();
 static int i = 0;               // \#1
 void g() {
   extern void f();              // internal linkage
+  extern void h();              // C language linkage
   int i;                        // \#2: \tcode{i} has no linkage
   {
     extern void f();            // internal linkage
@@ -2452,62 +2704,14 @@ noted, a name declared at block scope\iref{basic.scope.block} has no
 linkage.
 
 \pnum
-A type is said to have linkage if and only if:
-\begin{itemize}
-\item it is a class or enumeration type that is named (or has a name for
-linkage purposes\iref{dcl.typedef}) and the name has linkage; or
-
-\item it is an unnamed class or unnamed enumeration that is a member of a class
-with linkage; or
-
-\item it is a specialization of a class template\iref{temp}\footnote{A class
-template has the linkage of the innermost enclosing class or namespace in which
-it is declared.};
-or
-
-\item it is a fundamental type\iref{basic.fundamental}; or
-
-\item it is a compound type\iref{basic.compound} other than a class or
-enumeration, compounded exclusively from types that have linkage; or
-
-\item it is a cv-qualified\iref{basic.type.qualifier} version of a
-type that has linkage.
-\end{itemize}
-\begin{note}
-In other words, a type without linkage contains a class or enumeration that
-cannot be named outside its translation unit.
-Classes with linkage may contain members
-whose types do not have linkage.
-Typedef names are ignored in the determination
-of whether a type has linkage.
-\end{note}
-
-\begin{example}
-\begin{codeblock}
-template <class T> struct B {
-  void g(T) { }
-  void h(T);
-  friend void i(B, T) { }
-};
-
-void f() {
-  struct A { int x; };  // no linkage
-  A a = { 1 };
-  B<A> ba;              // declares \tcode{B<A>::g(A)} and \tcode{B<A>::h(A)}
-  ba.g(a);              // OK
-  ba.h(a);              // error: \tcode{B<A>::h(A)} not defined; \tcode{A} cannot be named in another translation unit
-  i(ba, a);             // OK
-}
-\end{codeblock}
-\end{example}
-
-\pnum
 Two names that are the same\iref{basic} and that are declared
 in different scopes shall denote the same variable, function,
 type, template or namespace if
 \begin{itemize}
-\item both names have external linkage or else both names have internal
-linkage and are declared in the same translation unit; and
+\item both names have external or module linkage
+and are declared in declarations attached to the same module,
+or else both names have internal linkage
+and are declared in the same translation unit; and
 
 \item both names refer to members of the same namespace or to members,
 not by inheritance, of the same class; and
@@ -2518,6 +2722,48 @@ functions\iref{dcl.fct} are identical; and
 \item when both names denote function templates, the
 signatures\iref{temp.over.link} are the same.
 \end{itemize}
+If multiple declarations of the same name with external linkage
+would declare the same entity except that
+they are attached to different modules,
+the program is ill-formed; no diagnostic is required.
+\begin{note}
+\grammarterm{using-declaration}{s},
+typedef declarations,
+and \grammarterm{alias-declaration}{s}
+do not declare entities, but merely introduce synonyms.
+Similarly,
+\grammarterm{using-directive}{s}
+do not declare entities.
+\end{note}
+
+\pnum
+If a declaration would redeclare a reachable declaration
+attached to a different module, the program is ill-formed.
+\begin{example}
+\begin{codeblocktu}{\tcode{"decls.h"}}
+int f();            // \#1, attached to the global module
+int g();            // \#2, attached to the global module
+\end{codeblocktu}
+
+\begin{codeblocktu}{Module interface of \tcode{M}}
+module;
+#include "decls.h"
+export module M;
+export using ::f;   // OK: does not declare an entity, exports \#1
+int g();            // error: matches \#2, but attached to \tcode{M}
+export int h();     // \#3
+export int k();     // \#4
+\end{codeblocktu}
+
+\begin{codeblocktu}{Other translation unit}
+import M;
+static int h();     // error: matches \#3
+int k();            // error: matches \#4
+\end{codeblocktu}
+\end{example}
+As a consequence of these rules,
+all declarations of an entity are attached to the same module;
+the entity is said to be \defnx{attached}{attached!entity} to that module.
 
 \pnum
 \indextext{consistency!type declaration}%
@@ -2826,21 +3072,23 @@ new types from existing types\iref{basic.types}.
 \end{note}%
 \indextext{object model|)}
 
-\rSec2[basic.life]{Object lifetime}
+\rSec2[basic.life]{Object and reference lifetime}
 
 \pnum
 \indextext{object lifetime|(}%
 The \defn{lifetime} of an object or reference is a runtime property of the
 object or reference.
-An object is said to have \defnadj{non-vacuous}{initialization} if it is of a class or
-array type and it or one of its subobjects is initialized by a constructor
-other than a trivial default constructor. \begin{note} Initialization by a
-trivial copy/move constructor is non-vacuous initialization. \end{note}
+\indextext{initialization!vacuous}%
+A variable is said to have \defn{vacuous initialization}
+if it is default-initialized and,
+if it is of class type or a (possibly multi-dimensional) array thereof,
+that class type has a trivial default constructor.
 The lifetime of an object of type \tcode{T} begins when:
 \begin{itemize}
-\item storage with the proper alignment and size for type \tcode{T} is
-obtained, and
-\item if the object has non-vacuous initialization, its initialization is complete,
+\item storage with the proper alignment and size
+  for type \tcode{T} is obtained, and
+\item its initialization (if any) is complete
+  (including vacuous initialization)\iref{dcl.init},
 \end{itemize}
 except that if the object is a union member or subobject thereof,
 its lifetime only begins if that union member is the
@@ -2848,15 +3096,16 @@ initialized member in the union~(\ref{dcl.init.aggr}, \ref{class.base.init}),
 or as described in \ref{class.union}.
 The lifetime of an object \placeholder{o} of type \tcode{T} ends when:
 \begin{itemize}
-\item if \tcode{T} is a class type with a non-trivial
-destructor\iref{class.dtor}, the destructor call starts, or
+\item if \tcode{T} is a non-class type, the object is destroyed, or
+\item if \tcode{T} is a class type, the destructor call starts, or
 \item the storage which the object occupies is released,
 or is reused by an object that is not nested within \placeholder{o}\iref{intro.object}.
 \end{itemize}
 
 \pnum
+\indextext{reference lifetime}%
 The lifetime of a reference begins when its initialization is complete.
-The lifetime of a reference ends as if it were a scalar object.
+The lifetime of a reference ends as if it were a scalar object requiring storage.
 
 \pnum
 \begin{note} \ref{class.base.init}
@@ -3406,7 +3655,9 @@ that would match a handler\iref{except.handle} of type
 \pnum
 A global allocation function is only called as the result of a new
 expression\iref{expr.new}, or called directly using the function call
-syntax\iref{expr.call}, or called indirectly through calls to the
+syntax\iref{expr.call}, or called indirectly to allocate storage for
+a coroutine state\iref{dcl.fct.def.coroutine},
+or called indirectly through calls to the
 functions in the \Cpp{} standard library. \begin{note} In particular, a
 global allocation function is not called to allocate storage for objects
 with static storage duration\iref{basic.stc.static}, for objects or references
@@ -3719,7 +3970,7 @@ when initializing an object of type \tcode{std::initializer_list<T>} from a \gra
 \item
 for certain unevaluated operands~(\ref{expr.typeid}, \ref{expr.sizeof}), and
 \item
-when a prvalue appears as a discarded-value expression\iref{expr.prop}.
+when a prvalue that has type other than \cv{}~\tcode{void} appears as a discarded-value expression\iref{expr.prop}.
 \end{itemize}
 \end{note}
 \begin{example} Consider the following code:
@@ -3909,6 +4160,12 @@ The exceptions to this lifetime rule are:
 \begin{itemize}
 \item A temporary object bound to a reference parameter in a function call\iref{expr.call}
 persists until the completion of the full-expression containing the call.
+
+\item A temporary object bound to a reference element of
+an aggregate of class type initialized from
+a parenthesized \grammarterm{expression-list}\iref{dcl.init}
+persists until the completion of the full-expression
+containing the \grammarterm{expression-list}.
 
 \item The lifetime of a temporary bound to the returned value in a function \tcode{return} statement\iref{stmt.return} is not extended; the temporary is destroyed at the end of the full-expression in the \tcode{return} statement.
 
@@ -4847,7 +5104,7 @@ An instance of each object with automatic storage
 duration\iref{basic.stc.auto} is associated with each entry into its
 block. Such an object exists and retains its last-stored value during
 the execution of the block and while the block is suspended (by a call
-of a function or receipt of a signal).
+of a function, suspension of a coroutine\iref{expr.await}, or receipt of a signal).
 
 \pnum
 A \defn{constituent expression} is defined as follows:
@@ -5696,7 +5953,8 @@ other threads in a finite period of time.%
 
 \pnum
 \indextext{program!start|(}%
-A program shall contain a global function called \tcode{main}.
+A program shall contain a global function called \tcode{main}
+attached to the global module.
 Executing a program starts a main thread of execution~(\ref{intro.multithread}, \ref{thread.threads})
 in which the \tcode{main} function is invoked,
 and in which variables of static storage duration
@@ -5749,10 +6007,13 @@ The linkage\iref{basic.link} of \tcode{main} is
 \impldef{linkage of \tcode{main}}. A program that defines \tcode{main} as
 deleted or that declares \tcode{main} to be
 \tcode{inline}, \tcode{static}, or \tcode{constexpr} is ill-formed.
+The function \tcode{main} shall not be a coroutine\iref{dcl.fct.def.coroutine}.
 The \tcode{main} function shall not be declared with a
-\grammarterm{linkage-specification}\iref{dcl.link}.  A program that
-declares a variable \tcode{main} at global scope or that declares the name
-\tcode{main} with C language linkage (in any namespace) is ill-formed.
+\grammarterm{linkage-specification}\iref{dcl.link}.
+A program that declares a variable \tcode{main} at global scope,
+or that declares a function \tcode{main} at global scope attached to a named module,
+or that declares the name \tcode{main} with C language linkage (in any namespace)
+is ill-formed.
 The name \tcode{main} is
 not otherwise reserved. \begin{example} Member functions, classes, and
 enumerations can be called \tcode{main}, as can entities in other
@@ -6003,26 +6264,25 @@ the function \tcode{std::terminate} is called\iref{except.terminate}.%
 \indextext{program!termination|(}%
 \indextext{object!destructor static}%
 \indextext{\idxcode{main} function!return from}%
-Destructors\iref{class.dtor} for initialized objects
-(that is, objects whose lifetime\iref{basic.life} has begun)
-with static storage duration,
-and functions registered with \tcode{std::atexit},
+Constructed objects\iref{dcl.init}
+with static storage duration are destroyed
+and functions registered with \tcode{std::atexit}
 are called as part of a call to
 \indextext{\idxcode{exit}}%
 \indexlibrary{\idxcode{exit}}%
 \tcode{std::exit}\iref{support.start.term}.
 The call to \tcode{std::exit} is sequenced before
-the invocations of the destructors and the registered functions.
+the destructions and the registered functions.
 \begin{note}
 Returning from \tcode{main} invokes \tcode{std::exit}\iref{basic.start.main}.
 \end{note}
 
 \pnum
-Destructors for initialized objects with thread storage duration within a given thread
-are called as a result of returning from the initial function of that thread and as a
+Constructed objects with thread storage duration within a given thread
+are destroyed as a result of returning from the initial function of that thread and as a
 result of that thread calling \tcode{std::exit}.
-The completions of the destructors for all initialized objects with thread storage
-duration within that thread strongly happen before the initiation of the destructors of
+The destruction of all constructed objects with thread storage
+duration within that thread strongly happens before destroying
 any object with static storage duration.
 
 \pnum
