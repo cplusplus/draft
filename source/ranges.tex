@@ -53,9 +53,6 @@ namespace std::ranges {
   template<class T>
     using sentinel_t = decltype(ranges::end(declval<T&>()));
 
-  template<@\placeholder{forwarding-range}@ R>
-    using safe_iterator_t = iterator_t<R>;
-
   template<class T>
     concept Range = @\seebelow@;
 
@@ -112,8 +109,15 @@ namespace std::ranges {
     requires (K == subrange_kind::sized || !SizedSentinel<S, I>)
   class subrange;
 
-  template<@\placeholder{forwarding-range}@ R>
-    using safe_subrange_t = subrange<iterator_t<R>>;
+  // \ref{range.dangling}, dangling iterator handling
+  struct dangling;
+
+  template<Range R>
+    using safe_iterator_t = conditional_t<@\placeholder{forwarding-range}@<R>, iterator_t<R>, dangling>;
+
+  template<Range R>
+    using safe_subrange_t =
+      conditional_t<@\placeholder{forwarding-range}@<R>, subrange<iterator_t<R>>, dangling>;
 
   // \ref{range.empty}, empty view
   template<class T>
@@ -144,6 +148,10 @@ namespace std::ranges {
 
   template<ViewableRange R>
     using all_view = decltype(view::all(declval<R>()));
+
+  template<Range R>
+    requires is_object_v<R>
+  class ref_view;
 
   // \ref{range.filter}, filter view
   template<InputRange V, IndirectUnaryPredicate<iterator_t<V>> Pred>
@@ -180,7 +188,7 @@ namespace std::ranges {
 
   template<InputRange V, ForwardRange Pattern>
     requires View<V> && View<Pattern> &&
-             IndirectlyComparable<iterator_t<V>, iterator_t<Pattern>, ranges::equal_to<>> &&
+             IndirectlyComparable<iterator_t<V>, iterator_t<Pattern>, ranges::equal_to> &&
              (ForwardRange<V> || @\placeholder{tiny-range}@<Pattern>)
   class split_view;
 
@@ -1440,6 +1448,48 @@ else
 \end{codeblock}
 \end{itemdescr}
 
+\rSec2[range.dangling]{Dangling iterator handling}
+
+\pnum
+The tag type \tcode{dangling} is used together
+with the template aliases \tcode{safe_iterator_t} and \tcode{safe_subrange_t}
+to indicate that an algorithm
+that typically returns an iterator into or subrange of a \tcode{Range} argument
+does not return an iterator or subrange
+which could potentially reference a range
+whose lifetime has ended for a particular rvalue \tcode{Range} argument
+which does not model \tcode{\placeholder{forwarding-range}}\iref{range.range}.
+\begin{codeblock}
+namespace std {
+  struct dangling {
+    constexpr dangling() noexcept = default;
+    template<class... Args>
+      constexpr dangling(Args&&...) noexcept { }
+  };
+}
+\end{codeblock}
+
+\pnum
+\begin{example}
+\begin{codeblock}
+vector<int> f();
+auto result1 = ranges::find(f(), 42);                                   // \#1
+static_assert(Same<decltype(result1), dangling>);
+auto vec = f();
+auto result2 = ranges::find(vec, 42);                                   // \#2
+static_assert(Same<decltype(result2), vector<int>::iterator>);
+auto result3 = ranges::find(subrange{vec}, 42);                         // \#3
+static_assert(Same<decltype(result3), vector<int>::iterator>);
+\end{codeblock}
+The call to \tcode{ranges::find} at \#1 returns \tcode{dangling}
+since \tcode{f()} is an rvalue \tcode{vector};
+the \tcode{vector} could potentially be destroyed
+before a returned iterator is dereferenced.
+However, the calls at \#2 and \#3 both return iterators
+since the lvalue \tcode{vec} and specializations of \tcode{subrange}
+model \tcode{\placeholder{forwarding-range}}.
+\end{example}
+
 \rSec1[range.factories]{Range factories}
 
 \pnum
@@ -2347,28 +2397,28 @@ For some subexpression \tcode{E}, the expression
 \item \tcode{\placeholdernc{decay-copy}(E)} if the decayed type of \tcode{E}
 models \libconcept{View}.
 
-\item Otherwise, \tcode{\placeholder{ref-view}\{E\}} if that
-expression is well-formed, where \tcode{\placeholder{ref-view}}
-is the exposition-only \libconcept{View} specified below.
+\item Otherwise, \tcode{ref_view\{E\}} if that expression is well-formed.
 
 \item Otherwise, \tcode{subrange\{E\}}.
 \end{itemize}
 
-\rSec3[range.view.ref]{\placeholder{ref-view}}
+\rSec3[range.ref.view]{Class template \tcode{ref_view}}
 
+\pnum
+\tcode{ref_view} is a \tcode{View} of the elements of some other \tcode{Range}.
 \begin{codeblock}
 namespace std::ranges {
   template<Range R>
     requires is_object_v<R>
-  class @\placeholder{ref-view}@ : public view_interface<@\placeholder{ref-view}@<R>> {
+  class ref_view : public view_interface<ref_view<R>> {
   private:
     R* r_ = nullptr;            // \expos
   public:
-    constexpr @\placeholdernc{ref-view}@() noexcept = default;
+    constexpr ref_view() noexcept = default;
 
-    template<@\placeholder{not-same-as}@<@\placeholder{ref-view}@> T>
+    template<@\placeholder{not-same-as}@<ref_view> T>
       requires @\seebelow@
-    constexpr @\placeholder{ref-view}@(T&& t);
+    constexpr ref_view(T&& t);
 
     constexpr R& base() const { return *r_; }
 
@@ -2385,22 +2435,22 @@ namespace std::ranges {
     constexpr auto data() const requires ContiguousRange<R>
     { return ranges::data(*r_); }
 
-    friend constexpr iterator_t<R> begin(@\placeholder{ref-view}@ r)
+    friend constexpr iterator_t<R> begin(ref_view r)
     { return r.begin(); }
 
-    friend constexpr sentinel_t<R> end(@\placeholder{ref-view}@ r)
+    friend constexpr sentinel_t<R> end(ref_view r)
     { return r.end(); }
   };
   template<class R>
-    @\placeholder{ref-view}@(R&) -> @\placeholder{ref-view}@<R>;
+    ref_view(R&) -> ref_view<R>;
 }
 \end{codeblock}
 
-\indexlibrary{\idxcode{\placeholder{ref-view}}!\idxcode{\placeholder{ref-view}}}%
+\indexlibrary{\idxcode{ref_view}}%
 \begin{itemdecl}
-template<@\placeholder{not-same-as}@<@\placeholder{ref-view}@> T>
+template<@\placeholder{not-same-as}@<ref_view> T>
   requires @\seebelow@
-constexpr @\placeholder{ref-view}@(T&& t);
+constexpr ref_view(T&& t);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -4308,7 +4358,7 @@ namespace std::ranges {
 
   template<InputRange V, ForwardRange Pattern>
     requires View<V> && View<Pattern> &&
-             IndirectlyComparable<iterator_t<V>, iterator_t<Pattern>, ranges::equal_to<>> &&
+             IndirectlyComparable<iterator_t<V>, iterator_t<Pattern>, ranges::equal_to> &&
              (ForwardRange<V> || @\placeholdernc{tiny-range}@<Pattern>)
   class split_view : public view_interface<split_view<V, Pattern>> {
   private:
@@ -5113,5 +5163,32 @@ constexpr reverse_iterator<iterator_t<const V>> end() const
 The name \tcode{view::reverse} denotes a
 range adaptor object\iref{range.adaptor.object}.
 For some subexpression \tcode{E}, the expression
-\tcode{view::reverse(E)} is expression-equivalent to
-\tcode{reverse_view\{E\}}.
+\tcode{view::reverse(E)} is expression-equivalent to:
+\begin{itemize}
+\item
+  If the type of \tcode{E} is
+  a (possibly cv-qualified) specialization of \tcode{reverse_view},
+  equivalent to \tcode{E.base()}.
+\item
+  Otherwise, if the type of \tcode{E} is cv-qualified
+\begin{codeblock}
+subrange<reverse_iterator<I>, reverse_iterator<I>, K>
+\end{codeblock}
+  for some iterator type \tcode{I} and
+  value \tcode{K} of type \tcode{subrange_kind},
+  \begin{itemize}
+  \item
+    if \tcode{K} is \tcode{subrange_kind::sized}, equivalent to:
+\begin{codeblock}
+subrange<I, I, K>(E.end().base(), E.begin().base(), E.size())
+\end{codeblock}
+  \item
+    otherwise, equivalent to:
+\begin{codeblock}
+subrange<I, I, K>(E.end().base(), E.begin().base())
+\end{codeblock}
+  \end{itemize}
+  However, in either case \tcode{E} is evaluated only once.
+\item
+  Otherwise, equivalent to \tcode{reverse_view\{E\}}.
+\end{itemize}
