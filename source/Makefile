@@ -1,16 +1,5 @@
 ### -*- mode: makefile-gmake -*-
 
-# Note: If building on Mac OS X, and if you use MacPorts, the following ports
-# should be installed:
-#
-#   texlive-latex
-#   texlive-plain-extra
-#   texlive-latex-recommended
-#   texlive-latex-extra
-#   texlive-fonts-recommended
-#   texlive-fonts-extra
-#   texlive-generic-recommended
-
 FIGURES = $(patsubst %.dot,%.pdf,$(wildcard *.dot))
 
 STDPDF = pdflatex std | grep -v "^Overfull"
@@ -38,10 +27,13 @@ reindex:
 	$(STDPDF)
 	$(STDPDF)
 	makeindex generalindex
+	makeindex headerindex
 	makeindex libraryindex
 	makeindex grammarindex
 	makeindex impldefindex
+	$(STDPDF)
 	makeindex -s basic.gst -o xrefindex.gls xrefindex.glo
+	makeindex -s basic.gst -o xrefdelta.gls xrefdelta.glo
 	$(STDPDF)
 	$(STDPDF)
 
