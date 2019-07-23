@@ -11,6 +11,7 @@ between threads, as summarized in \tref{thread.summary}.
 
 \begin{libsumtab}{Thread support library summary}{thread.summary}
 \ref{thread.req}      & Requirements          &                               \\ \rowsep
+\ref{thread.stoptoken}& Stop tokens           & \tcode{<stop_token>}          \\ \rowsep
 \ref{thread.threads}  & Threads               & \tcode{<thread>}              \\ \rowsep
 \ref{thread.mutex}    & Mutual exclusion      &
   \tcode{<mutex>}, \tcode{<shared_mutex>} \\ \rowsep
@@ -274,6 +275,686 @@ for the current execution agent.
 \returns \tcode{true} if the lock was acquired, \tcode{false} otherwise.
 \end{itemdescr}
 
+\rSec1[thread.stoptoken]{Stop tokens}
+
+\rSec2[thread.stoptoken.intro]{Stop token introduction}
+
+\pnum
+This clause describes components that can be used
+to asynchonously request that an operation stops execution in a timely manner,
+typically because the result is no longer required.
+Such a request is called a \defn{stop request}.
+
+\pnum
+\tcode{stop_source}, \tcode{stop_token}, and \tcode{stop_callback}
+implement semantics of shared ownership of a \defn{stop state}.
+Any \tcode{stop_source}, \tcode{stop_token}, or \tcode{stop_callback}
+that shares ownership of the same stop state is an \defn{associated}
+\tcode{stop_source}, \tcode{stop_token}, or \tcode{stop_callback}, respectively.
+The last remaining owner of the stop state automatically
+releases the resources associated with the stop state.
+
+\pnum
+A \tcode{stop_token} can be passed to an operation which can either
+\begin{itemize}
+ \item actively poll the token to check if there has been a stop request, or
+ \item register a callback using the \tcode{stop_callback} class template which
+        will be called in the event that a stop request is made.
+\end{itemize}
+A stop request made via a \tcode{stop_source} will be visible to all
+associated \tcode{stop_token} and \tcode{stop_source} objects.
+Once a stop request has been made it cannot be withdrawn
+(a subsequent stop request has no effect).
+
+\pnum
+Callbacks registered via a \tcode{stop_callback} object are called when
+a stop request is first made by any associated \tcode{stop_source} object.
+
+\pnum
+Calls to the functions \tcode{request_stop}, \tcode{stop_requested},
+and \tcode{stop_possible}
+do not introduce data races.
+A call to \tcode{request_stop} that returns \tcode{true}
+synchronizes with a call to \tcode{stop_requested}
+on an associated \tcode{stop_token} or \tcode{stop_source} object
+that returns \tcode{true}.
+Registration of a callback synchronizes with the invocation of that callback.
+
+
+\rSec2[thread.stoptoken.syn]{Header \tcode{<stop_token>} synopsis}
+\indexhdr{stop_token}%
+
+\begin{codeblock}
+namespace std {
+  // \ref{stoptoken} class \tcode{stop_token}
+  class stop_token;
+
+  // \ref{stopsource} class \tcode{stop_source}
+  class stop_source;
+
+  // no-shared-stop-state indicator
+  struct nostopstate_t {
+    explicit nostopstate_t() = default;
+  };
+  inline constexpr nostopstate_t nostopstate{};
+
+  // \ref{stopcallback} class \tcode{stop_callback}
+  template<class Callback>
+  class stop_callback;
+}
+\end{codeblock}
+
+
+\indexlibrary{\idxcode{stop_token}}%
+\rSec2[stoptoken]{Class \tcode{stop_token}}
+
+\pnum
+\indexlibrary{\idxcode{stop_token}}%
+The class \tcode{stop_token} provides an interface for querying whether
+a stop request has been made (\tcode{stop_requested})
+or can ever be made (\tcode{stop_possible})
+using an associated \tcode{stop_source} object (\ref{stopsource}).
+A \tcode{stop_token} can also be passed to a
+\tcode{stop_callback}\iref{stopcallback} constructor
+to register a callback to be called when a stop request has been made
+from an associated \tcode{stop_source}.
+
+\begin{codeblock}
+namespace std {
+  class stop_token {
+  public:
+    // \ref{stoptoken.constr} create, copy, destroy:
+    stop_token() noexcept;
+
+    stop_token(const stop_token&) noexcept;
+    stop_token(stop_token&&) noexcept;
+    stop_token& operator=(const stop_token&) noexcept;
+    stop_token& operator=(stop_token&&) noexcept;
+    ~stop_token();
+    void swap(stop_token&) noexcept;
+
+    // \ref{stoptoken.mem} stop handling:
+    [[nodiscard]] bool stop_requested() const noexcept;
+    [[nodiscard]] bool stop_possible() const noexcept;
+
+    [[nodiscard]] friend bool operator==(const stop_token& lhs, const stop_token& rhs) noexcept;
+    [[nodiscard]] friend bool operator!=(const stop_token& lhs, const stop_token& rhs) noexcept;
+    friend void swap(stop_token& lhs, stop_token& rhs) noexcept;
+  };
+}
+\end{codeblock}
+
+
+\rSec3[stoptoken.constr]{\tcode{stop_token} constructors}
+
+\indexlibrary{\idxcode{stop_token}!constructor}%
+\begin{itemdecl}
+stop_token() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\ensures
+\tcode{stop_possible()} is \tcode{false} and
+\tcode{stop_requested()} is \tcode{false}.
+\begin{note}
+Because the created \tcode{stop_token} object can never receive a stop request,
+no resources are allocated for a stop state.
+\end{note}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{stop_token}!constructor}%
+\begin{itemdecl}
+stop_token(const stop_token& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\ensures \tcode{*this == rhs} is \tcode{true}.
+\begin{note}
+\tcode{*this} and \tcode{rhs} share the ownership of the same stop state,
+if any.
+\end{note}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{stop_token}!constructor}%
+\begin{itemdecl}
+stop_token(stop_token&& rhs) noexcept;
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\ensures
+\tcode{*this} contains the value of \tcode{rhs}
+prior to the start of construction
+and \tcode{rhs.stop_possible()} is \tcode{false}.
+\end{itemdescr}
+
+
+\rSec3[stoptoken.destr]{\tcode{stop_token} destructor}
+
+\indexlibrary{\idxcode{stop_token}!destructor}%
+\begin{itemdecl}
+~stop_token();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Releases ownership of the stop state, if any.
+\end{itemdescr}
+
+
+\rSec3[stoptoken.assign]{\tcode{stop_token} assignment}
+
+\indexlibrarymember{operator=}{stop_token}%
+\begin{itemdecl}
+stop_token& operator=(const stop_token& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{stop_token(rhs).swap(*this)}.
+
+\pnum
+\returns \tcode{*this}.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{stop_token}%
+\begin{itemdecl}
+stop_token& operator=(stop_token&& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{stop_token(std::move(rhs)).swap(*this)}.
+
+\pnum
+\returns \tcode{*this}.
+\end{itemdescr}
+
+
+\rSec3[stoptoken.swap]{\tcode{stop_token} swap}
+
+\indexlibrarymember{swap}{stop_token}%
+\begin{itemdecl}
+void swap(stop_token& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Exchanges the values of \tcode{*this} and \tcode{rhs}.
+\end{itemdescr}
+
+
+\rSec3[stoptoken.mem]{\tcode{stop_token} members}
+
+\indexlibrarymember{stop_requested}{stop_token}%
+\begin{itemdecl}
+[[nodiscard]] bool stop_requested() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{true} if \tcode{*this} has ownership of a stop state
+that has received a stop request;
+otherwise, \tcode{false}.
+\end{itemdescr}
+
+\indexlibrarymember{stop_possible}{stop_token}%
+\begin{itemdecl}
+[[nodiscard]] bool stop_possible() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{false} if:
+\begin{itemize}
+\item \tcode{*this} does not have ownership of a stop state, or
+\item a stop request was not made
+      and there are no associated \tcode{stop_source} objects;
+\end{itemize}
+otherwise, \tcode{true}.
+\end{itemdescr}
+
+
+\rSec3[stoptoken.cmp]{\tcode{stop_token} comparisons}
+
+\indexlibrarymember{operator==}{stop_token}%
+\begin{itemdecl}
+[[nodiscard]] bool operator==(const stop_token& lhs, const stop_token& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if \tcode{lhs} and \tcode{rhs} have ownership of the same stop state
+or if both \tcode{lhs} and \tcode{rhs} do not have ownership of a stop state;
+otherwise \tcode{false}.
+\end{itemdescr}
+
+\indexlibrarymember{operator!=}{stop_token}%
+\begin{itemdecl}
+[[nodiscard]] bool operator!=(const stop_token& lhs, const stop_token& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{!(lhs==rhs)}.
+\end{itemdescr}
+
+
+\rSec3[stoptoken.special]{Specialized algorithms}
+
+\indexlibrarymember{swap}{stop_token}%
+\begin{itemdecl}
+friend void swap(stop_token& x, stop_token& y) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{x.swap(y)}.
+\end{itemdescr}
+
+
+\indexlibrary{\idxcode{stop_source}}%
+\rSec2[stopsource]{Class \tcode{stop_source}}
+
+\pnum
+\indexlibrary{\idxcode{stop_source}}%
+The class \tcode{stop_source} implements the semantics of making a stop request.
+A stop request made on a \tcode{stop_source} object is visible to all
+associated \tcode{stop_source} and \tcode{stop_token} (\ref{stoptoken}) objects.
+Once a stop request has been made it cannot be withdrawn
+(a subsequent stop request has no effect).
+
+\indexlibrary{\idxcode{nostopstate_t}}%
+\indexlibrary{\idxcode{nostopstate}}%
+
+\begin{codeblock}
+namespace std {
+  // no-shared-stop-state indicator
+  struct nostopstate_t {
+    explicit nostopstate_t() = default;
+  };
+  inline constexpr nostopstate_t nostopstate{};
+
+  class stop_source {
+  public:
+    // \ref{stopsource.constr} create, copy, destroy:
+    stop_source();
+    explicit stop_source(nostopstate_t) noexcept;
+
+    stop_source(const stop_source&) noexcept;
+    stop_source(stop_source&&) noexcept;
+    stop_source& operator=(const stop_source&) noexcept;
+    stop_source& operator=(stop_source&&) noexcept;
+    ~stop_source();
+    void swap(stop_source&) noexcept;
+
+    // \ref{stopsource.mem} stop handling:
+    [[nodiscard]] stop_token get_token() const noexcept;
+    [[nodiscard]] bool stop_possible() const noexcept;
+    [[nodiscard]] bool stop_requested() const noexcept;
+    bool request_stop() noexcept;
+
+    [[nodiscard]] friend bool
+    operator==(const stop_source& lhs, const stop_source& rhs) noexcept;
+    [[nodiscard]] friend bool
+    operator!=(const stop_source& lhs, const stop_source& rhs) noexcept;
+    friend void swap(stop_source& lhs, stop_source& rhs) noexcept;
+  };
+}
+\end{codeblock}
+
+
+\rSec3[stopsource.constr]{\tcode{stop_source} constructors}
+
+\indexlibrary{\idxcode{stop_source}!constructor}%
+\begin{itemdecl}
+stop_source();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Initialises \tcode{*this} to have ownership of a new stop state.
+
+\pnum
+\ensures \tcode{stop_possible()} is \tcode{true}
+and \tcode{stop_requested()} is \tcode{false}.
+
+\pnum
+\throws \tcode{bad_alloc} if memory could not be allocated for the stop state.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{stop_source}!constructor}%
+\begin{itemdecl}
+explicit stop_source(nostopstate_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\ensures
+\tcode{stop_possible()} is \tcode{false} and
+\tcode{stop_requested()} is \tcode{false}.
+\begin{note} No resources are allocated for the state.  \end{note}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{stop_source}!constructor}%
+\begin{itemdecl}
+stop_source(const stop_source& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\ensures \tcode{*this == rhs} is \tcode{true}.
+\begin{note}
+\tcode{*this} and \tcode{rhs} share the ownership of the same stop state,
+if any.
+\end{note}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{stop_source}!constructor}%
+\begin{itemdecl}
+stop_source(stop_source&& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\ensures
+\tcode{*this} contains the value of \tcode{rhs}
+prior to the start of construction
+and \tcode{rhs.stop_possible()} is \tcode{false}.
+\end{itemdescr}
+
+
+\rSec3[stopsource.destr]{\tcode{stop_source} destructor}
+
+\indexlibrary{\idxcode{stop_source}!destructor}%
+\begin{itemdecl}
+~stop_source();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Releases ownership of the stop state, if any.
+\end{itemdescr}
+
+\rSec3[stopsource.assign]{\tcode{stop_source} assignment}
+
+\indexlibrarymember{operator=}{stop_source}%
+\begin{itemdecl}
+stop_source& operator=(const stop_source& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{stop_source(rhs).swap(*this)}.
+
+\pnum
+\returns \tcode{*this}.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{stop_source}%
+\begin{itemdecl}
+stop_source& operator=(stop_source&& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{stop_source(std::move(rhs)).swap(*this)}.
+
+\pnum
+\returns \tcode{*this}.
+\end{itemdescr}
+
+\rSec3[stopsource.swap]{\tcode{stop_source} swap}
+
+\indexlibrarymember{swap}{stop_source}%
+\begin{itemdecl}
+void swap(stop_source& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Exchanges the values of \tcode{*this} and \tcode{rhs}.
+\end{itemdescr}
+
+
+\rSec3[stopsource.mem]{\tcode{stop_source} members}
+
+\indexlibrarymember{get_token}{stop_source sc}%
+\begin{itemdecl}
+[[nodiscard]] stop_token get_token() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{stop_token()} if \tcode{stop_possible()} is \tcode{false};
+otherwise a new associated \tcode{stop_token} object.
+\end{itemdescr}
+
+
+\indexlibrarymember{stop_possible}{stop_source}%
+\begin{itemdecl}
+[[nodiscard]] bool stop_possible() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if \tcode{*this} has ownership of a stop state;
+otherwise, \tcode{false}.
+\end{itemdescr}
+
+\indexlibrarymember{stop_requested}{stop_source}%
+\begin{itemdecl}
+[[nodiscard]] bool stop_requested() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if \tcode{*this} has ownership of a stop state
+that has received a stop request;
+otherwise, \tcode{false}.
+\end{itemdescr}
+
+
+\indexlibrarymember{request_stop}{stop_source}%
+\begin{itemdecl}
+bool request_stop() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{*this} does not have ownership of a stop state, returns \tcode{false}.
+Otherwise, atomically determines whether the owned stop state
+has received a stop request,
+and if not, makes a stop request.
+The determination and making of the stop request are an
+atomic read-modify-write operation\iref{intro.races}.
+If the request was made,
+the callbacks registered by associated \tcode{stop_callback} objects
+are synchronously called.
+If an invocation of a callback exits via an exception
+then \tcode{terminate} is called\iref{except.terminate}.
+\begin{note}
+A stop request includes notifying all condition variables
+of type \tcode{condition_variable_any}
+temporarily registered during
+an interruptible wait\iref{thread.condvarany.interruptwait}.
+\end{note}
+
+\pnum
+\ensures
+\tcode{stop_possible()} is \tcode{false}
+or \tcode{stop_requested()} is \tcode{true}.
+
+\pnum
+\returns
+\tcode{true} if this call made a stop request;
+otherwise \tcode{false}.
+\end{itemdescr}
+
+
+\rSec3[stopsource.cmp]{\tcode{stop_source} comparisons}
+
+\indexlibrarymember{operator==}{stop_source}%
+\begin{itemdecl}
+[[nodiscard]] bool operator==(const stop_source& lhs, const stop_source& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if \tcode{lhs} and \tcode{rhs} have ownership
+of the same stop state
+or if both \tcode{lhs} and \tcode{rhs} do not have ownership of a stop state;
+otherwise \tcode{false}.
+\end{itemdescr}
+
+\indexlibrarymember{operator!=}{stop_source}%
+\begin{itemdecl}
+[[nodiscard]] bool operator!=(const stop_source& lhs, const stop_source& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{!(lhs==rhs)}.
+\end{itemdescr}
+
+
+\rSec3[stopsource.special]{Specialized algorithms}
+
+\indexlibrarymember{swap}{stop_source}%
+\begin{itemdecl}
+friend void swap(stop_source& x, stop_source& y) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{x.swap(y)}.
+\end{itemdescr}
+
+
+\indexlibrary{\idxcode{stop_callback}}%
+\rSec2[stopcallback]{Class template \tcode{stop_callback}}
+
+\pnum
+\indexlibrary{\idxcode{stop_callback}}%
+\begin{codeblock}
+namespace std {
+  template<class Callback>
+  class stop_callback {
+  public:
+    using callback_type = Callback;
+
+    // \ref{stopcallback.constr} create, destroy:
+    template<class C>
+    explicit stop_callback(const stop_token& st, C&& cb)
+        noexcept(is_nothrow_constructible_v<Callback, C>);
+    template<class C>
+    explicit stop_callback(stop_token&& st, C&& cb)
+        noexcept(is_nothrow_constructible_v<Callback, C>);
+    ~stop_callback();
+
+    stop_callback(const stop_callback&) = delete;
+    stop_callback(stop_callback&&) = delete;
+    stop_callback& operator=(const stop_callback&) = delete;
+    stop_callback& operator=(stop_callback&&) = delete;
+
+  private:
+    Callback callback;      // \expos
+  };
+
+  template<class Callback>
+  stop_callback(stop_token, Callback) -> stop_callback<Callback>;
+}
+\end{codeblock}
+
+\pnum
+\mandates
+\tcode{stop_callback} is instantiated with an argument for the
+template parameter \tcode{Callback}
+that satisfies both \tcode{Invocable}
+and \tcode{Destructible}.
+
+\pnum
+\expects
+\tcode{stop_callback} is instantiated with an argument for the
+template parameter \tcode{Callback}
+that models both \tcode{Invocable}
+and \tcode{Destructible}.
+
+
+\rSec3[stopcallback.constr]{\tcode{stop_callback} constructors and destructor}
+
+\indexlibrary{\idxcode{stop_callback}!constructor}%
+\begin{itemdecl}
+template<class C>
+explicit stop_callback(const stop_token& st, C&& cb)
+  noexcept(is_nothrow_constructible_v<Callback, C>);
+template<class C>
+explicit stop_callback(stop_token&& st, C&& cb)
+  noexcept(is_nothrow_constructible_v<Callback, C>);
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{Callback} and \tcode{C} satisfy \libconcept{Constructible<Callback, C>}.
+
+\pnum
+\expects
+\tcode{Callback} and \tcode{C} model \libconcept{Constructible<Callback, C>}.
+
+\pnum
+\effects
+Initializes \tcode{callback} with \tcode{std::forward<C>(cb)}.
+If \tcode{st.stop_requested()} is \tcode{true}, then
+\tcode{std::forward<Callback>(callback)()}
+is evaluated in the current thread before the constructor returns.
+Otherwise, if \tcode{st} has ownership of a stop state,
+acquires shared ownership of that stop state and registers
+the callback with that stop state
+such that \tcode{std::forward<Callback>(callback)()}
+is evaluated by the first call to \tcode{request_stop()}
+on an associated \tcode{stop_source}.
+
+\pnum
+\remarks
+If evaluating
+\tcode{std::forward<Callback>(callback)()}
+exits via an exception,
+then \tcode{terminate} is called\iref{except.terminate}.
+
+\pnum
+\throws Any exception thrown by the initialization of \tcode{callback}.
+\end{itemdescr}
+
+
+\indexlibrary{\idxcode{stop_callback}!destructor}%
+\begin{itemdecl}
+~stop_callback();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Unregisters the callback from the owned stop state, if any.
+The destructor does not block waiting for the execution of another callback
+registered by an associated \tcode{stop_callback}.
+If \tcode{callback} is concurrently executing on another thread,
+then the return from the invocation of \tcode{callback}
+strongly happens before\iref{intro.races}
+\tcode{callback} is destroyed.
+If \tcode{callback} is executing on the current thread,
+then the destructor does not block\iref{defns.block} waiting for
+the return from the invocation of \tcode{callback}.
+Releases ownership of the stop state, if any.
+\end{itemdescr}
+
+
 \rSec1[thread.threads]{Threads}
 
 \pnum
@@ -289,6 +970,9 @@ namespace std {
   class thread;
 
   void swap(thread& x, thread& y) noexcept;
+
+  // \ref{thread.jthread.class} class \tcode{jthread}
+  class jthread;
 
   namespace this_thread {
     thread::id get_id() noexcept;
@@ -694,6 +1378,377 @@ void swap(thread& x, thread& y) noexcept;
 \begin{itemdescr}
 \pnum\effects As if by \tcode{x.swap(y)}.
 \end{itemdescr}
+
+\rSec2[thread.jthread.class]{Class \tcode{jthread}}
+
+\pnum
+The class \tcode{jthread} provides a mechanism
+to create a new thread of execution.
+The functionality is the same as for
+class \tcode{thread}\iref{thread.thread.class}
+with the additional ability to request that the thread stops
+and then joins the started thread.
+
+
+\indexlibrary{\idxcode{jthread}}%
+\begin{codeblock}
+namespace std {
+  class jthread {
+  public:
+    // types
+    using id = thread::id;
+    using native_handle_type = thread::native_handle_type;
+
+    // construct/copy/destroy
+    jthread() noexcept;
+    template<class F, class... Args> explicit jthread(F&& f, Args&&... args);
+    ~jthread();
+    jthread(const jthread&) = delete;
+    jthread(jthread&&) noexcept;
+    jthread& operator=(const jthread&) = delete;
+    jthread& operator=(jthread&&) noexcept;
+
+    // members
+    void swap(jthread&) noexcept;
+    [[nodiscard]] bool joinable() const noexcept;
+    void join();
+    void detach();
+    [[nodiscard]] id get_id() const noexcept;
+    [[nodiscard]] native_handle_type native_handle();   // see~\ref{thread.req.native}
+    // stop token handling
+    [[nodiscard]] stop_source get_stop_source() noexcept;
+    [[nodiscard]] stop_token get_stop_token() const noexcept;
+    bool request_stop() noexcept;
+
+    friend void swap(jthread& lhs, jthread& rhs) noexcept;
+    // static members
+    [[nodiscard]] static unsigned int hardware_concurrency() noexcept;
+
+  private:
+    stop_source ssource;        // \expos
+  };
+\end{codeblock}
+
+
+\rSec3[thread.jthread.constr]{\tcode{jthread} constructors}
+
+\indexlibrary{\idxcode{jthread}!constructor}%
+\begin{itemdecl}
+jthread() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Constructs a \tcode{jthread} object that does not represent
+a thread of execution.
+
+\pnum
+\ensures
+\tcode{get_id() == id()} is \tcode{true}
+and \tcode{ssource.stop_possible()} is \tcode{false}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{jthread}!constructor}%
+\begin{itemdecl}
+template<class F, class... Args> explicit jthread(F&& f, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{F} and each $\tcode{T}_i$ in \tcode{Args} shall meet the
+\oldconcept{MoveConstructible} requirements.
+Either
+\tcode{is_invocable_v<decay_t<F>, stop_token, decay_t<Args>...>} is true,
+or
+\tcode{is_invocable_v<decay_t<F>, decay_t<Args>...>} is true.
+
+\pnum
+\constraints
+\tcode{remove_cvref_t<F>} is not the same type as \tcode{jthread}.
+
+\pnum
+\effects
+Initializes \tcode{ssource} and
+constructs an object of type \tcode{jthread}.
+The new thread of execution executes
+        \tcode{%
+                \placeholdernc{INVOKE}(\brk{}%
+                \placeholdernc{decay-copy}(\brk{}%
+                std::forward<F>(f)),
+                get_stop_token(),
+                \placeholdernc{decay-copy}(\brk{}%
+                std::forward\brk{}<Args>(\brk{}args))...)}
+if that expression is well-formed,
+otherwise
+        \tcode{%
+                \placeholdernc{INVOKE}(\brk{}%
+                \placeholdernc{decay-copy}(\brk{}%
+                std::forward\brk{}<F>\brk{}(f)),
+                \placeholdernc{decay-copy}(\brk{}%
+                std::forward<Args>(\brk{}args))...)}
+with the calls to
+\tcode{\placeholder{decay-copy}} being evaluated in the constructing thread.
+Any return value from this invocation is ignored.
+\begin{note}
+This implies that any exceptions not thrown from the invocation of the copy
+of \tcode{f} will be thrown in the constructing thread, not the new thread.
+\end{note}
+If the \tcode{\placeholdernc{INVOKE}} expression exits via an exception,
+\tcode{terminate} is called.
+
+\pnum
+\sync The completion of the invocation of the constructor
+synchronizes with the beginning of the invocation of the copy of \tcode{f}.
+
+\pnum\ensures
+\tcode{get_id() != id()} is \tcode{true}
+and \tcode{ssource.stop_possible()} is \tcode{true}
+and \tcode{*this} represents the newly started thread.
+\begin{note}
+The calling thread can make a stop request only once,
+because it cannot replace this stop token.
+\end{note}
+
+\pnum\throws \tcode{system_error} if unable to start the new thread.
+
+\pnum
+\errors
+\begin{itemize}
+\item \tcode{resource_unavailable_try_again} --- the system lacked
+the necessary resources to create another thread,
+or the system-imposed limit on the number of threads in a process
+would be exceeded.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibrary{\idxcode{jthread}!constructor}%
+\begin{itemdecl}
+jthread(jthread&& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Constructs an object of type \tcode{jthread} from \tcode{x}, and sets
+\tcode{x} to a default constructed state.
+
+\pnum
+\ensures
+\tcode{x.get_id() == id()}
+and \tcode{get_id()} returns the value of \tcode{x.get_id()}
+prior to the start of construction.
+\tcode{ssource} has the value of \tcode{x.ssource}
+prior to the start of construction
+and \tcode{x.ssource.stop_possible()} is \tcode{false}.
+\end{itemdescr}
+
+
+\rSec3[thread.jthread.destr]{\tcode{jthread} destructor}
+
+\indexlibrary{\idxcode{jthread}!destructor}%
+\begin{itemdecl}
+~jthread();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{joinable()} is \tcode{true},
+calls \tcode{request_stop()} and then \tcode{join()}.
+\begin{note} Operations on \tcode{*this} are not synchronized. \end{note}
+\end{itemdescr}
+
+
+\rSec3[thread.jthread.assign]{\tcode{jthread} assignment}
+
+\indexlibrarymember{operator=}{jthread}%
+\begin{itemdecl}
+jthread& operator=(jthread&& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{joinable()} is \tcode{true},
+calls \tcode{request_stop()} and then \tcode{join()}.
+Assigns the state of \tcode{x} to \tcode{*this}
+and sets \tcode{x} to a default constructed state.
+
+\pnum
+\ensures
+\tcode{x.get_id() == id()}
+and \tcode{get_id()} returns the value of \tcode{x.get_id()}
+prior to the assignment.
+\tcode{ssource} has the value of \tcode{x.ssource}
+prior to the assignment
+and \tcode{x.ssource.stop_possible()} is \tcode{false}.
+
+\pnum
+\returns \tcode{*this}.
+\end{itemdescr}
+
+
+\rSec3[thread.jthread.member]{Members}
+
+\indexlibrarymember{swap}{jthread}%
+\begin{itemdecl}
+void swap(jthread& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Exchanges the values of \tcode{*this} and \tcode{x}.
+\end{itemdescr}
+
+
+\indexlibrarymember{joinable}{jthread}%
+\begin{itemdecl}
+[[nodiscard]] bool joinable() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{get_id() != id()}.
+\end{itemdescr}
+
+\indexlibrarymember{join}{jthread}%
+\begin{itemdecl}
+void join();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Blocks until the thread represented by \tcode{*this} has completed.
+
+\pnum
+\sync The completion of the thread represented by \tcode{*this}
+synchronizes with\iref{intro.multithread}
+the corresponding successful \tcode{join()} return.
+\begin{note} Operations on \tcode{*this} are not synchronized. \end{note}
+
+\pnum
+\ensures The thread represented by \tcode{*this} has completed.
+\tcode{get_id() == id()}.
+
+\pnum
+\throws
+\tcode{system_error} when an exception is required\iref{thread.req.exception}.
+
+\pnum
+\errors
+\begin{itemize}
+\item \tcode{resource_deadlock_would_occur} --- if deadlock is detected or
+\tcode{get_id() == this_thread::\brk{}get_id()}.
+
+\item \tcode{no_such_process} --- if the thread is not valid.
+
+\item \tcode{invalid_argument} --- if the thread is not joinable.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibrarymember{detach}{jthread}%
+\begin{itemdecl}
+void detach();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+The thread represented by \tcode{*this} continues execution
+without the calling thread blocking.
+When \tcode{detach()} returns,
+\tcode{*this} no longer represents the possibly continuing thread of execution.
+When the thread previously represented by \tcode{*this} ends execution,
+the implementation shall release any owned resources.
+
+\pnum
+\ensures \tcode{get_id() == id()}.
+
+\pnum
+\throws
+\tcode{system_error} when an exception is required\iref{thread.req.exception}.
+
+\pnum \errors
+\begin{itemize}
+\item \tcode{no_such_process} --- if the thread is not valid.
+\item \tcode{invalid_argument} --- if the thread is not joinable.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibrarymember{get_id}{jthread}%
+\begin{itemdecl}
+id get_id() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+A default constructed \tcode{id} object
+if \tcode{*this} does not represent a thread,
+otherwise \tcode{this_thread::get_id()}
+for the thread of execution represented by \tcode{*this}.
+\end{itemdescr}
+
+
+\rSec3[thread.jthread.stop]{\tcode{jthread} stop members}
+
+\indexlibrarymember{get_stop_source}{jthread}%
+\begin{itemdecl}
+[[nodiscard]] stop_source get_stop_source() noexcept
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return ssource;}
+\end{itemdescr}
+
+\indexlibrarymember{get_stop_token}{jthread}%
+\begin{itemdecl}
+[[nodiscard]] stop_token get_stop_token() const noexcept
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return ssource.get_token();}
+\end{itemdescr}
+
+\indexlibrarymember{request_stop}{jthread}%
+\begin{itemdecl}
+bool request_stop() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return ssource.request_stop();}
+\end{itemdescr}
+
+
+\rSec3[thread.jthread.special]{Specialized algorithms}
+
+\indexlibrarymember{swap}{jthread}%
+\begin{itemdecl}
+friend void swap(jthread& x, jthread& y) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{x.swap(y)}.
+\end{itemdescr}
+
+
+\rSec3[thread.jthread.static]{Static members}
+
+\indexlibrarymember{hardware_concurrency}{jthread}%
+\begin{itemdecl}
+unsigned hardware_concurrency() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{thread::hardware_concurrency()}.
+\end{itemdescr}
+
 
 \rSec2[thread.thread.this]{Namespace \tcode{this_thread}}
 
@@ -3296,6 +4351,7 @@ namespace std {
 
     void notify_one() noexcept;
     void notify_all() noexcept;
+    // \ref{thread.condvarany.wait} noninterruptible waits:
     template<class Lock>
       void wait(Lock& lock);
     template<class Lock, class Predicate>
@@ -3310,6 +4366,22 @@ namespace std {
       cv_status wait_for(Lock& lock, const chrono::duration<Rep, Period>& rel_time);
     template<class Lock, class Rep, class Period, class Predicate>
       bool wait_for(Lock& lock, const chrono::duration<Rep, Period>& rel_time, Predicate pred);
+
+    // \ref{thread.condvarany.interruptwait} interruptible waits:
+    template<class Lock, class Predicate>
+      bool wait_until(Lock& lock,
+                      Predicate pred,
+                      stop_token stoken);
+    template<class Lock, class Clock, class Duration, class Predicate>
+      bool wait_until(Lock& lock,
+                      const chrono::time_point<Clock, Duration>& abs_time
+                      Predicate pred,
+                      stop_token stoken);
+    template<class Lock, class Rep, class Period, class Predicate>
+      bool wait_for(Lock& lock,
+                    const chrono::duration<Rep, Period>& rel_time,
+                    Predicate pred,
+                    stop_token stoken);
   };
 }
 \end{codeblock}
@@ -3375,6 +4447,8 @@ void notify_all() noexcept;
 \begin{itemdescr}
 \pnum\effects Unblocks all threads that are blocked waiting for \tcode{*this}.
 \end{itemdescr}
+
+\rSec3[thread.condvarany.wait]{Noninterruptible waits}
 
 \indexlibrarymember{wait}{condition_variable_any}%
 \begin{itemdecl}
@@ -3533,6 +4607,128 @@ template<class Lock, class Rep, class Period, class Predicate>
 \effects Equivalent to:
 \begin{codeblock}
 return wait_until(lock, chrono::steady_clock::now() + rel_time, std::move(pred));
+\end{codeblock}
+\end{itemdescr}
+
+\rSec3[thread.condvarany.interruptwait]{Interruptible waits}
+
+\pnum
+The following wait functions will be notified
+when there is a stop request on the passed \tcode{stop_token}.
+In that case the functions return immediately,
+returning \tcode{false} if the predicate evaluates to \tcode{false}.
+
+\begin{itemdecl}
+template<class Lock, class Predicate>
+  bool wait_until(Lock& lock,
+                  Predicate pred,
+                  stop_token stoken);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Registers for the duration of this call \tcode{*this}
+to get notified on a stop request on \tcode{stoken}
+during this call and then equivalent to:
+\begin{codeblock}
+while (!stoken.stop_requested()) {
+  if (pred())
+    return true;
+  wait(lock);
+}
+return pred();
+\end{codeblock}
+
+\pnum
+\begin{note}
+The returned value indicates whether the predicate evaluated to
+\tcode{true} regardless of whether there was a stop request.
+\end{note}
+
+\pnum
+\ensures \tcode{lock} is locked by the calling thread.
+
+\pnum
+\remarks
+If the function fails to meet the postcondition,
+\tcode{terminate} is called\iref{except.terminate}.
+\begin{note}
+This can happen if the re-locking of the mutex throws an exception.
+\end{note}
+
+\pnum
+\throws Any exception thrown by \tcode{pred}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class Lock, class Clock, class Duration, class Predicate>
+  bool wait_until(Lock& lock,
+                  const chrono::time_point<Clock, Duration>& abs_time
+                  Predicate pred,
+                  stop_token stoken);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Registers for the duration of this call \tcode{*this}
+to get notified on a stop request on \tcode{stoken}
+during this call and then equivalent to:
+\begin{codeblock}
+while (!stoken.stop_requested()) {
+  if (pred())
+    return true;
+  if (cv.wait_until(lock, abs_time) == cv_status::timeout)
+    return pred();
+}
+return pred();
+\end{codeblock}
+
+\pnum
+\begin{note}
+There is no blocking if \tcode{pred()} is initially \tcode{true},
+\tcode{stoken.stop_requested()} was already \tcode{true}
+or the timeout has already expired.
+\end{note}
+
+\pnum
+\begin{note}
+The returned value indicates whether the predicate evaluated to \tcode{true}
+regardless of whether the timeout was triggered or a stop request was made.
+\end{note}
+
+\pnum
+\ensures \tcode{lock} is locked by the calling thread.
+
+\pnum
+\remarks
+If the function fails to meet the postcondition,
+\tcode{terminate} is called\iref{except.terminate}.
+\begin{note}
+This can happen if the re-locking of the mutex throws an exception.
+\end{note}
+
+\pnum
+\throws
+Timeout-related exceptions \iref{thread.req.timing},
+or any exception thrown by \tcode{pred}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class Lock, class Rep, class Period, class Predicate>
+  bool wait_for(Lock& lock,
+                const chrono::duration<Rep, Period>& rel_time,
+                Predicate pred,
+                stop_token stoken);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to:
+\begin{codeblock}
+return wait_until(lock, chrono::steady_clock::now() + rel_time, std::move(pred),
+                  std::move(stoken));
 \end{codeblock}
 \end{itemdescr}
 
