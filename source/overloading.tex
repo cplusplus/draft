@@ -1499,7 +1499,8 @@ resolution. \end{note}
 \pnum
 When resolving a placeholder for a deduced class type\iref{dcl.type.class.deduct}
 where the \grammarterm{template-name} names a primary class template \tcode{C},
-a set of functions and function templates is formed comprising:
+a set of functions and function templates, called the guides of \tcode{C},
+is formed comprising:
 \begin{itemize}
 \item
 If \tcode{C} is defined,
@@ -1570,11 +1571,73 @@ from a hypothetical constructor $\tcode{C}(\tcode{T}_1, \dotsc, \tcode{T}_n)$,
 where $\tcode{T}_i$ is the declared type of the element $e_i$.
 
 \pnum
+When resolving a placeholder for a deduced class type\iref{dcl.type.simple}
+where the \grammarterm{template-name} names an alias template \tcode{A}
+whose \grammarterm{defining-type-id}
+is a \grammarterm{simple-template-id} \tcode{B<L>},
+the guides of \tcode{A} are the set of functions or function templates
+formed as follows.
+For each function or function template \tcode{f} in the guides of \tcode{B},
+form a function or function template \tcode{f'}
+according to the following procedure and add it to the set:
+\begin{itemize}
+\item
+  Deduce the template arguments of the return type of \tcode{f}
+  from \tcode{B<L>} according to the process in \ref{temp.deduct.type}
+  with the exception that deduction does not fail
+  if not all template arguments are deduced.
+  Let \tcode{g} denote the result of substituting
+  these deductions into \tcode{f}.
+  If the substitution fails, no \tcode{f'} is produced.
+  Form the function or function template \tcode{f'} as follows:
+  \begin{itemize}
+  \item
+    The function type of \tcode{f'} is the function type of \tcode{g}.
+  \item
+    If \tcode{f} is a function template,
+    the template parameter list of \tcode{f'} consists of
+    all the template parameters of \tcode{A}
+    (including their default template arguments)
+    that appear in the above deductions or
+    (recursively) in their default template arguments,
+    followed by the template parameters of \tcode{f} that were not deduced
+    (including their default template arguments).
+  \item
+    The associated constraints\iref{temp.constr.decl} are
+    the conjunction of the associated constraints of \tcode{g} and
+    a constraint that is satisfied if and only if
+    the arguments of \tcode{A} are deducible (see below) from the return type.
+  \end{itemize}
+\item
+  If \tcode{f} is a copy deduction candidate\iref{over.match.class.deduct},
+  then \tcode{f'} is considered to be so as well.
+\item
+  If \tcode{f} was generated
+  from a deduction-guide\iref{over.match.class.deduct},
+  then \tcode{f'} is considered to be so as well.
+\item
+  The \grammarterm{explicit-specifier} of \tcode{f'} is
+  the \grammarterm{explicit-specifier} of g (if any).
+\end{itemize}
+
+\pnum
+The arguments of a template \tcode{A} are said to be
+deducible from a type \tcode{T} if, given a class template
+\begin{codeblock}
+template <typename> class AA;
+\end{codeblock}
+with a single partial specialization
+whose template parameter list is that of \tcode{A} and
+whose template argument list is a specialization of \tcode{A}
+with the template argument list of \tcode{A}\iref{temp.dep.type},
+\tcode{AA<T>} matches the partial specialization.
+
+\pnum
 Initialization and overload resolution are performed as described
 in \ref{dcl.init} and \ref{over.match.ctor}, \ref{over.match.copy},
 or \ref{over.match.list} (as appropriate for the type of initialization
 performed) for an object of a hypothetical class type, where
-the selected functions and function templates are considered to be the
+the guides of the template named by the placeholder are considered to be the
 constructors of that class type for the purpose of forming an overload
 set, and the initializer is provided by the context in which class
 template argument deduction was performed.
@@ -1582,8 +1645,9 @@ As an exception, the first phase in \ref{over.match.list}
 (considering initializer-list constructors)
 is omitted if the initializer list consists of
 a single expression of type \cv{}~\tcode{U},
-where \tcode{U} is a specialization of \tcode{C} or
-a class derived from a specialization of \tcode{C}.
+where \tcode{U} is a specialization of the class template
+for which the placeholder names a specialization or
+a class derived therefrom.
 If the function or function template was generated from
 a constructor or \grammarterm{deduction-guide}
 that had an \grammarterm{explicit-specifier},
@@ -1660,6 +1724,69 @@ struct E {
 };
 
 E e1 = {1, 2};                  // OK, \tcode{E<int>} deduced
+\end{codeblock}
+\end{example}
+
+\pnum
+\begin{example}
+\begin{codeblock}
+template <class T, class U> struct C {
+  C(T, U);                                      // \#1
+};
+template<class T, class U>
+  C(T, U) -> C<T, std::type_identity_t<U>>;     // \#2
+
+template<class V> using A = C<V *, V *>;
+template<std::Integral W> using B = A<W>;
+
+int i{};
+double d{};
+A a1(&i, &i);   // deduces \tcode{A<int>}
+A a2(i, i);     // error: cannot deduce \tcode{V *} from \tcode{i}
+A a3(&i, &d);   // error: \#1: cannot deduce \tcode{(V*, V*)} from \tcode{(int *, double *)}
+                // \#2: cannot deduce \tcode{A<V>} from \tcode{C<int *, double *>}
+B b1(&i, &i);   // deduces \tcode{B<int>}
+B b2(&d, &d);   // error: cannot deduce \tcode{B<W>} from \tcode{C<double *, double *>}
+\end{codeblock}
+Possible exposition-only implementation of the above procedure:
+\begin{codeblock}
+// The following concept ensures a specialization of \tcode{A} is deduced.
+template <class> class AA;
+template <class V> class AA<A<V>> { };
+template <class T> concept deduces_A = requires { sizeof(AA<T>); };
+
+// \tcode{f1} is formed from the constructor \#1 of \tcode{C}, generating the following function template
+template<T, U>
+  auto f1(T, U) -> C<T, U>;
+
+// Deducing arguments for \tcode{C<T, U>} from \tcode{C<V *, V*>} deduces \tcode{T} as \tcode{V *} and \tcode{U} as \tcode{V *};
+// \tcode{f1'} is obtained by transforming \tcode{f1} as described by the above procedure.
+template<class V> requires deduces_A<C<V *, V *>>
+  auto f1_prime(V *, V*) -> C<V *, V *>;
+
+// \tcode{f2} is formed the deduction-guide \#2 of \tcode{C}
+template<class T, class U> auto f2(T, U) -> C<T, std::type_identity_t<U>>;
+
+// Deducing arguments for \tcode{C<T, std::type_identity_t<U>>} from \tcode{C<V *, V*>} deduces \tcode{T} as \tcode{V *};
+// \tcode{f2'} is obtained by transforming \tcode{f2} as described by the above procedure.
+template<class V, class U>
+  requires deduces_A<C<V *, std::type_identity_t<U>>>
+  auto f2_prime(V *, U) -> C<V *, std::type_identity_t<U>>;
+
+// The following concept ensures a specialization of \tcode{B} is deduced.
+template <class> class BB;
+template <class V> class BB<B<V>> { };
+template <class T> concept deduces_B = requires { sizeof(BB<T>); };
+
+// The guides for \tcode{B} derived from the above \tcode{f1'} and \tcode{f2'} for \tcode{A} are as follows:
+template<std::Integral W>
+  requires deduces_A<C<W *, W *>> && deduces_B<C<W *, W *>>
+  auto f1_prime_for_B(W *, W *) -> C<W *, W *>;
+
+template<std::Integral W, class U>
+  requires deduces_A<C<W *, std::type_identity_t<U>>> &&
+    deduces_B<C<W *, std::type_identity_t<U>>>
+  auto f2_prime_for_B(W *, U) -> C<W *, std::type_identity_t<U>>;
 \end{codeblock}
 \end{example}%
 \indextext{overloading!argument lists|)}%
