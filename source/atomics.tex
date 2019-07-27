@@ -15,6 +15,7 @@ and operations, as summarized in \tref{atomics.summary}.
 \ref{atomics.alias} & Type aliases  & \tcode{<atomic>} \\
 \ref{atomics.order} & Order and consistency   &  \\
 \ref{atomics.lockfree}  & Lock-free property   &  \\
+\ref{atomics.wait}  & Waiting and notifying  &  \\
 \ref{atomics.ref.generic} & Class template \tcode{atomic_ref} &  \\
 \ref{atomics.types.generic} & Class template \tcode{atomic}   &  \\
 \ref{atomics.nonmembers}  & Non-member functions &  \\
@@ -180,6 +181,25 @@ namespace std {
     T atomic_fetch_xor_explicit(atomic<T>*, typename atomic<T>::value_type,
                                 memory_order) noexcept;
 
+  template<class T>
+    void atomic_wait(const volatile atomic<T>*, typename atomic<T>::value_type);
+  template<class T>
+    void atomic_wait(const atomic<T>*, typename atomic<T>::value_type);
+  template<class T>
+    void atomic_wait_explicit(const volatile atomic<T>*, typename atomic<T>::value_type,
+                              memory_order);
+  template<class T>
+    void atomic_wait_explicit(const atomic<T>*, typename atomic<T>::value_type,
+                              memory_order);
+  template<class T>
+    void atomic_notify_one(volatile atomic<T>*);
+  template<class T>
+    void atomic_notify_one(atomic<T>*);
+  template<class T>
+    void atomic_notify_all(volatile atomic<T>*);
+  template<class T>
+    void atomic_notify_all(atomic<T>*);
+
   // \ref{atomics.types.operations}, initialization
   #define ATOMIC_VAR_INIT(value) @\seebelow@
 
@@ -235,8 +255,15 @@ namespace std {
   using atomic_intmax_t       = atomic<intmax_t>;
   using atomic_uintmax_t      = atomic<uintmax_t>;
 
+  using atomic_signed_lock_free   = @\seebelow@;
+  using atomic_unsigned_lock_free = @\seebelow@;
+
   // \ref{atomics.flag}, flag type and operations
   struct atomic_flag;
+  bool atomic_flag_test(const volatile atomic_flag*) noexcept;
+  bool atomic_flag_test(const atomic_flag*) noexcept;
+  bool atomic_flag_test_explicit(const volatile atomic_flag*, memory_order) noexcept;
+  bool atomic_flag_test_explicit(const atomic_flag*, memory_order) noexcept;
   bool atomic_flag_test_and_set(volatile atomic_flag*) noexcept;
   bool atomic_flag_test_and_set(atomic_flag*) noexcept;
   bool atomic_flag_test_and_set_explicit(volatile atomic_flag*, memory_order) noexcept;
@@ -245,6 +272,16 @@ namespace std {
   void atomic_flag_clear(atomic_flag*) noexcept;
   void atomic_flag_clear_explicit(volatile atomic_flag*, memory_order) noexcept;
   void atomic_flag_clear_explicit(atomic_flag*, memory_order) noexcept;
+  void atomic_flag_wait(const volatile atomic_flag*, bool) noexcept;
+  void atomic_flag_wait(const atomic_flag*, bool) noexcept;
+  void atomic_flag_wait_explicit(const volatile atomic_flag*,
+                                 bool, memory_order) noexcept;
+  void atomic_flag_wait_explicit(const atomic_flag*,
+                                 bool, memory_order) noexcept;
+  void atomic_flag_notify_one(volatile atomic_flag*) noexcept;
+  void atomic_flag_notify_one(atomic_flag*) noexcept;
+  void atomic_flag_notify_all(volatile atomic_flag*) const noexcept;
+  void atomic_flag_notify_all(atomic_flag*) const noexcept;
   #define ATOMIC_FLAG_INIT @\seebelow@
 
   // \ref{atomics.fences}, fences
@@ -307,6 +344,22 @@ are defined if and only if
 \tcode{int$N$_t}, \tcode{uint$N$_t},
 \tcode{intptr_t}, and \tcode{uintptr_t}
 are defined, respectively.
+
+\pnum
+\indexlibrary{\idxcode{atomic_signed_lock_free}}%
+\indexlibrary{\idxcode{atomic_unsigned_lock_free}}%
+The type aliases
+\tcode{atomic_signed_lock_free} and \tcode{atomic_unsigned_lock_free}
+name specializations of \tcode{atomic}
+whose template arguments are integral types, respectively signed and unsigned,
+and whose \tcode{is_always_lock_free} property is \tcode{true}.
+\begin{note}
+These aliases are optional in freestanding implementations\iref{compliance}.
+\end{note}
+Implementations should choose for these aliases
+the integral specializations of \tcode{atomic}
+for which the atomic waiting and notifying operations\iref{atomics.wait}
+are most efficient.
 
 \rSec1[atomics.order]{Order and consistency}
 \indexlibrary{\idxcode{memory_order}}%
@@ -563,6 +616,15 @@ lock-free. A value of 1 indicates that the types are sometimes lock-free. A
 value of 2 indicates that the types are always lock-free.
 
 \pnum
+At least one signed integral specialization of the \tcode{atomic} template,
+along with the specialization
+for the corresponding unsigned type\iref{basic.fundamental},
+are always lock-free.
+\begin{note}
+This requirement is optional in freestanding implementations\iref{compliance}.
+\end{note}
+
+\pnum
 The function \tcode{atomic_is_lock_free}\iref{atomics.types.operations}
 indicates whether the object is lock-free. In any given program execution, the
 result of the lock-free query shall be consistent for all pointers of the same
@@ -579,6 +641,54 @@ communicate atomically. The implementation should not depend on any
 per-process state. This restriction enables communication  by memory that is
 mapped into a process more than once and by memory that is shared between two
 processes. \end{note}
+
+\rSec1[atomics.wait]{Waiting and notifying}
+
+\pnum
+\defnx{Atomic waiting operations}{atomic waiting operation}
+and \defnx{atomic notifying operations}{atomic notifying operation}
+provide a mechanism to wait for the value of an atomic object to change
+more efficiently than can be achieved with polling.
+An atomic waiting operation may block until it is unblocked
+by an atomic notifying operation, according to each function's effects.
+\begin{note}
+Programs are not guaranteed to observe transient atomic values,
+an issue known as the A-B-A problem,
+resulting in continued blocking if a condition is only temporarily met.
+\end{note}
+
+\pnum
+\begin{note}
+The following functions are atomic waiting operations:
+\begin{itemize}
+\item \tcode{atomic<T>::wait},
+\item \tcode{atomic_flag::wait},
+\item \tcode{atomic_wait} and \tcode{atomic_wait_explicit}, and
+\item \tcode{atomic_flag_wait} and \tcode{atomic_flag_wait_explicit}.
+\end{itemize}
+\end{note}
+
+\pnum
+\begin{note}
+The following functions are atomic notifying operations:
+\begin{itemize}
+\item \tcode{atomic<T>::notify_one} and \tcode{atomic<T>::notify_all},
+\item \tcode{atomic_flag::notify_one} and \tcode{atomic_flag::notify_all},
+\item \tcode{atomic_notify_one} and \tcode{atomic_notify_all}, and
+\item \tcode{atomic_flag_notify_one} and \tcode{atomic_flag_notify_all}.
+\end{itemize}
+\end{note}
+
+\pnum
+A call to an atomic waiting operation on an atomic object \tcode{M}
+is \defn{eligible to be unblocked}
+by a call to an atomic notifying operation on \tcode{M}
+if there exist side effects \tcode{X} and \tcode{Y} on \tcode{M} such that:
+\begin{itemize}
+\item the atomic waiting operation has blocked after observing the result of \tcode{X},
+\item \tcode{X} precedes \tcode{Y} in the modification order of \tcode{M}, and
+\item \tcode{Y} happens before the call to the atomic notifying operation.
+\end{itemize}
 
 \rSec1[atomics.ref.generic]{Class template \tcode{atomic_ref}}
 
@@ -1329,6 +1439,13 @@ namespace std {
     bool compare_exchange_strong(T&, T, memory_order = memory_order::seq_cst) volatile noexcept;
     bool compare_exchange_strong(T&, T, memory_order = memory_order::seq_cst) noexcept;
 
+    void wait(T, memory_order = memory_order::seq_cst) const volatile noexcept;
+    void wait(T, memory_order = memory_order::seq_cst) const noexcept;
+    void notify_one() volatile noexcept;
+    void notify_one() noexcept;
+    void notify_all() volatile noexcept;
+    void notify_all() noexcept;
+
     atomic() noexcept = default;
     constexpr atomic(T) noexcept;
     atomic(const atomic&) = delete;
@@ -1735,6 +1852,71 @@ bool party(pony desired) {
 \end{note}
 \end{itemdescr}
 
+\indexlibrarymember{wait}{atomic<T>}
+\begin{itemdecl}
+void wait(T old, memory_order order = memory_order::seq_cst) const volatile noexcept;
+void wait(T old, memory_order order = memory_order::seq_cst) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{order} is neither \tcode{memory_order::release} nor \tcode{memory_order::acq_rel}.
+
+\pnum
+\effects
+Repeatedly performs the following steps, in order:
+\begin{itemize}
+\item
+  Evaluates \tcode{load(order)} and
+  compares its value representation for equality against that of \tcode{old}.
+\item
+  If they compare unequal, returns.
+\item
+  Blocks until it
+  is unblocked by an atomic notifying operation or is unblocked spuriously.
+\end{itemize}
+
+\pnum
+\remarks
+This function is an atomic waiting operation\iref{atomics.wait}.
+\end{itemdescr}
+
+\indexlibrarymember{notify_one}{atomic<T>}
+\begin{itemdecl}
+void notify_one() volatile noexcept;
+void notify_one() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Unblocks the execution of at least one atomic waiting operation
+that is eligible to be unblocked\iref{atomics.wait} by this call,
+if any such atomic waiting operations exist.
+
+\pnum
+\remarks
+This function is an atomic notifying operation\iref{atomics.wait}.
+\end{itemdescr}
+
+\indexlibrarymember{notify_all}{atomic<T>}
+\begin{itemdecl}
+void notify_all() volatile noexcept;
+void notify_all() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Unblocks the execution of all atomic waiting operations
+that are eligible to be unblocked\iref{atomics.wait} by this call.
+
+\pnum
+\remarks
+This function is an atomic notifying operation\iref{atomics.wait}.
+\end{itemdescr}
+
 \rSec2[atomics.types.int]{Specializations for integers}
 
 \indexlibrary{\idxcode{atomic<\placeholder{integral}>}}%
@@ -1805,6 +1987,13 @@ namespace std {
     @\placeholdernc{integral}@ fetch_or(@\placeholdernc{integral}@, memory_order = memory_order::seq_cst) noexcept;
     @\placeholdernc{integral}@ fetch_xor(@\placeholdernc{integral}@, memory_order = memory_order::seq_cst) volatile noexcept;
     @\placeholdernc{integral}@ fetch_xor(@\placeholdernc{integral}@, memory_order = memory_order::seq_cst) noexcept;
+
+    void wait(integral, memory_order = memory_order::seq_cst) const volatile noexcept;
+    void wait(integral, memory_order = memory_order::seq_cst) const noexcept;
+    void notify_one() volatile noexcept;
+    void notify_one() noexcept;
+    void notify_all() volatile noexcept;
+    void notify_all() noexcept;
 
     atomic() noexcept = default;
     constexpr atomic(@\placeholdernc{integral}@) noexcept;
@@ -1992,6 +2181,13 @@ namespace std {
     @\placeholdernc{floating-point}@ fetch_sub(@\placeholdernc{floating-point}@,
                              memory_order = memory_order_seq_cst) noexcept;
 
+    void wait(@\placeholdernc{floating-point}@, memory_order = memory_order::seq_cst) const volatile noexcept;
+    void wait(@\placeholdernc{floating-point}@, memory_order = memory_order::seq_cst) const noexcept;
+    void notify_one() volatile noexcept;
+    void notify_one() noexcept;
+    void notify_all() volatile noexcept;
+    void notify_all() noexcept;
+
     atomic() noexcept = default;
     constexpr atomic(@\placeholder{floating-point}@) noexcept;
     atomic(const atomic&) = delete;
@@ -2115,10 +2311,18 @@ namespace std {
                                  memory_order = memory_order::seq_cst) volatile noexcept;
     bool compare_exchange_strong(T*&, T*,
                                  memory_order = memory_order::seq_cst) noexcept;
+
     T* fetch_add(ptrdiff_t, memory_order = memory_order::seq_cst) volatile noexcept;
     T* fetch_add(ptrdiff_t, memory_order = memory_order::seq_cst) noexcept;
     T* fetch_sub(ptrdiff_t, memory_order = memory_order::seq_cst) volatile noexcept;
     T* fetch_sub(ptrdiff_t, memory_order = memory_order::seq_cst) noexcept;
+
+    void wait(T*, memory_order = memory_order::seq_cst) const volatile noexcept;
+    void wait(T*, memory_order = memory_order::seq_cst) const noexcept;
+    void notify_one() volatile noexcept;
+    void notify_one() noexcept;
+    void notify_all() volatile noexcept;
+    void notify_all() noexcept;
 
     atomic() noexcept = default;
     constexpr atomic(T*) noexcept;
@@ -2313,10 +2517,19 @@ compiled as either C or C++, for example in a shared header file.
 \begin{codeblock}
 namespace std {
   struct atomic_flag {
+    bool test(memory_order = memory_order::seq_cst) const volatile noexcept;
+    bool test(memory_order = memory_order::seq_cst) const noexcept;
     bool test_and_set(memory_order = memory_order::seq_cst) volatile noexcept;
     bool test_and_set(memory_order = memory_order::seq_cst) noexcept;
     void clear(memory_order = memory_order::seq_cst) volatile noexcept;
     void clear(memory_order = memory_order::seq_cst) noexcept;
+
+    void wait(bool, memory_order = memory_order::seq_cst) const volatile noexcept;
+    void wait(bool, memory_order = memory_order::seq_cst) const noexcept;
+    void notify_one() volatile noexcept;
+    void notify_one() noexcept;
+    void notify_all() volatile noexcept;
+    void notify_all() noexcept;
 
     atomic_flag() noexcept = default;
     atomic_flag(const atomic_flag&) = delete;
@@ -2324,6 +2537,10 @@ namespace std {
     atomic_flag& operator=(const atomic_flag&) volatile = delete;
   };
 
+  bool atomic_flag_test(const volatile atomic_flag*) noexcept;
+  bool atomic_flag_test(const atomic_flag*) noexcept;
+  bool atomic_flag_test_explicit(const volatile atomic_flag*, memory_order) noexcept;
+  bool atomic_flag_test_explicit(const atomic_flag*, memory_order) noexcept;
   bool atomic_flag_test_and_set(volatile atomic_flag*) noexcept;
   bool atomic_flag_test_and_set(atomic_flag*) noexcept;
   bool atomic_flag_test_and_set_explicit(volatile atomic_flag*, memory_order) noexcept;
@@ -2332,6 +2549,17 @@ namespace std {
   void atomic_flag_clear(atomic_flag*) noexcept;
   void atomic_flag_clear_explicit(volatile atomic_flag*, memory_order) noexcept;
   void atomic_flag_clear_explicit(atomic_flag*, memory_order) noexcept;
+
+  void atomic_flag_wait(const volatile atomic_flag*, bool) noexcept;
+  void atomic_flag_wait(const atomic_flag*, bool) noexcept;
+  void atomic_flag_wait_explicit(const volatile atomic_flag*,
+                                 bool, memory_order) noexcept;
+  void atomic_flag_wait_explicit(const atomic_flag*,
+                                 bool, memory_order) noexcept;
+  void atomic_flag_notify_one(volatile atomic_flag*) noexcept;
+  void atomic_flag_notify_one(atomic_flag*) noexcept;
+  void atomic_flag_notify_all(volatile atomic_flag*) const noexcept;
+  void atomic_flag_notify_all(atomic_flag*) const noexcept;
 
   #define ATOMIC_FLAG_INIT @\seebelow@
 }
@@ -2358,6 +2586,38 @@ It is unspecified whether the macro can be used in other initialization contexts
 For a complete static-duration object, that initialization shall be static.
 Unless initialized with \tcode{ATOMIC_FLAG_INIT}, it is unspecified whether an
 \tcode{atomic_flag} object has an initial state of set or clear.
+
+\indexlibrary{\idxcode{atomic_flag_test}}%
+\indexlibrary{\idxcode{atomic_flag_test_explicit}}%
+\indexlibrarymember{test}{atomic_flag}%
+\begin{itemdecl}
+bool atomic_flag_test(const volatile atomic_flag* object) noexcept;
+bool atomic_flag_test(const atomic_flag* object) noexcept;
+bool atomic_flag_test_explicit(const volatile atomic_flag* object,
+                               memory_order order) noexcept;
+bool atomic_flag_test_explicit(const atomic_flag* object,
+                               memory_order order) noexcept;
+bool atomic_flag::test(memory_order order = memory_order::seq_cst) const volatile noexcept;
+bool atomic_flag::test(memory_order order = memory_order::seq_cst) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+For \tcode{atomic_flag_test}, let \tcode{order} be \tcode{memory_order::seq_cst}.
+
+\pnum
+\expects
+\tcode{order} is
+neither \tcode{memory_order::release} nor \tcode{memory_order::acq_rel}.
+
+\pnum
+\effects
+Memory is affected according to the value of \tcode{order}.
+
+\pnum
+\returns
+Atomically returns the value pointed to by \tcode{object} or \tcode{this}.
+\end{itemdescr}
 
 \indexlibrary{\idxcode{atomic_flag_test_and_set}}%
 \indexlibrary{\idxcode{atomic_flag_test_and_set_explicit}}%
@@ -2400,6 +2660,89 @@ void atomic_flag::clear(memory_order order = memory_order::seq_cst) noexcept;
 \pnum
 \effects Atomically sets the value pointed to by \tcode{object} or by \tcode{this} to
 \tcode{false}. Memory is affected according to the value of \tcode{order}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{atomic_flag_wait}}%
+\indexlibrary{\idxcode{atomic_flag_wait_explicit}}%
+\indexlibrarymember{wait}{atomic_flag}%
+\begin{itemdecl}
+void atomic_flag_wait(const volatile atomic_flag* object, bool old) noexcept;
+void atomic_flag_wait(const atomic_flag* object, bool old) noexcept;
+void atomic_flag_wait_explicit(const volatile atomic_flag* object,
+                               bool old, memory_order order) noexcept;
+void atomic_flag_wait_explicit(const atomic_flag* object,
+                               bool old, memory_order order) noexcept;
+void atomic_flag::wait(bool old, memory_order order =
+                                   memory_order::seq_cst) const volatile noexcept;
+void atomic_flag::wait(bool old, memory_order order =
+                                   memory_order::seq_cst) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+For \tcode{atomic_flag_wait},
+let \tcode{order} be \tcode{memory_order::seq_cst}.
+Let \tcode{flag} be \tcode{object} for the non-member functions and
+\tcode{this} for the member functions.
+
+\pnum
+\expects
+\tcode{order} is
+neither \tcode{memory_order::release} nor \tcode{memory_order::acq_rel}.
+
+\pnum
+\effects
+Repeatedly performs the following steps, in order:
+\begin{itemize}
+\item
+  Evaluates \tcode{flag->test(order) != old}.
+\item
+  If the result of that evaluation is \tcode{true}, returns.
+\item
+  Blocks until it
+  is unblocked by an atomic notifying operation or is unblocked spuriously.
+\end{itemize}
+
+\pnum
+\remarks
+This function is an atomic waiting operation\iref{atomics.wait}.
+\end{itemdescr}
+
+\begin{itemdecl}
+void atomic_flag_notify_one(volatile atomic_flag* object) noexcept;
+void atomic_flag_notify_one(atomic_flag* object) noexcept;
+void atomic_flag::notify_one() volatile noexcept;
+void atomic_flag::notify_one() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Unblocks the execution of at least one atomic waiting operation
+that is eligible to be unblocked\iref{atomics.wait} by this call,
+if any such atomic waiting operations exist.
+
+\pnum
+\remarks
+This function is an atomic notifying operation\iref{atomics.wait}.
+\end{itemdescr}
+
+\begin{itemdecl}
+void atomic_flag_notify_all(volatile atomic_flag* object) const noexcept;
+void atomic_flag_notify_all(atomic_flag* object) const noexcept;
+void atomic_flag::notify_all() volatile noexcept;
+void atomic_flag::notify_all() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Unblocks the execution of all atomic waiting operations
+that are eligible to be unblocked\iref{atomics.wait} by this call.
+
+\pnum
+\remarks
+This function is an atomic notifying operation\iref{atomics.wait}.
 \end{itemdescr}
 
 \rSec1[atomics.fences]{Fences}

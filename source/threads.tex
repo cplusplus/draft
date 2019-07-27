@@ -15,6 +15,8 @@ between threads, as summarized in \tref{thread.summary}.
 \ref{thread.mutex}    & Mutual exclusion      &
   \tcode{<mutex>}, \tcode{<shared_mutex>} \\ \rowsep
 \ref{thread.condition}& Condition variables   & \tcode{<condition_variable>}  \\ \rowsep
+\ref{thread.sema}     & Semaphores & \tcode{<semaphore>} \\ \rowsep
+\ref{thread.coord}    & Coordination types & \tcode{<latch>} \tcode{<barrier>} \\ \rowsep
 \ref{futures}         & Futures               & \tcode{<future>}              \\
 \end{libsumtab}
 
@@ -3564,6 +3566,654 @@ template<class Lock, class Rep, class Period, class Predicate>
 \begin{codeblock}
 return wait_until(lock, chrono::steady_clock::now() + rel_time, std::move(pred));
 \end{codeblock}
+\end{itemdescr}
+
+\rSec1[thread.sema]{Semaphore}
+
+\pnum
+Semaphores are lightweight synchronization primitives
+used to constrain concurrent access to a shared resource.
+They are widely used to implement other synchronization primitives and,
+whenever both are applicable, can be more efficient than condition variables.
+
+\pnum
+A counting semaphore is a semaphore object
+that models a non-negative resource count.
+A binary semaphore is a semaphore object that has only two states.
+A binary semaphore should be more efficient than
+the default implementation of a counting semaphore with a unit resource count.
+
+\rSec2[semaphore.syn]{Header \tcode{<semaphore>} synopsis}
+\indexhdr{semaphore}%
+
+\begin{codeblock}
+namespace std {
+  template<ptrdiff_t least_max_value = @\textrm{\textit{implementation-defined}}@>
+    class counting_semaphore;
+
+  using binary_semaphore = counting_semaphore<1>;
+}
+\end{codeblock}
+
+\rSec2[thread.sema.cnt]{Class template \tcode{counting_semaphore}}
+
+\begin{codeblock}
+namespace std {
+  template<ptrdiff_t least_max_value = @\textrm{\textit{\impldef{value for \idxcode{least_max_value} default template argument of \idxcode{counting_semaphore}}}}@>
+  class counting_semaphore {
+  public:
+    static constexpr ptrdiff_t max() noexcept;
+
+    constexpr explicit counting_semaphore(ptrdiff_t desired);
+    ~counting_semaphore();
+
+    counting_semaphore(const counting_semaphore&) = delete;
+    counting_semaphore& operator=(const counting_semaphore&) = delete;
+
+    void release(ptrdiff_t update = 1);
+    void acquire();
+    bool try_acquire() noexcept;
+    template<class Rep, class Period>
+      bool try_acquire_for(const chrono::duration<Rep, Period>& rel_time);
+    template<class Clock, class Duration>
+      bool try_acquire_until(const chrono::time_point<Clock, Duration>& abs_time);
+
+  private:
+    ptrdiff_t counter; // exposition only
+  };
+}
+\end{codeblock}
+
+\pnum
+Class \tcode{counting_semaphore} maintains an internal counter
+that is initialized when the semaphore is created.
+The counter is decremented when a thread acquires the semaphore, and
+is incremented when a thread releases the semaphore.
+If a thread tries to acquire the semaphore when the counter is zero,
+the thread will block
+until another thread increments the counter by releasing the semaphore.
+
+\pnum
+\tcode{least_max_value} shall be non-negative; otherwise the program is ill-formed.
+
+\pnum
+Concurrent invocations of the member functions of \tcode{counting_semaphore},
+other than its destructor, do not introduce data races.
+
+\indexlibrarymember{max}{counting_semaphore}%
+\begin{itemdecl}
+static constexpr ptrdiff_t max() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+The maximum value of \tcode{counter}.
+This value is greater than or equal to \tcode{least_max_value}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{counting_semaphore}!constructor}%
+\begin{itemdecl}
+constexpr explicit counting_semaphore(ptrdiff_t desired);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{desired >= 0} is \tcode{true}, and
+\tcode{desired <= max()} is \tcode{true}.
+
+\pnum
+\effects
+Initializes \tcode{counter} with \tcode{desired}.
+
+\pnum
+\throws
+Nothing.
+\end{itemdescr}
+
+\indexlibrarymember{release}{counting_semaphore}%
+\begin{itemdecl}
+void release(ptrdiff_t update = 1);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{update >= 0} is \tcode{true}, and
+\tcode{update <= max() - counter} is \tcode{true}.
+
+\pnum
+\effects
+Atomically execute \tcode{counter += update}.
+Then, unblocks any threads
+that are waiting for \tcode{counter} to be greater than zero.
+
+\pnum
+\sync
+Strongly happens before invocations of \tcode{try_acquire}
+that observe the result of the effects.
+
+\pnum
+\throws
+\tcode{system_error} when an exception is required\iref{thread.req.exception}.
+
+\pnum
+\errors
+Any of the error conditions
+allowed for mutex types\iref{thread.mutex.requirements.mutex}.
+\end{itemdescr}
+
+\indexlibrarymember{try_acquire}{counting_semaphore}%
+\begin{itemdecl}
+bool try_acquire() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\begin{itemize}
+\item
+  With low probability, returns immediately.
+  An implementation should ensure
+  that \tcode{try_acquire} does not consistently return \tcode{false}
+  in the absence of contending acquisitions.
+\item
+  Otherwise, atomically check whether \tcode{counter} is greater than zero and,
+  if so, decrement \tcode{counter} by one.
+\end{itemize}
+
+\pnum
+\returns
+\tcode{true} if \tcode{counter} was decremented, otherwise \tcode{false}.
+\end{itemdescr}
+
+\indexlibrarymember{acquire}{counting_semaphore}%
+\begin{itemdecl}
+void acquire();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Repeatedly performs the following steps, in order:
+\begin{itemize}
+\item Evaluates \tcode{try_acquire}. If the result is \tcode{true}, returns.
+\item Blocks on \tcode{*this} until \tcode{counter} is greater than zero.
+\end{itemize}
+
+\pnum
+\throws
+\tcode{system_error} when an exception is required\iref{thread.req.exception}.
+
+\pnum
+\errors
+Any of the error conditions
+allowed for mutex types\iref{thread.mutex.requirements.mutex}.
+\end{itemdescr}
+
+\indexlibrarymember{try_acquire_for}{counting_semaphore}%
+\indexlibrarymember{try_acquire_until}{counting_semaphore}%
+\begin{itemdecl}
+template<class Rep, class Period>
+  bool try_acquire_for(const chrono::duration<Rep, Period>& rel_time);
+template<class Clock, class Duration>
+  bool try_acquire_until(const chrono::time_point<Clock, Duration>& abs_time);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Repeatedly performs the following steps, in order:
+\begin{itemize}
+\item
+  Evaluates \tcode{try_acquire()}.
+  If the result is \tcode{true}, returns \tcode{true}.
+\item
+  Blocks on \tcode{*this}
+  until \tcode{counter} is greater than zero or until the timeout expires.
+  If it is unblocked by the timeout expiring, returns \tcode{false}.
+\end{itemize}
+The timeout expires\iref{thread.req.timing}
+when the current time is after \tcode{abs_time} (for \tcode{try_acquire_until})
+or when at least \tcode{rel_time} has passed
+from the start of the function (for \tcode{try_acquire_for}).
+
+\pnum
+\throws
+Timeout-related exceptions\iref{thread.req.timing}, or \tcode{system_error}
+when a non-timeout-related exception is required\iref{thread.req.exception}.
+
+\pnum
+\errors
+Any of the error conditions
+allowed for mutex types\iref{thread.mutex.requirements.mutex}.
+\end{itemdescr}
+
+\rSec1[thread.coord]{Coordination types}
+
+\pnum
+This subclause describes various concepts related to thread coordination, and
+defines the coordination types \tcode{latch} and \tcode{barrier}.
+These types facilitate concurrent computation performed by a number of threads.
+
+\rSec2[thread.latch]{Latches}
+
+\indextext{latch|see{thread, latch}}%
+\pnum
+A \defnx{latch}{thread!latch} is a thread coordination mechanism
+that allows any number of threads to block
+until an expected number of threads arrive at the latch
+(via the \tcode{count_down} function).
+The expected count is set when the latch is created.
+An individual latch is a single-use object;
+once the expected count has been reached, the latch cannot be reused.
+
+\rSec2[latch.syn]{Header \tcode{<latch>} synopsis}
+\indexhdr{latch}%
+
+\begin{codeblock}
+namespace std {
+  class latch;
+}
+\end{codeblock}
+
+\rSec2[thread.latch.class]{Class \tcode{latch}}
+
+\begin{codeblock}
+namespace std {
+  class latch {
+  public:
+    constexpr explicit latch(ptrdiff_t expected);
+    ~latch();
+
+    latch(const latch&) = delete;
+    latch& operator=(const latch&) = delete;
+
+    void count_down(ptrdiff_t update = 1);
+    bool try_wait() const noexcept;
+    void wait() const;
+    void arrive_and_wait(ptrdiff_t update = 1);
+
+  private:
+    ptrdiff_t counter;  // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+A \tcode{latch} maintains an internal counter
+that is initialized when the latch is created.
+Threads can block on the latch object,
+waiting for counter to be decremented to zero.
+
+\pnum
+Concurrent invocations of the member functions of \tcode{latch},
+other than its destructor, do not introduce data races.
+
+\indexlibrary{\idxcode{latch}!constructor}%
+\begin{itemdecl}
+constexpr explicit latch(ptrdiff_t expected);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{expected >= 0} is \tcode{true}.
+
+\pnum
+\effects
+Initializes \tcode{counter} with \tcode{expected}.
+
+\pnum
+\throws
+Nothing.
+\end{itemdescr}
+
+\indexlibrarymember{count_down}{latch}%
+\begin{itemdecl}
+void count_down(ptrdiff_t update = 1);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{update >= 0} is \tcode{true}, and
+\tcode{update <= counter} is \tcode{true}.
+
+\pnum
+\effects
+Atomically decrements \tcode{counter} by \tcode{update}.
+If \tcode{counter} is equal to zero,
+unblocks all threads blocked on \tcode{*this}.
+
+\pnum
+\sync
+Strongly happens before the returns from all calls that are unblocked.
+
+\pnum
+\throws
+\tcode{system_error} when an exception is required\iref{thread.req.exception}.
+
+\pnum
+\errors
+Any of the error conditions
+allowed for mutex types\iref{thread.mutex.requirements.mutex}.
+\end{itemdescr}
+
+\indexlibrarymember{try_wait}{latch}%
+\begin{itemdecl}
+bool try_wait() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+With very low probability \tcode{false}. Otherwise \tcode{counter == 0}.
+\end{itemdescr}
+
+\indexlibrarymember{wait}{latch}%
+\begin{itemdecl}
+void wait() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{counter} equals zero, returns immediately.
+Otherwise, blocks on \tcode{*this}
+until a call to \tcode{count_down} that decrements \tcode{counter} to zero.
+
+\pnum
+\throws
+\tcode{system_error} when an exception is required\iref{thread.req.exception}.
+
+\pnum
+\errors
+Any of the error conditions
+allowed for mutex types\iref{thread.mutex.requirements.mutex}.
+\end{itemdescr}
+
+\indexlibrarymember{arrive_and_wait}{latch}%
+\begin{itemdecl}
+void arrive_and_wait(ptrdiff_t update = 1);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+count_down(update);
+wait();
+\end{codeblock}
+\end{itemdescr}
+
+\rSec2[thread.barrier]{Barriers}
+
+\pnum
+A barrier is a thread coordination mechanism
+whose lifetime consists of a sequence of barrier phases,
+where each phase allows at most an expected number of threads to block
+until the expected number of threads arrive at the barrier.
+\begin{note}
+A barrier is useful for managing repeated tasks
+that are handled by multiple threads.
+\end{note}
+
+\rSec3[barrier.syn]{Header \tcode{<barrier>} synopsis}
+\indexhdr{barrier}%
+
+\begin{codeblock}
+namespace std {
+  template<class CompletionFunction = @\seebelow@>
+    class barrier;
+}
+\end{codeblock}
+
+\rSec3[thread.barrier.class]{Class template \tcode{barrier}}
+
+\begin{codeblock}
+namespace std {
+  template<class CompletionFunction = @\seebelow@>
+  class barrier {
+  public:
+    using arrival_token = @\seebelow@;
+
+    constexpr explicit barrier(ptrdiff_t phase_count,
+                               CompletionFunction f = CompletionFunction());
+    ~barrier();
+
+    barrier(const barrier&) = delete;
+    barrier& operator=(const barrier&) = delete;
+
+    [[nodiscard]] arrival_token arrive(ptrdiff_t update = 1);
+    void wait(arrival_token&& arrival) const;
+
+    void arrive_and_wait();
+    void arrive_and_drop();
+
+  private:
+    CompletionFunction completion;      // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+Each \defn{barrier phase} consists of the following steps:
+\begin{itemize}
+\item
+  The expected count is decremented
+  by each call to \tcode{arrive} or \tcode{arrive_and_drop}.
+\item
+  When the expected count reaches zero, the phase completion step is run.
+  For the specialization
+  with the default value of the \tcode{CompletionFunction} template parameter,
+  the completion step is run
+  as part of the call to \tcode{arrive} or \tcode{arrive_and_drop}
+  that caused the expected count to reach zero.
+  For other specializations,
+  the completion step is run on one of the threads
+  that arrived at the barrier during the phase.
+\item
+  When the completion step finishes,
+  the expected count is reset
+  to what was specified by the \tcode{expected} argument to the constructor,
+  possibly adjusted by calls to \tcode{arrive_and_drop}, and
+  the next phase starts.
+\end{itemize}
+
+\indextext{phase synchronization point|see{barrier, phase synchronization point }}%
+\pnum
+Each phase defines a \defnx{phase synchronization point}{barrier!phase synchronization point}.
+Threads that arrive at the barrier during the phase
+can block on the phase synchronization point by calling \tcode{wait}, and
+will remain blocked until the phase completion step is run.
+
+\pnum
+The \defn{phase completion step}
+that is executed at the end of each phase has the following effects:
+\begin{itemize}
+\item Invokes the completion function, equivalent to \tcode{completion()}.
+\item Unblocks all threads that are blocked on the phase synchronization point.
+\end{itemize}
+The end of the completion step strongly happens before
+the returns from all calls that were unblocked by the completion step.
+For specializations that do not have
+the default value of the \tcode{CompletionFunction} template parameter,
+the behavior is undefined if any of the barrier object's member functions
+other than \tcode{wait} are called while the completion step is in progress.
+
+\pnum
+Concurrent invocations of the member functions of \tcode{barrier},
+other than its destructor, do not introduce data races.
+The member functions \tcode{arrive} and \tcode{arrive_and_drop}
+execute atomically.
+
+\pnum
+\tcode{CompletionFunction} shall meet the
+\oldconcept{MoveConstructible} (\tref{cpp17.moveconstructible}) and
+\oldconcept{Destructible} (\tref{cpp17.destructible}) requirements.
+\tcode{is_nothrow_invocable_v<CompletionFunction\&>} shall be \tcode{true}.
+
+\pnum
+The default value of the \tcode{CompletionFunction} template parameter is
+an unspecified type, such that,
+in addition to satisfying the requirements of \tcode{CompletionFunction},
+it meets the \oldconcept{DefaultConstructible}
+requirements (\tref{cpp17.defaultconstructible}) and
+\tcode{completion()} has no effects.
+
+\pnum
+\tcode{barrier::arrival_token} is an unspecified type,
+such that it meets the
+\oldconcept{MoveConstructible} (\tref{cpp17.moveconstructible}),
+\oldconcept{MoveAssignable} (\tref{cpp17.moveassignable}), and
+\oldconcept{Destructible} (\tref{cpp17.destructible}) requirements.
+
+\indexlibrary{\idxcode{barrier}!constructor}
+\begin{itemdecl}
+constexpr explicit barrier(ptrdiff_t phase_count,
+                           CompletionFunction f = CompletionFunction());
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{phase_count >= 0} is \tcode{true}.
+
+\pnum
+\effects
+Sets both the initial expected count for each barrier phase and
+the current expected count for the first phase to \tcode{phase_count}.
+Initializes \tcode{completion} with \tcode{std::move(f)}.
+Starts the first phase.
+\begin{note}
+If \tcode{phase_count} is 0 this object can only be destroyed.
+\end{note}
+
+\pnum
+\throws
+Any exception thrown by \tcode{CompletionFunction}'s move constructor.
+\end{itemdescr}
+
+\indexlibrarymember{arrive}{barrier}%
+\begin{itemdecl}
+[[nodiscard]] arrival_token arrive(ptrdiff_t update = 1);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{update > 0} is \tcode{true}, and
+\tcode{update} is less than or equal to
+the expected count for the current barrier phase.
+
+\pnum
+\effects
+Constructs an object of type \tcode{arrival_token}
+that is associated with the phase synchronization point for the current phase.
+Then, decrements the expected count by \tcode{update}.
+
+\pnum
+\sync
+The call to \tcode{arrive} strongly happens before
+the start of the phase completion step for the current phase.
+
+\pnum
+\returns
+The constructed \tcode{arrival_token} object.
+
+\pnum
+\throws
+\tcode{system_error} when an exception is required\iref{thread.req.exception}.
+
+\pnum
+\errors
+Any of the error conditions
+allowed for mutex types\iref{thread.mutex.requirements.mutex}.
+
+\pnum
+\begin{note}
+This call can cause the completion step for the current phase to start.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarymember{wait}{barrier}%
+\begin{itemdecl}
+void wait(arrival_token&& arrival) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{arrival} is associated with
+the phase synchronization point for the current phase or
+the immediately preceding phase of the same barrier object.
+
+\pnum
+\effects
+Blocks at the synchronization point associated with \tcode{std::move(arrival)}
+until the phase completion step of the synchronization point's phase is run.
+\begin{note}
+If \tcode{arrival} is associated with the synchronization point
+for a previous phase, the call returns immediately.
+\end{note}
+
+\pnum
+\throws
+\tcode{system_error} when an exception is required\iref{thread.req.exception}.
+
+\pnum
+\errors
+Any of the error conditions
+allowed for mutex types\iref{thread.mutex.requirements.mutex}.
+\end{itemdescr}
+
+\indexlibrarymember{arrive_and_wait}{barrier}%
+\begin{itemdecl}
+void arrive_and_wait();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{wait(arrive())}.
+\end{itemdescr}
+
+\indexlibrarymember{arrive_and_drop}{barrier}%
+\begin{itemdecl}
+void arrive_and_drop();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+The expected count for the current barrier phase is greater than zero.
+
+\pnum
+\effects
+Decrements the initial expected count for all subsequent phases by one.
+Then decrements the expected count for the current phase by one.
+
+\pnum
+\sync
+The call to \tcode{arrive_and_drop} strongly happens before
+the start of the phase completion step for the current phase.
+
+\pnum
+\throws
+\tcode{system_error} when an exception is required\iref{thread.req.exception}.
+
+\pnum
+\errors
+Any of the error conditions
+allowed for mutex types\iref{thread.mutex.requirements.mutex}.
+
+\pnum
+\begin{note}
+This call can cause the completion step for the current phase to start.
+\end{note}
 \end{itemdescr}
 
 \rSec1[futures]{Futures}
