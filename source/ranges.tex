@@ -282,6 +282,20 @@ namespace std {
 }
 \end{codeblock}
 
+\pnum
+\indextext{make-unigned-like@\exposid{make-unsigned-like}}%
+\indextext{make-unigned-like-t@\exposid{make-unsigned-like-t}}%
+Within this clause,
+for some integer-like type \tcode{X}\iref{iterator.concept.winc},
+\tcode{\placeholdernc{make-unsigned-like-t}(X)} denotes
+\tcode{make_unsigned_t<X>} if \tcode{X} is an integer type;
+otherwise, it denotes a corresponding unspecified unsigned-integer-like type
+of the same width as \tcode{X}.
+For an object \tcode{x} of type \tcode{X},
+\tcode{\placeholdernc{make-unsigned-like}(x)} is
+\tcode{x} explicitly converted to
+\tcode{\placeholdernc{make-unsigned-like-t}(X)}.
+
 \rSec1[range.access]{Range access}
 
 \pnum
@@ -559,12 +573,12 @@ object\iref{customization.point.object}. The expression
   \item
     \tcode{\placeholdernc{decay-copy}(E.size())}
     if it is a valid expression and its type \tcode{I}
-    models \libconcept{Integral}.
+    is integer-like\iref{iterator.concept.winc}.
 
   \item
     Otherwise, \tcode{\placeholdernc{decay-copy}(size(E))}
     if it is a valid expression and its type \tcode{I}
-    models \libconcept{Integral}
+    is integer-like
     with overload resolution performed in a context that includes
     the declaration:
     \begin{codeblock}
@@ -594,7 +608,7 @@ object\iref{customization.point.object}. The expression
 \pnum
 \begin{note}
 Whenever \tcode{ranges::size(E)} is a valid expression, its
-type models \libconcept{Integral}.
+type is integer-like.
 \end{note}
 
 \rSec2[range.prim.empty]{\tcode{ranges::empty}}
@@ -1777,21 +1791,40 @@ namespace std::ranges {
                         type_identity_t<Bound> bound);
 
     constexpr iterator begin() const;
-    constexpr sentinel end() const;
+    constexpr auto end() const;
     constexpr iterator end() const requires Same<W, Bound>;
 
-    constexpr auto size() const
-      requires (Same<W, Bound> && @\placeholdernc{Advanceable}@<W>) ||
-               (Integral<W> && Integral<Bound>) ||
-               SizedSentinel<Bound, W>
-    { return bound_ - value_; }
+    constexpr auto size() const requires @\seebelow@;
   };
 
   template<class W, class Bound>
-    requires (!Integral<W> || !Integral<Bound> || is_signed_v<W> == is_signed_v<Bound>)
-  iota_view(W, Bound) -> iota_view<W, Bound>;
+    requires (!@\placeholdernc{is-integer-like}@<W> || !@\placeholdernc{is-integer-like}@<Bound> ||
+      (@\placeholdernc{is-signed-integer-like}@<W> == @\placeholdernc{is-signed-integer-like}@<Bound>))
+    iota_view(W, Bound) -> iota_view<W, Bound>;
 }
 \end{codeblock}
+
+\pnum
+Let \tcode{\placeholdernc{IOTA-DIFF-T}(W)} be defined as follows:
+\begin{itemize}
+\item
+  If \tcode{W} is not an integral type, or
+  if it is an integral type and \tcode{sizeof(iter_difference_t<W>)}
+  is greater than \tcode{sizeof(W)},
+  then \tcode{\placeholdernc{IOTA-DIFF-T}(W)} denotes \tcode{iter_difference_t<W>}.
+\item
+  Otherwise, \tcode{\placeholdernc{IOTA-DIFF-T}(W)}
+  is a signed integer type of width greater than the width of \tcode{W}
+  if such a type exists.
+\item
+  Otherwise, \tcode{\placeholdernc{IOTA-DIFF-T}(W)}
+  is an unspecified signed-integer-like type\iref{iterator.concept.winc}
+  of width not less than the width of \tcode{W}.
+  \begin{note}
+  It is unspecified
+  whether this type satisfies \libconcept{WeaklyIncrementable}.
+  \end{note}
+\end{itemize}
 
 \pnum
 The exposition-only \tcode{\placeholder{Decrementable}} concept is equivalent to:
@@ -1832,39 +1865,39 @@ The exposition-only \tcode{\placeholder{Advanceable}} concept is equivalent to:
 template<class I>
   concept @\placeholder{Advanceable}@ =
     @\placeholdernc{Decrementable}@<I> && StrictTotallyOrdered<I> &&
-    requires(I i, const I j, const iter_difference_t<I> n) {
+    requires(I i, const I j, const @\placeholdernc{IOTA-DIFF-T}@(I) n) {
       { i += n } -> Same<I&>;
       { i -= n } -> Same<I&>;
-      { j +  n } -> Same<I>;
-      { n +  j } -> Same<I>;
-      { j -  n } -> Same<I>;
-      { j -  j } -> Same<iter_difference_t<I>>;
+      I(j + n);
+      I(n + j);
+      I(j - n);
+      { j - j } -> ConvertibleTo<@\placeholdernc{IOTA-DIFF-T}@(I)>;
     };
 \end{itemdecl}
 
+Let \tcode{D} be \tcode{\placeholdernc{IOTA-DIFF-T}(I)}.
 Let \tcode{a} and \tcode{b} be objects of type \tcode{I} such that
 \tcode{b} is reachable from \tcode{a}
 after \tcode{n} applications of \tcode{++a},
-for some value \tcode{n} of type \tcode{iter_difference_t<I>},
-and let \tcode{D} be \tcode{iter_difference_t<I>}.
+for some value \tcode{n} of type \tcode{D}.
 \tcode{I} models \tcode{\placeholdernc{Advanceable}} only if
 \begin{itemize}
 \item \tcode{(a += n)} is equal to \tcode{b}.
 \item \tcode{addressof(a += n)} is equal to \tcode{addressof(a)}.
-\item \tcode{(a + n)} is equal to \tcode{(a += n)}.
+\item \tcode{I(a + n)} is equal to \tcode{(a += n)}.
 \item For any two positive values
   \tcode{x} and \tcode{y} of type \tcode{D},
-  if \tcode{(a + D(x + y))} is well-defined, then
-  \tcode{(a + D(x + y))} is equal to \tcode{((a + x) + y)}.
-\item \tcode{(a + D(0))} is equal to \tcode{a}.
-\item If \tcode{(a + D(n - 1))} is well-defined, then
-  \tcode{(a + n)} is equal to \tcode{++(a + D(n - 1))}.
+  if \tcode{I(a + D(x + y))} is well-defined, then
+  \tcode{I(a + D(x + y))} is equal to \tcode{I(I(a + x) + y)}.
+\item \tcode{I(a + D(0))} is equal to \tcode{a}.
+\item If \tcode{I(a + D(n - 1))} is well-defined, then
+  \tcode{I(a + n)} is equal to \tcode{[](I c) \{ return ++c; \}(I(a + D(n - 1)))}.
 \item \tcode{(b += -n)} is equal to \tcode{a}.
 \item \tcode{(b -= n)} is equal to \tcode{a}.
 \item \tcode{addressof(b -= n)} is equal to \tcode{addressof(b)}.
-\item \tcode{(b - n)} is equal to \tcode{(b -= n)}.
-\item \tcode{(b - a)} is equal to \tcode{n}.
-\item \tcode{(a - b)} is equal to \tcode{-n}.
+\item \tcode{I(b - n)} is equal to \tcode{(b -= n)}.
+\item \tcode{D(b - a)} is equal to \tcode{n}.
+\item \tcode{D(a - b)} is equal to \tcode{D(-n)}.
 \item \tcode{bool(a <= b)} is \tcode{true}.
 \end{itemize}
 
@@ -1893,6 +1926,8 @@ constexpr iota_view(type_identity_t<W> value, type_identity_t<Bound> bound);
 \expects
 \tcode{Bound} denotes \tcode{unreachable_sentinel_t} or
 \tcode{bound} is reachable from \tcode{value}.
+When \tcode{W} and \tcode{Bound} model \libconcept{StrictTotallyOrderedWith},
+then \tcode{bool(value <= bound)} is \tcode{true}.
 
 \pnum
 \effects Initializes \tcode{value_} with \tcode{value} and
@@ -1911,12 +1946,18 @@ constexpr iterator begin() const;
 
 \indexlibrary{\idxcode{end}!\idxcode{iota_view}}%
 \begin{itemdecl}
-constexpr sentinel end() const;
+constexpr auto end() const;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
-\effects Equivalent to: \tcode{return sentinel\{bound_\};}
+\effects Equivalent to:
+\begin{codeblock}
+if constexpr (Same<Bound, unreachable_sentinel_t>)
+  return unreachable_sentinel;
+else
+  return sentinel{bound_};
+\end{codeblock}
 \end{itemdescr}
 
 \indexlibrary{\idxcode{end}!\idxcode{iota_view}}%
@@ -1927,6 +1968,33 @@ constexpr iterator end() const requires Same<W, Bound>;
 \begin{itemdescr}
 \pnum
 \effects Equivalent to: \tcode{return iterator\{bound_\};}
+\end{itemdescr}
+
+\indexlibrarymember{size}{iota_view}%
+\begin{itemdecl}
+constexpr auto size() const requires @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to:
+\begin{codeblock}
+if constexpr (@\placeholdernc{is-integer-like}@<W> && @\placeholdernc{is-integer-like}@<Bound>)
+  return (value_ < 0)
+    ? ((bound_ < 0)
+      ? @\placeholdernc{make-unsigned-like}@(-value_) - @\placeholdernc{make-unsigned-like}@(-bound_)
+      : @\placeholdernc{make-unsigned-like}@(bound_) + @\placeholdernc{make-unsigned-like}@(-value_))
+    : @\placeholdernc{make-unsigned-like}@(bound_) - @\placeholdernc{make-unsigned-like}@(value_);
+else
+  return @\placeholdernc{make-unsigned-like}(bound_ - value_);
+\end{codeblock}
+
+\pnum
+\remarks The expression in the \grammarterm{requires-clause} is equivalent to
+\begin{codeblock}
+(Same<W, Bound> && Advanceable<W>) || (Integral<W> && Integral<Bound>) ||
+  SizedSentinel<Bound, W>
+\end{codeblock}
 \end{itemdescr}
 
 \rSec3[range.iota.iterator]{Class \tcode{iota_view::iterator}}
@@ -1940,7 +2008,7 @@ namespace std::ranges {
   public:
     using iterator_category = @\seebelow@;
     using value_type = W;
-    using difference_type = iter_difference_t<W>;
+    using difference_type = @\placeholdernc{IOTA-DIFF-T}@(W);
 
     iterator() = default;
     constexpr explicit iterator(W value);
@@ -2110,7 +2178,14 @@ constexpr iterator& operator+=(difference_type n)
 \pnum
 \effects Equivalent to:
 \begin{codeblock}
-value_ += n;
+if constexpr (@\placeholdernc{is-integer-like}@<W> && !@\placeholdernc{is-signed-integer-like}@<W>) {
+  if (n >= difference_type(0))
+    value_ += static_cast<W>(n);
+  else
+    value_ -= static_cast<W>(-n);
+} else {
+  value_ += n;
+}
 return *this;
 \end{codeblock}
 \end{itemdescr}
@@ -2125,7 +2200,14 @@ constexpr iterator& operator-=(difference_type n)
 \pnum
 \effects Equivalent to:
 \begin{codeblock}
-value_ -= n;
+if constexpr (@\placeholdernc{is-integer-like}@<W> && !@\placeholdernc{is-signed-integer-like}@<W>) {
+  if (n >= difference_type(0))
+    value_ -= static_cast<W>(n);
+  else
+    value_ += static_cast<W>(-n);
+} else {
+  value_ -= n;
+}
 return *this;
 \end{codeblock}
 \end{itemdescr}
@@ -2138,7 +2220,7 @@ constexpr W operator[](difference_type n) const
 
 \begin{itemdescr}
 \pnum
-\effects Equivalent to: \tcode{return value_ + n;}
+\effects Equivalent to: \tcode{return W(value_ + n);}
 \end{itemdescr}
 
 \indexlibrary{\idxcode{operator==}!\idxcode{iota_view::iterator}}
@@ -2217,7 +2299,7 @@ friend constexpr iterator operator+(iterator i, difference_type n)
 
 \begin{itemdescr}
 \pnum
-\effects Equivalent to: \tcode{return iterator\{i.value_ + n\};}
+\effects Equivalent to: \tcode{return i += n;}
 \end{itemdescr}
 
 \indexlibrary{\idxcode{operator+}!\idxcode{iota_view::iterator}}
@@ -2239,7 +2321,7 @@ friend constexpr iterator operator-(iterator i, difference_type n)
 
 \begin{itemdescr}
 \pnum
-\effects Equivalent to: \tcode{return i + -n;}
+\effects Equivalent to: \tcode{return i -= n;}
 \end{itemdescr}
 
 \indexlibrary{\idxcode{operator-}!\idxcode{iota_view::iterator}}
@@ -2250,7 +2332,20 @@ friend constexpr difference_type operator-(const iterator& x, const iterator& y)
 
 \begin{itemdescr}
 \pnum
-\effects Equivalent to: \tcode{return x.value_ - y.value_;}
+\effects Equivalent to:
+\begin{codeblock}
+using D = difference_type;
+if constexpr (@\placeholder{is-integer-like}@<W>) {
+  if constexpr (@\placeholder{is-signed-integer-like}@<W>)
+    return D(D(x.value_) - D(y.value_));
+  else
+    return (y.value_ > x.value_)
+      ? D(-D(y.value_ - x.value_))
+      : D(x.value_ - y.value_);
+} else {
+  return x.value_ - y.value_;
+}
+\end{codeblock}
 \end{itemdescr}
 
 \rSec3[range.iota.sentinel]{Class \tcode{iota_view::sentinel}}
@@ -2266,6 +2361,11 @@ namespace std::ranges {
     constexpr explicit sentinel(Bound bound);
 
     friend constexpr bool operator==(const iterator& x, const sentinel& y);
+
+    friend constexpr iter_difference_t<W> operator-(const iterator& x, const sentinel& y)
+      requires SizedSentinel<Bound, W>;
+    friend constexpr iter_difference_t<W> operator-(const sentinel& x, const iterator& y)
+      requires SizedSentinel<Bound, W>;
   };
 }
 \end{codeblock}
@@ -2288,6 +2388,26 @@ friend constexpr bool operator==(const iterator& x, const sentinel& y);
 \begin{itemdescr}
 \pnum
 \effects Equivalent to: \tcode{return x.value_ == y.bound_;}
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr iter_difference_t<W> operator-(const iterator& x, const sentinel& y)
+  requires SizedSentinel<Bound, W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return x.value_ - y.bound_;}
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr iter_difference_t<W> operator-(const sentinel& x, const iterator& y)
+  requires SizedSentinel<Bound, W>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return -(y - x);}
 \end{itemdescr}
 
 \rSec3[range.iota.adaptor]{\tcode{view::iota}}
