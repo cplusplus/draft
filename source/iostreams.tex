@@ -7379,19 +7379,48 @@ namespace std {
     basic_stringbuf() : basic_stringbuf(ios_base::in | ios_base::out) {}
     explicit basic_stringbuf(ios_base::openmode which);
     explicit basic_stringbuf(
-      const basic_string<charT, traits, Allocator>& str,
+      const basic_string<charT, traits, Allocator>& s,
       ios_base::openmode which = ios_base::in | ios_base::out);
+    explicit basic_stringbuf(const Allocator& a)
+      : basic_stringbuf(ios_base::in | ios_base::out, a) {}
+    basic_stringbuf(ios_base::openmode which, const Allocator& a);
+    explicit basic_stringbuf(
+      basic_string<charT, traits, Allocator>&& s,
+      ios_base::openmode which = ios_base::in | ios_base::out);
+    template<class SAlloc>
+      basic_stringbuf(
+        const basic_string<charT, traits, SAlloc>& s, const Allocator& a)
+        : basic_stringbuf(s, ios_base::in | ios_base::out, a) {}
+    template<class SAlloc>
+      basic_stringbuf(
+        const basic_string<charT, traits, SAlloc>& s,
+        ios_base::openmode which, const Allocator& a);
+    template<class SAlloc>
+      explicit basic_stringbuf(
+        const basic_string<charT, traits, SAlloc>& s,
+        ios_base::openmode which = ios_base::in | ios_base::out);
     basic_stringbuf(const basic_stringbuf& rhs) = delete;
     basic_stringbuf(basic_stringbuf&& rhs);
+    basic_stringbuf(basic_stringbuf&& rhs, const Allocator& a);
 
     // \ref{stringbuf.assign}, assign and swap
     basic_stringbuf& operator=(const basic_stringbuf& rhs) = delete;
     basic_stringbuf& operator=(basic_stringbuf&& rhs);
-    void swap(basic_stringbuf& rhs);
+    void swap(basic_stringbuf& rhs) noexcept(@\seebelow@);
 
-    // \ref{stringbuf.members}, get and set
-    basic_string<charT, traits, Allocator> str() const;
+    // \ref{stringbuf.members}, getters and setters
+    allocator_type get_allocator() const noexcept;
+
+    basic_string<charT, traits, Allocator> str() const &;
+    template<class SAlloc>
+      basic_string<charT,traits,SAlloc> str(const SAlloc& sa) const;
+    basic_string<charT, traits, Allocator> str() &&;
+    basic_string_view<charT, traits> view() const noexcept;
+
     void str(const basic_string<charT, traits, Allocator>& s);
+    template<class SAlloc>
+      void str(const basic_string<charT, traits, SAlloc>& s);
+    void str(basic_string<charT, traits, Allocator>&& s);
 
   protected:
     // \ref{stringbuf.virtuals}, overridden virtual functions
@@ -7408,12 +7437,14 @@ namespace std {
                       = ios_base::in | ios_base::out) override;
 
   private:
-    ios_base::openmode mode;  // \expos
+    ios_base::openmode mode;                       // \expos
+    basic_string<charT, traits, Allocator> buf;    // \expos
+    void init_buf_ptrs();                          // \expos
   };
 
   template<class charT, class traits, class Allocator>
     void swap(basic_stringbuf<charT, traits, Allocator>& x,
-              basic_stringbuf<charT, traits, Allocator>& y);
+              basic_stringbuf<charT, traits, Allocator>& y) noexcept(noexcept(x.swap(y)));
 }
 \end{codeblock}
 
@@ -7429,15 +7460,21 @@ The sequence can be initialized from, or made available as, an object of class
 \tcode{basic_string}.
 
 \pnum
-For the sake of exposition, the maintained data is presented here as:
+For the sake of exposition,
+the maintained data and internal pointer initialization is presented here as:
 \begin{itemize}
 \item
-\tcode{ios_base::openmode mode},
-has
-\tcode{in}
-set if the input sequence can be read, and
-\tcode{out}
-set if the output sequence can be written.
+  \tcode{ios_base::openmode mode}, has
+  \tcode{in} set if the input sequence can be read, and
+  \tcode{out} set if the output sequence can be written.
+\item
+  \tcode{basic_string<charT, traits, Allocator> buf}
+  contains the underlying character sequence.
+\item
+  \tcode{init_buf_ptrs()} sets the base class'
+  get area\iref{streambuf.get.area} and
+  put area\iref{streambuf.put.area} pointers
+  after initializing, moving from, or assigning to \tcode{buf} accordingly.
 \end{itemize}
 
 \rSec3[stringbuf.cons]{Constructors}
@@ -7450,10 +7487,8 @@ explicit basic_stringbuf(ios_base::openmode which);
 \begin{itemdescr}
 \pnum
 \effects
-Constructs an object of class
-\tcode{basic_stringbuf},
-initializing the base class with
-\tcode{basic_streambuf()}\iref{streambuf.cons}, and initializing
+Initializes the base class with
+\tcode{basic_streambuf()}\iref{streambuf.cons}, and
 \tcode{mode}
 with \tcode{which}.
 It is
@@ -7465,7 +7500,7 @@ are initialized to null pointers.
 
 \pnum
 \ensures
-\tcode{str() == ""}.
+\tcode{str().empty()} is \tcode{true}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{basic_stringbuf}!constructor}%
@@ -7478,32 +7513,107 @@ explicit basic_stringbuf(
 \begin{itemdescr}
 \pnum
 \effects
-Constructs an object of class
-\tcode{basic_stringbuf},
-initializing the base class with
-\tcode{basic_streambuf()}\iref{streambuf.cons}, and initializing
-\tcode{mode}
-with \tcode{which}.
-Then calls \tcode{str(s)}.
+Initializes the base class with
+\tcode{basic_streambuf()}\iref{streambuf.cons},
+\tcode{mode} with \tcode{which}, and
+\tcode{buf} with \tcode{s},
+then calls \tcode{init_buf_ptrs()}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_stringbuf}!constructor}%
+\begin{itemdecl}
+basic_stringbuf(ios_base::openmode which, const Allocator &a);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the base class with
+\tcode{basic_streambuf()}\iref{streambuf.cons},
+\tcode{mode} with \tcode{which}, and
+\tcode{buf} with \tcode{a},
+then calls \tcode{init_buf_ptrs()}.
+
+\pnum
+\ensures
+\tcode{str().empty()} is \tcode{true}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_stringbuf}!constructor}%
+\begin{itemdecl}
+explicit basic_stringbuf(
+  basic_string<charT, traits, Allocator>&& s,
+  ios_base::openmode which = ios_base::in | ios_base::out);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the base class with \tcode{basic_streambuf()}\iref{streambuf.cons},
+\tcode{mode} with \tcode{which}, and
+\tcode{buf} with \tcode{std::move(s)},
+then calls \tcode{init_buf_ptrs()}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_stringbuf}!constructor}%
+\begin{itemdecl}
+template<class SAlloc>
+  basic_stringbuf(
+    const basic_string<charT, traits, SAlloc>& s,
+    ios_base::openmode which, const Allocator &a);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the base class with \tcode{basic_streambuf()}\iref{streambuf.cons},
+\tcode{mode} with \tcode{which}, and
+\tcode{buf} with \tcode{\{s,a\}},
+then calls \tcode{init_buf_ptrs()}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_stringbuf}!constructor}%
+\begin{itemdecl}
+template<class SAlloc>
+  explicit basic_stringbuf(
+    const basic_string<charT, traits, SAlloc>& s,
+    ios_base::openmode which = ios_base::in | ios_base::out);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{is_same_v<SAlloc,Allocator>} is \tcode{false}.
+
+\pnum
+\effects
+Initializes the base class with \tcode{basic_streambuf()}\iref{streambuf.cons},
+\tcode{mode} with \tcode{which}, and
+\tcode{buf} with \tcode{s},
+then calls \tcode{init_buf_ptrs()}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{basic_stringbuf}!constructor}%
 \begin{itemdecl}
 basic_stringbuf(basic_stringbuf&& rhs);
+basic_stringbuf(basic_stringbuf&& rhs, const Allocator& a);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
-\effects Move constructs from the rvalue \tcode{rhs}. It
-is
+\effects
+Copy constructs the base class from \tcode{rhs} and
+initializes \tcode{mode} with \tcode{rhs.mode}.
+In the first form \tcode{buf} is initialized
+from \tcode{std::move(rhs).str()}.
+In the second form \tcode{buf} is initialized
+from \tcode{\{std::move(rhs).str(), a\}}.
+It is
 \impldef{whether sequence pointers are copied by \tcode{basic_stringbuf} move
 constructor} whether the sequence pointers in \tcode{*this}
 (\tcode{eback()}, \tcode{gptr()}, \tcode{egptr()},
 \tcode{pbase()}, \tcode{pptr()}, \tcode{epptr()}) obtain
-the values which \tcode{rhs} had. Whether they do or not, \tcode{*this}
-and \tcode{rhs} reference separate buffers (if any at all) after the
-construction. The openmode, locale and any other state of \tcode{rhs} is
-also copied.
+the values which \tcode{rhs} had.
 
 \pnum
 \ensures Let \tcode{rhs_p} refer to the state of
@@ -7522,6 +7632,9 @@ refer to the state of \tcode{rhs} just after this construction.
 \item \tcode{if (pbase()) pbase() != rhs_a.pbase()}
 \item \tcode{if (pptr()) pptr() != rhs_a.pptr()}
 \item \tcode{if (epptr()) epptr() != rhs_a.epptr()}
+\item \tcode{getloc() == rhs_p.getloc()}
+\item \tcode{rhs} is empty but usable,
+  as if \tcode{std::move(rhs).str()} was called.
 \end{itemize}
 \end{itemdescr}
 
@@ -7543,20 +7656,30 @@ have had if it had been move constructed from \tcode{rhs} (see~\ref{stringbuf.co
 
 \indexlibrarymember{swap}{basic_stringbuf}%
 \begin{itemdecl}
-void swap(basic_stringbuf& rhs);
+void swap(basic_stringbuf& rhs) noexcept(@\seebelow@);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
+\expects \tcode{allocator_traits<Allocator>::propagate_on_container_swap::value}
+is \tcode{true} or
+\tcode{get_allocator() == s.get_allocator()} is \tcode{true}.
+
+\pnum
 \effects Exchanges the state of \tcode{*this}
 and \tcode{rhs}.
+
+\pnum
+\remarks The expression inside \tcode{noexcept} is equivalent to:\\
+\tcode{allocator_traits<Allocator>::propagate_on_container_swap::value ||}\\
+\tcode{allocator_traits<Allocator>::is_always_equal::value}.
 \end{itemdescr}
 
 \indexlibrarymember{swap}{basic_stringbuf}%
 \begin{itemdecl}
 template<class charT, class traits, class Allocator>
   void swap(basic_stringbuf<charT, traits, Allocator>& x,
-            basic_stringbuf<charT, traits, Allocator>& y);
+            basic_stringbuf<charT, traits, Allocator>& y) noexcept(noexcept(x.swap(y)));
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -7566,32 +7689,149 @@ template<class charT, class traits, class Allocator>
 
 \rSec3[stringbuf.members]{Member functions}
 
+\pnum
+The member functions getting the underlying character sequence
+all refer to a \tcode{high_mark} value,
+where \tcode{high_mark} represents the position
+one past the highest initialized character in the buffer.
+Characters can be initialized by writing to the stream,
+by constructing the \tcode{basic_stringbuf}
+passing a \tcode{basic_string} argument, or
+by calling one of the \tcode{str} member functions
+passing a \tcode{basic_string} as an argument.
+In the latter case, all characters initialized prior to the call
+are now considered uninitialized
+(except for those characters re-initialized by the new \tcode{basic_string}).
+
+\begin{itemdecl}
+void init_buf_ptrs(); // \expos
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the input and output sequences from \tcode{buf}
+according to \tcode{mode}.
+
+\pnum
+\ensures
+\begin{itemize}
+\item If \tcode{ios_base::out} is set in \tcode{mode},
+  \tcode{pbase()} points to \tcode{buf.front()} and
+  \tcode{epptr() >= pbase() + buf.size()} is \tcode{true};
+  \begin{itemize}
+  \item in addition, if \tcode{ios_base::ate} is set in \tcode{mode},
+    \tcode{pptr() == pbase() + buf.size()} is \tcode{true},
+  \item otherwise \tcode{pptr() == pbase()} is \tcode{true}.
+  \end{itemize}
+\item If \tcode{ios_base::in} is set in \tcode{mode},
+  \tcode{eback()} points to \tcode{buf.front()}, and
+  \tcode{(gptr() == eback() \&\& egptr() == eback() + buf.size())}
+  is \tcode{true}.
+\end{itemize}
+
+\pnum
+\begin{note}
+For efficiency reasons,
+stream buffer operations might violate invariants of \tcode{buf}
+while it is held encapsulated in the \tcode{basic_stringbuf},
+e.g., by writing to characters in the range
+\range{\tcode{buf.data() + buf.size()}}{\tcode{buf.data() + buf.capacity()}}.
+All operations retrieving a \tcode{basic_string} from \tcode{buf}
+ensure that the \tcode{basic_string} invariants hold on the returned value.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarymember{get_allocator}{basic_stringbuf}%
+\begin{itemdecl}
+allocator_type get_allocator() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns \tcode{buf.get_allocator()}.
+\end{itemdescr}
+
 \indexlibrarymember{str}{basic_stringbuf}%
 \begin{itemdecl}
-basic_string<charT, traits, Allocator> str() const;
+basic_string<charT, traits, Allocator> str() const &;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to:
+\begin{codeblock}
+return basic_string<charT, traits, Allocator>(view(), get_allocator());
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{str}{basic_stringbuf}%
+\begin{itemdecl}
+template<class SAlloc>
+  basic_string<charT, traits, SAlloc> str(const SAlloc& sa) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints \tcode{SAlloc} is a type that
+qualifies as an allocator\iref{container.requirements.general}.
+
+\pnum
+\effects Equivalent to:
+\begin{codeblock}
+return basic_string<charT, traits, SAlloc>(view(), sa);
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+basic_string<charT, traits, Allocator> str() &&;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \returns
-A
-\tcode{basic_string}
-object whose content is equal to the
-\tcode{basic_stringbuf}
-underlying character sequence.
-If the \tcode{basic_stringbuf} was created only in input mode, the resultant
-\tcode{basic_string} contains the character sequence in the range
-\range{eback()}{egptr()}. If the \tcode{basic_stringbuf} was created with
-\tcode{which \& ios_base::out} being nonzero then the resultant \tcode{basic_string}
-contains the character sequence in the range \range{pbase()}{high_mark}, where
-\tcode{high_mark} represents the position one past the highest initialized character
-in the buffer. Characters can be initialized by writing to the stream, by constructing
-the \tcode{basic_stringbuf} with a \tcode{basic_string}, or by calling the
-\tcode{str(basic_string)} member function. In the case of calling the
-\tcode{str(basic_string)} member function, all characters initialized prior to
-the call are now considered uninitialized (except for those characters re-initialized
-by the new \tcode{basic_string}). Otherwise the \tcode{basic_stringbuf} has been created
-in neither input nor output mode and a zero length \tcode{basic_string} is returned.
+A \tcode{basic_string<charT, traits, Allocator>} object
+move constructed from
+the \tcode{basic_stringbuf}'s underlying character sequence in \tcode{buf}.
+This can be achieved by first adjusting \tcode{buf} to have
+the same content as \tcode{view()}.
+
+\pnum
+\ensures
+The underlying character sequence \tcode{buf} is empty and
+\tcode{pbase()}, \tcode{pptr()}, \tcode{epptr()}, \tcode{eback()},
+\tcode{gptr()}, and \tcode{egptr()}
+are initialized as if by calling \tcode{init_buf_ptrs()}
+with an empty \tcode{buf}.
+\end{itemdescr}
+
+\indexlibrarymember{view}{basic_stringbuf}%
+\begin{itemdecl}
+basic_string_view<charT, traits> view() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{sv} be \tcode{basic_string_view<charT, traits>}.
+
+\pnum
+\returns
+A \tcode{sv} object referring to
+the \tcode{basic_stringbuf}'s underlying character sequence in \tcode{buf}:
+\begin{itemize}
+\item If \tcode{ios_base::out} is set in \tcode{mode},
+  then \tcode{sv(pbase(), high_mark-pbase())} is returned.
+\item Otherwise, if \tcode{ios_base::in} is set in \tcode{mode},
+  then \tcode{sv(eback(), egptr()-eback())} is returned.
+\item Otherwise, \tcode{sv()} is returned.
+\end{itemize}
+
+\pnum
+\begin{note}
+Using the returned \tcode{sv} object after
+destruction or invalidation of the character sequence underlying \tcode{*this}
+is undefined behavior, unless \tcode{sv.empty()} is \tcode{true}.
+\end{note}
 \end{itemdescr}
 
 \indexlibrarymember{str}{basic_stringbuf}%
@@ -7602,17 +7842,43 @@ void str(const basic_string<charT, traits, Allocator>& s);
 \begin{itemdescr}
 \pnum
 \effects
-Copies the content of \tcode{s} into the \tcode{basic_stringbuf} underlying character
-sequence and initializes the input and output sequences according to \tcode{mode}.
+Equivalent to:
+\begin{codeblock}
+buf = s;
+init_buf_ptrs();
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{str}{basic_stringbuf}%
+\begin{itemdecl}
+template<class SAlloc>
+  void str(const basic_string<charT, traits, SAlloc>& s);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints \tcode{is_same_v<SAlloc,Allocator>} is \tcode{false}.
 
 \pnum
-\ensures If \tcode{mode \& ios_base::out} is nonzero, \tcode{pbase()} points to the
-first underlying character and \tcode{epptr()} \tcode{>= pbase() + s.size()} holds; in
-addition, if \tcode{mode \& ios_base::ate} is nonzero,
-\tcode{pptr() == pbase() + s.size()}
-holds, otherwise \tcode{pptr() == pbase()} is \tcode{true}. If \tcode{mode \& ios_base::in} is
-nonzero, \tcode{eback()} points to the first underlying character, and both \tcode{gptr()
-== eback()} and \tcode{egptr() == eback() + s.size()} hold.
+\effects Equivalent to:
+\begin{codeblock}
+buf = s;
+init_buf_ptrs();
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{str}{basic_stringbuf}%
+\begin{itemdecl}
+void str(basic_string<charT, traits, Allocator>&& s);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to:
+\begin{codeblock}
+buf = std::move(s);
+init_buf_ptrs();
+\end{codeblock}
 \end{itemdescr}
 
 \rSec3[stringbuf.virtuals]{Overridden virtual functions}
@@ -7904,8 +8170,24 @@ namespace std {
     basic_istringstream() : basic_istringstream(ios_base::in) {}
     explicit basic_istringstream(ios_base::openmode which);
     explicit basic_istringstream(
-      const basic_string<charT, traits, Allocator>& str,
+      const basic_string<charT, traits, Allocator>& s,
       ios_base::openmode which = ios_base::in);
+    basic_istringstream(ios_base::openmode which, const Allocator& a);
+    explicit basic_istringstream(
+      basic_string<charT, traits, Allocator>&& s,
+      ios_base::openmode which = ios_base::in);
+    template <class SAlloc>
+      basic_istringstream(
+        const basic_string<charT, traits, SAlloc>& s, const Allocator& a)
+        : basic_istringstream(s, ios_base::in, a) {}
+    template <class SAlloc>
+      basic_istringstream(
+        const basic_string<charT, traits, SAlloc>& s,
+        ios_base::openmode which, const Allocator& a);
+    template <class SAlloc>
+      explicit basic_istringstream(
+        const basic_string<charT, traits, SAlloc>& s,
+        ios_base::openmode which = ios_base::in);
     basic_istringstream(const basic_istringstream& rhs) = delete;
     basic_istringstream(basic_istringstream&& rhs);
 
@@ -7916,9 +8198,17 @@ namespace std {
 
     // \ref{istringstream.members}, members
     basic_stringbuf<charT, traits, Allocator>* rdbuf() const;
+    basic_string<charT, traits, Allocator> str() const &;
+    template<class SAlloc>
+      basic_string<charT,traits,SAlloc> str(const SAlloc& sa) const;
+    basic_string<charT, traits, Allocator> str() &&;
+    basic_string_view<charT, traits> view() const noexcept;
 
-    basic_string<charT, traits, Allocator> str() const;
     void str(const basic_string<charT, traits, Allocator>& s);
+    template<class SAlloc>
+      void str(const basic_string<charT, traits, SAlloc>& s);
+    void str(basic_string<charT, traits, Allocator>&& s);
+
   private:
     basic_stringbuf<charT, traits, Allocator> sb; // \expos
   };
@@ -7953,30 +8243,90 @@ explicit basic_istringstream(ios_base::openmode which);
 \begin{itemdescr}
 \pnum
 \effects
-Constructs an object of class
-\tcode{basic_istringstream<charT, traits>},
-initializing the base class with
+Initializes the base class with
 \tcode{basic_istream<charT, traits>(addressof(sb))}\iref{istream}
-and initializing \tcode{sb} with\linebreak % avoid Overfull
+and \tcode{sb} with
 \tcode{basic_stringbuf<charT, traits, Allocator>(which | ios_base::in)}\iref{stringbuf.cons}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{basic_istringstream}!constructor}%
 \begin{itemdecl}
 explicit basic_istringstream(
-  const basic_string<charT, traits, Allocator>& str,
+  const basic_string<charT, traits, Allocator>& s,
   ios_base::openmode which = ios_base::in);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects
-Constructs an object of class
-\tcode{basic_istringstream<charT, traits>},
-initializing the base class with
+Initializes the base class with
 \tcode{basic_istream<charT, traits>(addressof(sb))}\iref{istream}
-and initializing \tcode{sb} with\linebreak % avoid Overfull
-\tcode{basic_stringbuf<charT, traits, Allocator>(str, which | ios_base::in)}\iref{stringbuf.cons}.
+and \tcode{sb} with
+\tcode{basic_stringbuf<charT, traits, Allocator>(s, which | ios_base::in)}\linebreak(\ref{stringbuf.cons}). % avoid Overfull
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_istringstream}!constructor}%
+\begin{itemdecl}
+basic_istringstream(ios_base::openmode which, const Allocator& a);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the base class with
+\tcode{basic_istream<charT, traits>(addressof(sb))}\iref{istream}
+and \tcode{sb} with
+\tcode{basic_stringbuf<charT, traits, Allocator>(which | ios_base::in, a)}\iref{stringbuf.cons}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_istringstream}!constructor}%
+\begin{itemdecl}
+explicit basic_istringstream(
+  basic_string<charT, traits, Allocator>&& s,
+  ios_base::openmode which = ios_base::in);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the base class with
+\tcode{basic_istream<charT, traits>(addressof(sb))}\iref{istream}
+and \tcode{sb} with
+\tcode{basic_stringbuf<charT, traits, Allocator>(std::move(s), which | ios_base::\brk{}in)}\iref{stringbuf.cons}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_istringstream}!constructor}%
+\begin{itemdecl}
+template<class SAlloc>
+  basic_istringstream(
+    const basic_string<charT, traits, SAlloc>& s,
+    ios_base::openmode which, const Allocator& a);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the base class with
+\tcode{basic_istream<charT, traits>(addressof(sb))}\iref{istream}
+and \tcode{sb} with
+\tcode{basic_stringbuf<charT, traits, Allocator>(s, which | ios_base::in, a)}\linebreak(\ref{stringbuf.cons}). % avoid Overfull
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_istringstream}!constructor}%
+\begin{itemdecl}
+template<class SAlloc>
+  explicit basic_istringstream(
+    const basic_string<charT, traits, SAlloc>& s,
+    ios_base::openmode which = ios_base::in);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the base class with
+\tcode{basic_istream<charT, traits>(addressof(sb))}\iref{istream}
+and \tcode{sb} with
+\tcode{basic_stringbuf<charT, traits, Allocator>(s, which | ios_base::in)}\iref{stringbuf.cons}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{basic_istringstream}!constructor}%
@@ -8017,10 +8367,11 @@ void swap(basic_istringstream& rhs);
 
 \begin{itemdescr}
 \pnum
-\effects Exchanges the state of \tcode{*this} and
-\tcode{rhs} by calling
-\tcode{basic_istream<charT, traits>::swap(rhs)} and
-\tcode{sb.swap(rhs.sb)}.
+\effects Equivalent to:
+\begin{codeblock}
+basic_istream<charT, traits>::swap(rhs);
+sb.swap(rhs.sb);
+\end{codeblock}
 \end{itemdescr}
 
 
@@ -8051,13 +8402,43 @@ basic_stringbuf<charT, traits, Allocator>* rdbuf() const;
 
 \indexlibrarymember{str}{basic_istringstream}%
 \begin{itemdecl}
-basic_string<charT, traits, Allocator> str() const;
+basic_string<charT, traits, Allocator> str() const &;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
-\returns
-\tcode{rdbuf()->str()}.
+\effects Equivalent to: \tcode{return rdbuf()->str();}
+\end{itemdescr}
+
+\indexlibrarymember{str}{basic_istringstream}%
+\begin{itemdecl}
+template<class SAlloc>
+  basic_string<charT,traits,SAlloc> str(const SAlloc& sa) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return rdbuf()->str(sa);}
+\end{itemdescr}
+
+\indexlibrarymember{str}{basic_istringstream}%
+\begin{itemdecl}
+basic_string<charT,traits,Allocator> str() &&;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return std::move(*rdbuf()).str();}
+\end{itemdescr}
+
+\indexlibrarymember{view}{basic_istringstream}%
+\begin{itemdecl}
+basic_string_view<charT, traits> view() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects Equivalent to: \tcode{return rdbuf()->view();}
 \end{itemdescr}
 
 \indexlibrarymember{str}{basic_istringstream}%
@@ -8068,8 +8449,29 @@ void str(const basic_string<charT, traits, Allocator>& s);
 \begin{itemdescr}
 \pnum
 \effects
-Calls
-\tcode{rdbuf()->str(s)}.
+Equivalent to: \tcode{rdbuf()->str(s);}
+\end{itemdescr}
+
+\indexlibrarymember{str}{basic_istringstream}%
+\begin{itemdecl}
+template<class SAlloc>
+  void str(const basic_string<charT, traits, SAlloc>& s);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{rdbuf()->str(s);}
+\end{itemdescr}
+
+\indexlibrarymember{str}{basic_istringstream}%
+\begin{itemdecl}
+void str(basic_string<charT, traits, Allocator>&& s);
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{rdbuf()->str(std::move(s));}
 \end{itemdescr}
 
 \rSec2[ostringstream]{Class template \tcode{basic_ostringstream}}
@@ -8092,8 +8494,24 @@ namespace std {
     basic_ostringstream() : basic_ostringstream(ios_base::out) {}
     explicit basic_ostringstream(ios_base::openmode which);
     explicit basic_ostringstream(
-      const basic_string<charT, traits, Allocator>& str,
+      const basic_string<charT, traits, Allocator>& s,
       ios_base::openmode which = ios_base::out);
+    basic_ostringstream(ios_base::openmode which, const Allocator& a);
+    explicit basic_ostringstream(
+      basic_string<charT, traits, Allocator>&& s,
+      ios_base::openmode which = ios_base::out);
+    template <class SAlloc>
+      basic_ostringstream(
+        const basic_string<charT, traits, SAlloc>& s, const Allocator& a)
+        : basic_ostringstream(s, ios_base::out, a) {}
+    template <class SAlloc>
+      basic_ostringstream(
+        const basic_string<charT, traits, SAlloc>& s,
+        ios_base::openmode which, const Allocator& a);
+    template <class SAlloc>
+      explicit basic_ostringstream(
+        const basic_string<charT, traits, SAlloc>& s,
+        ios_base::openmode which = ios_base::out);
     basic_ostringstream(const basic_ostringstream& rhs) = delete;
     basic_ostringstream(basic_ostringstream&& rhs);
 
@@ -8105,8 +8523,17 @@ namespace std {
     // \ref{ostringstream.members}, members
     basic_stringbuf<charT, traits, Allocator>* rdbuf() const;
 
-    basic_string<charT, traits, Allocator> str() const;
+    basic_string<charT, traits, Allocator> str() const &;
+    template<class SAlloc>
+      basic_string<charT,traits,SAlloc> str(const SAlloc& sa) const;
+    basic_string<charT, traits, Allocator> str() &&;
+    basic_string_view<charT, traits> view() const noexcept;
+
     void str(const basic_string<charT, traits, Allocator>& s);
+    template<class SAlloc>
+      void str(const basic_string<charT, traits, SAlloc>& s);
+    void str(basic_string<charT, traits, Allocator>&& s);
+
    private:
     basic_stringbuf<charT, traits, Allocator> sb; // \expos
   };
@@ -8141,30 +8568,93 @@ explicit basic_ostringstream(ios_base::openmode which);
 \begin{itemdescr}
 \pnum
 \effects
-Constructs an object of class
-\tcode{basic_ostringstream<charT, traits>},
-initializing the base class with
+Initializes the base class with
 \tcode{basic_ostream<charT, traits>(addressof(sb))}\iref{ostream}
-and initializing \tcode{sb} with\linebreak % avoid Overfull
+and \tcode{sb} with
 \tcode{basic_stringbuf<charT, traits, Allocator>(which | ios_base::out)}\iref{stringbuf.cons}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{basic_ostringstream}!constructor}%
 \begin{itemdecl}
 explicit basic_ostringstream(
-  const basic_string<charT, traits, Allocator>& str,
+  const basic_string<charT, traits, Allocator>& s,
   ios_base::openmode which = ios_base::out);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects
-Constructs an object of class
-\tcode{basic_ostringstream<charT, traits>},
-initializing the base class with
+Initializes the base class with
 \tcode{basic_ostream<charT, traits>(addressof(sb))}\iref{ostream}
-and initializing \tcode{sb} with\linebreak % avoid Overfull
-\tcode{basic_stringbuf<charT, traits, Allocator>(str, which | ios_base::out)}\iref{stringbuf.cons}.
+and \tcode{sb} with
+\tcode{basic_stringbuf<charT, traits, Allocator>(s, which | ios_base::out)}\linebreak(\ref{stringbuf.cons}). % avoid Overfull
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_ostringstream}!constructor}%
+\begin{itemdecl}
+basic_ostringstream(ios_base::openmode which, const Allocator& a);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the base class with
+\tcode{basic_ostream<charT, traits>(addressof(sb))}\iref{ostream}
+and \tcode{sb} with
+\tcode{basic_stringbuf<charT, traits, Allocator>(which | ios_base::out, a)}\linebreak(\ref{stringbuf.cons}). % avoid Overfull
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_ostringstream}!constructor}%
+\begin{itemdecl}
+explicit basic_ostringstream(
+  basic_string<charT, traits, Allocator>&& s,
+  ios_base::openmode which = ios_base::out);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the base class with
+\tcode{basic_ostream<charT, traits>(addressof(sb))}\iref{ostream}
+and \tcode{sb} with
+\tcode{basic_stringbuf<charT, traits, Allocator>(std::move(s), which | ios_base::\brk{}out)}\iref{stringbuf.cons}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_ostringstream}!constructor}%
+\begin{itemdecl}
+template<class SAlloc>
+  basic_ostringstream(
+    const basic_string<charT, traits, SAlloc>& s,
+    ios_base::openmode which, const Allocator& a);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the base class with
+\tcode{basic_ostream<charT, traits>(addressof(sb))}\iref{ostream}
+and \tcode{sb} with
+\tcode{basic_stringbuf<charT, traits, Allocator>(s, which | ios_base::out, a)}\linebreak(\ref{stringbuf.cons}). % avoid Overfull
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_ostringstream}!constructor}%
+\begin{itemdecl}
+template<class SAlloc>
+  explicit basic_ostringstream(
+    const basic_string<charT, traits, SAlloc>& s,
+    ios_base::openmode which = ios_base::out);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints \tcode{is_same_v<SAlloc,Allocator>} is \tcode{false}.
+
+\pnum
+\effects
+Initializes the base class with
+\tcode{basic_ostream<charT, traits>(addressof(sb))}\iref{ostream}
+and \tcode{sb} with
+\tcode{basic_stringbuf<charT, traits, Allocator>(s, which | ios_base::out)}\linebreak(\ref{stringbuf.cons}). % avoid Overfull
 \end{itemdescr}
 
 \indexlibrary{\idxcode{basic_ostringstream}!constructor}%
@@ -8205,12 +8695,12 @@ void swap(basic_ostringstream& rhs);
 
 \begin{itemdescr}
 \pnum
-\effects Exchanges the state of \tcode{*this} and
-\tcode{rhs} by calling
-\tcode{basic_ostream<charT, traits>::swap(rhs)} and
-\tcode{sb.swap(rhs.sb)}.
+\effects Equivalent to:
+\begin{codeblock}
+basic_ostream<charT, traits>::swap(rhs);
+sb.swap(rhs.sb);
+\end{codeblock}
 \end{itemdescr}
-
 
 \indexlibrarymember{swap}{basic_ostringstream}%
 \begin{itemdecl}
@@ -8239,13 +8729,47 @@ basic_stringbuf<charT, traits, Allocator>* rdbuf() const;
 
 \indexlibrarymember{str}{basic_ostringstream}%
 \begin{itemdecl}
-basic_string<charT, traits, Allocator> str() const;
+basic_string<charT, traits, Allocator> str() const &;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
-\returns
-\tcode{rdbuf()->str()}.
+\effects
+Equivalent to: \tcode{return rdbuf()->str();}
+\end{itemdescr}
+
+\indexlibrarymember{str}{basic_ostringstream}%
+\begin{itemdecl}
+template<class SAlloc>
+  basic_string<charT,traits,SAlloc> str(const SAlloc& sa) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return rdbuf()->str(sa);}
+\end{itemdescr}
+
+\indexlibrarymember{str}{basic_ostringstream}%
+\begin{itemdecl}
+basic_string<charT,traits,Allocator> str() &&;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return std::move(*rdbuf()).str();}
+\end{itemdescr}
+
+\indexlibrarymember{view}{basic_ostringstream}%
+\begin{itemdecl}
+basic_string_view<charT, traits> view() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return rdbuf()->view();}
 \end{itemdescr}
 
 \indexlibrarymember{str}{basic_ostringstream}%
@@ -8256,8 +8780,30 @@ void str(const basic_string<charT, traits, Allocator>& s);
 \begin{itemdescr}
 \pnum
 \effects
-Calls
-\tcode{rdbuf()->str(s)}.
+Equivalent to: \tcode{rdbuf()->str(s);}
+\end{itemdescr}
+
+\indexlibrarymember{str}{basic_ostringstream}%
+\begin{itemdecl}
+template<class SAlloc>
+  void str(const basic_string<charT, traits, SAlloc>& s);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{rdbuf()->str(s);}
+\end{itemdescr}
+
+\indexlibrarymember{str}{basic_ostringstream}%
+\begin{itemdecl}
+void str(basic_string<charT, traits, Allocator>&& s);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{rdbuf()->str(std::move(s));}
 \end{itemdescr}
 
 \rSec2[stringstream]{Class template \tcode{basic_stringstream}}
@@ -8280,8 +8826,24 @@ namespace std {
     basic_stringstream() : basic_stringstream(ios_base::out | ios_base::in) {}
     explicit basic_stringstream(ios_base::openmode which);
     explicit basic_stringstream(
-      const basic_string<charT, traits, Allocator>& str,
+      const basic_string<charT, traits, Allocator>& s,
       ios_base::openmode which = ios_base::out | ios_base::in);
+    basic_stringstream(ios_base::openmode which, const Allocator& a);
+    explicit basic_stringstream(
+      basic_string<charT, traits, Allocator>&& s,
+      ios_base::openmode which = ios_base::out | ios_base::in);
+    template <class SAlloc>
+      basic_stringstream(
+        const basic_string<charT, traits, SAlloc>& s, const Allocator& a)
+        : basic_stringstream(s, ios_base::out | ios_base::in, a) {}
+    template <class SAlloc>
+      basic_stringstream(
+        const basic_string<charT, traits, SAlloc>& s,
+        ios_base::openmode which, const Allocator& a);
+    template <class SAlloc>
+      explicit basic_stringstream(
+        const basic_string<charT, traits, SAlloc>& s,
+        ios_base::openmode which = ios_base::out | ios_base::in);
     basic_stringstream(const basic_stringstream& rhs) = delete;
     basic_stringstream(basic_stringstream&& rhs);
 
@@ -8292,8 +8854,17 @@ namespace std {
 
     // \ref{stringstream.members}, members
     basic_stringbuf<charT, traits, Allocator>* rdbuf() const;
-    basic_string<charT, traits, Allocator> str() const;
-    void str(const basic_string<charT, traits, Allocator>& str);
+
+    basic_string<charT, traits, Allocator> str() const &;
+    template<class SAlloc>
+      basic_string<charT,traits,SAlloc> str(const SAlloc& sa) const;
+    basic_string<charT, traits, Allocator> str() &&;
+    basic_string_view<charT, traits> view() const noexcept;
+
+    void str(const basic_string<charT, traits, Allocator>& s);
+    template<class SAlloc>
+      void str(const basic_string<charT, traits, SAlloc>& s);
+    void str(basic_string<charT, traits, Allocator>&& s);
 
   private:
     basic_stringbuf<charT, traits> sb;  // \expos
@@ -8330,11 +8901,9 @@ explicit basic_stringstream(ios_base::openmode which);
 \begin{itemdescr}
 \pnum
 \effects
-Constructs an object of class
-\tcode{basic_stringstream<charT, traits>},
-initializing the base class with
+Initializes the base class with
 \tcode{basic_iostream<charT, traits>(addressof(sb))}\iref{iostream.cons}
-and initializing
+and
 \tcode{sb}
 with
 \tcode{basic_string\-buf<charT, traits, Allocator>(which)}.
@@ -8343,21 +8912,86 @@ with
 \indexlibrary{\idxcode{basic_stringstream}!constructor}%
 \begin{itemdecl}
 explicit basic_stringstream(
-  const basic_string<charT, traits, Allocator>& str,
+  const basic_string<charT, traits, Allocator>& s,
   ios_base::openmode which = ios_base::out | ios_base::in);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects
-Constructs an object of class
-\tcode{basic_stringstream<charT, traits>},
-initializing the base class with
+Initializes the base class with
 \tcode{basic_iostream<charT, traits>(addressof(sb))}\iref{iostream.cons}
-and initializing
+and
 \tcode{sb}
 with
-\tcode{basic_string\-buf<charT, traits, Allocator>(str, which)}.
+\tcode{basic_string\-buf<charT, traits, Allocator>(s, which)}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_stringstream}!constructor}%
+\begin{itemdecl}
+basic_stringstream(ios_base::openmode which, const Allocator& a);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the base class with
+\tcode{basic_iostream<charT, traits>(addressof(sb))}\iref{iostream.cons}
+and \tcode{sb} with
+\tcode{basic_stringbuf<charT, traits, Allocator>(which, a)}\iref{stringbuf.cons}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_stringstream}!constructor}%
+\begin{itemdecl}
+explicit basic_stringstream(
+  basic_string<charT, traits, Allocator>&& s,
+  ios_base::openmode which = ios_base::out | ios_base::in);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the base class with
+\tcode{basic_iostream<charT, traits>(addressof(sb))}\iref{iostream.cons}
+and \tcode{sb} with
+\tcode{basic_stringbuf<charT, traits, Allocator>(std::move(s), which)}\iref{stringbuf.cons}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_stringstream}!constructor}%
+\begin{itemdecl}
+template<class SAlloc>
+  basic_stringstream(
+    const basic_string<charT, traits, SAlloc>& s,
+    ios_base::openmode which, const Allocator& a);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the base class with
+\tcode{basic_iostream<charT, traits>(addressof(sb))}\iref{iostream.cons}
+and \tcode{sb} with
+\tcode{basic_stringbuf<charT, traits, Allocator>(s, which, a)}\iref{stringbuf.cons}.
+\end{itemdescr}
+
+\indexlibrary{\idxcode{basic_stringstream}!constructor}%
+\begin{itemdecl}
+template<class SAlloc>
+  explicit basic_stringstream(
+    const basic_string<charT, traits, SAlloc>& s,
+    ios_base::openmode which = ios_base::out | ios_base::in);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints \tcode{is_same_v<SAlloc,Allocator>} is \tcode{false}.
+
+\pnum
+\effects
+Initializes the base class with
+\tcode{basic_iostream<charT, traits>(addressof(sb))}\iref{iostream.cons}
+and \tcode{sb} with
+\tcode{basic_stringbuf<charT, traits, Allocator>(s, which)}\iref{stringbuf.cons}.
 \end{itemdescr}
 
 \indexlibrary{\idxcode{basic_stringstream}!constructor}%
@@ -8397,12 +9031,13 @@ void swap(basic_stringstream& rhs);
 
 \begin{itemdescr}
 \pnum
-\effects Exchanges the state of \tcode{*this} and
-\tcode{rhs} by calling
-\tcode{basic_iostream<charT,traits>::swap(rhs)} and
-\tcode{sb.swap(rhs.sb)}.
+\effects
+Equivalent to:
+\begin{codeblock}
+basic_iostream<charT,traits>::swap(rhs);
+sb.swap(rhs.sb);
+\end{codeblock}
 \end{itemdescr}
-
 
 \indexlibrarymember{swap}{basic_stringstream}%
 \begin{itemdecl}
@@ -8431,25 +9066,81 @@ basic_stringbuf<charT, traits, Allocator>* rdbuf() const;
 
 \indexlibrarymember{str}{basic_stringstream}%
 \begin{itemdecl}
-basic_string<charT, traits, Allocator> str() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\returns
-\tcode{rdbuf()->str()}.
-\end{itemdescr}
-
-\indexlibrarymember{str}{basic_stringstream}%
-\begin{itemdecl}
-void str(const basic_string<charT, traits, Allocator>& str);
+basic_string<charT, traits, Allocator> str() const &;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects
-Calls
-\tcode{rdbuf()->str(str)}.
+Equivalent to: \tcode{return rdbuf()->str();}
+\end{itemdescr}
+
+\indexlibrarymember{str}{basic_stringstream}%
+\begin{itemdecl}
+template<class SAlloc>
+  basic_string<charT,traits,SAlloc> str(const SAlloc& sa) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return rdbuf()->str(sa);}
+\end{itemdescr}
+
+\indexlibrarymember{str}{basic_stringstream}%
+\begin{itemdecl}
+basic_string<charT,traits,Allocator> str() &&;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return std::move(*rdbuf()).str();}
+\end{itemdescr}
+
+\indexlibrarymember{view}{basic_stringstream}%
+\begin{itemdecl}
+basic_string_view<charT, traits> view() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return rdbuf()->view();}
+\end{itemdescr}
+
+\indexlibrarymember{str}{basic_stringstream}%
+\begin{itemdecl}
+void str(const basic_string<charT, traits, Allocator>& s);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{rdbuf()->str(s);}
+\end{itemdescr}
+
+\indexlibrarymember{str}{basic_stringstream}%
+\begin{itemdecl}
+template<class SAlloc>
+  void str(const basic_string<charT, traits, SAlloc>& s);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{rdbuf()->str(s);}
+\end{itemdescr}
+
+\indexlibrarymember{str}{basic_stringstream}%
+\begin{itemdecl}
+void str(basic_string<charT, traits, Allocator>&& s);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{rdbuf()->str(std::move(s));}
 \end{itemdescr}
 
 \rSec1[file.streams]{File-based streams}
