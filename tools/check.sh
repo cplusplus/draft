@@ -50,6 +50,10 @@ for f in $texfiles; do
 done | grep . && exit 1
 # Fixup: sed '/\\begin{example}/{N;s/\n$//}'
 
+# Deleted special member function with a parameter name.
+grep -n "&[ 0-9a-z_]\+) = delete" $texfiles && exit 1
+# to fix: sed '/= delete/s/&[ 0-9a-z_]\+)/\&)/'
+
 # \placeholder before (
 #egrep 'placeholder{[-A-Za-z]*}@?\(' *.tex
 # to fix: sed -i 's/placeholder\({[-A-Za-z]*}@\?(\)/placeholdernc\1/g' *.tex
