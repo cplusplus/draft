@@ -29,7 +29,7 @@ grep -ne '^\\\(contraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|t
 
 # Change marker in [diff] followed by stuff.
 grep -Hne '^\\\(change\|rationale\|effect\|difficulty\|howwide\)\s.\+$' compatibility.tex && exit 1
-# Fixup: sed 's/^\\\(change\|rationale\|effect\|difficulty\|howwide\)\s\(.\)/\\\1\n\2/'
+# Fixup: sed 's/^\\\(change\|rationale\|effect\|difficulty\|howwide\)\s\(.\)/\\\1\n\2/'q
 
 # "template <class" (with space) in library clause.
 grep -ne 'template\s<class' $texlib && exit 1
@@ -49,6 +49,14 @@ for f in $texfiles; do
     sed '/^[0-9]\+$/{N;s/\n/:/}' | sed "s/.*/$f:&/"
 done | grep . && exit 1
 # Fixup: sed '/\\begin{example}/{N;s/\n$//}'
+
+# Comment not aligned to multiple of four. (Ignore lines with "@".)
+for f in $texfiles; do
+    sed -n '/begin{codeblock}/,/end{codeblock}/{/^[^@]*[^ @][^@]*\/\//{=;p}}' $f |
+    # prefix output with filename and line
+    sed '/^[0-9]\+$/{N;s/\n/:/}' | sed "s/.*/$f:&/" |
+    awk '{ match($0,"^[-a-z0-9]*\.tex:[0-9]*:"); n=match(substr($0,RLENGTH+1),"[ ;]//"); if (n % 4 != 0) print $0 " <--- comment starts in column " n; }'
+done | grep . && exit 1
 
 # Deleted special member function with a parameter name.
 grep -n "&[ 0-9a-z_]\+) = delete" $texfiles && exit 1
