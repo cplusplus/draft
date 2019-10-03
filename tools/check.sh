@@ -2,7 +2,7 @@
 
 # Ignore files where rules may be violated within macro definitions.
 texfiles=$(ls *.tex | grep -v macros.tex | grep -v layout.tex | grep -v tables.tex)
-texlib="lib-intro.tex support.tex concepts.tex diagnostics.tex utilities.tex iterators.tex ranges.tex algorithms.tex numerics.tex time.tex locales.tex iostreams.tex regex.tex atomics.tex threads.tex"
+texlib="lib-intro.tex support.tex concepts.tex diagnostics.tex utilities.tex strings.tex containers.tex iterators.tex ranges.tex algorithms.tex numerics.tex time.tex locales.tex iostreams.tex regex.tex atomics.tex threads.tex"
 
 grep -Fe "Overfull \\hbox" std.log && exit 1
 grep "LaTeX Warning..There were undefined references" std.log && exit 1
@@ -32,7 +32,7 @@ grep -Hne '^\\\(change\|rationale\|effect\|difficulty\|howwide\)\s.\+$' compatib
 # Fixup: sed 's/^\\\(change\|rationale\|effect\|difficulty\|howwide\)\s\(.\)/\\\1\n\2/'
 
 # "template <class" (with space) in library clause.
-grep -ne 'template\s<class' $texlib && exit 1
+grep -ne 'template\s<class' $texlib | sed 's/$/ <--- space between "template" and "<class"/' | grep . && exit 1
 
 # \begin{example/note} with non-whitespace in front on the same line.
 grep -ne '^.*[^ ]\s*\\\(begin\|end\){\(example\|note\)}' $texfiles && exit 1
@@ -53,6 +53,9 @@ done | grep . && exit 1
 # Deleted special member function with a parameter name.
 grep -n "&[ 0-9a-z_]\+) = delete" $texfiles && exit 1
 # to fix: sed '/= delete/s/&[ 0-9a-z_]\+)/\&)/'
+
+# Bad characters in label. "-" is allowed due to a single remaining offender.
+grep -n '^\\rSec.\[[^]]*[^-a-z.0-9][^]]*\]{' $texfiles | sed 's/$/ <--- bad character in label/' | grep . && exit 1
 
 # \placeholder before (
 #egrep 'placeholder{[-A-Za-z]*}@?\(' *.tex
