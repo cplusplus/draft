@@ -4,8 +4,10 @@
 texfiles=$(ls *.tex | grep -v macros.tex | grep -v layout.tex | grep -v tables.tex)
 texlib="lib-intro.tex support.tex concepts.tex diagnostics.tex utilities.tex iterators.tex ranges.tex algorithms.tex numerics.tex time.tex locales.tex iostreams.tex regex.tex atomics.tex threads.tex"
 
-grep -Fe "Overfull \\hbox" std.log && exit 1
-grep "LaTeX Warning..There were undefined references" std.log && exit 1
+# Discover "Overfull \hbox" and "Reference ... undefined" messages from LaTeX.
+sed -n '/\.tex/{s/^.*\/\([-a-z0-9]\+\.tex\).*$/\1/;h};
+/Overfull [\\]hbox\|LaTeX Warning..Reference/{x;p;x;p}' std.log |
+sed '/^.\+\.tex$/{N;s/\n/:/}' | grep . && exit 1
 
 # Trailing whitespace in a line.
 grep -ne '\s$' *.tex | sed 's/$/<--- trailing whitespace/' | grep . && exit 1
