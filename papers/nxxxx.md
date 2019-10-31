@@ -56,7 +56,7 @@ US 021: Accepted, fixed in 50e55ce9.
  * Split index entries to "block (execution)" and "block (statement)".
  * Also added the statement form to Clause 3, Terms and Definitions.
 
-GB 022: Accepted, fixed in 8cc6bd34.
+GB 022: Accepted with modifications, fixed in 8cc6bd34.
 
  * The relevant change had already been made to [using.headers],
    but this corresponding change was missed.
@@ -137,7 +137,7 @@ US 155: Propose accepting; **LWG to approve direction**
 JP 177: Accepted, fixed in 8be40ff0.
 
  * Replaces a reference to ISO/IEC/IEEE 60599 with a reference to the intended ISO/IEC/IEEE 60559.
- * IEC 60599 is "Mineral oil filled electrical equipment in service --
+ * IEC 60599 is "Mineral oil-filled electrical equipment in service --
    guidance on the interpretation of dissolved and free gases analysis"
  * ISO/IEC/IEEE 60559 is "Information Technology - Microprocessor Systems --
    Floating-Point Arithmetic"
@@ -191,12 +191,12 @@ US 325: No consensus for change.
    but will reconsider the organization of the standard library clauses
    for a future standard.
 
-US 327: **SG8 / LEWG to handle issue**
+US 327: **SG6 / LEWG to handle issue**
 
  * The proposed change is not editorial.
  * Duplicate of PL 326
 
-US 328: **SG8 / LEWG to handle issue**
+US 328: **SG6 / LEWG to handle issue**
 
  * The proposed change is not editorial.
 
