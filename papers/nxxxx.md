@@ -61,6 +61,10 @@ GB 022: Accepted with modifications, fixed in [8cc6bd34](https://github.com/cplu
  * The relevant change had already been made to [using.headers],
    but this corresponding change was missed.
 
+ * **Modified resolution:**
+   Added a cross-reference to [using.headers] instead of
+   the suggested cross-reference to [headers].
+
 JP 023: Accepted, fixed in [868934f7](https://github.com/cplusplus/draft/commit/868934f7).
 
 JP 030: No consensus for change.
@@ -75,9 +79,23 @@ US 031: No consensus for change.
 
 GB 032: Accepted, fixed in [84a1cd53](https://github.com/cplusplus/draft/commit/84a1cd53).
 
-US 037: **SG2 to handle issue**
+US 037: No consensus for change.
 
  * The proposed change is not editorial.
+   Forwarded to SG2 for consideration and rejected.
+
+FR 039: Accepted with modifications, fixed in [68a6dfef](https://github.com/cplusplus/draft/commit/68a6dfef).
+
+ * **Filed as technical**; SG2 concluded the wording is confusing,
+   already does what the comment requests
+   (except that ADL also finds friend declarations in a class
+   in the same conditions under which
+   member lookup would find member declarations in the class).
+   Recategorized as editorial to clarify the wording.
+
+ * **Modified resolution:**
+   Definition of "interface" (of a module) inlined into its only use (and removed),
+   making it clear that [basic.lookup.argdep]/4.4 only finds exported declarations.
 
 JP 045: Accepted, fixed in [d401794f](https://github.com/cplusplus/draft/commit/d401794f).
 
@@ -89,9 +107,10 @@ US 047: Accepted with modifications, fixed in [785f689d](https://github.com/cplu
   Instead of removing the redundant sentence, it was converted into a note
   and moved after the following sentence of which it is a consequence.
 
-US 052: **CWG to handle issue**
+US 052: TODO Accepted contingent on P1971R0
 
  * The proposed change is not editorial.
+   Forwarded to CWG for consideration and accepted.
 
 JP 057: Accepted, fixed in [a06b7a49](https://github.com/cplusplus/draft/commit/a06b7a49).
 
@@ -101,7 +120,9 @@ GB 078: Accepted, fixed in [e3bb2eba](https://github.com/cplusplus/draft/commit/
  * Also made some nearby editorial improvements:
    added cross-references and fixed an adjacent grammar issue ("is" / "are") in [diff.cpp14.library].
 
-GB 079: **Deferred until US 036 is resolved**
+GB 079: TODO Accepted contingent on P1971R0
+
+ * Forwarded to SG2 for consideration. Accepted and example added by CWG.
 
 US 085: No consensus for change.
 
@@ -120,19 +141,21 @@ GB 089: Accepted, fixed in [fa42d5a6](https://github.com/cplusplus/draft/commit/
 
 US 099: Accepted, fixed in [9b0502bf](https://github.com/cplusplus/draft/commit/9b0502bf).
 
-US 106: **CWG to handle issue**
+US 106: No consensus for change.
+
+ * Forwarded to CWG for consideration and rejected.
 
 US 108: Accepted, fixed in [2f42a930](https://github.com/cplusplus/draft/commit/2f42a930).
 
-US 153: Propose accepting; **LWG to approve direction**
+US 153: No consensus for change.
 
- * Can be handled editorially if approved.
+ * Forwarded to LWG for consideration; rejected by LEWG.
 
 US 154: Duplicate of US 153.
 
-US 155: Propose accepting; **LWG to approve direction**
+GB 155: Accepted, fixed in [98e57ff5](https://github.com/cplusplus/draft/commit/98e57ff5).
 
- * Can be handled editorially if approved.
+ * **LWG concurs with this direction**
 
 JP 177: Accepted, fixed in [8be40ff0](https://github.com/cplusplus/draft/commit/8be40ff0).
 
@@ -150,26 +173,38 @@ GB 200: No consensus for change.
    (Note that only `a` and `c` are used on the LHS,
     and only `b` and `d` are used on the RHS.)
 
-US 216: Propose accepting; **LWG to approve direction**
+US 216: Accepted, fixed in [dfcc4691](https://github.com/cplusplus/draft/commit/dfcc4691).
 
- * Can be handled editorially if approved.
+ * **LWG concurs with this direction**
 
-JP 218: **LWG to handle issue**
+JP 218: **Unresolved, reassigned to LWG**
 
-JP 219: **LWG to handle issue**
+ * Forwarded to LWG for consideration;
+   [LWG issue 3310](https://cplusplus.github.io/LWG/issue3310) opened to track this comment.
 
-GB 225: **LWG to handle issue**
+JP 219: **Unresolved, reassigned to LWG**
 
-US 242: Propose rejecting; **LWG to approve direction**
+ * Forwarded to LWG for consideration;
+   [LWG issue 3310](https://cplusplus.github.io/LWG/issue3310) opened to track this comment.
+
+GB 225: **Unresolved, reassigned to LWG**
+
+ * Proposed change is not editorial. Forwarded to LWG for consideration.
+   [LWG issue 3327](https://cplusplus.github.io/LWG/issue3327) opened to track this comment.
+
+US 242: No consensus for change.
 
  * Organizationally, it seems more consistent to list `span` near the
    sequence containers, just as we list `string_view` near `string.
 
+ * Forwarded to LWG for consideration and rejected.
+
 US 258: Accepted, fixed in [f36f871c](https://github.com/cplusplus/draft/commit/f36f871c).
 
-US 280: **LEWG to select a better name or reject**
+GB 280: TODO Accepted contingent on P1870R1
 
- * Can be handled editorially if an alternative name is approved.
+ * Forwarded to LEWG to select a better name or reject,
+   LEWG selected `safe_range` as a replacement non-exposition-only concept name.
 
 US 295: Accepted with modifications, fixed in [53f0651e](https://github.com/cplusplus/draft/commit/53f0651e).
 
@@ -196,25 +231,23 @@ US 325: No consensus for change.
    but will reconsider the organization of the standard library clauses
    for a future standard.
 
-US 327: **SG6 / LEWG to handle issue**
+US 327: **Unresolved, reassigned to LEWG**
 
  * The proposed change is not editorial.
- * Duplicate of PL 326
+   Forwarded to LEWG for consideration.
+ * Duplicate of PL 326, which may be addressed by [P1956](http://wg21.link/p1956).
 
-US 328: **SG6 / LEWG to handle issue**
+US 328: **Unresolved, reassigned to LEWG**
 
  * The proposed change is not editorial.
+   Forwarded to LEWG for consideration.
+ * Duplicate of PL 326, which may be addressed by [P1956](http://wg21.link/p1956).
 
 US 330: No consensus for change.
 
  * The wording to which this comment is objecting
    was removed by [P1355R2](http://wg21.link/p1355r2),
    which was adopted by 2019-07 LWG Motion 2.
-
-GB 335: **LWG to handle issue**
-
- * The intent of the wording is unclear;
-   this issue cannot be resolved editorially.
 
 JP 338: Accepted, fixed in [742f1086](https://github.com/cplusplus/draft/commit/742f1086).
 
@@ -251,7 +284,9 @@ US 357: Accepted with modifications, fixed in [af747d64](https://github.com/cplu
    A different revised wording was chosen for the notes:
    "The specialization `atomic<bool>` uses the primary template."
 
-US 359: **SG1 / LWG to handle issue**
+US 359: TODO Accepted contingent on P1960
+
+ * Forwarded to SG1 for consideration and accepted by LWG.
 
 JP 362: Accepted with modifications, fixed in [195d5bab](https://github.com/cplusplus/draft/commit/195d5bab).
 
