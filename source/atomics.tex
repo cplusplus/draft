@@ -2657,6 +2657,651 @@ T operator--() noexcept;
 Equivalent to: \tcode{return fetch_sub(1) - 1;}
 \end{itemdescr}
 
+\indextext{atomic!smart pointers|(}%
+\rSec2[util.smartptr.atomic]{Partial specializations for smart pointers}
+
+\pnum
+The library provides partial specializations of the \tcode{atomic} template
+for shared-ownership smart pointers\iref{smartptr}.
+The behavior of all operations is as specified in \ref{atomics.types.generic},
+unless specified otherwise.
+The template parameter \tcode{T} of these partial specializations
+may be an incomplete type.
+
+\pnum
+All changes to an atomic smart pointer in this subclause, and
+all associated \tcode{use_count} increments,
+are guaranteed to be performed atomically.
+Associated \tcode{use_count} decrements
+are sequenced after the atomic operation,
+but are not required to be part of it.
+Any associated deletion and deallocation
+are sequenced after the atomic update step and
+are not part of the atomic operation.
+\begin{note}
+If the atomic operation uses locks,
+locks acquired by the implementation
+will be held when any \tcode{use_count} adjustments are performed, and
+will not be held when any destruction or deallocation
+resulting from this is performed.
+\end{note}
+
+\rSec3[util.smartptr.atomic.shared]{Partial specialization for \tcode{shared_ptr}}
+\indexlibraryglobal{atomic<shared_ptr<T>>}%
+\begin{codeblock}
+namespace std {
+  template<class T> struct atomic<shared_ptr<T>> {
+    using value_type = shared_ptr<T>;
+    static constexpr bool is_always_lock_free = @\impdefx{whether a given \tcode{atomic} type's operations are always lock free}@;
+
+    bool is_lock_free() const noexcept;
+    void store(shared_ptr<T> desired, memory_order order = memory_order::seq_cst) noexcept;
+    shared_ptr<T> load(memory_order order = memory_order::seq_cst) const noexcept;
+    operator shared_ptr<T>() const noexcept;
+
+    shared_ptr<T> exchange(shared_ptr<T> desired,
+                           memory_order order = memory_order::seq_cst) noexcept;
+
+    bool compare_exchange_weak(shared_ptr<T>& expected, shared_ptr<T> desired,
+                               memory_order success, memory_order failure) noexcept;
+    bool compare_exchange_strong(shared_ptr<T>& expected, shared_ptr<T> desired,
+                                 memory_order success, memory_order failure) noexcept;
+
+    bool compare_exchange_weak(shared_ptr<T>& expected, shared_ptr<T> desired,
+                               memory_order order = memory_order::seq_cst) noexcept;
+    bool compare_exchange_strong(shared_ptr<T>& expected, shared_ptr<T> desired,
+                                 memory_order order = memory_order::seq_cst) noexcept;
+
+    void wait(shared_ptr<T> old, memory_order order = memory_order::seq_cst) const noexcept;
+    void notify_one() noexcept;
+    void notify_all() noexcept;
+
+    constexpr atomic() noexcept = default;
+    atomic(shared_ptr<T> desired) noexcept;
+    atomic(const atomic&) = delete;
+    void operator=(const atomic&) = delete;
+    void operator=(shared_ptr<T> desired) noexcept;
+
+  private:
+    shared_ptr<T> p;            // \expos
+  };
+}
+\end{codeblock}
+
+\indexlibraryctor{atomic<shared_ptr<T>>}%
+\begin{itemdecl}
+constexpr atomic() noexcept = default;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \tcode{p\{\}}.
+\end{itemdescr}
+
+\indexlibraryctor{atomic<shared_ptr<T>>}%
+\begin{itemdecl}
+atomic(shared_ptr<T> desired) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the object with the value \tcode{desired}.
+Initialization is not an atomic operation\iref{intro.multithread}.
+\begin{note}
+It is possible to have an access to
+an atomic object \tcode{A} race with its construction,
+for example,
+by communicating the address of the just-constructed object \tcode{A}
+to another thread via \tcode{memory_order::relaxed} operations
+on a suitable atomic pointer variable, and
+then immediately accessing \tcode{A} in the receiving thread.
+This results in undefined behavior.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarymember{store}{atomic<shared_ptr<T>>}%
+\begin{itemdecl}
+void store(shared_ptr<T> desired, memory_order order = memory_order::seq_cst) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+The \tcode{order} argument shall not be
+\tcode{memory_order::consume},
+\tcode{memory_order::acquire}, nor
+\tcode{memory_order::acq_rel}.
+
+\pnum
+\effects
+Atomically replaces the value pointed to by \tcode{this} with
+the value of \tcode{desired} as if by \tcode{p.swap(desired)}.
+Memory is affected according to the value of \tcode{order}.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{atomic<shared_ptr<T>>}%
+\begin{itemdecl}
+void operator=(shared_ptr<T> desired) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{store(desired)}.
+\end{itemdescr}
+
+\indexlibrarymember{load}{atomic<shared_ptr<T>>}%
+\begin{itemdecl}
+shared_ptr<T> load(memory_order order = memory_order::seq_cst) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{order} shall not be
+\tcode{memory_order::release} nor \tcode{memory_order::acq_rel}.
+
+\pnum
+\effects
+Memory is affected according to the value of \tcode{order}.
+
+\pnum
+\returns
+Atomically returns \tcode{p}.
+\end{itemdescr}
+
+\indexlibrarymember{operator shared_ptr<T>}{atomic<shared_ptr<T>>}%
+\begin{itemdecl}
+operator shared_ptr<T>() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return load();}
+\end{itemdescr}
+
+\indexlibrarymember{exchange}{atomic<shared_ptr<T>>}%
+\begin{itemdecl}
+shared_ptr<T> exchange(shared_ptr<T> desired, memory_order order = memory_order::seq_cst) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Atomically replaces \tcode{p} with \tcode{desired}
+as if by \tcode{p.swap(desired)}.
+Memory is affected according to the value of \tcode{order}.
+This is an atomic read-modify-write operation\iref{intro.races}.
+
+\pnum
+\returns
+Atomically returns the value of \tcode{p} immediately before the effects.
+\end{itemdescr}
+
+\indexlibrarymember{compare_exchange_weak}{atomic<shared_ptr<T>>}%
+\indexlibrarymember{compare_exchange_strong}{atomic<shared_ptr<T>>}%
+\begin{itemdecl}
+bool compare_exchange_weak(shared_ptr<T>& expected, shared_ptr<T> desired,
+                           memory_order success, memory_order failure) noexcept;
+bool compare_exchange_strong(shared_ptr<T>& expected, shared_ptr<T> desired,
+                             memory_order success, memory_order failure) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{failure} shall not be
+\tcode{memory_order::release} nor \tcode{memory_order::acq_rel}.
+
+\pnum
+\effects
+If \tcode{p} is equivalent to \tcode{expected},
+assigns \tcode{desired} to \tcode{p} and
+has synchronization semantics corresponding to the value of \tcode{success},
+otherwise assigns \tcode{p} to \tcode{expected} and
+has synchronization semantics corresponding to the value of \tcode{failure}.
+
+\pnum
+\returns
+\tcode{true} if \tcode{p} was equivalent to \tcode{expected},
+\tcode{false} otherwise.
+
+\pnum
+\remarks
+Two \tcode{shared_ptr} objects are equivalent if
+they store the same pointer value and
+either share ownership or are both empty.
+The weak form may fail spuriously. See \ref{atomics.types.operations}.
+
+\pnum
+If the operation returns \tcode{true},
+\tcode{expected} is not accessed after the atomic update and
+the operation is an atomic read-modify-write operation\iref{intro.multithread}
+on the memory pointed to by \tcode{this}.
+Otherwise, the operation is an atomic load operation on that memory, and
+\tcode{expected} is updated with the existing value
+read from the atomic object in the attempted atomic update.
+The \tcode{use_count} update corresponding to the write to \tcode{expected}
+is part of the atomic operation.
+The write to \tcode{expected} itself
+is not required to be part of the atomic operation.
+\end{itemdescr}
+
+\indexlibrarymember{compare_exchange_weak}{atomic<shared_ptr<T>>}%
+\begin{itemdecl}
+bool compare_exchange_weak(shared_ptr<T>& expected, shared_ptr<T> desired,
+                           memory_order order = memory_order::seq_cst) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return compare_exchange_weak(expected, desired, order, fail_order);
+\end{codeblock}
+where \tcode{fail_order} is the same as \tcode{order}
+except that a value of \tcode{memory_order::acq_rel}
+shall be replaced by the value \tcode{memory_order::acquire} and
+a value of \tcode{memory_order::release}
+shall be replaced by the value \tcode{memory_order::relaxed}.
+\end{itemdescr}
+
+\indexlibrarymember{compare_exchange_strong}{atomic<shared_ptr<T>>}%
+\begin{itemdecl}
+bool compare_exchange_strong(shared_ptr<T>& expected, shared_ptr<T> desired,
+                             memory_order order = memory_order::seq_cst) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return compare_exchange_strong(expected, desired, order, fail_order);
+\end{codeblock}
+where \tcode{fail_order} is the same as \tcode{order}
+except that a value of \tcode{memory_order::acq_rel}
+shall be replaced by the value \tcode{memory_order::acquire} and
+a value of \tcode{memory_order::release}
+shall be replaced by the value \tcode{memory_order::relaxed}.
+\end{itemdescr}
+
+\indexlibrarymember{wait}{atomic<shared_ptr<T>>}%
+\begin{itemdecl}
+void wait(shared_ptr<T> old, memory_order order = memory_order::seq_cst) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{order} is
+neither \tcode{memory_order::release} nor \tcode{memory_order::acq_rel}.
+
+\pnum
+\effects
+Repeatedly performs the following steps, in order:
+\begin{itemize}
+\item
+  Evaluates \tcode{load(order)} and compares it to \tcode{old}.
+\item
+  If the two are not equivalent, returns.
+\item
+  Blocks until it
+  is unblocked by an atomic notifying operation or is unblocked spuriously.
+\end{itemize}
+
+\pnum
+\remarks
+Two \tcode{shared_ptr} objects are equivalent
+if they store the same pointer and either share ownership or are both empty.
+This function is an atomic waiting operation\iref{atomics.wait}.
+\end{itemdescr}
+
+\indexlibrarymember{notify_one}{atomic<shared_ptr<T>>}%
+\begin{itemdecl}
+void notify_one() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Unblocks the execution of at least one atomic waiting operation
+that is eligible to be unblocked\iref{atomics.wait} by this call,
+if any such atomic waiting operations exist.
+
+\pnum
+\remarks
+This function is an atomic notifying operation\iref{atomics.wait}.
+\end{itemdescr}
+
+\indexlibrarymember{notify_all}{atomic<shared_ptr<T>>}%
+\begin{itemdecl}
+void notify_all() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Unblocks the execution of all atomic waiting operations
+that are eligible to be unblocked\iref{atomics.wait} by this call.
+
+\pnum
+\remarks
+This function is an atomic notifying operation\iref{atomics.wait}.
+\end{itemdescr}
+
+\rSec3[util.smartptr.atomic.weak]{Partial specialization for \tcode{weak_ptr}}
+\indexlibraryglobal{atomic<weak_ptr<T>>}%
+\begin{codeblock}
+namespace std {
+  template<class T> struct atomic<weak_ptr<T>> {
+    using value_type = weak_ptr<T>;
+    static constexpr bool is_always_lock_free = @\impdefx{whether a given \tcode{atomic} type's operations are always lock free}@;
+
+    bool is_lock_free() const noexcept;
+    void store(weak_ptr<T> desired, memory_order order = memory_order::seq_cst) noexcept;
+    weak_ptr<T> load(memory_order order = memory_order::seq_cst) const noexcept;
+    operator weak_ptr<T>() const noexcept;
+
+    weak_ptr<T> exchange(weak_ptr<T> desired,
+                         memory_order order = memory_order::seq_cst) noexcept;
+
+    bool compare_exchange_weak(weak_ptr<T>& expected, weak_ptr<T> desired,
+                               memory_order success, memory_order failure) noexcept;
+    bool compare_exchange_strong(weak_ptr<T>& expected, weak_ptr<T> desired,
+                                 memory_order success, memory_order failure) noexcept;
+
+    bool compare_exchange_weak(weak_ptr<T>& expected, weak_ptr<T> desired,
+                               memory_order order = memory_order::seq_cst) noexcept;
+    bool compare_exchange_strong(weak_ptr<T>& expected, weak_ptr<T> desired,
+                                 memory_order order = memory_order::seq_cst) noexcept;
+
+    void wait(weak_ptr<T> old, memory_order order = memory_order::seq_cst) const noexcept;
+    void notify_one() noexcept;
+    void notify_all() noexcept;
+
+    constexpr atomic() noexcept = default;
+    atomic(weak_ptr<T> desired) noexcept;
+    atomic(const atomic&) = delete;
+    void operator=(const atomic&) = delete;
+    void operator=(weak_ptr<T> desired) noexcept;
+
+  private:
+    weak_ptr<T> p;              // \expos
+  };
+}
+\end{codeblock}
+
+\indexlibraryctor{atomic<weak_ptr<T>>}%
+\begin{itemdecl}
+constexpr atomic() noexcept = default;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \tcode{p\{\}}.
+\end{itemdescr}
+
+\indexlibraryctor{atomic<weak_ptr<T>>}%
+\begin{itemdecl}
+atomic(weak_ptr<T> desired) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes the object with the value \tcode{desired}.
+Initialization is not an atomic operation\iref{intro.multithread}.
+\begin{note}
+It is possible to have an access to
+an atomic object \tcode{A} race with its construction,
+for example,
+by communicating the address of the just-constructed object \tcode{A}
+to another thread via \tcode{memory_order::relaxed} operations
+on a suitable atomic pointer variable, and
+then immediately accessing \tcode{A} in the receiving thread.
+This results in undefined behavior.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarymember{store}{atomic<weak_ptr<T>>}%
+\begin{itemdecl}
+void store(weak_ptr<T> desired, memory_order order = memory_order::seq_cst) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+The \tcode{order} argument shall not be
+\tcode{memory_order::consume},
+\tcode{memory_order::acquire}, nor
+\tcode{memory_order::acq_rel}.
+
+\pnum
+\effects
+Atomically replaces the value pointed to by \tcode{this} with
+the value of \tcode{desired} as if by \tcode{p.swap(desired)}.
+Memory is affected according to the value of \tcode{order}.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{atomic<weak_ptr<T>>}%
+\begin{itemdecl}
+void operator=(weak_ptr<T> desired) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{store(desired)}.
+\end{itemdescr}
+
+\indexlibrarymember{load}{atomic<weak_ptr<T>>}%
+\begin{itemdecl}
+weak_ptr<T> load(memory_order order = memory_order::seq_cst) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{order} shall not be
+\tcode{memory_order::release} nor \tcode{memory_order::acq_rel}.
+
+\pnum
+\effects
+Memory is affected according to the value of \tcode{order}.
+
+\pnum
+\returns
+Atomically returns \tcode{p}.
+\end{itemdescr}
+
+\indexlibrarymember{operator weak_ptr<T>}{atomic<weak_ptr<T>>}%
+\begin{itemdecl}
+operator weak_ptr<T>() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return load();}
+\end{itemdescr}
+
+\indexlibrarymember{exchange}{atomic<weak_ptr<T>>}%
+\begin{itemdecl}
+weak_ptr<T> exchange(weak_ptr<T> desired, memory_order order = memory_order::seq_cst) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Atomically replaces \tcode{p} with \tcode{desired}
+as if by \tcode{p.swap(desired)}.
+Memory is affected according to the value of \tcode{order}.
+This is an atomic read-modify-write operation\iref{intro.races}.
+
+\pnum
+\returns
+Atomically returns the value of \tcode{p} immediately before the effects.
+\end{itemdescr}
+
+\indexlibrarymember{compare_exchange_weak}{atomic<weak_ptr<T>>}%
+\begin{itemdecl}
+bool compare_exchange_weak(weak_ptr<T>& expected, weak_ptr<T> desired,
+                           memory_order success, memory_order failure) noexcept;
+bool compare_exchange_strong(weak_ptr<T>& expected, weak_ptr<T> desired,
+                             memory_order success, memory_order failure) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\requires
+\tcode{failure} shall not be
+\tcode{memory_order::release} nor \tcode{memory_order::acq_rel}.
+
+\pnum
+\effects
+If \tcode{p} is equivalent to \tcode{expected},
+assigns \tcode{desired} to \tcode{p} and
+has synchronization semantics corresponding to the value of \tcode{success},
+otherwise assigns \tcode{p} to \tcode{expected} and
+has synchronization semantics corresponding to the value of \tcode{failure}.
+
+\pnum
+\returns
+\tcode{true} if \tcode{p} was equivalent to \tcode{expected},
+\tcode{false} otherwise.
+
+\pnum
+\remarks
+Two \tcode{weak_ptr} objects are equivalent if
+they store the same pointer value and
+either share ownership or are both empty.
+The weak form may fail spuriously. See \ref{atomics.types.operations}.
+
+\pnum
+If the operation returns \tcode{true},
+\tcode{expected} is not accessed after the atomic update and
+the operation is an atomic read-modify-write operation\iref{intro.multithread}
+on the memory pointed to by \tcode{this}.
+Otherwise, the operation is an atomic load operation on that memory, and
+\tcode{expected} is updated with the existing value
+read from the atomic object in the attempted atomic update.
+The \tcode{use_count} update corresponding to the write to \tcode{expected}
+is part of the atomic operation.
+The write to \tcode{expected} itself
+is not required to be part of the atomic operation.
+\end{itemdescr}
+
+\indexlibrarymember{compare_exchange_weak}{atomic<weak_ptr<T>>}%
+\begin{itemdecl}
+bool compare_exchange_weak(weak_ptr<T>& expected, weak_ptr<T> desired,
+                           memory_order order = memory_order::seq_cst) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return compare_exchange_weak(expected, desired, order, fail_order);
+\end{codeblock}
+where \tcode{fail_order} is the same as \tcode{order}
+except that a value of \tcode{memory_order::acq_rel}
+shall be replaced by the value \tcode{memory_order::acquire} and
+a value of \tcode{memory_order::release}
+shall be replaced by the value \tcode{memory_order::relaxed}.
+\end{itemdescr}
+
+\indexlibrarymember{compare_exchange_strong}{atomic<weak_ptr<T>>}%
+\begin{itemdecl}
+bool compare_exchange_strong(weak_ptr<T>& expected, weak_ptr<T> desired,
+                             memory_order order = memory_order::seq_cst) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return compare_exchange_strong(expected, desired, order, fail_order);
+\end{codeblock}
+where \tcode{fail_order} is the same as \tcode{order}
+except that a value of \tcode{memory_order::acq_rel}
+shall be replaced by the value \tcode{memory_order::acquire} and
+a value of \tcode{memory_order::release}
+shall be replaced by the value \tcode{memory_order::relaxed}.
+\end{itemdescr}
+
+\indexlibrarymember{wait}{atomic<weak_ptr<T>>}%
+\begin{itemdecl}
+void wait(weak_ptr<T> old, memory_order order = memory_order::seq_cst) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{order} is
+neither \tcode{memory_order::release} nor \tcode{memory_order::acq_rel}.
+
+\pnum
+\effects
+Repeatedly performs the following steps, in order:
+\begin{itemize}
+\item
+  Evaluates \tcode{load(order)} and compares it to \tcode{old}.
+\item
+  If the two are not equivalent, returns.
+\item
+  Blocks until it
+  is unblocked by an atomic notifying operation or is unblocked spuriously.
+\end{itemize}
+
+\pnum
+\remarks
+Two \tcode{weak_ptr} objects are equivalent
+if they store the same pointer and either share ownership or are both empty.
+This function is an atomic waiting operation\iref{atomics.wait}.
+\end{itemdescr}
+
+
+\indexlibrarymember{notify_one}{atomic<weak_ptr<T>>}%
+\begin{itemdecl}
+void notify_one() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Unblocks the execution of at least one atomic waiting operation
+that is eligible to be unblocked\iref{atomics.wait} by this call,
+if any such atomic waiting operations exist.
+
+\pnum
+\remarks
+This function is an atomic notifying operation\iref{atomics.wait}.
+\end{itemdescr}
+
+\indexlibrarymember{notify_all}{atomic<weak_ptr<T>>}%
+\begin{itemdecl}
+void notify_all() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Unblocks the execution of all atomic waiting operations
+that are eligible to be unblocked\iref{atomics.wait} by this call.
+
+\pnum
+\remarks
+This function is an atomic notifying operation\iref{atomics.wait}.
+\end{itemdescr}
+\indextext{atomic!smart pointers|)}
 
 \rSec1[atomics.nonmembers]{Non-member functions}
 
