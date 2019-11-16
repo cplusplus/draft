@@ -165,6 +165,13 @@ namespace std::ranges {
 
   namespace views { inline constexpr @\unspec@ iota = @\unspec@; }
 
+  // \ref{range.istream}, istream view
+  template<movable Val, class CharT, class Traits = char_traits<CharT>>
+    requires @\seebelow@
+  class basic_istream_view;
+  template<class Val, class CharT, class Traits>
+    basic_istream_view<Val, CharT, Traits> istream_view(basic_istream<CharT, Traits>& s);
+
   // \ref{range.all}, all view
   namespace views { inline constexpr @\unspec@ all = @\unspec@; }
 
@@ -257,13 +264,6 @@ namespace std::ranges {
   class reverse_view;
 
   namespace views { inline constexpr @\unspec@ reverse = @\unspec@; }
-
-  // \ref{range.istream}, istream view
-  template<movable Val, class CharT, class Traits = char_traits<CharT>>
-    requires @\seebelow@
-  class basic_istream_view;
-  template<class Val, class CharT, class Traits>
-    basic_istream_view<Val, CharT, Traits> istream_view(basic_istream<CharT, Traits>& s);
 
   // \ref{range.elements}, elements view
   template<input_range R, size_t N>
@@ -2571,6 +2571,200 @@ For some subexpressions \tcode{E} and \tcode{F}, the expressions
 \tcode{views::iota(E)} and \tcode{views::iota(E, F)}
 are expression-equivalent to
 \tcode{iota_view\{E\}} and \tcode{iota_view\{E, F\}}, respectively.
+
+\rSec2[range.istream]{Istream view}
+
+\rSec3[range.istream.overview]{Overview}
+
+\pnum
+\tcode{basic_istream_view} models \libconcept{input_range} and
+reads (using \tcode{operator>>}) successive elements
+from its corresponding input stream.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+auto ints = istringstream{"0 1  2   3     4"};
+ranges::copy(istream_view<int>(ints), ostream_iterator<int>{cout, "-"});
+// prints \tcode{0-1-2-3-4-}
+\end{codeblock}
+\end{example}
+
+\rSec3[range.istream.view]{Class template \tcode{basic_istream_view}}
+
+\indexlibraryglobal{basic_istream_view}%
+\begin{codeblock}
+namespace std::ranges {
+  template<class Val, class CharT, class Traits>
+    concept @\defexposconcept{stream-extractable}@ =                // \expos
+      requires(basic_istream<CharT, Traits>& is, Val& t) {
+         is >> t;
+      };
+
+  template<movable Val, class CharT, class Traits>
+    requires default_constructible<Val> &&
+      @\exposconcept{stream-extractable}@<Val, CharT, Traits>
+  class basic_istream_view : public view_interface<basic_istream_view<Val, CharT, Traits>> {
+  public:
+    basic_istream_view() = default;
+    constexpr explicit basic_istream_view(basic_istream<CharT, Traits>& stream);
+
+    constexpr auto begin()
+    {
+      if (stream_) {
+        *stream_ >> object_;
+      }
+      return iterator{*this};
+    }
+
+    constexpr default_sentinel_t end() const noexcept;
+
+  private:
+    struct iterator;                                    // \expos
+    basic_istream<CharT, Traits>* stream_{};            // \expos
+    Val object_ = Val();                                // \expos
+  };
+}
+\end{codeblock}
+
+\indexlibraryctor{basic_istream_view}%
+\begin{itemdecl}
+constexpr explicit basic_istream_view(basic_istream<CharT, Traits>& stream);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \tcode{stream_} with \tcode{addressof(stream)}.
+\end{itemdescr}
+
+\indexlibrarymember{end}{basic_istream_view}%
+\begin{itemdecl}
+constexpr default_sentinel_t end() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return default_sentinel;}
+\end{itemdescr}
+
+\indexlibraryglobal{istream_view}%
+\begin{itemdecl}
+template<class Val, class CharT, class Traits>
+basic_istream_view<Val, CharT, Traits> istream_view(basic_istream<CharT, Traits>& s);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return basic_istream_view<Val, CharT, Traits>\{s\};}
+\end{itemdescr}
+
+\rSec3[range.istream.iterator]{Class template \tcode{basic_istream_view::iterator}}
+
+\indexlibraryglobal{basic_istream_view::iterator}%
+\begin{codeblock}
+namespace std::ranges {
+  template<class Val, class CharT, class Traits>
+  class basic_istream_view<Val, CharT, Traits>::iterator {      // \expos
+  public:
+    using iterator_category = input_iterator_tag;
+    using difference_type = ptrdiff_t;
+    using value_type = Val;
+
+    iterator() = default;
+    constexpr explicit iterator(basic_istream_view& parent) noexcept;
+
+    iterator(const iterator&) = delete;
+    iterator(iterator&&) = default;
+
+    iterator& operator=(const iterator&) = delete;
+    iterator& operator=(iterator&&) = default;
+
+    iterator& operator++();
+    void operator++(int);
+
+    Val& operator*() const;
+
+    friend bool operator==(const iterator& x, default_sentinel_t);
+
+  private:
+    basic_istream_view* parent_{};                              // \expos
+  };
+}
+\end{codeblock}
+
+\indexlibraryctor{basic_istream_view::iterator}%
+\begin{itemdecl}
+constexpr explicit iterator(basic_istream_view& parent) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \tcode{parent_} with \tcode{addressof(parent)}.
+\end{itemdescr}
+
+\indexlibrarymember{operator++}{basic_istream_view::iterator}%
+\begin{itemdecl}
+iterator& operator++();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{parent_->stream_ != nullptr} is \tcode{true}.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+*parent_->stream >> parent_->object_;
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator++}{basic_istream_view::iterator}%
+\begin{itemdecl}
+void operator++(int);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{parent_->stream_ != nullptr} is \tcode{true}.
+
+\pnum
+\effects
+Equivalent to \tcode{++*this}.
+\end{itemdescr}
+
+\indexlibrarymember{operator*}{basic_istream_view::iterator}%
+\begin{itemdecl}
+Val& operator*() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{parent_->stream_ != nullptr} is \tcode{true}.
+
+\pnum
+\effects
+Equivalent to: \tcode{return parent_->value_;}
+\end{itemdescr}
+
+\indexlibrarymember{operator==}{basic_istream_view::iterator}%
+\begin{itemdecl}
+friend bool operator==(const iterator& x, default_sentinel_t);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return x.parent_ == nullptr || !*x.parent_->stream_;}
+\end{itemdescr}
 
 \rSec1[range.adaptors]{Range adaptors}
 
@@ -5856,200 +6050,6 @@ subrange<I, I, K>(E.end().base(), E.begin().base())
 \item
   Otherwise, equivalent to \tcode{reverse_view\{E\}}.
 \end{itemize}
-
-\rSec2[range.istream]{Istream view}
-
-\rSec3[range.istream.overview]{Overview}
-
-\pnum
-\tcode{basic_istream_view} models \libconcept{input_range} and
-reads (using \tcode{operator>>}) successive elements
-from its corresponding input stream.
-
-\pnum
-\begin{example}
-\begin{codeblock}
-auto ints = istringstream{"0 1  2   3     4"};
-ranges::copy(istream_view<int>(ints), ostream_iterator<int>{cout, "-"});
-// prints \tcode{0-1-2-3-4-}
-\end{codeblock}
-\end{example}
-
-\rSec3[range.istream.view]{Class template \tcode{basic_istream_view}}
-
-\indexlibraryglobal{basic_istream_view}%
-\begin{codeblock}
-namespace std::ranges {
-  template<class Val, class CharT, class Traits>
-    concept @\defexposconcept{stream-extractable}@ =                // \expos
-      requires(basic_istream<CharT, Traits>& is, Val& t) {
-         is >> t;
-      };
-
-  template<movable Val, class CharT, class Traits>
-    requires default_constructible<Val> &&
-      @\exposconcept{stream-extractable}@<Val, CharT, Traits>
-  class basic_istream_view : public view_interface<basic_istream_view<Val, CharT, Traits>> {
-  public:
-    basic_istream_view() = default;
-    constexpr explicit basic_istream_view(basic_istream<CharT, Traits>& stream);
-
-    constexpr auto begin()
-    {
-      if (stream_) {
-        *stream_ >> object_;
-      }
-      return iterator{*this};
-    }
-
-    constexpr default_sentinel_t end() const noexcept;
-
-  private:
-    struct iterator;                                    // \expos
-    basic_istream<CharT, Traits>* stream_{};            // \expos
-    Val object_ = Val();                                // \expos
-  };
-}
-\end{codeblock}
-
-\indexlibraryctor{basic_istream_view}%
-\begin{itemdecl}
-constexpr explicit basic_istream_view(basic_istream<CharT, Traits>& stream);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Initializes \tcode{stream_} with \tcode{addressof(stream)}.
-\end{itemdescr}
-
-\indexlibrarymember{end}{basic_istream_view}%
-\begin{itemdecl}
-constexpr default_sentinel_t end() const noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to: \tcode{return default_sentinel;}
-\end{itemdescr}
-
-\indexlibraryglobal{istream_view}%
-\begin{itemdecl}
-template<class Val, class CharT, class Traits>
-basic_istream_view<Val, CharT, Traits> istream_view(basic_istream<CharT, Traits>& s);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to: \tcode{return basic_istream_view<Val, CharT, Traits>\{s\};}
-\end{itemdescr}
-
-\rSec3[range.istream.iterator]{Class template \tcode{basic_istream_view::iterator}}
-
-\indexlibraryglobal{basic_istream_view::iterator}%
-\begin{codeblock}
-namespace std::ranges {
-  template<class Val, class CharT, class Traits>
-  class basic_istream_view<Val, CharT, Traits>::iterator {      // \expos
-  public:
-    using iterator_category = input_iterator_tag;
-    using difference_type = ptrdiff_t;
-    using value_type = Val;
-
-    iterator() = default;
-    constexpr explicit iterator(basic_istream_view& parent) noexcept;
-
-    iterator(const iterator&) = delete;
-    iterator(iterator&&) = default;
-
-    iterator& operator=(const iterator&) = delete;
-    iterator& operator=(iterator&&) = default;
-
-    iterator& operator++();
-    void operator++(int);
-
-    Val& operator*() const;
-
-    friend bool operator==(const iterator& x, default_sentinel_t);
-
-  private:
-    basic_istream_view* parent_{};                              // \expos
-  };
-}
-\end{codeblock}
-
-\indexlibraryctor{basic_istream_view::iterator}%
-\begin{itemdecl}
-constexpr explicit iterator(basic_istream_view& parent) noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Initializes \tcode{parent_} with \tcode{addressof(parent)}.
-\end{itemdescr}
-
-\indexlibrarymember{operator++}{basic_istream_view::iterator}%
-\begin{itemdecl}
-iterator& operator++();
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\expects
-\tcode{parent_->stream_ != nullptr} is \tcode{true}.
-
-\pnum
-\effects
-Equivalent to:
-\begin{codeblock}
-*parent_->stream >> parent_->object_;
-return *this;
-\end{codeblock}
-\end{itemdescr}
-
-\indexlibrarymember{operator++}{basic_istream_view::iterator}%
-\begin{itemdecl}
-void operator++(int);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\expects
-\tcode{parent_->stream_ != nullptr} is \tcode{true}.
-
-\pnum
-\effects
-Equivalent to \tcode{++*this}.
-\end{itemdescr}
-
-\indexlibrarymember{operator*}{basic_istream_view::iterator}%
-\begin{itemdecl}
-Val& operator*() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\expects
-\tcode{parent_->stream_ != nullptr} is \tcode{true}.
-
-\pnum
-\effects
-Equivalent to: \tcode{return parent_->value_;}
-\end{itemdescr}
-
-\indexlibrarymember{operator==}{basic_istream_view::iterator}%
-\begin{itemdecl}
-friend bool operator==(const iterator& x, default_sentinel_t);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to: \tcode{return x.parent_ == nullptr || !*x.parent_->stream_;}
-\end{itemdescr}
 
 \rSec2[range.elements]{Elements view}
 
