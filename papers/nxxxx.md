@@ -43,6 +43,26 @@ CWG motion 2: [P1234R5 "Paper name"](http://wg21.link/p1234r5), resolving 3 NB c
 
 ...
 
+### LWG motion 11
+
+The description of this paper specifies that:
+
+> each such `base()` member [of a range adaptor, that returns a copy of the underlying view]
+> be replaced to by two overloads:
+> a `const`-qualified overload that requires the type of the underlying view to model CopyConstructible, and
+> a `&&`-qualified overload that extracts the underlying view from the adaptor
+
+but the wording changes omitted explicit editing instructions
+to make these changes to the
+`take_while_view`, `drop_view`, `drop_while_view` and `elements_view`
+range adaptors, which were added by [P1035R7](http://wg21.link/p1035r7)
+(2019-07 LWG Motion 23), after R0 of this paper was authored.
+
+Consistent with the proposal in the paper,
+and after consulting the paper authors and the LWG chair,
+the corresponding changes were also applied to
+the additional range adaptors listed above.
+
 ## Feature test macros
 
 The feature test macro `__cpp_nontype_template_parameter_class` has been removed
