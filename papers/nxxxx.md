@@ -82,6 +82,13 @@ These uses have been replaced with `safe_range`.
 Did not add the macro `__cpp_lib_atomic_ref`.
 This macro already existed with the specified value.
 
+Did not change the value of the `__cpp_lib_chrono` macro.
+The requested new value of this macro (`201803L`)
+is actually lower than the current value
+(`201907L`, not `201611L` as listed in [P1902R1](http://wg21.link/p1902r1)).
+The chair of SG10 has confirmed that the request to change this macro's value
+is an error. The pre-existing, higher value is retained.
+
 Did not change the value of the `__cpp_lib_ranges` macro.
 The requested new value of this macro (`201907L`)
 is lower than the value `201911L` introduced by
