@@ -367,27 +367,30 @@ class Map {
 A non-type \grammarterm{template-parameter}
 shall have one of the following (optionally cv-qualified) types:
 \begin{itemize}
-\item a literal type that
-  has strong structural equality\iref{class.compare.default},
-
-\item an lvalue reference type,
-
+\item a structural type (see below),
 \item a type that contains a placeholder type\iref{dcl.spec.auto}, or
-
 \item a placeholder for a deduced class type\iref{dcl.type.class.deduct}.
 \end{itemize}
-
-\pnum
-\begin{note}
-Other types are disallowed either explicitly below or implicitly by
-the rules governing the form of
-\grammarterm{template-argument}{s}\iref{temp.arg}.
-\end{note}
 The top-level
 \grammarterm{cv-qualifier}{s}
 on the
 \grammarterm{template-parameter}
 are ignored when determining its type.
+
+\pnum
+A \defnadj{structural}{type} is one of the following:
+\begin{itemize}
+\item a scalar type, or
+\item an lvalue reference type, or
+\item a literal class type with the following properties:
+\begin{itemize}
+\item
+all base classes and non-static data members are public and non-mutable and
+\item
+the types of all bases classes and non-static data members are
+structural types or (possibly multi-dimensional) array thereof.
+\end{itemize}
+\end{itemize}
 
 \pnum
 An \grammarterm{id-expression} naming
@@ -399,6 +402,7 @@ after it has been converted
 to the type of the \grammarterm{template-parameter}.
 All such template parameters in the program of the same type
 with the same value denote the same template parameter object.
+A template parameter object shall have constant destruction\iref{expr.const}.
 \begin{note}
 If an \grammarterm{id-expression} names
 a non-type non-reference \grammarterm{template-parameter},
@@ -409,9 +413,9 @@ it is an lvalue and has type \tcode{const T}\iref{expr.prim.id.unqual}.
 \begin{example}
 \begin{codeblock}
 using X = int;
-struct A { friend bool operator==(const A&, const A&) = default; };
+struct A {};
 template<const X& x, int i, A a> void f() {
-  i++;                          // error: change of template-parameter value
+  i++;                          // error: change of \grammarterm{template-parameter} value
 
   &x;                           // OK
   &i;                           // error: address of non-reference template-parameter
@@ -424,16 +428,17 @@ template<const X& x, int i, A a> void f() {
 \end{example}
 
 \pnum
+\begin{note}
 A non-type
 \grammarterm{template-parameter}
-shall not be declared to have floating-point or void type.
+cannot be declared to have type \cv{} \tcode{void}.
 \begin{example}
 \begin{codeblock}
-template<double d> class X;     // error
-template<double* pd> class Y;   // OK
-template<double& rd> class Z;   // OK
+template<void v> class X;       // error
+template<void* pv> class Y;     // OK
 \end{codeblock}
 \end{example}
+\end{note}
 
 \pnum
 A non-type
@@ -1184,25 +1189,26 @@ A \grammarterm{template-argument}
 for a non-type \grammarterm{template-parameter}
 shall be a converted constant expression\iref{expr.const}
 of the type of the \grammarterm{template-parameter}.
-For a non-type \grammarterm{template-parameter} of reference or pointer type,
-or for each non-static data member of reference or pointer type
-in a non-type \grammarterm{template-parameter} of class type or subobject thereof,
-the reference or pointer value shall not refer to
-or be the address of (respectively):
-\begin{itemize}
-\item a subobject\iref{intro.object},
-\item a temporary object\iref{class.temporary},
-\item a string literal\iref{lex.string},
-\item the result of a \tcode{typeid} expression\iref{expr.typeid}, or
-\item a predefined \mname{func} variable\iref{dcl.fct.def.general}.
-\end{itemize}
-
 \begin{note}
 If the \grammarterm{template-argument}
 represents a set of overloaded functions
 (or a pointer or member pointer to such),
 the matching function is selected from the set\iref{over.over}.
 \end{note}
+
+\pnum
+For a non-type \grammarterm{template-parameter} of reference or pointer type,
+or for each non-static data member of reference or pointer type
+in a non-type \grammarterm{template-parameter} of class type or subobject thereof,
+the reference or pointer value shall not refer to
+or be the address of (respectively):
+\begin{itemize}
+\item a temporary object\iref{class.temporary},
+\item a string literal\iref{lex.string},
+\item the result of a \tcode{typeid} expression\iref{expr.typeid},
+\item a predefined \mname{func} variable\iref{dcl.fct.def.general}, or
+\item a subobject\iref{intro.object} of one of the above.
+\end{itemize}
 
 \pnum
 \begin{example}
@@ -1228,9 +1234,10 @@ template<void (*pf)(int)> struct A { @\commentellip@ };
 A<&f> a;                        // selects \tcode{f(int)}
 
 template<auto n> struct B { @\commentellip@ };
-B<5> b1;                        // OK: template parameter type is \tcode{int}
-B<'a'> b2;                      // OK: template parameter type is \tcode{char}
-B<2.5> b3;                      // error: template parameter type cannot be \tcode{double}
+B<5> b1;                        // OK, template parameter type is \tcode{int}
+B<'a'> b2;                      // OK, template parameter type is \tcode{char}
+B<2.5> b3;                      // OK, template parameter type is \tcode{double}
+B<void(0)> b4;                  // error: template parameter type cannot be \tcode{void}
 \end{codeblock}
 \end{example}
 
@@ -1245,36 +1252,17 @@ template<class T, T p> class X {
   @\commentellip@
 };
 
-X<const char*, "Studebaker"> x; // error: string literal as template-argument
+X<const char*, "Studebaker"> x; // error: string literal as \grammarterm{template-argument}
+X<const char*, "Knope" + 1> x2; // error: subobject of string literal as \grammarterm{template-argument}
 
 const char p[] = "Vivisectionist";
 X<const char*, p> y;            // OK
 
 struct A {
   constexpr A(const char*) {}
-  friend bool operator==(const A&, const A&) = default;
 };
 
 X<A, "Pyrophoricity"> z;        // OK, string literal is a constructor argument to \tcode{A}
-\end{codeblock}
-\end{example}
-\end{note}
-
-\pnum
-\begin{note}
-The address of an array element or non-static data member is not an acceptable
-\grammarterm{template-argument}.
-\begin{example}
-\begin{codeblock}
-template<int* p> class X { };
-
-int a[10];
-struct S { int m; static int s; } s;
-
-X<&a[2]> x3;                    // error: address of array element
-X<&s.m> x4;                     // error: address of non-static member
-X<&s.s> x5;                     // OK: address of static member
-X<&S::s> x6;                    // OK: address of static member
 \end{codeblock}
 \end{example}
 \end{note}
@@ -1291,10 +1279,16 @@ has reference type.
 \begin{codeblock}
 template<const int& CRI> struct B { @\commentellip@ };
 
-B<1> b2;                        // error: temporary would be required for template argument
+B<1> b1;                        // error: temporary would be required for template argument
 
 int c = 1;
-B<c> b1;                        // OK
+B<c> b2;                        // OK
+
+struct X { int n; };
+struct Y { const int &r; };
+template<Y y> struct C { @\commentellip@ };
+C<Y{X{1}.n}> c;                 // error: subobject of temporary object used to initialize
+                                // reference member of template parameter
 \end{codeblock}
 \end{example}
 \end{note}
@@ -1939,25 +1933,68 @@ g(0);                           // selects \#4
 Two \grammarterm{template-id}{s} refer to the same
 class, function, or variable if
 \begin{itemize}
-\item {their \grammarterm{template-name}{s},
-\grammarterm{operator-function-id}{s}, or \grammarterm{literal-operator-id}{s}
-refer to the same template and}
-\item {their corresponding type \grammarterm{template-argument}{s} are the
-same type and}
-\item {their corresponding non-type \grammarterm{template-argument}{s} of
-pointer-to-member type refer to the same class member or are both the null member
-pointer value and}
-\item {their corresponding non-type \grammarterm{template-argument}{s} of
-reference type refer to the same object or function and}
-\item {their remaining corresponding
-non-type \grammarterm{template-argument}{s}
-have the same type and value
-after conversion to the type of the \grammarterm{template-parameter},
-where they are considered to have the same value if they compare equal
-with the \tcode{==} operator\iref{expr.eq}, and}
-\item {their corresponding template \grammarterm{template-argument}{s} refer
-to the same template.}
+\item
+their \grammarterm{template-name}{s},
+\grammarterm{operator-function-id}{s}, or
+\grammarterm{literal-operator-id}{s}
+refer to the same template, and
+
+\item
+their corresponding type \grammarterm{template-argument}{s}
+are the same type, and
+
+\item
+their corresponding non-type \grammarterm{template-argument}{s}
+are template-argument-equivalent (see below)
+after conversion to the type of the \grammarterm{template-parameter}, and
+
+\item
+their corresponding template \grammarterm{template-argument}{s}
+refer to the same template.
 \end{itemize}
+
+\pnum
+Two values are \defn{template-argument-equivalent} if
+they are of the same type and
+\begin{itemize}
+\item
+they are of integral type and their values are the same, or
+
+\item
+they are of floating-point type and their values are identical, or
+
+\item
+they are of type \tcode{std::nullptr_t}, or
+
+\item
+they are of enumeration type and their values are the same,%
+\footnote{The identity of enumerators is not preserved.} or
+
+\item
+they are of pointer type and they have the same pointer value, or
+
+\item
+they are of pointer-to-member type and they refer to the same class member
+or are both the null member pointer value, or
+
+\item
+they are of reference type and they refer to the same object or function, or
+
+\item
+they are of array type and their corresponding elements are template-argument-equivalent,%
+\footnote{An array as a \grammarterm{template-parameter} decays to a pointer.} or
+
+\item
+they are of union type and either
+they both have no active member or
+they have the same active member and their active members are template-argument-equivalent, or
+
+\item
+they are of class type and
+their corresponding direct subobjects and reference members are template-argument-equivalent.
+\end{itemize}
+
+\pnum
 \begin{example}
 \begin{codeblock}
 template<class E, int size> class buffer { @\commentellip@ };

@@ -43,6 +43,15 @@ CWG motion 2: [P1234R5 "Paper name"](http://wg21.link/p1234r5), resolving 3 NB c
 
 ...
 
+## Feature test macros
+
+The feature test macro `__cpp_nontype_template_parameter_class` has been removed
+to indicate that the feature added by [P0732R2](http://wg21.link/p0732r2)
+is no longer present in the same form.
+
+The value of the feature test macro `__cpp_nontype_template_args` has been increased
+to `201911L` to indicate support for [P1907R1](http://wg21.link/p1907r1).
+
 ## Disposition of editorial NB comments on C++ 2020 CD1
 
 Listed below are draft disposition for all comments that were
