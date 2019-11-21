@@ -4402,28 +4402,26 @@ Exchanges the values returned by \tcode{gcount()} and
 \indexlibrarymember{sentry}{basic_istream}%
 \begin{codeblock}
 namespace std {
-  template<class charT, class traits = char_traits<charT>>
+  template<class charT, class traits>
   class basic_istream<charT, traits>::sentry {
-    bool ok_;                   // \expos
+    bool ok;                    // \expos
   public:
     explicit sentry(basic_istream<charT, traits>& is, bool noskipws = false);
-    ~sentry();
-    explicit operator bool() const { return ok_; }
     sentry(const sentry&) = delete;
     sentry& operator=(const sentry&) = delete;
+    ~sentry() {}
+
+    explicit operator bool() const { return ok; }
   };
 }
 \end{codeblock}
 
 \begin{itemdescr}
 \pnum
-The class
-\tcode{sentry}
-defines a class that is responsible for doing exception safe prefix and suffix
-operations.
+The class \tcode{sentry} prepares an input stream
+for a formatted or unformatted input operation.
 \end{itemdescr}
 
-\indexlibraryctor{sentry}%
 \indexlibraryctor{basic_istream::sentry}%
 \begin{itemdecl}
 explicit sentry(basic_istream<charT, traits>& is, bool noskipws = false);
@@ -4432,112 +4430,50 @@ explicit sentry(basic_istream<charT, traits>& is, bool noskipws = false);
 \begin{itemdescr}
 \pnum
 \effects
-If
-\tcode{is.good()}
-is
-\tcode{false},
-calls \tcode{is.setstate(failbit)}. Otherwise,
-prepares for formatted or
-unformatted input.
-First, if
-\tcode{is.tie()}
-is not a null pointer, the
-function calls
-\indexlibraryglobal{flush}%
-\tcode{is.tie()->flush()}
-to synchronize the output sequence with any associated external
-C stream.
-Except that this call can be suppressed if the put area of
-\tcode{is.tie()}
-is empty.
-Further an implementation is allowed to defer the call to
-\tcode{flush}
-until a
-call of
-\tcode{is.rdbuf()->underflow()}
-occurs.
-If no such call occurs before the
-\tcode{sentry}
-object is destroyed, the call to
-\tcode{flush}
-may be eliminated entirely.\footnote{This will be possible only in functions
-that are part of the library.
-The semantics of the constructor used in user code is as specified.}
-If \tcode{noskipws} is zero and
+If \tcode{is.good()} is \tcode{false},
+calls \tcode{is.setstate(failbit)}.
+Otherwise, prepares for formatted or unformatted input as follows:
+\begin{itemize}
+\item
+If \tcode{is.tie()} is not a null pointer and
+the put area of the tied stream is not empty,
+calls \tcode{is.tie()->flush()}.
+If the put area of the tied stream is empty,
+it is unspecified whether \tcode{flush} is called.
+
+\item
+If \tcode{noskipws} is \tcode{false} and
 \tcode{is.flags() \& ios_base::skipws}
-is nonzero, the function extracts and discards each character as long as
-the next available input character \tcode{c} is a whitespace character.
-If
-\tcode{is.rdbuf()->sbumpc()}
-or
-\tcode{is.rdbuf()->sgetc()}
-returns
-\tcode{traits::eof()},
-the function calls
-\tcode{setstate(failbit | eofbit)}
-(which may throw
-\tcode{ios_base::failure}).
+is nonzero, extracts and discards characters until
+the next input character \tcode{c} is not a whitespace character.
+If \tcode{is.rdbuf()->sbumpc()} or \tcode{is.rdbuf()->sgetc()} returns \tcode{traits::eof()},
+calls \tcode{setstate(failbit | eofbit)} (which may throw \tcode{ios_base::failure}).
+\end{itemize}
+Then sets \tcode{ok} to the value of \tcode{is.good()}.
 
 \pnum
 \remarks
-The constructor
-\begin{codeblock}
-explicit sentry(basic_istream<charT, traits>& is, bool noskipws = false)
-\end{codeblock}
-uses the currently imbued locale in \tcode{is},
-to determine whether the next input character is
-whitespace or not.
+Determines whether the character \tcode{c} is a whitespace character by calling
+\tcode{ct.is(ct.space, c)}, where \tcode{ct} is \tcode{use_facet<ctype<charT>>(is.getloc())}.
 
 \pnum
-To decide if the character \tcode{c} is a whitespace character,
-the constructor performs as if it executes the following code fragment:
-\begin{codeblock}
-const ctype<charT>& ctype = use_facet<ctype<charT>>(is.getloc());
-if (ctype.is(ctype.space, c) != 0)
-  // \tcode{c} is a whitespace character.
-\end{codeblock}
-
-\pnum
-If, after any preparation is completed,
-\tcode{is.good()}
-is
-\tcode{true},
-\tcode{ok_ != false}
-otherwise,
-\tcode{ok_ == false}.
-During preparation, the constructor may call
-\tcode{setstate(failbit)}
-(which may throw
-\tcode{ios_base::\brk{}failure}\iref{iostate.flags}).\footnote{The
-\tcode{sentry}
-constructor and destructor
-can also perform additional
+During preparation, the constructor may call \tcode{setstate(failbit)}
+(which may throw \tcode{ios_base::\brk{}failure}\iref{iostate.flags}).%
+% FIXME: Where is the normative justification for this?
+% FIXME: What is an "implementation-dependent operation"?
+\footnote{The \tcode{sentry} constructor and destructor can also perform additional
 \indextext{implementation-dependent}%
 implementation-dependent operations.}
-\end{itemdescr}
 
-\indexlibrarydtor{sentry}%
-\indexlibrarydtor{basic_istream::sentry}%
-\begin{itemdecl}
-~sentry();
-\end{itemdecl}
-
-\begin{itemdescr}
 \pnum
-\effects
-None.
-\end{itemdescr}
-
-\indexlibrarymember{operator bool}{basic_istream::sentry}%
-\begin{itemdecl}
-explicit operator bool() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Returns
-\tcode{ok_}.
+When a formatted or unformatted input function
+that is part of the standard library
+constructs a \tcode{sentry} object,
+and an output stream is tied to \tcode{is},
+the call to \tcode{flush} may be deferred until
+the input function would next call \tcode{is.rdbuf()->underflow()},
+and may be omitted entirely if no such call to \tcode{underflow}
+occurs within the input function.
 \end{itemdescr}
 
 \rSec3[istream.formatted]{Formatted input functions}
@@ -6000,25 +5936,24 @@ Calls \tcode{basic_ios<charT, traits>::swap(rhs)}.
 \indexlibrarymember{sentry}{basic_ostream}%
 \begin{codeblock}
 namespace std {
-  template<class charT, class traits = char_traits<charT>>
+  template<class charT, class traits>
   class basic_ostream<charT, traits>::sentry {
-    bool ok_;       // \expos
+    bool ok;        // \expos
   public:
     explicit sentry(basic_ostream<charT, traits>& os);
-    ~sentry();
-    explicit operator bool() const { return ok_; }
-
     sentry(const sentry&) = delete;
     sentry& operator=(const sentry&) = delete;
+    ~sentry();
+
+    explicit operator bool() const { return ok; }
   };
 }
 \end{codeblock}
 
 \pnum
-The class
-\tcode{sentry}
-defines a class that is responsible for doing exception safe prefix and suffix
-operations.
+The class \tcode{sentry} prepares an output stream
+for a formatted or unformatted output operation,
+and performs cleanup steps after such an operation.
 
 \indexlibraryctor{basic_ostream::sentry}%
 \begin{itemdecl}
@@ -6027,33 +5962,27 @@ explicit sentry(basic_ostream<charT, traits>& os);
 
 \begin{itemdescr}
 \pnum
-If
-\tcode{os.good()}
-is nonzero, prepares for formatted or unformatted output.
-If
-\tcode{os.tie()}
+\effects
+If \tcode{os.good()} is \tcode{true},
+prepares for formatted or unformatted output as follows:
+\begin{itemize}
+\item
+If \tcode{os.tie()}
 is not a null pointer, calls
-\indexlibraryglobal{flush}%
-\tcode{os.tie()->flush()}.\footnote{The call
 \tcode{os.tie()->flush()}
-does not necessarily occur if the function can determine that no
-synchronization is necessary.}
+% FIXME: This is much more vague than the corresponding wording in
+% basic_istream::sentry.
+unless the constructor can determine that no synchronization is necessary.
+\end{itemize}
+Then sets \tcode{ok} to the value of \tcode{is.good()}.
 
 \pnum
-If, after any preparation is completed,
-\tcode{os.good()}
-is
-\tcode{true},
-\tcode{ok_ == true}
-otherwise,
-\tcode{ok_ == false}.
-During preparation, the constructor may call
-\tcode{setstate(failbit)}
-(which may throw
-\tcode{ios_base::\brk{}failure}\iref{iostate.flags}).\footnote{The
-\tcode{sentry}
-constructor and destructor
-can also perform additional
+\remarks
+During preparation, the constructor may call \tcode{setstate(failbit)}
+(which may throw \tcode{ios_base::\brk{}failure}\iref{iostate.flags}).%
+% FIXME: Where is the normative justification for this?
+% FIXME: What is an "implementation-dependent operation"?
+\footnote{The \tcode{sentry} constructor and destructor can also perform additional
 \indextext{implementation-dependent}%
 implementation-dependent operations.}
 \end{itemdescr}
@@ -6065,26 +5994,12 @@ implementation-dependent operations.}
 
 \begin{itemdescr}
 \pnum
-If
-\tcode{(os.flags() \& ios_base::unitbuf) \&\& !uncaught_exceptions()
+If \tcode{(os.flags() \& ios_base::unitbuf) \&\& !uncaught_exceptions()
 \&\& os.good()}
-is
-\tcode{true},
-calls
-\tcode{os.rdbuf()->pubsync()}. If that function returns -1, sets \tcode{badbit} in
+is \tcode{true},
+calls \tcode{os.rdbuf()->pubsync()}.
+If that function returns -1, sets \tcode{badbit} in
 \tcode{os.rdstate()} without propagating an exception.
-\end{itemdescr}
-
-\indexlibrarymember{operator bool}{basic_ostream::sentry}%
-\begin{itemdecl}
-explicit operator bool() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Returns
-\tcode{ok_}.
 \end{itemdescr}
 
 \rSec4[ostream.seeks]{Seek members}
