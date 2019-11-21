@@ -5241,9 +5241,8 @@ constexpr weekday_indexed(const chrono::weekday& wd, unsigned index) noexcept;
 \begin{itemdescr}
 \pnum
 \effects
-Constructs an object of type \tcode{weekday_indexed} by
-initializing \tcode{wd_} with \tcode{wd} and \tcode{index_} with \tcode{index}.
-The values held are unspecified if \tcode{!wd.ok()} or \tcode{index} is not in the range \crange{1}{5}.
+Initializes \tcode{wd_} with \tcode{wd} and \tcode{index_} with \tcode{index}.
+The values held are unspecified if \tcode{!wd.ok()} or \tcode{index} is not in the range \crange{0}{7}.
 \end{itemdescr}
 
 \indexlibrarymember{weekday}{weekday_indexed}%
@@ -6093,7 +6092,8 @@ constexpr year_month operator+(const year_month& ym, const months& dm) noexcept;
 \begin{itemdescr}
 \pnum
 \returns
-A \tcode{year_month} value \tcode{z} such that \tcode{z - ym == dm}.
+A \tcode{year_month} value \tcode{z} such that \tcode{z.ok() \&\& z - ym == dm}
+is \tcode{true}.
 
 \pnum
 \complexity
@@ -6810,8 +6810,11 @@ constexpr chrono::day day() const noexcept;
 \begin{itemdescr}
 \pnum
 \returns
-A \tcode{day} representing the last day of the (\tcode{year}, \tcode{month}) pair
+If \tcode{ok()} is \tcode{true},
+returns a \tcode{day} representing
+the last day of the (\tcode{year}, \tcode{month}) pair
 represented by \tcode{*this}.
+Otherwise, the returned value is unspecified.
 
 \pnum
 \begin{note}
@@ -9382,7 +9385,7 @@ namespace std::chrono {
     explicit zoned_time(string_view name);
 
     template<class Duration2>
-      zoned_time(const zoned_time<Duration2, TimeZonePtr>& zt) noexcept;
+      zoned_time(const zoned_time<Duration2, TimeZonePtr>& zt);
 
     zoned_time(TimeZonePtr z,    const sys_time<Duration>& st);
     zoned_time(string_view name, const sys_time<Duration>& st);
@@ -9442,7 +9445,7 @@ namespace std::chrono {
 
   template<class Duration, class TimeZonePtr, class TimeZonePtr2>
     zoned_time(TimeZonePtr, zoned_time<Duration, TimeZonePtr2>, choose = choose::earliest)
-      -> zoned_time<Duration, TimeZonePtr>;
+      -> zoned_time<common_type_t<Duration, seconds>, TimeZonePtr>;
 }
 \end{codeblock}
 
@@ -9505,8 +9508,8 @@ explicit zoned_time(TimeZonePtr z);
 \pnum
 \effects
 Constructs a \tcode{zoned_time} by
-initializing \tcode{zone_} with \tcode{std::move(z)}.
-% FIXME: What about tp_?
+initializing \tcode{zone_} with \tcode{std::move(z)} and
+default constructing \tcode{tp_}.
 \end{itemdescr}
 
 \begin{itemdecl}
@@ -9529,7 +9532,7 @@ default constructing \tcode{tp_}.
 
 \begin{itemdecl}
 template<class Duration2>
-  zoned_time(const zoned_time<Duration2, TimeZonePtr>& y) noexcept;
+  zoned_time(const zoned_time<Duration2, TimeZonePtr>& y);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -10193,10 +10196,9 @@ according to the following syntax:
     chrono-specs literal-char
 \end{ncbnf}
 
-% FIXME: This should obviously also exclude \tcode{\%}.
 \begin{ncbnf}
 \fmtnontermdef{literal-char}\br
-    \textnormal{any character other than \tcode{\{} or \tcode{\}}}
+    \textnormal{any character other than \tcode{\{}, \tcode{\}}, or \tcode{\%}}
 \end{ncbnf}
 
 \begin{ncbnf}
@@ -10261,6 +10263,19 @@ the \fmtgrammarterm{chrono-format-spec},
 an exception of type \tcode{format_error} is thrown,
 as described above.
 \end{note}
+
+\pnum
+If the type being formatted does not contain
+the information that the format flag needs,
+an exception of type \tcode{format_error} is thrown.
+\begin{example}
+A \tcode{duration} does not contain enough information
+to format as a \tcode{weekday}.
+\end{example}
+However, if a flag refers to a ``time of day''
+(e.g. \tcode{\%H}, \tcode{\%I}, \tcode{\%p}, etc.),
+then a specialization of \tcode{duration} is interpreted as
+the time of day elapsed since midnight.
 
 \begin{LongTable}{Meaning of conversion specifiers}{time.format.spec}{lx{.8\hsize}}
 \\ \topline
@@ -10449,11 +10464,16 @@ the locale's alternate time representation.
 \tcode{\%y} &
 The last two decimal digits of the year.
 If the result is a single digit it is prefixed by \tcode{0}.
+The modified command \tcode{\%Oy} produces the locale's alternative representation.
+The modified command \tcode{\%Ey} produces the locale's alternative representation
+of offset from \tcode{\%EC} (year only).
 \\ \rowsep
 \tcode{\%Y} &
 The year as a decimal number.
 If the result is less than four digits
 it is left-padded with \tcode{0} to four digits.
+The modified command \tcode{\%EY} produces
+the locale's alternative full year representation.
 \\ \rowsep
 \tcode{\%z} &
 The offset from UTC in the ISO 8601 format.
@@ -10685,6 +10705,9 @@ return formatter<chrono::@\placeholder{local-time-format-t}@<Duration>, charT>::
 Each \tcode{parse} overload specified in this subclause
 calls \tcode{from_stream} unqualified,
 so as to enable argument dependent lookup\iref{basic.lookup.argdep}.
+In the following paragraphs,
+let \tcode{is} denote an object of type \tcode{basic_istream<charT, traits>},
+where \tcode{charT} and \tcode{traits} are template parameters in that context.
 
 \begin{itemdecl}
 template<class charT, class traits, class Alloc, class Parsable>
@@ -10740,18 +10763,27 @@ template<class charT, class traits, class Alloc, class Parsable>
 
 \begin{itemdescr}
 \pnum
-\remarks
-This function shall not participate in overload resolution unless
+\constraints
+The expression
 \begin{codeblock}
-from_stream(declval<basic_istream<charT, traits>&>(), fmt.c_str(), tp, nullptr, &offset)
+from_stream(declval<basic_istream<charT, traits>&>(),
+            fmt.c_str(), tp,
+            declval<basic_string<charT, traits, Alloc>*>(),
+            &offset)
 \end{codeblock}
-is a valid expression.
+is well-formed when treated as an unevaluated operand.
 
 \pnum
 \returns
 A manipulator that, when extracted from a
 \tcode{basic_istream<charT, traits>} \tcode{is},
-calls \tcode{from_stream(is, fmt.c_str(), tp, nullptr, \&offset)}.
+calls:
+\begin{codeblock}
+from_stream(is,
+            fmt.c_str(), tp,
+            static_cast<basic_string<charT, traits, Alloc>*>(nullptr),
+            &offset)
+\end{codeblock}
 \end{itemdescr}
 
 \begin{itemdecl}
@@ -10794,6 +10826,18 @@ which governs how many characters are parsed from the stream in interpreting the
 All characters in the format string that are not represented in~\tref{time.parse.spec},
 except for white space, are parsed unchanged from the stream.
 A white space character matches zero or more white space characters in the input stream.
+
+\pnum
+If the type being parsed cannot represent
+the information that the format flag refers to,
+\tcode{is.setstate(ios_base::failbit)} is called.
+\begin{example}
+A \tcode{duration} cannot represent a \tcode{weekday}.
+\end{example}
+However, if a flag refers to a ``time of day''
+(e.g. \tcode{\%H}, \tcode{\%I}, \tcode{\%p}, etc.),
+then a specialization of \tcode{duration} is parsed as
+the time of day elapsed since midnight.
 
 \pnum
 If the \tcode{from_stream} overload fails to parse
@@ -10843,7 +10887,7 @@ The modified command \tcode{\%\placeholder{N}d} specifies
 the maximum number of characters to read.
 If \tcode{\placeholder{N}} is not specified, the default is 2.
 Leading zeroes are permitted but not required.
-The modified command \tcode{\%Ed} interprets
+The modified command \tcode{\%Od} interprets
 the locale's alternative representation of the day of the month.
 \\ \rowsep
 \tcode{\%D} &
@@ -10929,7 +10973,6 @@ For example,
 \\ \rowsep
 \tcode{\%p} &
 The locale's equivalent of the AM/PM designations associated with a 12-hour clock.
-The command \tcode{\%I} must precede \tcode{\%p} in the format string.
 \\ \rowsep
 \tcode{\%r} &
 The locale's 12-hour clock time.
