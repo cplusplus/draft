@@ -63,6 +63,20 @@ and after consulting the paper authors and the LWG chair,
 the corresponding changes were also applied to
 the additional range adaptors listed above.
 
+### LWG motion 16
+
+This paper removed the exposition-only concept *`range-impl`*,
+inlining it into its only remaining user, the `range` concept.
+However, two uses of *`range-impl`* were left behind.
+These have been updated and suitably adjusted
+to refer to `range` instead.
+
+LWG motion 13 ([P1394R4](http://wg21.link/p1394r4))
+added a couple of new uses of
+the exposition-only concept *`forwarding-range`*,
+which was removed by this paper.
+These uses have been replaced with `safe_range`.
+
 ## Feature test macros
 
 The feature test macro `__cpp_nontype_template_parameter_class` has been removed

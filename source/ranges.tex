@@ -50,6 +50,12 @@ namespace std::ranges {
   template<class T>
     concept range = @\seebelow@;
 
+  template<range T>
+    inline constexpr bool enable_safe_range = false;
+
+  template<class T>
+    concept safe_range = @\seebelow@;
+
   template<range R>
     using iterator_t = decltype(ranges::begin(declval<R&>()));
   template<range R>
@@ -116,20 +122,26 @@ namespace std::ranges {
     requires (K == subrange_kind::sized || !sized_sentinel_for<S, I>)
   class subrange;
 
+  template<input_or_output_iterator I, sentinel_for<I> S, subrange_kind K>
+    inline constexpr bool enable_safe_range<subrange<I, S, K>> = true;
+
   // \ref{range.dangling}, dangling iterator handling
   struct dangling;
 
   template<range R>
-    using safe_iterator_t = conditional_t<@\placeholder{forwarding-range}@<R>, iterator_t<R>, dangling>;
+    using safe_iterator_t = conditional_t<safe_range<R>, iterator_t<R>, dangling>;
 
   template<range R>
     using safe_subrange_t =
-      conditional_t<@\placeholder{forwarding-range}@<R>, subrange<iterator_t<R>>, dangling>;
+      conditional_t<safe_range<R>, subrange<iterator_t<R>>, dangling>;
 
   // \ref{range.empty}, empty view
   template<class T>
     requires is_object_v<T>
   class empty_view;
+
+  template<class T>
+    inline constexpr bool enable_safe_range<empty_view<T>> = true;
 
   namespace views {
     template<class T>
@@ -148,6 +160,9 @@ namespace std::ranges {
     requires @\placeholder{weakly-equality-comparable-with}@<W, Bound>
   class iota_view;
 
+  template<weakly_incrementable W, semiregular Bound>
+    inline constexpr bool enable_safe_range<iota_view<W, Bound>> = true;
+
   namespace views { inline constexpr @\unspec@ iota = @\unspec@; }
 
   // \ref{range.all}, all view
@@ -159,6 +174,9 @@ namespace std::ranges {
   template<range R>
     requires is_object_v<R>
   class ref_view;
+
+  template<class T>
+    inline constexpr bool enable_safe_range<ref_view<T>> = true;
 
   // \ref{range.filter}, filter view
   template<input_range V, indirect_unary_predicate<iterator_t<V>> Pred>
@@ -306,21 +324,27 @@ available when \libheaderrefx{iterator}{iterator.synopsis} is included.
 \rSec2[range.access.begin]{\tcode{ranges::begin}}
 \pnum
 The name \tcode{ranges::begin} denotes a customization point
-object\iref{customization.point.object}. The expression
-\tcode{ranges::\brk{}begin(E)} for some subexpression \tcode{E} is
+object\iref{customization.point.object}.
+Given a subexpression \tcode{E} and
+an lvalue \tcode{t} that denotes the same object as \tcode{E},
+if \tcode{E} is an rvalue and
+\tcode{enable_safe_range<remove_cvref_t<decltype((E))>>} is \tcode{false},
+\tcode{ranges::begin(E)} is ill-formed.
+Otherwise,
+\tcode{ranges::begin(E)} is
 expression-equivalent to:
 \begin{itemize}
 \item
-  \tcode{E + 0} if \tcode{E} is an lvalue of array type\iref{basic.compound}.
+  \tcode{t + 0} if \tcode{t} is of array type\iref{basic.compound}.
 
 \item
-  Otherwise, if \tcode{E} is an lvalue,
-  \tcode{\placeholdernc{decay-copy}(E.begin())}
+  Otherwise,
+  \tcode{\placeholdernc{decay-copy}(t.begin())}
   if it is a valid expression and its type \tcode{I} models
   \libconcept{input_or_output_iterator}.
 
 \item
-  Otherwise, \tcode{\placeholdernc{decay-copy}(begin(E))} if it is a
+  Otherwise, \tcode{\placeholdernc{decay-copy}(begin(t))} if it is a
   valid expression and its type \tcode{I} models
   \libconcept{input_or_output_iterator} with overload
   resolution performed in a context that includes the declarations:
@@ -347,24 +371,30 @@ Whenever \tcode{ranges::begin(E)} is a valid expression, its type models
 \rSec2[range.access.end]{\tcode{ranges::end}}
 \pnum
 The name \tcode{ranges::end} denotes a customization point
-object\iref{customization.point.object}. The expression
-\tcode{ranges::end(E)} for some subexpression \tcode{E} is
+object\iref{customization.point.object}.
+Given a subexpression \tcode{E} and
+an lvalue \tcode{t} that denotes the same object as \tcode{E},
+if \tcode{E} is an rvalue and
+\tcode{enable_safe_range<remove_cvref_t<decltype((E))>>} is \tcode{false},
+\tcode{ranges::end(E)} is ill-formed.
+Otherwise,
+\tcode{ranges::end(E)} is
 expression-equivalent to:
 \begin{itemize}
 \item
-  \tcode{E + extent_v<T>} if \tcode{E} is an lvalue of array
+  \tcode{t + extent_v<T>} if \tcode{E} is of array
   type\iref{basic.compound} \tcode{T}.
 
 \item
-  Otherwise, if \tcode{E} is an lvalue,
-  \tcode{\placeholdernc{decay-copy}(E.end())}
+  Otherwise,
+  \tcode{\placeholdernc{decay-copy}(t.end())}
   if it is a valid expression and its type \tcode{S} models
   \begin{codeblock}
 sentinel_for<decltype(ranges::begin(E))>
   \end{codeblock}
 
 \item
-  Otherwise, \tcode{\placeholdernc{decay-copy}(end(E))} if it is a valid
+  Otherwise, \tcode{\placeholdernc{decay-copy}(end(t))} if it is a valid
   expression and its type \tcode{S} models
   \begin{codeblock}
 sentinel_for<decltype(ranges::begin(E))>
@@ -432,17 +462,23 @@ model \tcode{\libconcept{sentinel_for}<S, I>}.
 \rSec2[range.access.rbegin]{\tcode{ranges::rbegin}}
 \pnum
 The name \tcode{ranges::rbegin} denotes a customization point
-object\iref{customization.point.object}. The expression
-\tcode{ranges::\brk{}rbegin(E)} for some subexpression \tcode{E} is
+object\iref{customization.point.object}.
+Given a subexpression \tcode{E} and
+an lvalue \tcode{t} that denotes the same object as \tcode{E},
+if \tcode{E} is an rvalue and
+\tcode{enable_safe_range<remove_cvref_t<decltype((E))>>} is \tcode{false},
+\tcode{ranges::rbegin(E)} is ill-formed.
+Otherwise,
+\tcode{ranges::rbegin(E)} is
 expression-equivalent to:
 \begin{itemize}
 \item
-  If \tcode{E} is an lvalue, \tcode{\placeholdernc{decay-copy}(E.rbegin())}
+  \tcode{\placeholdernc{decay-copy}(t.rbegin())}
   if it is a valid expression and its type \tcode{I} models
   \libconcept{input_or_output_iterator}.
 
 \item
-  Otherwise, \tcode{\placeholdernc{decay-copy}(rbegin(E))} if it is a valid
+  Otherwise, \tcode{\placeholdernc{decay-copy}(rbegin(t))} if it is a valid
   expression and its type \tcode{I} models
   \libconcept{input_or_output_iterator} with overload
   resolution performed in a context that includes the declaration:
@@ -452,8 +488,8 @@ template<class T> void rbegin(T&&) = delete;
   and does not include a declaration of \tcode{ranges::rbegin}.
 
 \item
-  Otherwise, \tcode{make_reverse_iterator(ranges::end(E))} if both
-  \tcode{ranges::begin(E)} and \tcode{ranges::end(\brk{}E)} are valid
+  Otherwise, \tcode{make_reverse_iterator(ranges::end(t))} if both
+  \tcode{ranges::begin(t)} and \tcode{ranges::end(\brk{}t)} are valid
   expressions of the same type \tcode{I} which models
   \libconcept{bidirectional_iterator}\iref{iterator.concept.bidir}.
 
@@ -474,19 +510,25 @@ Whenever \tcode{ranges::rbegin(E)} is a valid expression, its type models
 \rSec2[range.access.rend]{\tcode{ranges::rend}}
 \pnum
 The name \tcode{ranges::rend} denotes a customization point
-object\iref{customization.point.object}. The expression
-\tcode{ranges::rend(E)} for some subexpression \tcode{E} is
+object\iref{customization.point.object}.
+Given a subexpression \tcode{E} and
+an lvalue \tcode{t} that denotes the same object as \tcode{E},
+if \tcode{E} is an rvalue and
+\tcode{enable_safe_range<remove_cvref_t<decltype((E))>>} is \tcode{false},
+\tcode{ranges::rend(E)} is ill-formed.
+Otherwise,
+\tcode{ranges::rend(E)} is
 expression-equivalent to:
 \begin{itemize}
 \item
-  If \tcode{E} is an lvalue, \tcode{\placeholdernc{decay-copy}(E.rend())}
+  \tcode{\placeholdernc{decay-copy}(t.rend())}
   if it is a valid expression and its type \tcode{S} models
   \begin{codeblock}
 sentinel_for<decltype(ranges::rbegin(E))>
   \end{codeblock}
 
 \item
-  Otherwise, \tcode{\placeholdernc{decay-copy}(rend(E))} if it is a valid
+  Otherwise, \tcode{\placeholdernc{decay-copy}(rend(t))} if it is a valid
   expression and its type \tcode{S} models
   \begin{codeblock}
 sentinel_for<decltype(ranges::rbegin(E))>
@@ -499,8 +541,8 @@ template<class T> void rend(T&&) = delete;
   and does not include a declaration of \tcode{ranges::rend}.
 
 \item
-  Otherwise, \tcode{make_reverse_iterator(ranges::begin(E))} if both
-  \tcode{ranges::begin(E)} and \tcode{ranges::\brk{}end(E)} are valid
+  Otherwise, \tcode{make_reverse_iterator(ranges::begin(t))} if both
+  \tcode{ranges::begin(t)} and \tcode{ranges::\brk{}end(t)} are valid
   expressions of the same type \tcode{I} which models
   \libconcept{bidirectional_iterator}\iref{iterator.concept.bidir}.
 
@@ -744,44 +786,37 @@ that denote the elements of the range.
 
 \begin{itemdecl}
 template<class T>
-  concept @\defexposconcept{range-impl}@ =          // \expos
-    requires(T&& t) {
-      ranges::begin(std::forward<T>(t));        // sometimes equality-preserving (see below)
-      ranges::end(std::forward<T>(t));
+  concept @\deflibconcept{range}@ =
+    requires(T& t) {
+      ranges::begin(t);                         // sometimes equality-preserving (see below)
+      ranges::end(t);
     };
-
-template<class T>
-  concept @\deflibconcept{range}@ = @\exposconcept{range-impl}@<T&>;
-
-template<class T>
-  concept @\defexposconcept{forwarding-range}@ =    // \expos
-    range<T> && @\exposconcept{range-impl}@<T>;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 The required expressions
-\tcode{ranges::begin(std::forward<T>(t))}
+\tcode{ranges::begin(t)}
 and
-\tcode{ranges::end(std::forward<\brk{}T>(t))}
-of the \exposconcept{range-impl} concept
+\tcode{ranges::end(t)}
+of the \libconcept{range} concept
 do not require implicit expression variations\iref{concepts.equality}.
 
 \pnum
-Given an expression \tcode{E} such that \tcode{decltype((E))} is \tcode{T},
-\tcode{T} models \tcode{\placeholder{range-impl}} only if
+Given an expression \tcode{t} such that \tcode{decltype((t))} is \tcode{T\&},
+\tcode{T} models \libconcept{range} only if
 \begin{itemize}
-\item \range{ranges::begin(E)}{ranges::end(E)}
+\item \range{ranges::begin(t)}{ranges::end(t)}
   denotes a range\iref{iterator.requirements.general},
 
 \item both
-\tcode{ranges::begin(E)}
+\tcode{ranges::begin(t)}
 and
-\tcode{ranges::end(E)}
+\tcode{ranges::end(t)}
 are amortized constant time and non-modifying, and
 
-\item if the type of \tcode{ranges::begin(E)} models
-\libconcept{forward_iterator}, \tcode{ranges::begin(E)} is equality-preserving.
+\item if the type of \tcode{ranges::begin(t)} models
+\libconcept{forward_iterator}, \tcode{ranges::begin(t)} is equality-preserving.
 \end{itemize}
 
 \pnum
@@ -796,36 +831,60 @@ when the return type does not model \libconcept{forward_iterator}, repeated call
 might not return equal values or might not be well-defined;
 \tcode{ranges::begin} should be called at most once for such a range.
 \end{note}
+\end{itemdescr}
 
+\begin{itemdecl}
+template<class T>
+  concept @\deflibconcept{safe_range}@ =
+    range<T> &&
+      (is_lvalue_reference_v<T> || enable_safe_range<remove_cvref_t<T>>);
+\end{itemdecl}
+
+\begin{itemdescr}
 \pnum
-Given an expression \tcode{E} such that \tcode{decltype((E))} is \tcode{T}
-and an lvalue \tcode{t} that denotes the same object as \tcode{E},
-\tcode{T} models \exposconcept{forwarding-range} only if
-\begin{itemize}
-\item \tcode{ranges::begin(E)} and \tcode{ranges::begin(t)}
-  are expression-equivalent,
-\item \tcode{ranges::end(E)} and \tcode{ranges::end(t)}
-  are expression-equivalent, and
-\item the validity of iterators obtained from the object denoted
-  by \tcode{E} is not tied to the lifetime of that object.
-\end{itemize}
+Given an expression \tcode{E} such that \tcode{decltype((E))} is \tcode{T},
+\tcode{T} models \libconcept{safe_range} only if
+the validity of iterators obtained from the object denoted by \tcode{E}
+is not tied to the lifetime of that object.
 
 \pnum
 \begin{note}
 Since the validity of iterators is not tied to the lifetime of
-an object whose type models \exposconceptnc{forwarding-range},
+an object whose type models \libconcept{safe_range},
 a function can accept arguments of such a type by value and
 return iterators obtained from it without danger of dangling.
 \end{note}
+\end{itemdescr}
+
+\indexlibraryglobal{enable_safe_range}%
+\begin{itemdecl}
+template<class>
+  inline constexpr bool enable_safe_range = false;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\remarks
+Pursuant to \ref{namespace.std}, users may specialize \tcode{enable_safe_range}
+for cv-unqualified program-defined types.
+Such specializations shall be
+usable in constant expressions\iref{expr.const} and
+have type \tcode{const bool}.
 
 \pnum
 \begin{example}
-Specializations of class template \tcode{subrange}\iref{range.subrange}
-model \exposconceptnc{forwarding-range}. \tcode{subrange} provides
-non-member rvalue overloads of \tcode{begin} and \tcode{end} with the same
-semantics as its member lvalue overloads, and \tcode{subrange}'s iterators
--- since they are ``borrowed'' from some other range --
-do not have validity tied to the lifetime of a \tcode{subrange} object.
+Each specialization \tcode{S} of class template \tcode{subrange}\iref{range.subrange}
+models \libconcept{safe_range} because
+\begin{itemize}
+\item
+\tcode{enable_safe_range<S>} is specialized
+to have the value \tcode{true}, and
+
+\item
+\tcode{S}'s iterators
+do not have validity tied to the lifetime of an \tcode{S} object
+because they are ``borrowed'' from some other range.
+\end{itemize}
 \end{example}
 \end{itemdescr}
 
@@ -1061,7 +1120,7 @@ The \libconcept{viewable_range} concept specifies the requirements of a
 \begin{itemdecl}
 template<class T>
   concept @\deflibconcept{viewable_range}@ =
-    range<T> && (@\placeholder{forwarding-range}@<T> || view<decay_t<T>>);
+    range<T> && (safe_range<T> || view<decay_t<T>>);
 \end{itemdecl}
 
 \rSec1[range.utility]{Range utilities}
@@ -1267,11 +1326,11 @@ namespace std::ranges {
       requires (K == subrange_kind::sized);
 
     template<@\exposconcept{not-same-as}@<subrange> R>
-      requires @\exposconcept{forwarding-range}@<R> &&
-        convertible_to<iterator_t<R>, I> && convertible_to<sentinel_t<R>, S>
+      requires safe_range<R> &&
+               convertible_to<iterator_t<R>, I> && convertible_to<sentinel_t<R>, S>
     constexpr subrange(R&& r) requires (!StoreSize || sized_range<R>);
 
-    template<@\exposconcept{forwarding-range}@ R>
+    template<safe_range R>
       requires convertible_to<iterator_t<R>, I> && convertible_to<sentinel_t<R>, S>
     constexpr subrange(R&& r, @\placeholdernc{make-unsigned-like-t}@(iter_difference_t<I>) n)
       requires (K == subrange_kind::sized)
@@ -1310,9 +1369,6 @@ namespace std::ranges {
     [[nodiscard]] constexpr subrange prev(iter_difference_t<I> n = 1) const
       requires bidirectional_iterator<I>;
     constexpr subrange& advance(iter_difference_t<I> n);
-
-    friend constexpr I begin(subrange&& r) { return r.begin(); }
-    friend constexpr S end(subrange&& r) { return r.end(); }
   };
 
   template<input_or_output_iterator I, sentinel_for<I> S>
@@ -1326,13 +1382,13 @@ namespace std::ranges {
     subrange(P, @\placeholdernc{make-unsigned-like-t}@(iter_difference_t<tuple_element_t<0, P>>)) ->
       subrange<tuple_element_t<0, P>, tuple_element_t<1, P>, subrange_kind::sized>;
 
-  template<@\placeholder{forwarding-range}@ R>
+  template<safe_range R>
     subrange(R&&) ->
       subrange<iterator_t<R>, sentinel_t<R>,
                (sized_range<R> || sized_sentinel_for<sentinel_t<R>, iterator_t<R>>)
                  ? subrange_kind::sized : subrange_kind::unsized>;
 
-  template<@\placeholder{forwarding-range}@ R>
+  template<safe_range R>
     subrange(R&&, @\placeholdernc{make-unsigned-like-t}@(range_difference_t<R>)) ->
       subrange<iterator_t<R>, sentinel_t<R>, subrange_kind::sized>;
 
@@ -1398,7 +1454,7 @@ when it stores an iterator and sentinel that do not model
 \indexlibraryctor{subrange}%
 \begin{itemdecl}
 template<@\exposconcept{not-same-as}@<subrange> R>
-  requires @\exposconcept{forwarding-range}@<R> &&
+  requires safe_range<R> &&
            convertible_to<iterator_t<R>, I> && convertible_to<sentinel_t<R>, S>
 constexpr subrange(R&& r) requires (!StoreSize || sized_range<R>);
 \end{itemdecl}
@@ -1596,7 +1652,7 @@ that typically returns an iterator into or subrange of a \tcode{range} argument
 does not return an iterator or subrange
 which could potentially reference a range
 whose lifetime has ended for a particular rvalue \tcode{range} argument
-which does not model \tcode{\placeholder{forwarding-range}}\iref{range.range}.
+which does not model \libconcept{safe_range}\iref{range.range}.
 \indexlibraryglobal{dangling}%
 \begin{codeblock}
 namespace std::ranges {
@@ -1626,7 +1682,7 @@ the \tcode{vector} could potentially be destroyed
 before a returned iterator is dereferenced.
 However, the calls at \#2 and \#3 both return iterators
 since the lvalue \tcode{vec} and specializations of \tcode{subrange}
-model \tcode{\placeholder{forwarding-range}}.
+model \libconcept{safe_range}.
 \end{example}
 
 \rSec1[range.factories]{Range factories}
@@ -1669,9 +1725,6 @@ namespace std::ranges {
     static constexpr T* data() noexcept { return nullptr; }
     static constexpr size_t size() noexcept { return 0; }
     static constexpr bool empty() noexcept { return true; }
-
-    friend constexpr T* begin(empty_view) noexcept { return nullptr; }
-    friend constexpr T* end(empty_view) noexcept { return nullptr; }
   };
 }
 \end{codeblock}
@@ -2692,12 +2745,6 @@ namespace std::ranges {
 
     constexpr auto data() const requires contiguous_range<R>
     { return ranges::data(*r_); }
-
-    friend constexpr iterator_t<R> begin(ref_view r)
-    { return r.begin(); }
-
-    friend constexpr sentinel_t<R> end(ref_view r)
-    { return r.end(); }
   };
   template<class R>
     ref_view(R&) -> ref_view<R>;
