@@ -561,14 +561,8 @@ There can be more than one definition of a
 \begin{itemize}
 \item class type\iref{class},
 \item enumeration type\iref{dcl.enum},
-\item inline function or variable\iref{dcl.inline} with external linkage,
-\item class template\iref{temp},
-\item non-static function template\iref{temp.fct},
-\item concept\iref{temp.concept},
-\item static data member of a class template\iref{temp.static},
-\item member function of a class template\iref{temp.mem.func},
-\item template specialization for which some template parameters are not
-specified~(\ref{temp.spec}, \ref{temp.class.spec}),
+\item inline function or variable\iref{dcl.inline},
+\item templated entity\iref{temp.pre},
 \item default argument for a parameter (for a function in a given scope)%
 \iref{dcl.fct.default}, or
 \item default template argument\iref{temp.param}
@@ -996,7 +990,7 @@ For point of instantiation of a template, see~\ref{temp.point}.
 \indextext{scope!block}%
 \indextext{local scope|see{block scope}}%
 A name declared in a block\iref{stmt.block} is local to that block; it has
-\defn{block scope}.
+\defnx{block scope}{block (statement)!scope}.
 Its potential scope begins at its point of
 declaration\iref{basic.scope.pdecl} and ends at the end of its block.
 A variable declared at block scope is a \defn{local variable}.
@@ -1916,8 +1910,8 @@ namespaces even if they are not visible during an ordinary
 lookup\iref{namespace.memdef}.
 
 \item
-Any declaration \tcode{D} in \tcode{N}
-that is in the interface of
+Any exported declaration \tcode{D} in \tcode{N}
+declared within the purview of
 a named module \tcode{M}\iref{module.interface}
 is visible
 if there is an associated entity attached to \tcode{M}
@@ -1930,7 +1924,7 @@ is visible
 if \tcode{D} would be visible to qualified name lookup\iref{namespace.qual}
 at any point in the instantiation context\iref{module.context} of the lookup,
 unless \tcode{D} is declared in another translation unit, attached to the global module,
-and is either discarded\iref{module.global} or has internal linkage.
+and is either discarded\iref{module.global.frag} or has internal linkage.
 \end{itemize}
 
 \pnum
@@ -1942,7 +1936,7 @@ namespace R {
   export void f(X);
 }
 namespace S {
-  export void f(X, X);
+  export void f(R::X, R::X);
 }
 \end{codeblocktu}
 
@@ -2613,11 +2607,6 @@ of a sequence of declarations.
 \end{bnf}
 
 \begin{bnf}
-\nontermdef{private-module-fragment}\br
-    \keyword{module} \terminal{:} \keyword{private} \terminal{;} \opt{top-level-declaration-seq}
-\end{bnf}
-
-\begin{bnf}
 \nontermdef{top-level-declaration-seq}\br
     top-level-declaration\br
     top-level-declaration-seq top-level-declaration
@@ -2628,13 +2617,6 @@ of a sequence of declarations.
     module-import-declaration\br
     declaration
 \end{bnf}
-
-\pnum
-A \grammarterm{private-module-fragment} shall appear only
-in a primary module interface unit\iref{module.unit}.
-A module unit with a \grammarterm{private-module-fragment}
-shall be the only module unit of its module;
-no diagnostic is required.
 
 \pnum
 A token sequence beginning with
@@ -2825,11 +2807,10 @@ and are declared in the same translation unit; and
 \item both names refer to members of the same namespace or to members,
 not by inheritance, of the same class; and
 
-\item when both names denote functions, the parameter-type-lists of the
-functions\iref{dcl.fct} are identical; and
+\item when both names denote functions or function templates,
+the signatures~(\ref{defns.signature}, \ref{defns.signature.templ})
+are the same.
 
-\item when both names denote function templates, the
-signatures\iref{temp.over.link} are the same.
 \end{itemize}
 If multiple declarations of the same name with external linkage
 would declare the same entity except that
@@ -3023,24 +3004,6 @@ the storage for the new object exactly overlays the storage location associated 
 \item
 the new object is of the same type as \placeholder{e} (ignoring cv-qualification).
 \end{itemize}
-\begin{note}
-If the subobject contains a reference member or a \tcode{const} subobject,
-the name of the original subobject cannot be used to access the new object\iref{basic.life}.
-\end{note}
-\begin{example}
-\begin{codeblock}
-struct X { const int n; };
-union U { X x; float f; };
-void tong() {
-  U u = {{ 1 }};
-  u.f = 5.f;                            // OK, creates new subobject of \tcode{u}\iref{class.union}
-  X *p = new (&u.x) X {2};              // OK, creates new subobject of \tcode{u}
-  assert(p->n == 2);                    // OK
-  assert(*std::launder(&u.x.n) == 2);   // OK
-  assert(u.x.n == 2);                   // undefined behavior, \tcode{u.x} does not name new subobject
-}
-\end{codeblock}
-\end{example}
 
 \pnum
 \indextext{object!providing storage for}%
@@ -3365,9 +3328,9 @@ location which the original object occupied, and
 \item the new object is of the same type as the original object
 (ignoring the top-level cv-qualifiers), and
 
-\item the type of the original object is not const-qualified, and, if a
-class type, does not contain any non-static data member whose type is
-const-qualified or a reference type, and
+\item the original object is neither
+a complete object that is const-qualified nor
+a subobject of such an object, and
 
 \item neither the original object nor the new object
 is a potentially-overlapping subobject\iref{intro.object}.
@@ -3581,7 +3544,7 @@ causes a system-generated runtime fault.}
 All variables which do not have dynamic storage duration, do not have thread
 storage duration, and are not local
 have \defn{static storage duration}. The
-storage for these entities shall last for the duration of the
+storage for these entities lasts for the duration of the
 program~(\ref{basic.start.static}, \ref{basic.start.term}).
 
 \pnum
@@ -3610,14 +3573,17 @@ definition gives the data member static storage duration.
 \pnum
 All variables declared with the \tcode{thread_local} keyword have
 \defnadj{thread}{storage duration}.
-The storage for these entities shall last for the duration of
+The storage for these entities lasts for the duration of
 the thread in which they are created. There is a distinct object or reference
 per thread, and use of the declared name refers to the entity associated with
 the current thread.
 
 \pnum
-A variable with thread storage duration shall be initialized before
-its first odr-use\iref{basic.def.odr} and, if constructed, shall be destroyed on thread exit.
+\begin{note}
+A variable with thread storage duration is initialized as specified
+in~\ref{basic.start.static}, \ref{basic.start.dynamic}, and \ref{stmt.dcl}
+and, if constructed, is destroyed on thread exit\iref{basic.start.term}.
+\end{note}
 
 \rSec3[basic.stc.auto]{Automatic storage duration}
 
@@ -3699,13 +3665,13 @@ the names \tcode{std},
 \tcode{std::align_val_t},
 or any other names that the library uses to
 declare these names. Thus, a \grammarterm{new-expression},
-\grammarterm{delete-expression} or function call that refers to one of
-these functions without including the header \libheaderref{new} is
+\grammarterm{delete-expression}, or function call that refers to one of
+these functions without importing or including the header \libheaderref{new} is
 well-formed. However, referring to \tcode{std}
 or \tcode{std::size_t}
 or \tcode{std::align_val_t}
 is ill-formed unless the name has been declared
-by including the appropriate header.
+by importing or including the appropriate header.
 \end{note}
 Allocation and/or
 deallocation functions may also be declared and defined for any
@@ -4481,7 +4447,7 @@ is copied back into the object, the object shall
 subsequently hold its original value.
 \begin{example}
 \begin{codeblock}
-#define N sizeof(T)
+constexpr std::size_t N = sizeof(T);
 char buf[N];
 T obj;                          // \tcode{obj} initialized to its original value
 std::memcpy(buf, &obj, N);      // between these two calls to \tcode{std::memcpy}, \tcode{obj} might be modified
@@ -5008,7 +4974,7 @@ an object type.
 \end{note}
 The type of a pointer that can designate a function
 is called a \defn{function pointer type}.
-A pointer to objects of type \tcode{T} is referred to as a ``pointer to
+A pointer to an object of type \tcode{T} is referred to as a ``pointer to
 \tcode{T}''.
 \begin{example}
 A pointer to an object of type \tcode{int} is
@@ -5058,7 +5024,9 @@ and comparison~(\ref{expr.rel}, \ref{expr.eq}),
 a pointer past the end of the last element of
 an array \tcode{x} of $n$ elements
 is considered to be equivalent to
-a pointer to a hypothetical element \tcode{x[$n$]}.
+a pointer to a hypothetical array element $n$ of \tcode{x} and
+an object of type \tcode{T} that is not an array element
+is considered to belong to an array with one element of type \tcode{T}.
 The value representation of
 pointer types is \impldef{value representation of pointer types}. Pointers to
 layout-compatible types shall
@@ -5268,7 +5236,7 @@ rank than \tcode{T3}, then \tcode{T1} shall have greater rank than
 \begin{note}
 The integer conversion rank is used in the definition of the integral
 promotions\iref{conv.prom} and the usual arithmetic
-conversions\iref{expr.prop}.
+conversions\iref{expr.arith.conv}.
 \end{note}
 
 \rSec1[basic.exec]{Program execution}
@@ -5351,7 +5319,8 @@ a \grammarterm{mem-initializer}\iref{class.base.init},
 including the constituent expressions of the initializer,
 \item
 an invocation of a destructor generated at the end of the lifetime
-of an object other than a temporary object\iref{class.temporary}, or
+of an object other than a temporary object\iref{class.temporary}
+whose lifetime has not been extended, or
 \item
 an expression that is not a subexpression of another expression and
 that is not otherwise part of a full-expression.
@@ -6137,7 +6106,8 @@ guarantees, but will fail to make progress under weakly parallel guarantees.
 
 \pnum
 \indextext{forward progress guarantees!delegation of}%
-When a thread of execution \placeholder{P} is specified to \defn{block with forward
+When a thread of execution \placeholder{P} is specified to \defnx{block with forward
+progress guarantee delegation}{block (execution)!with forward
 progress guarantee delegation} on the completion of a set \placeholder{S} of threads
 of execution, then throughout the whole time of \placeholder{P} being blocked on
 \placeholder{S}, the implementation shall ensure that the forward progress guarantees
@@ -6374,30 +6344,41 @@ variable template specialization has ordered initialization.
 \end{note}
 
 \pnum
+A declaration \tcode{D} is
+\defn{appearance-ordered} before a declaration \tcode{E} if
+\begin{itemize}
+\item \tcode{D} appears in the same translation unit as \tcode{E}, or
+\item the translation unit containing \tcode{E}
+has an interface dependency on the translation unit containing \tcode{D},
+\end{itemize}
+in either case prior to \tcode{E}.
+
+\pnum
 Dynamic initialization of non-local variables \tcode{V} and \tcode{W}
 with static storage duration are ordered as follows:
 \begin{itemize}
 \item
-If \tcode{V} and \tcode{W} have
-ordered initialization and \tcode{V} is defined before \tcode{W} within
-a single translation unit, the initialization of \tcode{V} is sequenced
-before the initialization of \tcode{W}.
-
-\item
-If \tcode{V} has partially-ordered initialization, \tcode{W} does not have
-unordered initialization, and \tcode{V} is defined before \tcode{W} in
-every translation unit in which \tcode{W} is defined, then
+If \tcode{V} and \tcode{W} have ordered initialization and
+the definition of \tcode{V}
+is appearance-ordered before the definition of \tcode{W}, or
+if \tcode{V} has partially-ordered initialization,
+\tcode{W} does not have unordered initialization, and
+for every definition \tcode{E} of \tcode{W}
+there exists a definition \tcode{D} of \tcode{V}
+such that \tcode{D} is appearance-ordered before \tcode{E}, then
 \begin{itemize}
 \item
-if the program starts a thread\iref{intro.multithread}
-other than the main thread\iref{basic.start.main},
+if the program does not start a thread\iref{intro.multithread}
+other than the main thread\iref{basic.start.main}
+or \tcode{V} and \tcode{W} have ordered initialization and
+they are defined in the same translation unit,
 the initialization of \tcode{V}
-strongly happens before
+is sequenced before
 the initialization of \tcode{W};
 \item
 otherwise,
 the initialization of \tcode{V}
-is sequenced before
+strongly happens before
 the initialization of \tcode{W}.
 \end{itemize}
 

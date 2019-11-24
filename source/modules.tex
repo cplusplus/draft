@@ -220,18 +220,6 @@ A declaration is \defnx{exported}{declaration!exported} if it is
 \item a declaration within a header unit\iref{module.import}
       that introduces at least one name.
 \end{itemize}
-The \defnx{interface}{module!interface} of a module \tcode{M}
-is the set of all exported declarations within its purview.
-\begin{example}
-\begin{codeblock}
-export module M;
-namespace A {                   // exported
-  export int f();               // exported
-  int g();                      // not exported
-}
-\end{codeblock}
-The interface of \tcode{M} comprises \tcode{A} and \tcode{A::f}.
-\end{example}
 
 \pnum
 An exported declaration shall declare at least one name.
@@ -507,11 +495,12 @@ all translation units imported by
 exported \grammarterm{module-import-declaration}{s}
 in $T$; such translation units are
 said to be \defnx{exported}{module!exported} by $T$.
-When a \grammarterm{module-import-declaration} in a module unit imports
-another module unit of the same module, it also imports
-all translation units imported by
-all \grammarterm{module-import-declaration}{s}
-in that module unit.
+Additionally, when a \grammarterm{module-import-declaration}
+in a module unit of some module $M$ imports another module unit $U$ of $M$,
+it also imports all translation units imported by
+non-exported \grammarterm{module-import-declaration}{s}
+in the module unit purview of $U$.\footnote{This is consistent
+with the rules for visibility of imported names\iref{basic.scope.namespace}.}
 These rules may in turn lead to the importation of yet more
 translation units.
 
@@ -541,10 +530,10 @@ import M;               // error: cannot import \tcode{M} in its own unit
 \end{example}
 
 \pnum
-A translation unit has an \defn{interface dependency} on a module unit \tcode{U}
+A translation unit has an \defn{interface dependency} on a translation unit \tcode{U}
 if it contains a \grammarterm{module-declaration} or
 \grammarterm{module-import-declaration} that imports \tcode{U} or if it has
-an interface dependency on a module unit that has an interface dependency on \tcode{U}.
+an interface dependency on a translation unit that has an interface dependency on \tcode{U}.
 A translation unit shall not have an interface dependency on itself.
 \begin{example}
 \begin{codeblocktu}{Interface unit of \tcode{M1}}
@@ -563,7 +552,7 @@ import M1;              // error: cyclic interface dependency $\mathtt{M3} \righ
 \end{codeblocktu}
 \end{example}
 
-\rSec1[module.global]{Global module fragment}
+\rSec1[module.global.frag]{Global module fragment}
 
 \begin{bnf}
 \nontermdef{global-module-fragment}\br
@@ -574,7 +563,7 @@ import M1;              // error: cyclic interface dependency $\mathtt{M3} \righ
 \begin{note}
 Prior to phase 4 of translation,
 only preprocessing directives can appear
-in the \grammarterm{top-level-declaration-seq}\iref{cpp.glob.frag}.
+in the \grammarterm{top-level-declaration-seq}\iref{cpp.global.frag}.
 \end{note}
 
 \pnum
@@ -770,6 +759,75 @@ int c = use_h<int>();           // OK
 \end{codeblocktu}
 \end{example}
 
+\rSec1[module.private.frag]{Private module fragment}
+
+\begin{bnf}
+\nontermdef{private-module-fragment}\br
+    \keyword{module} \terminal{:} \keyword{private} \terminal{;} \opt{top-level-declaration-seq}
+\end{bnf}
+
+\pnum
+A \grammarterm{private-module-fragment} shall appear only
+in a primary module interface unit\iref{module.unit}.
+A module unit with a \grammarterm{private-module-fragment}
+shall be the only module unit of its module;
+no diagnostic is required.
+
+\pnum
+\begin{note}
+A \grammarterm{private-module-fragment} ends
+the portion of the module interface unit
+that can affect the behavior of other translation units.
+A \grammarterm{private-module-fragment} allows a module
+to be represented as a single translation unit
+without making all of the contents of the module reachable to importers.
+The presence of a \grammarterm{private-module-fragment} affects:
+\begin{itemize}
+\item
+the point by which the definition of
+an exported inline function
+is required\iref{dcl.inline},
+
+\item
+the point by which the definition of
+an exported function with a placeholder return type
+is required\iref{dcl.spec.auto},
+
+\item
+the instantiation contexts of templates
+instantiated before it\iref{module.context}, and
+
+\item
+the reachability of declarations within it\iref{module.reach}.
+\end{itemize}
+\end{note}
+
+\pnum
+\begin{example}
+\begin{codeblock}
+export module A;
+export inline void fn_e();      // error: exported inline function \tcode{fn_e} not defined
+                                // before private module fragment
+inline void fn_m();             // OK, module-linkage inline function
+static void fn_s();
+export struct X;
+export void g(X *x) {
+  fn_s();                       // OK, call to static function in same translation unit
+  fn_m();                       // OK, call to module-linkage inline function
+}
+export X *factory();            // OK
+
+module :private;
+struct X {};                    // definition not reachable from importers of \tcode{A}
+X *factory() {
+   return new X ();
+}
+void fn_e() {}
+void fn_m() {}
+void fn_s() {}
+\end{codeblock}
+\end{example}
+
 \rSec1[module.context]{Instantiation context}
 
 \pnum
@@ -913,7 +971,7 @@ for any point $P$ in the
 instantiation context\iref{module.context},
 \begin{itemize}
 \item $D$ appears prior to $P$ in the same translation unit, or
-\item $D$ is not discarded\iref{module.global},
+\item $D$ is not discarded\iref{module.global.frag},
 appears in a translation unit that is
 reachable from $P$,
 and
@@ -980,14 +1038,16 @@ An entity can have reachable declarations
 even if it is not visible to name lookup.
 \end{note}
 \begin{example}
-\begin{codeblock}
+\begin{codeblocktu}{Translation unit \#1}
 export module A;
 struct X {};
 export using Y = X;
+\end{codeblocktu}
 
+\begin{codeblocktu}{Translation unit \#2}
 module B;
 import A;
 Y y;                // OK, definition of \tcode{X} is reachable
 X x;                // ill-formed: \tcode{X} not visible to unqualified lookup
-\end{codeblock}
+\end{codeblocktu}
 \end{example}

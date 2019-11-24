@@ -226,7 +226,7 @@ The \grammarterm{requires-clause} introduces the
 the \grammarterm{constraint-logical-or-expression} as a
 \grammarterm{constraint-expression}.
 The \grammarterm{constraint-logical-or-expression} of a
-\grammarterm{requires-clause} is an unevaluated operand\iref{expr}.
+\grammarterm{requires-clause} is an unevaluated operand\iref{expr.context}.
 \begin{note}
 The expression in a \grammarterm{requires-clause}
 uses a restricted grammar to avoid ambiguities.
@@ -367,22 +367,10 @@ class Map {
 A non-type \grammarterm{template-parameter}
 shall have one of the following (optionally cv-qualified) types:
 \begin{itemize}
-\item a literal type that
-  has strong structural equality\iref{class.compare.default},
-
-\item an lvalue reference type,
-
+\item a structural type (see below),
 \item a type that contains a placeholder type\iref{dcl.spec.auto}, or
-
 \item a placeholder for a deduced class type\iref{dcl.type.class.deduct}.
 \end{itemize}
-
-\pnum
-\begin{note}
-Other types are disallowed either explicitly below or implicitly by
-the rules governing the form of
-\grammarterm{template-argument}{s}\iref{temp.arg}.
-\end{note}
 The top-level
 \grammarterm{cv-qualifier}{s}
 on the
@@ -390,9 +378,21 @@ on the
 are ignored when determining its type.
 
 \pnum
-When a non-type \grammarterm{template-parameter}
-of non-reference and non-class type
-is used as an initializer for a reference, a temporary is always used.
+A \defnadj{structural}{type} is one of the following:
+\begin{itemize}
+\item a scalar type, or
+\item an lvalue reference type, or
+\item a literal class type with the following properties:
+\begin{itemize}
+\item
+all base classes and non-static data members are public and non-mutable and
+\item
+the types of all bases classes and non-static data members are
+structural types or (possibly multi-dimensional) array thereof.
+\end{itemize}
+\end{itemize}
+
+\pnum
 An \grammarterm{id-expression} naming
 a non-type \grammarterm{template-parameter} of class type \tcode{T}
 denotes a static storage duration object of type \tcode{const T},
@@ -402,6 +402,7 @@ after it has been converted
 to the type of the \grammarterm{template-parameter}.
 All such template parameters in the program of the same type
 with the same value denote the same template parameter object.
+A template parameter object shall have constant destruction\iref{expr.const}.
 \begin{note}
 If an \grammarterm{id-expression} names
 a non-type non-reference \grammarterm{template-parameter},
@@ -412,9 +413,9 @@ it is an lvalue and has type \tcode{const T}\iref{expr.prim.id.unqual}.
 \begin{example}
 \begin{codeblock}
 using X = int;
-struct A { friend bool operator==(const A&, const A&) = default; };
+struct A {};
 template<const X& x, int i, A a> void f() {
-  i++;                          // error: change of template-parameter value
+  i++;                          // error: change of \grammarterm{template-parameter} value
 
   &x;                           // OK
   &i;                           // error: address of non-reference template-parameter
@@ -427,16 +428,17 @@ template<const X& x, int i, A a> void f() {
 \end{example}
 
 \pnum
+\begin{note}
 A non-type
 \grammarterm{template-parameter}
-shall not be declared to have floating-point or void type.
+cannot be declared to have type \cv{} \tcode{void}.
 \begin{example}
 \begin{codeblock}
-template<double d> class X;     // error
-template<double* pd> class Y;   // OK
-template<double& rd> class Z;   // OK
+template<void v> class X;       // error
+template<void* pv> class Y;     // OK
 \end{codeblock}
 \end{example}
+\end{note}
 
 \pnum
 A non-type
@@ -938,6 +940,29 @@ template<> struct S<char[2]> { };   // error: constraints not satisfied
 \end{codeblock}
 \end{example}
 
+\pnum
+A \defn{concept-id} is a \grammarterm{simple-template-id}
+where the \grammarterm{template-name} is a \grammarterm{concept-name}.
+A concept-id is a prvalue of type \tcode{bool}, and
+does not name a template specialization.
+A concept-id evaluates to \tcode{true}
+if the concept's
+normalized \grammarterm{constraint-expression}\iref{temp.constr.decl}
+is satisfied\iref{temp.constr.constr} by the specified template arguments and
+\tcode{false} otherwise.
+\begin{note}
+Since a \grammarterm{constraint-expression} is an unevaluated operand,
+a concept-id appearing in a \grammarterm{constraint-expression}
+is not evaluated except as necessary
+to determine whether the normalized constraints are satisfied.
+\end{note}
+\begin{example}
+\begin{codeblock}
+template<typename T> concept C = true;
+static_assert(C<int>);      // OK
+\end{codeblock}
+\end{example}
+
 \rSec1[temp.arg]{Template arguments}
 
 \pnum
@@ -1187,25 +1212,26 @@ A \grammarterm{template-argument}
 for a non-type \grammarterm{template-parameter}
 shall be a converted constant expression\iref{expr.const}
 of the type of the \grammarterm{template-parameter}.
-For a non-type \grammarterm{template-parameter} of reference or pointer type,
-or for each non-static data member of reference or pointer type
-in a non-type \grammarterm{template-parameter} of class type or subobject thereof,
-the reference or pointer value shall not refer to
-or be the address of (respectively):
-\begin{itemize}
-\item a subobject\iref{intro.object},
-\item a temporary object\iref{class.temporary},
-\item a string literal\iref{lex.string},
-\item the result of a \tcode{typeid} expression\iref{expr.typeid}, or
-\item a predefined \mname{func} variable\iref{dcl.fct.def.general}.
-\end{itemize}
-
 \begin{note}
 If the \grammarterm{template-argument}
 represents a set of overloaded functions
 (or a pointer or member pointer to such),
 the matching function is selected from the set\iref{over.over}.
 \end{note}
+
+\pnum
+For a non-type \grammarterm{template-parameter} of reference or pointer type,
+or for each non-static data member of reference or pointer type
+in a non-type \grammarterm{template-parameter} of class type or subobject thereof,
+the reference or pointer value shall not refer to
+or be the address of (respectively):
+\begin{itemize}
+\item a temporary object\iref{class.temporary},
+\item a string literal\iref{lex.string},
+\item the result of a \tcode{typeid} expression\iref{expr.typeid},
+\item a predefined \mname{func} variable\iref{dcl.fct.def.general}, or
+\item a subobject\iref{intro.object} of one of the above.
+\end{itemize}
 
 \pnum
 \begin{example}
@@ -1231,9 +1257,10 @@ template<void (*pf)(int)> struct A { @\commentellip@ };
 A<&f> a;                        // selects \tcode{f(int)}
 
 template<auto n> struct B { @\commentellip@ };
-B<5> b1;                        // OK: template parameter type is \tcode{int}
-B<'a'> b2;                      // OK: template parameter type is \tcode{char}
-B<2.5> b3;                      // error: template parameter type cannot be \tcode{double}
+B<5> b1;                        // OK, template parameter type is \tcode{int}
+B<'a'> b2;                      // OK, template parameter type is \tcode{char}
+B<2.5> b3;                      // OK, template parameter type is \tcode{double}
+B<void(0)> b4;                  // error: template parameter type cannot be \tcode{void}
 \end{codeblock}
 \end{example}
 
@@ -1248,36 +1275,17 @@ template<class T, T p> class X {
   @\commentellip@
 };
 
-X<const char*, "Studebaker"> x; // error: string literal as template-argument
+X<const char*, "Studebaker"> x; // error: string literal as \grammarterm{template-argument}
+X<const char*, "Knope" + 1> x2; // error: subobject of string literal as \grammarterm{template-argument}
 
 const char p[] = "Vivisectionist";
 X<const char*, p> y;            // OK
 
 struct A {
   constexpr A(const char*) {}
-  friend bool operator==(const A&, const A&) = default;
 };
 
 X<A, "Pyrophoricity"> z;        // OK, string literal is a constructor argument to \tcode{A}
-\end{codeblock}
-\end{example}
-\end{note}
-
-\pnum
-\begin{note}
-The address of an array element or non-static data member is not an acceptable
-\grammarterm{template-argument}.
-\begin{example}
-\begin{codeblock}
-template<int* p> class X { };
-
-int a[10];
-struct S { int m; static int s; } s;
-
-X<&a[2]> x3;                    // error: address of array element
-X<&s.m> x4;                     // error: address of non-static member
-X<&s.s> x5;                     // OK: address of static member
-X<&S::s> x6;                    // OK: address of static member
 \end{codeblock}
 \end{example}
 \end{note}
@@ -1294,10 +1302,16 @@ has reference type.
 \begin{codeblock}
 template<const int& CRI> struct B { @\commentellip@ };
 
-B<1> b2;                        // error: temporary would be required for template argument
+B<1> b1;                        // error: temporary would be required for template argument
 
 int c = 1;
-B<c> b1;                        // OK
+B<c> b2;                        // OK
+
+struct X { int n; };
+struct Y { const int &r; };
+template<Y y> struct C { @\commentellip@ };
+C<Y{X{1}.n}> c;                 // error: subobject of temporary object used to initialize
+                                // reference member of template parameter
 \end{codeblock}
 \end{example}
 \end{note}
@@ -1548,6 +1562,47 @@ of \tcode{f}, the constraint \tcode{sizeof(char) > 1} is not satisfied;
 the second operand is not checked for satisfaction.
 \end{example}
 
+\pnum
+\begin{note}
+A logical negation expression\iref{expr.unary.op} is an atomic constraint;
+the negation operator is not treated as a logical operation on constraints.
+As a result, distinct negation \grammarterm{constraint-expression}{s}
+that are equivalent under~\ref{temp.over.link}
+do not subsume one another under~\ref{temp.constr.order}.
+Furthermore, if substitution to determine
+whether an atomic constraint is satisfied\iref{temp.constr.atomic}
+encounters a substitution failure, the constraint is not satisfied,
+regardless of the presence of a negation operator.
+\begin{example}
+\begin{codeblock}
+template <class T> concept sad = false;
+
+template <class T> int f1(T) requires (!sad<T>);
+template <class T> int f1(T) requires (!sad<T>) && true;
+int i1 = f1(42);        // ambiguous, \tcode{!sad<T>} atomic constraint expressions\iref{temp.constr.atomic}
+                        // are not formed from the same \grammarterm{expression}
+
+template <class T> concept not_sad = !sad<T>;
+template <class T> int f2(T) requires not_sad<T>;
+template <class T> int f2(T) requires not_sad<T> && true;
+int i2 = f2(42);        // OK, \tcode{!sad<T>} atomic constraint expressions both come from \tcode{not_sad}
+
+template <class T> int f3(T) requires (!sad<typename T::type>);
+int i3 = f3(42);        // error, associated constraints not satisfied due to substitution failure
+
+template <class T> concept sad_nested_type = sad<typename T::type>;
+template <class T> int f4(T) requires (!sad_nested_type<T>);
+int i4 = f4(42);        // OK, substitution failure contained within \tcode{sad_nested_type}
+\end{codeblock}
+Here,
+\tcode{requires (!sad<typename T::type>)} requires
+that there is a nested \tcode{type} that is not \tcode{sad},
+whereas
+\tcode{requires (!sad_nested_type<T>)} requires
+that there is no \tcode{sad} nested \tcode{type}.
+\end{example}
+\end{note}
+
 \rSec3[temp.constr.atomic]{Atomic constraints}
 
 \pnum
@@ -1609,7 +1664,7 @@ void g() {
 
 \pnum
 A template declaration\iref{temp}
-or function declaration\iref{dcl.fct}
+or templated function declaration\iref{dcl.fct}
 can be constrained by the use of a \grammarterm{requires-clause}.
 This allows the specification of constraints for that declaration as
 an expression:
@@ -1621,14 +1676,14 @@ an expression:
 
 \pnum
 Constraints can also be associated with a declaration through the use of
-\grammarterm{type-constraint}{s} in a
-\grammarterm{template-parameter-list}.
+\grammarterm{type-constraint}{s}
+in a \grammarterm{template-parameter-list} or parameter-type-list.
 Each of these forms introduces additional \grammarterm{constraint-expression}{s}
 that are used to constrain the declaration.
 
 \pnum
 \indextext{constraint!associated|see{associated constraints}}%
-A template's \defn{associated constraints} are defined as follows:
+A declaration's \defn{associated constraints} are defined as follows:
 
 \begin{itemize}
 \item If there are no introduced \grammarterm{constraint-expression}{s},
@@ -1722,8 +1777,7 @@ is the conjunction of
 the normal forms of \tcode{E1} and \tcode{E2}.
 
 \item
-The normal form of an \grammarterm{id-expression} of the form
-\tcode{C<A$_1$, A$_2$, ..., A$_n$>}, where \tcode{C} names a concept,
+The normal form of a concept-id \tcode{C<A$_1$, A$_2$, ..., A$_n$>}
 is the normal form of the \grammarterm{constraint-expression} of \tcode{C},
 after substituting \tcode{A$_1$, A$_2$, ..., A$_n$} for
 \tcode{C}{'s} respective template parameters in the
@@ -1901,25 +1955,68 @@ g(0);                           // selects \#4
 Two \grammarterm{template-id}{s} refer to the same
 class, function, or variable if
 \begin{itemize}
-\item {their \grammarterm{template-name}{s},
-\grammarterm{operator-function-id}{s}, or \grammarterm{literal-operator-id}{s}
-refer to the same template and}
-\item {their corresponding type \grammarterm{template-argument}{s} are the
-same type and}
-\item {their corresponding non-type \grammarterm{template-argument}{s} of
-pointer-to-member type refer to the same class member or are both the null member
-pointer value and}
-\item {their corresponding non-type \grammarterm{template-argument}{s} of
-reference type refer to the same object or function and}
-\item {their remaining corresponding
-non-type \grammarterm{template-argument}{s}
-have the same type and value
-after conversion to the type of the \grammarterm{template-parameter},
-where they are considered to have the same value if they compare equal
-with the \tcode{==} operator\iref{expr.eq}, and}
-\item {their corresponding template \grammarterm{template-argument}{s} refer
-to the same template.}
+\item
+their \grammarterm{template-name}{s},
+\grammarterm{operator-function-id}{s}, or
+\grammarterm{literal-operator-id}{s}
+refer to the same template, and
+
+\item
+their corresponding type \grammarterm{template-argument}{s}
+are the same type, and
+
+\item
+their corresponding non-type \grammarterm{template-argument}{s}
+are template-argument-equivalent (see below)
+after conversion to the type of the \grammarterm{template-parameter}, and
+
+\item
+their corresponding template \grammarterm{template-argument}{s}
+refer to the same template.
 \end{itemize}
+
+\pnum
+Two values are \defn{template-argument-equivalent} if
+they are of the same type and
+\begin{itemize}
+\item
+they are of integral type and their values are the same, or
+
+\item
+they are of floating-point type and their values are identical, or
+
+\item
+they are of type \tcode{std::nullptr_t}, or
+
+\item
+they are of enumeration type and their values are the same,%
+\footnote{The identity of enumerators is not preserved.} or
+
+\item
+they are of pointer type and they have the same pointer value, or
+
+\item
+they are of pointer-to-member type and they refer to the same class member
+or are both the null member pointer value, or
+
+\item
+they are of reference type and they refer to the same object or function, or
+
+\item
+they are of array type and their corresponding elements are template-argument-equivalent,%
+\footnote{An array as a \grammarterm{template-parameter} decays to a pointer.} or
+
+\item
+they are of union type and either
+they both have no active member or
+they have the same active member and their active members are template-argument-equivalent, or
+
+\item
+they are of class type and
+their corresponding direct subobjects and reference members are template-argument-equivalent.
+\end{itemize}
+
+\pnum
 \begin{example}
 \begin{codeblock}
 template<class E, int size> class buffer { @\commentellip@ };
@@ -3481,6 +3578,19 @@ the one-definition rule\iref{basic.def.odr}, except that the tokens used
 to name the template parameters may differ as long as a token used to
 name a template parameter in one expression is replaced by another token
 that names the same template parameter in the other expression.
+Two unevaluated operands that do not involve template parameters
+are considered equivalent
+if two function definitions containing the expressions
+would satisfy the one-definition rule,
+except that the tokens used to name types and declarations may differ
+as long as they name the same entities, and
+the tokens used to form concept-ids may differ
+as long as the two \grammarterm{template-id}{s}
+would be considered to name the same type if,
+instead of a concept, a class template were named.
+\begin{note}
+For instance, \tcode{A<42>} and \tcode{A<40+2>} name the same type.
+\end{note}
 Two \grammarterm{lambda-expression}{s} are never considered equivalent.
 \begin{note}
 The intent is to avoid \grammarterm{lambda-expression}{s} appearing in the
@@ -3513,10 +3623,17 @@ template <class T> void spam(decltype([]{}) (*s)[sizeof(T)]);
 \end{codeblock}
 \end{example}
 \indextext{expression!functionally equivalent|see{functionally equivalent, expressions}}%
-Two expressions involving template parameters that are not equivalent are
+Two potentially-evaluated expressions involving template parameters that are not equivalent are
 \defnx{functionally equivalent}{functionally equivalent!expressions}
 if, for any given set of template arguments, the evaluation of the
 expression results in the same value.
+Two unevaluated operands that are not equivalent
+are functionally equivalent if, for any given set of template arguments,
+the expressions perform
+the same operations in the same order with the same entities.
+\begin{note}
+For instance, one could have redundant parentheses.
+\end{note}
 
 \pnum
 Two \grammarterm{template-head}{s} are
@@ -3897,13 +4014,16 @@ A concept shall not have associated constraints\iref{temp.constr.decl}.
 \pnum
 A concept is not instantiated\iref{temp.spec}.
 \begin{note}
-An \grammarterm{id-expression} that denotes a concept specialization
-is evaluated as an expression\iref{expr.prim.id}.
+A concept-id\iref{temp.names} is evaluated as an expression.
 A concept cannot be
 explicitly instantiated\iref{temp.explicit},
 explicitly specialized\iref{temp.expl.spec},
 or partially specialized.
 \end{note}
+
+\pnum
+The \grammarterm{constraint-expression} of a \grammarterm{concept-definition}
+is an unevaluated operand\iref{expr.context}.
 
 \pnum
 The first declared template parameter of a concept definition is its
@@ -6701,10 +6821,10 @@ A function with the same name as a template and a type that exactly matches that
 of a template specialization is not an explicit specialization\iref{temp.fct}.
 
 \pnum
-An explicit specialization of a function or variable template is inline
-only if it is declared with the \tcode{inline}
-specifier or defined as deleted, and independently of whether its
-function or variable template is inline.
+Whether an explicit specialization of a function or variable template
+is inline, constexpr, or an immediate function
+is determined by the explicit specialization and
+is independent of those properties of the template.
 \begin{example}
 \begin{codeblock}
 template<class T> void f(T) { @\commentellip@ }
@@ -7764,13 +7884,15 @@ int main() {
 \pnum
 Template arguments can be deduced from the type specified when taking
 the address of an overloaded function\iref{over.over}.
-The function template's function type and the specified type
+If there is a target,
+the function template's function type and the target type
 are used as the types of
 \tcode{P}
 and
 \tcode{A},
 and the deduction is done as
 described in~\ref{temp.deduct.type}.
+Otherwise, deduction is performed with empty sets of types P and A.
 
 \pnum
 A placeholder type\iref{dcl.spec.auto} in the return type of a
@@ -8891,7 +9013,7 @@ any deduction guides declared for the class template are considered.
 
 \begin{bnf}
 \nontermdef{deduction-guide}\br
-    \opt{\keyword{explicit}} template-name \terminal{(} parameter-declaration-clause \terminal{)} \terminal{->} simple-template-id \terminal{;}
+    \opt{explicit-specifier} template-name \terminal{(} parameter-declaration-clause \terminal{)} \terminal{->} simple-template-id \terminal{;}
 \end{bnf}
 
 \pnum

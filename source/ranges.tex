@@ -50,6 +50,12 @@ namespace std::ranges {
   template<class T>
     concept range = @\seebelow@;
 
+  template<range T>
+    inline constexpr bool enable_safe_range = false;
+
+  template<class T>
+    concept safe_range = @\seebelow@;
+
   template<range R>
     using iterator_t = decltype(ranges::begin(declval<R&>()));
   template<range R>
@@ -116,20 +122,26 @@ namespace std::ranges {
     requires (K == subrange_kind::sized || !sized_sentinel_for<S, I>)
   class subrange;
 
+  template<input_or_output_iterator I, sentinel_for<I> S, subrange_kind K>
+    inline constexpr bool enable_safe_range<subrange<I, S, K>> = true;
+
   // \ref{range.dangling}, dangling iterator handling
   struct dangling;
 
   template<range R>
-    using safe_iterator_t = conditional_t<@\placeholder{forwarding-range}@<R>, iterator_t<R>, dangling>;
+    using safe_iterator_t = conditional_t<safe_range<R>, iterator_t<R>, dangling>;
 
   template<range R>
     using safe_subrange_t =
-      conditional_t<@\placeholder{forwarding-range}@<R>, subrange<iterator_t<R>>, dangling>;
+      conditional_t<safe_range<R>, subrange<iterator_t<R>>, dangling>;
 
   // \ref{range.empty}, empty view
   template<class T>
     requires is_object_v<T>
   class empty_view;
+
+  template<class T>
+    inline constexpr bool enable_safe_range<empty_view<T>> = true;
 
   namespace views {
     template<class T>
@@ -148,6 +160,9 @@ namespace std::ranges {
     requires @\placeholder{weakly-equality-comparable-with}@<W, Bound>
   class iota_view;
 
+  template<weakly_incrementable W, semiregular Bound>
+    inline constexpr bool enable_safe_range<iota_view<W, Bound>> = true;
+
   namespace views { inline constexpr @\unspec@ iota = @\unspec@; }
 
   // \ref{range.all}, all view
@@ -159,6 +174,9 @@ namespace std::ranges {
   template<range R>
     requires is_object_v<R>
   class ref_view;
+
+  template<class T>
+    inline constexpr bool enable_safe_range<ref_view<T>> = true;
 
   // \ref{range.filter}, filter view
   template<input_range V, indirect_unary_predicate<iterator_t<V>> Pred>
@@ -228,7 +246,7 @@ namespace std::ranges {
 
   // \ref{range.common}, common view
   template<view V>
-    requires (!common_range<V>)
+    requires (!common_range<V> && copyable<iterator_t<V>>)
   class common_view;
 
   namespace views { inline constexpr @\unspec@ common = @\unspec@; }
@@ -306,21 +324,27 @@ available when \libheaderrefx{iterator}{iterator.synopsis} is included.
 \rSec2[range.access.begin]{\tcode{ranges::begin}}
 \pnum
 The name \tcode{ranges::begin} denotes a customization point
-object\iref{customization.point.object}. The expression
-\tcode{ranges::\brk{}begin(E)} for some subexpression \tcode{E} is
+object\iref{customization.point.object}.
+Given a subexpression \tcode{E} and
+an lvalue \tcode{t} that denotes the same object as \tcode{E},
+if \tcode{E} is an rvalue and
+\tcode{enable_safe_range<remove_cvref_t<decltype((E))>>} is \tcode{false},
+\tcode{ranges::begin(E)} is ill-formed.
+Otherwise,
+\tcode{ranges::begin(E)} is
 expression-equivalent to:
 \begin{itemize}
 \item
-  \tcode{E + 0} if \tcode{E} is an lvalue of array type\iref{basic.compound}.
+  \tcode{t + 0} if \tcode{t} is of array type\iref{basic.compound}.
 
 \item
-  Otherwise, if \tcode{E} is an lvalue,
-  \tcode{\placeholdernc{decay-copy}(E.begin())}
+  Otherwise,
+  \tcode{\placeholdernc{decay-copy}(t.begin())}
   if it is a valid expression and its type \tcode{I} models
   \libconcept{input_or_output_iterator}.
 
 \item
-  Otherwise, \tcode{\placeholdernc{decay-copy}(begin(E))} if it is a
+  Otherwise, \tcode{\placeholdernc{decay-copy}(begin(t))} if it is a
   valid expression and its type \tcode{I} models
   \libconcept{input_or_output_iterator} with overload
   resolution performed in a context that includes the declarations:
@@ -347,24 +371,30 @@ Whenever \tcode{ranges::begin(E)} is a valid expression, its type models
 \rSec2[range.access.end]{\tcode{ranges::end}}
 \pnum
 The name \tcode{ranges::end} denotes a customization point
-object\iref{customization.point.object}. The expression
-\tcode{ranges::end(E)} for some subexpression \tcode{E} is
+object\iref{customization.point.object}.
+Given a subexpression \tcode{E} and
+an lvalue \tcode{t} that denotes the same object as \tcode{E},
+if \tcode{E} is an rvalue and
+\tcode{enable_safe_range<remove_cvref_t<decltype((E))>>} is \tcode{false},
+\tcode{ranges::end(E)} is ill-formed.
+Otherwise,
+\tcode{ranges::end(E)} is
 expression-equivalent to:
 \begin{itemize}
 \item
-  \tcode{E + extent_v<T>} if \tcode{E} is an lvalue of array
+  \tcode{t + extent_v<T>} if \tcode{E} is of array
   type\iref{basic.compound} \tcode{T}.
 
 \item
-  Otherwise, if \tcode{E} is an lvalue,
-  \tcode{\placeholdernc{decay-copy}(E.end())}
+  Otherwise,
+  \tcode{\placeholdernc{decay-copy}(t.end())}
   if it is a valid expression and its type \tcode{S} models
   \begin{codeblock}
 sentinel_for<decltype(ranges::begin(E))>
   \end{codeblock}
 
 \item
-  Otherwise, \tcode{\placeholdernc{decay-copy}(end(E))} if it is a valid
+  Otherwise, \tcode{\placeholdernc{decay-copy}(end(t))} if it is a valid
   expression and its type \tcode{S} models
   \begin{codeblock}
 sentinel_for<decltype(ranges::begin(E))>
@@ -432,17 +462,23 @@ model \tcode{\libconcept{sentinel_for}<S, I>}.
 \rSec2[range.access.rbegin]{\tcode{ranges::rbegin}}
 \pnum
 The name \tcode{ranges::rbegin} denotes a customization point
-object\iref{customization.point.object}. The expression
-\tcode{ranges::\brk{}rbegin(E)} for some subexpression \tcode{E} is
+object\iref{customization.point.object}.
+Given a subexpression \tcode{E} and
+an lvalue \tcode{t} that denotes the same object as \tcode{E},
+if \tcode{E} is an rvalue and
+\tcode{enable_safe_range<remove_cvref_t<decltype((E))>>} is \tcode{false},
+\tcode{ranges::rbegin(E)} is ill-formed.
+Otherwise,
+\tcode{ranges::rbegin(E)} is
 expression-equivalent to:
 \begin{itemize}
 \item
-  If \tcode{E} is an lvalue, \tcode{\placeholdernc{decay-copy}(E.rbegin())}
+  \tcode{\placeholdernc{decay-copy}(t.rbegin())}
   if it is a valid expression and its type \tcode{I} models
   \libconcept{input_or_output_iterator}.
 
 \item
-  Otherwise, \tcode{\placeholdernc{decay-copy}(rbegin(E))} if it is a valid
+  Otherwise, \tcode{\placeholdernc{decay-copy}(rbegin(t))} if it is a valid
   expression and its type \tcode{I} models
   \libconcept{input_or_output_iterator} with overload
   resolution performed in a context that includes the declaration:
@@ -452,8 +488,8 @@ template<class T> void rbegin(T&&) = delete;
   and does not include a declaration of \tcode{ranges::rbegin}.
 
 \item
-  Otherwise, \tcode{make_reverse_iterator(ranges::end(E))} if both
-  \tcode{ranges::begin(E)} and \tcode{ranges::end(\brk{}E)} are valid
+  Otherwise, \tcode{make_reverse_iterator(ranges::end(t))} if both
+  \tcode{ranges::begin(t)} and \tcode{ranges::end(\brk{}t)} are valid
   expressions of the same type \tcode{I} which models
   \libconcept{bidirectional_iterator}\iref{iterator.concept.bidir}.
 
@@ -474,19 +510,25 @@ Whenever \tcode{ranges::rbegin(E)} is a valid expression, its type models
 \rSec2[range.access.rend]{\tcode{ranges::rend}}
 \pnum
 The name \tcode{ranges::rend} denotes a customization point
-object\iref{customization.point.object}. The expression
-\tcode{ranges::rend(E)} for some subexpression \tcode{E} is
+object\iref{customization.point.object}.
+Given a subexpression \tcode{E} and
+an lvalue \tcode{t} that denotes the same object as \tcode{E},
+if \tcode{E} is an rvalue and
+\tcode{enable_safe_range<remove_cvref_t<decltype((E))>>} is \tcode{false},
+\tcode{ranges::rend(E)} is ill-formed.
+Otherwise,
+\tcode{ranges::rend(E)} is
 expression-equivalent to:
 \begin{itemize}
 \item
-  If \tcode{E} is an lvalue, \tcode{\placeholdernc{decay-copy}(E.rend())}
+  \tcode{\placeholdernc{decay-copy}(t.rend())}
   if it is a valid expression and its type \tcode{S} models
   \begin{codeblock}
 sentinel_for<decltype(ranges::rbegin(E))>
   \end{codeblock}
 
 \item
-  Otherwise, \tcode{\placeholdernc{decay-copy}(rend(E))} if it is a valid
+  Otherwise, \tcode{\placeholdernc{decay-copy}(rend(t))} if it is a valid
   expression and its type \tcode{S} models
   \begin{codeblock}
 sentinel_for<decltype(ranges::rbegin(E))>
@@ -499,8 +541,8 @@ template<class T> void rend(T&&) = delete;
   and does not include a declaration of \tcode{ranges::rend}.
 
 \item
-  Otherwise, \tcode{make_reverse_iterator(ranges::begin(E))} if both
-  \tcode{ranges::begin(E)} and \tcode{ranges::\brk{}end(E)} are valid
+  Otherwise, \tcode{make_reverse_iterator(ranges::begin(t))} if both
+  \tcode{ranges::begin(t)} and \tcode{ranges::\brk{}end(t)} are valid
   expressions of the same type \tcode{I} which models
   \libconcept{bidirectional_iterator}\iref{iterator.concept.bidir}.
 
@@ -720,7 +762,7 @@ The \libconcept{sized_range} concept refines \libconcept{range} with
 the requirement that the number of elements in the range can be determined
 in constant time using the \tcode{ranges::size} function.
 The \libconcept{view} concept specifies requirements on a \libconcept{range} type
-with constant-time copy and assign operations.
+with constant-time destruction and move operations.
 
 \pnum
 Several refinements of \libconcept{range} group requirements
@@ -744,44 +786,37 @@ that denote the elements of the range.
 
 \begin{itemdecl}
 template<class T>
-  concept @\defexposconcept{range-impl}@ =          // \expos
-    requires(T&& t) {
-      ranges::begin(std::forward<T>(t));        // sometimes equality-preserving (see below)
-      ranges::end(std::forward<T>(t));
+  concept @\deflibconcept{range}@ =
+    requires(T& t) {
+      ranges::begin(t);                         // sometimes equality-preserving (see below)
+      ranges::end(t);
     };
-
-template<class T>
-  concept @\deflibconcept{range}@ = @\exposconcept{range-impl}@<T&>;
-
-template<class T>
-  concept @\defexposconcept{forwarding-range}@ =    // \expos
-    range<T> && @\exposconcept{range-impl}@<T>;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 The required expressions
-\tcode{ranges::begin(std::forward<T>(t))}
+\tcode{ranges::begin(t)}
 and
-\tcode{ranges::end(std::forward<\brk{}T>(t))}
-of the \exposconcept{range-impl} concept
+\tcode{ranges::end(t)}
+of the \libconcept{range} concept
 do not require implicit expression variations\iref{concepts.equality}.
 
 \pnum
-Given an expression \tcode{E} such that \tcode{decltype((E))} is \tcode{T},
-\tcode{T} models \tcode{\placeholder{range-impl}} only if
+Given an expression \tcode{t} such that \tcode{decltype((t))} is \tcode{T\&},
+\tcode{T} models \libconcept{range} only if
 \begin{itemize}
-\item \range{ranges::begin(E)}{ranges::end(E)}
+\item \range{ranges::begin(t)}{ranges::end(t)}
   denotes a range\iref{iterator.requirements.general},
 
 \item both
-\tcode{ranges::begin(E)}
+\tcode{ranges::begin(t)}
 and
-\tcode{ranges::end(E)}
+\tcode{ranges::end(t)}
 are amortized constant time and non-modifying, and
 
-\item if the type of \tcode{ranges::begin(E)} models
-\libconcept{forward_iterator}, \tcode{ranges::begin(E)} is equality-preserving.
+\item if the type of \tcode{ranges::begin(t)} models
+\libconcept{forward_iterator}, \tcode{ranges::begin(t)} is equality-preserving.
 \end{itemize}
 
 \pnum
@@ -796,36 +831,60 @@ when the return type does not model \libconcept{forward_iterator}, repeated call
 might not return equal values or might not be well-defined;
 \tcode{ranges::begin} should be called at most once for such a range.
 \end{note}
+\end{itemdescr}
 
+\begin{itemdecl}
+template<class T>
+  concept @\deflibconcept{safe_range}@ =
+    range<T> &&
+      (is_lvalue_reference_v<T> || enable_safe_range<remove_cvref_t<T>>);
+\end{itemdecl}
+
+\begin{itemdescr}
 \pnum
-Given an expression \tcode{E} such that \tcode{decltype((E))} is \tcode{T}
-and an lvalue \tcode{t} that denotes the same object as \tcode{E},
-\tcode{T} models \exposconcept{forwarding-range} only if
-\begin{itemize}
-\item \tcode{ranges::begin(E)} and \tcode{ranges::begin(t)}
-  are expression-equivalent,
-\item \tcode{ranges::end(E)} and \tcode{ranges::end(t)}
-  are expression-equivalent, and
-\item the validity of iterators obtained from the object denoted
-  by \tcode{E} is not tied to the lifetime of that object.
-\end{itemize}
+Given an expression \tcode{E} such that \tcode{decltype((E))} is \tcode{T},
+\tcode{T} models \libconcept{safe_range} only if
+the validity of iterators obtained from the object denoted by \tcode{E}
+is not tied to the lifetime of that object.
 
 \pnum
 \begin{note}
 Since the validity of iterators is not tied to the lifetime of
-an object whose type models \exposconceptnc{forwarding-range},
+an object whose type models \libconcept{safe_range},
 a function can accept arguments of such a type by value and
 return iterators obtained from it without danger of dangling.
 \end{note}
+\end{itemdescr}
+
+\indexlibraryglobal{enable_safe_range}%
+\begin{itemdecl}
+template<class>
+  inline constexpr bool enable_safe_range = false;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\remarks
+Pursuant to \ref{namespace.std}, users may specialize \tcode{enable_safe_range}
+for cv-unqualified program-defined types.
+Such specializations shall be
+usable in constant expressions\iref{expr.const} and
+have type \tcode{const bool}.
 
 \pnum
 \begin{example}
-Specializations of class template \tcode{subrange}\iref{range.subrange}
-model \exposconceptnc{forwarding-range}. \tcode{subrange} provides
-non-member rvalue overloads of \tcode{begin} and \tcode{end} with the same
-semantics as its member lvalue overloads, and \tcode{subrange}'s iterators
--- since they are ``borrowed'' from some other range --
-do not have validity tied to the lifetime of a \tcode{subrange} object.
+Each specialization \tcode{S} of class template \tcode{subrange}\iref{range.subrange}
+models \libconcept{safe_range} because
+\begin{itemize}
+\item
+\tcode{enable_safe_range<S>} is specialized
+to have the value \tcode{true}, and
+
+\item
+\tcode{S}'s iterators
+do not have validity tied to the lifetime of an \tcode{S} object
+because they are ``borrowed'' from some other range.
+\end{itemize}
 \end{example}
 \end{itemdescr}
 
@@ -898,19 +957,39 @@ that satisfy but do not in fact model \libconcept{sized_range}.
 
 \rSec2[range.view]{Views}
 
+\pnum
+The \libconcept{view} concept specifies the requirements of a \libconcept{range} type
+that has constant time move construction, move assignment, and destruction;
+that is, the cost of these operations is
+independent of the number of elements in the \tcode{view}.
+
 \begin{itemdecl}
 template<class T>
   concept @\deflibconcept{view}@ =
-    range<T> && semiregular<T> && enable_view<T>;
+    range<T> && movable<T> && default_constructible<T> && enable_view<T>;
 \end{itemdecl}
 
 \begin{itemdescr}
-% FIXME: This should explicitly say when view is modeled.
 \pnum
-The \libconcept{view} concept specifies the requirements of a \libconcept{range} type
-that has constant time copy, move, and assignment operators; that is, the cost of
-these operations is not proportional to the number of elements in the
-\tcode{view}.
+\tcode{T} models \libconcept{view} only if:
+\begin{itemize}
+\item
+\tcode{T} has \bigoh{1} move construction; and
+
+\item
+\tcode{T} has \bigoh{1} move assignment; and
+
+\item
+\tcode{T} has \bigoh{1} destruction; and
+
+\item
+\tcode{copy_constructible<T>} is \tcode{false}, or
+\tcode{T} has \bigoh{1} copy construction; and
+
+\item
+\tcode{copyable<T>} is \tcode{false}, or
+\tcode{T} has \bigoh{1} copy assignment.
+\end{itemize}
 
 \pnum
 \begin{example}
@@ -925,7 +1004,7 @@ and shares ownership with all its copies.
 \end{itemize}
 
 Most containers\iref{containers} are not views since
-copying the container copies the elements,
+destruction of the container destroys the elements,
 which cannot be done in constant time.
 \end{example}
 \end{itemdescr}
@@ -1041,7 +1120,7 @@ The \libconcept{viewable_range} concept specifies the requirements of a
 \begin{itemdecl}
 template<class T>
   concept @\deflibconcept{viewable_range}@ =
-    range<T> && (@\placeholder{forwarding-range}@<T> || view<decay_t<T>>);
+    range<T> && (safe_range<T> || view<decay_t<T>>);
 \end{itemdecl}
 
 \rSec1[range.utility]{Range utilities}
@@ -1247,11 +1326,11 @@ namespace std::ranges {
       requires (K == subrange_kind::sized);
 
     template<@\exposconcept{not-same-as}@<subrange> R>
-      requires @\exposconcept{forwarding-range}@<R> &&
-        convertible_to<iterator_t<R>, I> && convertible_to<sentinel_t<R>, S>
+      requires safe_range<R> &&
+               convertible_to<iterator_t<R>, I> && convertible_to<sentinel_t<R>, S>
     constexpr subrange(R&& r) requires (!StoreSize || sized_range<R>);
 
-    template<@\exposconcept{forwarding-range}@ R>
+    template<safe_range R>
       requires convertible_to<iterator_t<R>, I> && convertible_to<sentinel_t<R>, S>
     constexpr subrange(R&& r, @\placeholdernc{make-unsigned-like-t}@(iter_difference_t<I>) n)
       requires (K == subrange_kind::sized)
@@ -1276,20 +1355,20 @@ namespace std::ranges {
       requires @\exposconcept{pair-like-convertible-from}@<PairLike, const I&, const S&>
     constexpr operator PairLike() const;
 
-    constexpr I begin() const;
+    constexpr I begin() const requires copyable<I>;
+    [[nodiscard]] constexpr I begin() requires (!copyable<I>);
     constexpr S end() const;
 
     constexpr bool empty() const;
     constexpr @\placeholdernc{make-unsigned-like-t}@(iter_difference_t<I>) size() const
       requires (K == subrange_kind::sized);
 
-    [[nodiscard]] constexpr subrange next(iter_difference_t<I> n = 1) const;
+    [[nodiscard]] constexpr subrange next(iter_difference_t<I> n = 1) const &
+      requires forward_iterator<I>;
+    [[nodiscard]] constexpr subrange next(iter_difference_t<I> n = 1) &&;
     [[nodiscard]] constexpr subrange prev(iter_difference_t<I> n = 1) const
       requires bidirectional_iterator<I>;
     constexpr subrange& advance(iter_difference_t<I> n);
-
-    friend constexpr I begin(subrange&& r) { return r.begin(); }
-    friend constexpr S end(subrange&& r) { return r.end(); }
   };
 
   template<input_or_output_iterator I, sentinel_for<I> S>
@@ -1303,19 +1382,23 @@ namespace std::ranges {
     subrange(P, @\placeholdernc{make-unsigned-like-t}@(iter_difference_t<tuple_element_t<0, P>>)) ->
       subrange<tuple_element_t<0, P>, tuple_element_t<1, P>, subrange_kind::sized>;
 
-  template<@\placeholder{forwarding-range}@ R>
+  template<safe_range R>
     subrange(R&&) ->
       subrange<iterator_t<R>, sentinel_t<R>,
                (sized_range<R> || sized_sentinel_for<sentinel_t<R>, iterator_t<R>>)
                  ? subrange_kind::sized : subrange_kind::unsized>;
 
-  template<@\placeholder{forwarding-range}@ R>
+  template<safe_range R>
     subrange(R&&, @\placeholdernc{make-unsigned-like-t}@(range_difference_t<R>)) ->
       subrange<iterator_t<R>, sentinel_t<R>, subrange_kind::sized>;
 
   template<size_t N, class I, class S, subrange_kind K>
     requires (N < 2)
-  constexpr auto get(const subrange<I, S, K>& r);
+    constexpr auto get(const subrange<I, S, K>& r);
+
+  template<size_t N, class I, class S, subrange_kind K>
+    requires (N < 2)
+    constexpr auto get(subrange<I, S, K>&& r);
 }
 
 namespace std {
@@ -1337,7 +1420,7 @@ constexpr subrange(I i, S s) requires (!StoreSize);
 
 \pnum
 \effects
-Initializes \tcode{begin_} with \tcode{i} and \tcode{end_} with
+Initializes \tcode{begin_} with \tcode{std::move(i)} and \tcode{end_} with
 \tcode{s}.
 \end{itemdescr}
 
@@ -1355,7 +1438,7 @@ constexpr subrange(I i, S s, @\placeholdernc{make-unsigned-like-t}@(iter_differe
 
 \pnum
 \effects
-Initializes \tcode{begin_} with \tcode{i} and \tcode{end_} with
+Initializes \tcode{begin_} with \tcode{std::move(i)} and \tcode{end_} with
 \tcode{s}. If \tcode{StoreSize} is \tcode{true}, initializes \tcode{size_} with
 \tcode{n}.
 
@@ -1371,7 +1454,7 @@ when it stores an iterator and sentinel that do not model
 \indexlibraryctor{subrange}%
 \begin{itemdecl}
 template<@\exposconcept{not-same-as}@<subrange> R>
-  requires @\exposconcept{forwarding-range}@<R> &&
+  requires safe_range<R> &&
            convertible_to<iterator_t<R>, I> && convertible_to<sentinel_t<R>, S>
 constexpr subrange(R&& r) requires (!StoreSize || sized_range<R>);
 \end{itemdecl}
@@ -1404,13 +1487,24 @@ Equivalent to: \tcode{return PairLike(begin_, end_);}
 
 \indexlibrarymember{begin}{subrange}%
 \begin{itemdecl}
-constexpr I begin() const;
+constexpr I begin() const requires copyable<I>;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects
 Equivalent to: \tcode{return begin_;}
+\end{itemdescr}
+
+\indexlibrarymember{begin}{subrange}%
+\begin{itemdecl}
+[[nodiscard]] constexpr I begin() requires (!copyable<I>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return std::move(begin_);}
 \end{itemdescr}
 
 \indexlibrarymember{end}{subrange}%
@@ -1452,7 +1546,8 @@ constexpr @\placeholdernc{make-unsigned-like-t}@(iter_difference_t<I>) size() co
 
 \indexlibrarymember{next}{subrange}%
 \begin{itemdecl}
-[[nodiscard]] constexpr subrange next(iter_difference_t<I> n = 1) const;
+[[nodiscard]] constexpr subrange next(iter_difference_t<I> n = 1) const &
+  requires forward_iterator<I>;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -1464,12 +1559,21 @@ auto tmp = *this;
 tmp.advance(n);
 return tmp;
 \end{codeblock}
+\end{itemdescr}
 
+\indexlibrarymember{next}{subrange}%
+\begin{itemdecl}
+[[nodiscard]] constexpr subrange next(iter_difference_t<I> n = 1) &&;
+\end{itemdecl}
+
+\begin{itemdescr}
 \pnum
-\begin{note}
-If \tcode{I} does not model \libconcept{forward_iterator}, \tcode{next}
-can invalidate \tcode{*this}.
-\end{note}
+\effects
+Equivalent to:
+\begin{codeblock}
+advance(n);
+return std::move(*this);
+\end{codeblock}
 \end{itemdescr}
 
 \indexlibrarymember{prev}{subrange}%
@@ -1520,7 +1624,10 @@ return *this;
 \begin{itemdecl}
 template<size_t N, class I, class S, subrange_kind K>
   requires (N < 2)
-constexpr auto get(const subrange<I, S, K>& r);
+  constexpr auto get(const subrange<I, S, K>& r);
+template<size_t N, class I, class S, subrange_kind K>
+  requires (N < 2)
+  constexpr auto get(subrange<I, S, K>&& r);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -1545,7 +1652,7 @@ that typically returns an iterator into or subrange of a \tcode{range} argument
 does not return an iterator or subrange
 which could potentially reference a range
 whose lifetime has ended for a particular rvalue \tcode{range} argument
-which does not model \tcode{\placeholder{forwarding-range}}\iref{range.range}.
+which does not model \libconcept{safe_range}\iref{range.range}.
 \indexlibraryglobal{dangling}%
 \begin{codeblock}
 namespace std::ranges {
@@ -1575,7 +1682,7 @@ the \tcode{vector} could potentially be destroyed
 before a returned iterator is dereferenced.
 However, the calls at \#2 and \#3 both return iterators
 since the lvalue \tcode{vec} and specializations of \tcode{subrange}
-model \tcode{\placeholder{forwarding-range}}.
+model \libconcept{safe_range}.
 \end{example}
 
 \rSec1[range.factories]{Range factories}
@@ -1618,9 +1725,6 @@ namespace std::ranges {
     static constexpr T* data() noexcept { return nullptr; }
     static constexpr size_t size() noexcept { return 0; }
     static constexpr bool empty() noexcept { return true; }
-
-    friend constexpr T* begin(empty_view) noexcept { return nullptr; }
-    friend constexpr T* end(empty_view) noexcept { return nullptr; }
   };
 }
 \end{codeblock}
@@ -2641,12 +2745,6 @@ namespace std::ranges {
 
     constexpr auto data() const requires contiguous_range<R>
     { return ranges::data(*r_); }
-
-    friend constexpr iterator_t<R> begin(ref_view r)
-    { return r.begin(); }
-
-    friend constexpr sentinel_t<R> end(ref_view r)
-    { return r.end(); }
   };
   template<class R>
     ref_view(R&) -> ref_view<R>;
@@ -2685,8 +2783,8 @@ Initializes \tcode{r_} with
 \rSec3[range.filter.overview]{Overview}
 
 \pnum
-\tcode{filter_view} presents a \libconcept{view} of an underlying sequence
-without the elements that fail to satisfy a predicate.
+\tcode{filter_view} presents a \libconcept{view} of the elements
+of an underlying sequence that satisfy a predicate.
 
 \pnum
 \begin{example}
@@ -2701,6 +2799,8 @@ for (int i : evens)
 \rSec3[range.filter.view]{Class template \tcode{filter_view}}
 
 \indexlibraryglobal{filter_view}%
+\indexlibrarymember{base}{filter_view}%
+\indexlibrarymember{end}{filter_view}%
 \begin{codeblock}
 namespace std::ranges {
   template<input_range V, indirect_unary_predicate<iterator_t<V>> Pred>
@@ -2722,7 +2822,8 @@ namespace std::ranges {
       requires viewable_range<R> && constructible_from<V, all_view<R>>
     constexpr filter_view(R&& r, Pred pred);
 
-    constexpr V base() const;
+    constexpr V base() const& requires copy_constructible<V> { return base_; }
+    constexpr V base() && { return std::move(base_); }
 
     constexpr iterator begin();
     constexpr auto end() {
@@ -2764,17 +2865,6 @@ Initializes \tcode{base_} with \tcode{views::all(std::forward<R>(r))}
 and initializes \tcode{pred_} with \tcode{std::\brk{}move(pred)}.
 \end{itemdescr}
 
-\indexlibrarymember{base}{filter_view}%
-\begin{itemdecl}
-constexpr V base() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to: \tcode{return base_;}
-\end{itemdescr}
-
 \indexlibrarymember{begin}{filter_view}%
 \begin{itemdecl}
 constexpr iterator begin();
@@ -2792,7 +2882,9 @@ constexpr iterator begin();
 \pnum
 \remarks
 In order to provide the amortized constant time complexity required by
-the \libconcept{range} concept, this function caches the result within the
+the \libconcept{range} concept
+when \tcode{filter_view} models \libconcept{forward_range},
+this function caches the result within the
 \tcode{filter_view} for use on subsequent calls.
 \end{itemdescr}
 
@@ -2815,10 +2907,12 @@ namespace std::ranges {
     iterator() = default;
     constexpr iterator(filter_view& parent, iterator_t<V> current);
 
-    constexpr iterator_t<V> base() const;
+    constexpr iterator_t<V> base() const &
+      requires copyable<iterator_t<V>>;
+    constexpr iterator_t<V> base() &&;
     constexpr range_reference_t<V> operator*() const;
     constexpr iterator_t<V> operator->() const
-      requires @\placeholder{has-arrow}@<iterator_t<V>>;
+      requires @\placeholder{has-arrow}@<iterator_t<V>> && copyable<iterator_t<V>>;
 
     constexpr iterator& operator++();
     constexpr void operator++(int);
@@ -2870,7 +2964,7 @@ then \tcode{iterator_category} denotes \tcode{bi\-directional_iterator_tag}.
 \tcode{\libconcept{derived_from}<forward_iterator_tag>},
 then \tcode{iterator_category} denotes \tcode{forward_iterator_tag}.
 
-\item Otherwise, \tcode{iterator_category} denotes \tcode{input_iterator_tag}.
+\item Otherwise, \tcode{iterator_category} denotes \tcode{C}.
 \end{itemize}
 
 \indexlibraryctor{filter_view::iterator}%
@@ -2881,19 +2975,31 @@ constexpr iterator(filter_view& parent, iterator_t<V> current);
 \begin{itemdescr}
 \pnum
 \effects
-Initializes \tcode{current_} with \tcode{current} and
+Initializes \tcode{current_} with \tcode{std::move(current)} and
 \tcode{parent_} with \tcode{addressof(parent)}.
 \end{itemdescr}
 
 \indexlibrarymember{base}{filter_view::iterator}%
 \begin{itemdecl}
-constexpr iterator_t<V> base() const;
+constexpr iterator_t<V> base() const &
+  requires copyable<iterator_t<V>>;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects
 Equivalent to: \tcode{return current_;}
+\end{itemdescr}
+
+\indexlibrarymember{base}{filter_view::iterator}%
+\begin{itemdecl}
+constexpr iterator_t<V> base() &&;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return std::move(current_);}
 \end{itemdescr}
 
 \indexlibrarymember{operator*}{filter_view::iterator}%
@@ -2910,7 +3016,7 @@ Equivalent to: \tcode{return *current_;}
 \indexlibrarymember{operator->}{filter_view::iterator}%
 \begin{itemdecl}
 constexpr iterator_t<V> operator->() const
-  requires @\placeholder{has-arrow}@<iterator_t<V>>;
+  requires @\placeholder{has-arrow}@<iterator_t<V>> && copyable<iterator_t<V>>;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -2929,7 +3035,8 @@ constexpr iterator& operator++();
 \effects
 Equivalent to:
 \begin{codeblock}
-current_ = ranges::find_if(++current_, ranges::end(parent_->base_), ref(*parent_->pred_));
+current_ = ranges::find_if(std::move(++current_), ranges::end(parent_->base_),
+                           ref(*parent_->pred_));
 return *this;
 \end{codeblock}
 \end{itemdescr}
@@ -3116,6 +3223,8 @@ for (int i : squares)
 \rSec3[range.transform.view]{Class template \tcode{transform_view}}
 
 \indexlibraryglobal{transform_view}%
+\indexlibrarymember{base}{transform_view}%
+\indexlibrarymember{size}{transform_view}%
 \begin{codeblock}
 namespace std::ranges {
   template<input_range V, copy_constructible F>
@@ -3138,7 +3247,8 @@ namespace std::ranges {
       requires viewable_range<R> && constructible_from<V, all_view<R>>
     constexpr transform_view(R&& r, F fun);
 
-    constexpr V base() const;
+    constexpr V base() const& requires copy_constructible<V> { return base_; }
+    constexpr V base() && { return std::move(base_); }
 
     constexpr iterator<false> begin();
     constexpr iterator<true> begin() const
@@ -3188,17 +3298,6 @@ constexpr transform_view(R&& r, F fun);
 \effects
 Initializes \tcode{base_} with \tcode{views::all(std::forward<R>(r))}
 and \tcode{fun_} with \tcode{std::move(fun)}.
-\end{itemdescr}
-
-\indexlibrarymember{base}{transform_view}%
-\begin{itemdecl}
-constexpr V base() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to: \tcode{return base_;}
 \end{itemdescr}
 
 \indexlibrarymember{begin}{transform_view}%
@@ -3319,7 +3418,9 @@ namespace std::ranges {
     constexpr iterator(iterator<!Const> i)
       requires Const && convertible_to<iterator_t<V>, iterator_t<Base>>;
 
-    constexpr iterator_t<Base> base() const;
+    constexpr iterator_t<Base> base() const &
+      requires copyable<iterator_t<Base>>;
+    constexpr iterator_t<Base> base() &&;
     constexpr decltype(auto) operator*() const
     { return invoke(*parent_->fun_, *current_); }
 
@@ -3410,7 +3511,7 @@ constexpr iterator(Parent& parent, iterator_t<Base> current);
 \begin{itemdescr}
 \pnum
 \effects
-Initializes \tcode{current_} with \tcode{current} and
+Initializes \tcode{current_} with \tcode{std::move(current)} and
 \tcode{parent_} with \tcode{addressof(parent)}.
 \end{itemdescr}
 
@@ -3429,13 +3530,25 @@ Initializes \tcode{current_} with \tcode{std::move(i.current_)} and
 
 \indexlibrarymember{base}{transform_view::iterator}%
 \begin{itemdecl}
-constexpr iterator_t<Base> base() const;
+constexpr iterator_t<Base> base() const &
+  requires copyable<iterator_t<Base>>;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects
 Equivalent to: \tcode{return current_;}
+\end{itemdescr}
+
+\indexlibrarymember{base}{transform_view::iterator}%
+\begin{itemdecl}
+constexpr iterator_t<Base> base() &&;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return std::move(current_);}
 \end{itemdescr}
 
 \indexlibrarymember{operator++}{transform_view::iterator}%
@@ -3804,6 +3917,10 @@ for (int i : few)
 \rSec3[range.take.view]{Class template \tcode{take_view}}
 
 \indexlibraryglobal{take_view}%
+\indexlibrarymember{base}{take_view}%
+\indexlibrarymember{begin}{take_view}%
+\indexlibrarymember{end}{take_view}%
+\indexlibrarymember{size}{take_view}%
 \begin{codeblock}
 namespace std::ranges {
   template<view V>
@@ -3820,7 +3937,8 @@ namespace std::ranges {
       requires constructible_from<V, all_view<R>>
     constexpr take_view(R&& r, range_difference_t<V> count);
 
-    constexpr V base() const;
+    constexpr V base() const& requires copy_constructible<V> { return base_; }
+    constexpr V base() && { return std::move(base_); }
 
     constexpr auto begin() requires (!@\placeholder{simple-view}@<V>) {
       if constexpr (sized_range<V>) {
@@ -3903,17 +4021,6 @@ constexpr take_view(R&& r, range_difference_t<V> count);
 \effects
 Initializes \tcode{base_} with \tcode{views::all(std::forward<R>(r))}
 and \tcode{count_} with \tcode{count}.
-\end{itemdescr}
-
-\indexlibrarymember{base}{take_view}%
-\begin{itemdecl}
-constexpr V base() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to: \tcode{return base_;}
 \end{itemdescr}
 
 \rSec3[range.take.sentinel]{Class template \tcode{take_view::sentinel}}
@@ -4023,6 +4130,9 @@ cout << i;                                      // prints \tcode{6}
 \rSec3[range.take.while.view]{Class template \tcode{take_while_view}}
 
 \indexlibraryglobal{take_while_view}%
+\indexlibrarymember{base}{take_while_view}%
+\indexlibrarymember{begin}{take_while_view}%
+\indexlibrarymember{end}{take_while_view}%
 \begin{codeblock}
 namespace std::ranges {
   template<view R, class Pred>
@@ -4038,7 +4148,9 @@ namespace std::ranges {
     take_while_view() = default;
     constexpr take_while_view(R base, Pred pred);
 
-    constexpr R base() const;
+    constexpr R base() const& requires copy_constructible<R> { return base_; }
+    constexpr R base() && { return std::move(base_); }
+
     constexpr const Pred& pred() const;
 
     constexpr auto begin() requires (!@\placeholder{simple-view}@<R>)
@@ -4069,17 +4181,6 @@ constexpr take_while_view(R base, Pred pred);
 \effects
 Initializes \tcode{base_} with \tcode{std::move(base)} and
 \tcode{pred_} with \tcode{std::move(pred)}.
-\end{itemdescr}
-
-\indexlibrarymember{base}{take_while_view}%
-\begin{itemdecl}
-constexpr R base() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to: \tcode{return base_;}
 \end{itemdescr}
 
 \indexlibrarymember{pred}{take_while_view}%
@@ -4187,6 +4288,9 @@ for (auto i : latter_half) {
 \rSec3[range.drop.view]{Class template \tcode{drop_view}}
 
 \indexlibraryglobal{drop_view}%
+\indexlibrarymember{base}{drop_view}%
+\indexlibrarymember{end}{drop_view}%
+\indexlibrarymember{size}{drop_view}%
 \begin{codeblock}
 namespace std::ranges {
   template<view R>
@@ -4195,7 +4299,8 @@ namespace std::ranges {
     drop_view() = default;
     constexpr drop_view(R base, range_difference_t<R> count);
 
-    constexpr R base() const;
+    constexpr R base() const& requires copy_constructible<R> { return base_; }
+    constexpr R base() && { return std::move(base_); }
 
     constexpr auto begin()
       requires (!(@\placeholder{simple-view}@<R> && random_access_range<R>));
@@ -4251,17 +4356,6 @@ Initializes \tcode{base_} with \tcode{std::move(base)} and
 \tcode{count_} with \tcode{count}.
 \end{itemdescr}
 
-\indexlibrarymember{base}{drop_view}%
-\begin{itemdecl}
-constexpr R base() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to: \tcode{return base_;}
-\end{itemdescr}
-
 \indexlibrarymember{begin}{drop_view}%
 \begin{itemdecl}
 constexpr auto begin()
@@ -4278,7 +4372,8 @@ constexpr auto begin() const
 \pnum
 \remarks
 In order to provide the amortized constant-time complexity required
-by the \tcode{range} concept,
+by the \tcode{range} concept
+when \tcode{drop_view} models \libconcept{forward_range},
 the first overload caches the result within the \tcode{drop_view}
 for use on subsequent calls.
 \begin{note}
@@ -4321,6 +4416,8 @@ for (auto c : skip_ws) {
 \rSec3[range.drop.while.view]{Class template \tcode{drop_while_view}}
 
 \indexlibraryglobal{drop_while_view}%
+\indexlibrarymember{base}{drop_while_view}%
+\indexlibrarymember{end}{drop_while_view}%
 \begin{codeblock}
 namespace std::ranges {
   template<view R, class Pred>
@@ -4331,7 +4428,9 @@ namespace std::ranges {
     drop_while_view() = default;
     constexpr drop_while_view(R base, Pred pred);
 
-    constexpr R base() const;
+    constexpr R base() const& requires copy_constructible<R> { return base_; }
+    constexpr R base() && { return std::move(base_); }
+
     constexpr const Pred& pred() const;
 
     constexpr auto begin();
@@ -4361,17 +4460,6 @@ Initializes \tcode{base_} with \tcode{std::move(base)} and
 \tcode{pred_} with \tcode{std::move(pred)}.
 \end{itemdescr}
 
-\indexlibrarymember{base}{drop_while_view}%
-\begin{itemdecl}
-constexpr R base() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to: \tcode{return base_;}
-\end{itemdescr}
-
 \indexlibrarymember{pred}{drop_while_view}%
 \begin{itemdecl}
 constexpr const Pred& pred() const;
@@ -4396,7 +4484,8 @@ constexpr auto begin();
 \pnum
 \remarks
 In order to provide the amortized constant-time complexity
-required by the \tcode{range} concept,
+required by the \tcode{range} concept
+when \tcode{drop_while_view} models \tcode{forward_range},
 the first call caches the result within the \tcode{drop_while_view}
 for use on subsequent calls.
 \begin{note}
@@ -4436,6 +4525,9 @@ for (char ch : greeting)
 \rSec3[range.join.view]{Class template \tcode{join_view}}
 
 \indexlibraryglobal{join_view}%
+\indexlibrarymember{base}{join_view}%
+\indexlibrarymember{begin}{join_view}%
+\indexlibrarymember{end}{join_view}%
 \begin{codeblock}
 namespace std::ranges {
   template<input_range V>
@@ -4463,6 +4555,9 @@ namespace std::ranges {
     template<input_range R>
       requires viewable_range<R> && constructible_from<V, all_view<R>>
     constexpr explicit join_view(R&& r);
+
+    constexpr V base() const& requires copy_constructible<V> { return base_; }
+    constexpr V base() && { return std::move(base_); }
 
     constexpr auto begin() {
       return iterator<@\placeholder{simple-view}@<V>>{*this, ranges::begin(base_)};
@@ -4528,7 +4623,6 @@ Initializes \tcode{base_} with \tcode{views::all(std::forward<R>(r))}.
 
 \rSec3[range.join.iterator]{Class template \tcode{join_view::iterator}}
 
-\pnum
 \indexlibraryglobal{join_view::iterator}%
 \begin{codeblock}
 namespace std::ranges {
@@ -4566,7 +4660,7 @@ template<class V>
     constexpr decltype(auto) operator*() const { return *inner_; }
 
     constexpr iterator_t<Base> operator->() const
-      requires @\placeholder{has-arrow}@<iterator_t<Base>>;
+      requires @\placeholder{has-arrow}@<iterator_t<Base>> && copyable<iterator_t<Base>>;
 
     constexpr iterator& operator++();
     constexpr void operator++(int);
@@ -4600,15 +4694,14 @@ template<class V>
 \pnum
 \tcode{iterator::iterator_concept} is defined as follows:
 \begin{itemize}
-\item If \tcode{ref_is_glvalue} is \tcode{true},
-  \begin{itemize}
-  \item If \tcode{Base} and \tcode{range_reference_t<Base>} each model
-    \libconcept{bidirectional_range}, then \tcode{iterator_concept} denotes
-    \tcode{bidirectional_iterator_tag}.
-  \item Otherwise, if \tcode{Base} and \tcode{range_reference_t<Base>}
-    each model \libconcept{forward_range}, then \tcode{iterator_concept} denotes
-    \tcode{forward_iterator_tag}.
-  \end{itemize}
+\item If \tcode{ref_is_glvalue} is \tcode{true} and
+  \tcode{Base} and \tcode{range_reference_t<Base>} each model
+  \libconcept{bidirectional_range}, then \tcode{iterator_concept} denotes
+  \tcode{bidirectional_iterator_tag}.
+\item Otherwise, if \tcode{ref_is_glvalue} is \tcode{true} and
+  \tcode{Base} and \tcode{range_reference_t<Base>}
+  each model \libconcept{forward_range}, then \tcode{iterator_concept} denotes
+  \tcode{forward_iterator_tag}.
 \item Otherwise, \tcode{iterator_concept} denotes \tcode{input_iterator_tag}.
 \end{itemize}
 
@@ -4618,17 +4711,19 @@ template<class V>
 \item Let \placeholder{OUTERC} denote
   \tcode{iterator_traits<iterator_t<Base>>::iterator_category}, and
   let \placeholder{INNERC} denote
-  \tcode{iterator_traits<iterator_t<range_reference_t<Base>>>::iterator_cate\-gory}.
-\item If \tcode{ref_is_glvalue} is \tcode{true},
-  \begin{itemize}
-  \item If \placeholder{OUTERC} and \placeholder{INNERC} each model
-    \tcode{derived_from<bidirectional_iterator_tag>}, \tcode{itera\-tor_category}
-    denotes \tcode{bidirectional_iterator_tag}.
-  \item Otherwise, if \placeholder{OUTERC} and \placeholder{INNERC} each model
-    \tcode{derived_from<forward_iterator_tag>}, \tcode{itera\-tor_category}
-    denotes \tcode{forward_iterator_tag}.
-  \end{itemize}
-\item Otherwise, \tcode{iterator_category} denotes \tcode{input_iterator_tag}.
+  \tcode{iterator_traits<iterator_t<range_reference_t<Base>>>::iterator_category}.
+\item If \tcode{ref_is_glvalue} is \tcode{true} and
+  \placeholder{OUTERC} and \placeholder{INNERC} each model
+  \tcode{derived_from<bidirectional_iterator_tag>}, \tcode{iterator_category}
+  denotes \tcode{bidirectional_iterator_tag}.
+\item Otherwise, if \tcode{ref_is_glvalue} is \tcode{true} and
+  \placeholder{OUTERC} and \placeholder{INNERC} each model
+  \tcode{derived_from<for\-ward_iterator_tag>}, \tcode{iterator_category}
+  denotes \tcode{forward_iterator_tag}.
+\item Otherwise, if \placeholder{OUTERC} and \placeholder{INNERC} each model
+  \tcode{\libconcept{derived_from}<input_iterator_tag>},
+  \tcode{iterator_category} denotes \tcode{input_iterator_tag}.
+\item Otherwise, \tcode{iterator_category} denotes \tcode{output_iterator_tag}.
 \end{itemize}
 
 \pnum
@@ -4652,11 +4747,11 @@ constexpr void satisfy();       // \expos
 \effects
 Equivalent to:
 \begin{codeblock}
-auto update_inner = [this](range_reference_t<Base> x) -> decltype(auto) {
+auto update_inner = [this](range_reference_t<Base> x) -> auto& {
   if constexpr (ref_is_glvalue) // \tcode{x} is a reference
-    return (x);                 // \tcode{(x)} is an lvalue
+    return x;
   else
-    return (parent_->inner_ = views::all(x));
+    return (parent_->inner_ = views::all(std::move(x)));
 };
 
 for (; outer_ != ranges::end(parent_->base_); ++outer_) {
@@ -4678,7 +4773,7 @@ constexpr iterator(Parent& parent, iterator_t<V> outer)
 \begin{itemdescr}
 \pnum
 \effects
-Initializes \tcode{outer_} with \tcode{outer} and
+Initializes \tcode{outer_} with \tcode{std::move(outer)} and
 \tcode{parent_} with \tcode{addressof(parent)}; then calls \tcode{satisfy()}.
 \end{itemdescr}
 
@@ -4702,7 +4797,7 @@ Initializes \tcode{outer_} with \tcode{std::move(i.outer_)},
 \indexlibrarymember{operator->}{join_view::iterator}%
 \begin{itemdecl}
 constexpr iterator_t<Base> operator->() const
-  requires @\placeholder{has-arrow}@<iterator_t<Base>>;
+  requires @\placeholder{has-arrow}@<iterator_t<Base>> && copyable<iterator_t<Base>>;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -4925,6 +5020,9 @@ for (auto word : sentence) {
 \rSec3[range.split.view]{Class template \tcode{split_view}}
 
 \indexlibraryglobal{split_view}%
+\indexlibrarymember{base}{split_view}%
+\indexlibrarymember{begin}{split_view}%
+\indexlibrarymember{end}{split_view}%
 \begin{codeblock}
 namespace std::ranges {
   template<auto> struct @\placeholdernc{require-constant}@;       // \expos
@@ -4961,6 +5059,9 @@ namespace std::ranges {
       requires constructible_from<V, all_view<R>> &&
                constructible_from<Pattern, single_view<range_value_t<R>>>
     constexpr split_view(R&& r, range_value_t<R> e);
+
+    constexpr V base() const& requires copy_constructible<V> { return base_; }
+    constexpr V base() && { return std::move(base_); }
 
     constexpr auto begin() {
       if constexpr (forward_range<V>)
@@ -5119,7 +5220,7 @@ constexpr outer_iterator(Parent& parent, iterator_t<Base> current)
 \pnum
 \effects
 Initializes \tcode{parent_} with \tcode{addressof(parent)}
-and \tcode{current_} with \tcode{current}.
+and \tcode{current_} with \tcode{std::move(current)}.
 \end{itemdescr}
 
 \indexlibraryctor{split_view::outer_iterator}%
@@ -5162,10 +5263,10 @@ const auto [pbegin, pend] = subrange{parent_->pattern_};
 if (pbegin == pend) ++@\placeholder{current}@;
 else {
   do {
-    const auto [b, p] = ranges::mismatch(@\placeholdernc{current}@, end, pbegin, pend);
+    auto [b, p] = ranges::mismatch(std::move(@\placeholder{current}@), end, pbegin, pend);
+    @\placeholder{current}@ = std::move(b);
     if (p == pend) {
-      @\placeholder{current}@ = b;  // The pattern matched; skip it
-      break;
+      break;            // The pattern matched; skip it
     }
   } while (++@\placeholder{current}@ != end);
 }
@@ -5203,14 +5304,16 @@ Equivalent to: \tcode{return x.\placeholder{current} == ranges::end(x.parent_->b
 namespace std::ranges {
   template<class V, class Pattern>
   template<bool Const>
-  struct split_view<V, Pattern>::outer_iterator<Const>::value_type {
+  struct split_view<V, Pattern>::outer_iterator<Const>::value_type
+    : view_interface<value_type> {
   private:
     outer_iterator i_ = outer_iterator();               // \expos
   public:
     value_type() = default;
     constexpr explicit value_type(outer_iterator i);
 
-    constexpr inner_iterator<Const> begin() const;
+    constexpr inner_iterator<Const> begin() const requires copyable<outer_iterator>;
+    constexpr inner_iterator<Const> begin() requires (!copyable<outer_iterator>);
     constexpr default_sentinel_t end() const;
   };
 }
@@ -5224,12 +5327,12 @@ constexpr explicit value_type(outer_iterator i);
 \begin{itemdescr}
 \pnum
 \effects
-Initializes \tcode{i_} with \tcode{i}.
+Initializes \tcode{i_} with \tcode{std::move(i)}.
 \end{itemdescr}
 
 \indexlibrarymember{begin}{split_view::outer_iterator::value_type}%
 \begin{itemdecl}
-constexpr inner_iterator<Const> begin() const;
+constexpr inner_iterator<Const> begin() const requires copyable<outer_iterator>;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -5238,6 +5341,16 @@ constexpr inner_iterator<Const> begin() const;
 Equivalent to: \tcode{return inner_iterator<Const>\{i_\};}
 \end{itemdescr}
 
+\indexlibrarymember{begin}{split_view::outer_iterator::value_type}%
+\begin{itemdecl}
+constexpr inner_iterator<Const> begin() requires (!copyable<outer_iterator>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return inner_iterator<Const>\{std::move(i_)\};}
+\end{itemdescr}
 \indexlibrarymember{end}{split_view::outer_iterator::value_type}%
 \begin{itemdecl}
 constexpr default_sentinel_t end() const;
@@ -5301,11 +5414,14 @@ namespace std::ranges {
 \end{codeblock}
 
 \pnum
-The \grammarterm{typedef-name} \tcode{iterator_category} denotes
+The \grammarterm{typedef-name} \tcode{iterator_category} denotes:
+\begin{itemize}
+\item
 \tcode{forward_iterator_tag} if
-\tcode{iterator_traits<iterator_t<Base>>::iterator_category} models
-\tcode{derived_from<forward_iterator_tag>}, and \tcode{input_iterator_tag}
-otherwise.
+\tcode{iterator_traits<iterator_t<Base>>::iterator_category} models \linebreak
+\tcode{derived_from<forward_iterator_tag>};
+\item otherwise, \tcode{iterator_traits<iterator_t<Base>>::iterator_category}.
+\end{itemize}
 
 \indexlibraryctor{split_view::inner_iterator}%
 \begin{itemdecl}
@@ -5315,7 +5431,7 @@ constexpr explicit inner_iterator(outer_iterator<Const> i);
 \begin{itemdescr}
 \pnum
 \effects
-Initializes \tcode{i_} with \tcode{i}.
+Initializes \tcode{i_} with \tcode{std::move(i)}.
 \end{itemdescr}
 
 \indexlibrarymember{operator++}{split_view::inner_iterator}%
@@ -5361,16 +5477,23 @@ friend constexpr bool operator==(const inner_iterator& x, default_sentinel_t);
 \effects
 Equivalent to:
 \begin{codeblock}
-auto cur = x.i_.@\placeholder{current}@;
-auto end = ranges::end(x.i_.parent_->base_);
-if (cur == end) return true;
 auto [pcur, pend] = subrange{x.i_.parent_->pattern_};
-if (pcur == pend) return x.incremented_;
-do {
-  if (*cur != *pcur) return false;
-  if (++pcur == pend) return true;
-} while (++cur != end);
-return false;
+auto end = ranges::end(x.i_.parent_->base_);
+if constexpr (@\exposconcept{tiny-range}@<Pattern>) {
+  const auto & cur = x.i_.@\placeholder{current}@;
+  if (cur == end) return true;
+  if (pcur == pend) return x.incremented_;
+  return *cur == *pcur;
+} else {
+  auto cur = x.i_.@\placeholder{current}@;
+  if (cur == end) return true;
+  if (pcur == pend) return x.incremented_;
+  do {
+    if (*cur != *pcur) return false;
+    if (++pcur == pend) return true;
+  } while (++cur != end);
+  return false;
+}
 \end{codeblock}
 \end{itemdescr}
 
@@ -5462,10 +5585,14 @@ void my_algo(R&& r) {
 \rSec3[range.common.view]{Class template \tcode{common_view}}
 
 \indexlibraryglobal{common_view}%
+\indexlibrarymember{base}{common_view}%
+\indexlibrarymember{size}{common_view}%
+\indexlibrarymember{begin}{common_view}%
+\indexlibrarymember{end}{common_view}%
 \begin{codeblock}
 namespace std::ranges {
   template<view V>
-    requires (!common_range<V>)
+    requires (!common_range<V> && copyable<iterator_t<V>>)
   class common_view : public view_interface<common_view<V>> {
   private:
     V base_ = V();  // \expos
@@ -5478,7 +5605,8 @@ namespace std::ranges {
       requires (!common_range<R> && constructible_from<V, all_view<R>>)
     constexpr explicit common_view(R&& r);
 
-    constexpr V base() const;
+    constexpr V base() const& requires copy_constructible<V> { return base_; }
+    constexpr V base() && { return std::move(base_); }
 
     constexpr auto size() requires sized_range<V> {
       return ranges::size(base_);
@@ -5545,17 +5673,6 @@ constexpr explicit common_view(R&& r);
 Initializes \tcode{base_} with \tcode{views::all(std::forward<R>(r))}.
 \end{itemdescr}
 
-\indexlibrarymember{base}{common_view}%
-\begin{itemdecl}
-constexpr V base() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to: \tcode{return base_;}
-\end{itemdescr}
-
 \rSec3[range.common.adaptor]{\tcode{views::common}}
 
 \pnum
@@ -5592,6 +5709,8 @@ for (int i : rv)
 \rSec3[range.reverse.view]{Class template \tcode{reverse_view}}
 
 \indexlibraryglobal{reverse_view}%
+\indexlibrarymember{base}{reverse_view}%
+\indexlibrarymember{size}{reverse_view}%
 \begin{codeblock}
 namespace std::ranges {
   template<view V>
@@ -5608,7 +5727,8 @@ namespace std::ranges {
       requires bidirectional_range<R> && constructible_from<V, all_view<R>>
     constexpr explicit reverse_view(R&& r);
 
-    constexpr V base() const;
+    constexpr V base() const& requires copy_constructible<V> { return base_; }
+    constexpr V base() && { return std::move(base_); }
 
     constexpr reverse_iterator<iterator_t<V>> begin();
     constexpr reverse_iterator<iterator_t<V>> begin() requires common_range<V>;
@@ -5654,17 +5774,6 @@ constexpr explicit reverse_view(R&& r);
 \pnum
 \effects
 Initializes \tcode{base_} with \tcode{views::all(std::forward<R>(r))}.
-\end{itemdescr}
-
-\indexlibrarymember{base}{reverse_view}%
-\begin{itemdecl}
-constexpr V base() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to: \tcode{return base_;}
 \end{itemdescr}
 
 \indexlibrarymember{begin}{reverse_view}%
@@ -6007,6 +6116,10 @@ cout << ranges::count_if(values_view{historical_figures}, is_even);     // print
 \rSec3[range.elements.view]{Class template \tcode{elements_view}}
 
 \indexlibraryglobal{elements_view}%
+\indexlibrarymember{base}{elements_view}%
+\indexlibrarymember{begin}{elements_view}%
+\indexlibrarymember{end}{elements_view}%
+\indexlibrarymember{size}{elements_view}%
 \begin{codeblock}
 namespace std::ranges {
   template<class T, size_t N>
@@ -6027,7 +6140,8 @@ namespace std::ranges {
     elements_view() = default;
     constexpr explicit elements_view(R base);
 
-    constexpr R base() const;
+    constexpr R base() const& requires copy_constructible<R> { return base_; }
+    constexpr R base() && { return std::move(base_); }
 
     constexpr auto begin() requires (!@\placeholder{simple-view}@<R>)
     { return iterator<false>(ranges::begin(base_)); }
@@ -6065,17 +6179,6 @@ constexpr explicit elements_view(R base);
 Initializes \tcode{base_} with \tcode{std::move(base)}.
 \end{itemdescr}
 
-\indexlibrarymember{base}{elements_view}%
-\begin{itemdecl}
-constexpr R base() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to: \tcode{return base_;}
-\end{itemdescr}
-
 \rSec3[range.elements.iterator]{Class template \tcode{elements_view::iterator}}
 
 \indexlibraryglobal{elements_view::iterator}%
@@ -6098,7 +6201,9 @@ namespace std::ranges {
     constexpr iterator(iterator<!Const> i)
       requires Const && convertible_to<iterator_t<R>, iterator_t<base_t>>;
 
-    constexpr iterator_t<base_t> base() const;
+    constexpr iterator_t<base_t> base() const &
+      requires copyable<iterator_t<base_t>>;
+    constexpr iterator_t<base_t> base() &&;
 
     constexpr decltype(auto) operator*() const
     { return get<N>(*current_); }
@@ -6162,7 +6267,7 @@ constexpr explicit iterator(iterator_t<base_t> current);
 \begin{itemdescr}
 \pnum
 \effects
-Initializes \tcode{current_} with \tcode{current}.
+Initializes \tcode{current_} with \tcode{std::move(current)}.
 \end{itemdescr}
 
 \indexlibraryctor{elements_view::iterator}%
@@ -6174,18 +6279,30 @@ constexpr iterator(iterator<!Const> i)
 \begin{itemdescr}
 \pnum
 \effects
-Initializes \tcode{current_} with \tcode{i.current_}.
+Initializes \tcode{current_} with \tcode{std::move(i.current_)}.
 \end{itemdescr}
 
 \indexlibrarymember{base}{elements_view::iterator}%
 \begin{itemdecl}
-constexpr iterator_t<base_t> base() const;
+constexpr iterator_t<base_t> base() const &
+  requires copyable<iterator_t<base_t>>;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects
 Equivalent to: \tcode{return current_;}
+\end{itemdescr}
+
+\indexlibrarymember{base}{elements_view::iterator}%
+\begin{itemdecl}
+constexpr iterator_t<base_t> base() &&;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return std::move(current_);}
 \end{itemdescr}
 
 \indexlibrarymember{operator++}{elements_view::iterator}%

@@ -368,7 +368,7 @@ if \tcode{T1} or \tcode{T2} is
 ``pointer to member of \tcode{C1} of type function'',
 the other type is
 ``pointer to member of \tcode{C2} of type \tcode{noexcept} function'', and
-\tcode{C1} is reference-related to \tcode{C1} or
+\tcode{C1} is reference-related to \tcode{C2} or
 \tcode{C2} is reference-related to \tcode{C1}\iref{dcl.init.ref},
 where the function types are otherwise the same,
 ``pointer to member of \tcode{C2} of type function'' or
@@ -416,7 +416,8 @@ appear~(\ref{expr.prim.req},
 \ref{expr.sizeof},
 \ref{expr.unary.noexcept},
 \ref{dcl.type.simple},
-\ref{temp}).
+\ref{temp.pre},
+\ref{temp.concept}).
 An unevaluated operand is not evaluated.
 \begin{note}
 In an unevaluated operand, a non-static class member may be
@@ -674,12 +675,6 @@ An lvalue of function type \tcode{T} can be converted to a prvalue of
 type ``pointer to \tcode{T}''. The result is a pointer to the
 function.\footnote{This conversion never applies to non-static member functions because an
 lvalue that refers to a non-static member function cannot be obtained.}
-
-\pnum
-\begin{note}
-See~\ref{over.over} for additional rules for the case where the function
-is overloaded.
-\end{note}
 
 \rSec2[conv.rval]{Temporary materialization conversion}
 \indextext{conversion!temporary materialization}%
@@ -1292,44 +1287,24 @@ shall appear only
 \end{itemize}
 
 \pnum
-An \grammarterm{id-expression}
-that denotes the specialization of a concept\iref{temp.concept}
-results in a prvalue of type \tcode{bool}.
-The expression is \tcode{true} if
-the concept's normalized
-\grammarterm{constraint-expression}\iref{temp.constr.decl}
-is satisfied\iref{temp.constr.constr}
-by the specified template arguments
-and \tcode{false} otherwise.
-\begin{example}
-\begin{codeblock}
-template<typename T> concept C = true;
-static_assert(C<int>);          // OK
-\end{codeblock}
-\end{example}
+For an \grammarterm{id-expression} that denotes an overload set,
+overload resolution is performed
+to select a unique function~(\ref{over.match}, \ref{over.over}).
 \begin{note}
-A concept's constraints are also considered
-when using a template name\iref{temp.names}
-and during overload resolution\iref{over},
-and they are compared
-during the partial ordering of constraints\iref{temp.constr.order}.
-\end{note}
-
-\pnum
-A program that refers
-explicitly or implicitly
-to a function with a trailing \grammarterm{requires-clause}
+A program cannot refer to a function
+with a trailing \grammarterm{requires-clause}
 whose \grammarterm{constraint-expression} is not satisfied,
-other than to declare it,
-is ill-formed.
+because such functions are never selected by overload resolution.
 \begin{example}
 \begin{codeblock}
-void f(int) requires false;
+template<typename T> struct A {
+  static void f(int) requires false;
+}
 
 void g() {
-  f(0);                         // error: cannot call \tcode{f}
-  void (*p1)(int) = f;          // error: cannot take the address of \tcode{f}
-  decltype(f)* p2 = nullptr;    // error: the type \tcode{decltype(f)} is invalid
+  A<int>::f(0);                         // error: cannot call \tcode{f}
+  void (*p1)(int) = A<int>::f;          // error: cannot take the address of \tcode{f}
+  decltype(A<int>::f)* p2 = nullptr;    // error: the type \tcode{decltype(A<int>::f)} is invalid
 }
 \end{codeblock}
 In each case, the constraints of \tcode{f} are not satisfied.
@@ -1338,6 +1313,7 @@ those constraints are required to be satisfied
 even though
 \tcode{f} is an unevaluated operand\iref{expr.prop}.
 \end{example}
+\end{note}
 
 \rSec3[expr.prim.id.unqual]{Unqualified names}
 
@@ -1388,10 +1364,12 @@ the innermost such intervening \grammarterm{lambda-expression}.
 If that \grammarterm{lambda-expression} is not declared \tcode{mutable},
 the type of such an identifier will typically be \tcode{const} qualified.
 \end{note}
+The type of the expression is the type of the result.
+\begin{note}
 If the entity is a template parameter object for
 a template parameter of type \tcode{T}\iref{temp.param},
 the type of the expression is \tcode{const T}.
-Otherwise, the type of the expression is the type of the result.
+\end{note}
 \begin{note}
 The type will be adjusted as described in \ref{expr.type}
 if it is cv-qualified or is a reference type.
@@ -2899,7 +2877,13 @@ A \grammarterm{braced-init-list} shall not be used with the built-in subscript o
 A function call is a postfix expression followed by parentheses
 containing a possibly empty, comma-separated list of
 \grammarterm{initializer-clause}{s} which
-constitute the arguments to the function. The postfix expression shall
+constitute the arguments to the function.
+\begin{note}
+If the postfix expression is a function or member function name,
+the appropriate function and the validity of the call
+are determined according to the rules in~\ref{over.match}.
+\end{note}
+The postfix expression shall
 have function type or function pointer type.
 For a call to a non-member function or to a static member function,
 the postfix expression shall either be an lvalue that refers to a
@@ -2923,9 +2907,7 @@ A member function call of the form \tcode{f()} is interpreted as
 \end{note}
 
 \pnum
-If a function or member function name is used,
-the appropriate function and the validity of the call are determined
-according to the rules in~\ref{over.match}. If the selected
+If the selected
 function is non-virtual, or if the \grammarterm{id-expression} in the class
 member access expression is a \grammarterm{qualified-id}, that function is
 called. Otherwise, its final overrider\iref{class.virtual} in the dynamic type
@@ -3122,7 +3104,9 @@ to type \tcode{void*}\iref{conv.ptr}.
 After these conversions, if the
 argument does not have arithmetic, enumeration, pointer, pointer-to-member,
 or class type, the program is ill-formed. Passing a potentially-evaluated
-argument of class type\iref{class} having an eligible non-trivial
+argument
+of a scoped enumeration type or
+of a class type\iref{class} having an eligible non-trivial
 copy constructor, an eligible non-trivial move constructor,
 or a
 non-trivial destructor\iref{special},
@@ -3593,7 +3577,8 @@ typeid(D)  == typeid(const D&); // yields \tcode{true}
 \end{example}
 
 \pnum
-If the header \libheaderrefx{typeinfo}{type.info} is not included prior
+If the header \libheaderrefx{typeinfo}{type.info}
+is not imported or included prior
 to a use of \tcode{typeid}, the program is ill-formed.
 
 \pnum
@@ -3664,10 +3649,14 @@ a program that necessitates such a cast is ill-formed.
 \pnum
 An expression \tcode{e} can be explicitly converted to a type \tcode{T}
 if there is an implicit conversion sequence\iref{over.best.ics}
-from \tcode{e} to \tcode{T}, or
+from \tcode{e} to \tcode{T},
 if overload resolution for a direct-initialization\iref{dcl.init}
 of an object or reference of type \tcode{T} from \tcode{e}
-would find at least one viable function\iref{over.match.viable}.
+would find at least one viable function\iref{over.match.viable}, or
+if \tcode{T} is an aggregate type\iref{dcl.init.aggr}
+having a first element \tcode{x} and
+there is an implicit conversion sequence
+from \tcode{e} to the type of \tcode{x}.
 If \tcode{T} is a reference type, the effect is
 the same as performing the declaration and initialization
 \begin{codeblock}
@@ -3679,6 +3668,10 @@ Otherwise, the result object is direct-initialized from \tcode{e}.
 \begin{note}
 The conversion is ill-formed when attempting to convert an
 expression of class type to an inaccessible or ambiguous base class.
+\end{note}
+\begin{note}
+If \tcode{T} is ``array of unknown bound of \tcode{U}'',
+this direct-initialization defines the type of the expression as \tcode{U[1]}.
 \end{note}
 
 \pnum
@@ -4195,11 +4188,6 @@ whose result is a pointer to the designated object\iref{intro.memory} or functio
 In particular, taking the address of a variable of type ``\cv{}~\tcode{T}''
 yields a pointer of type ``pointer to \cv{}~\tcode{T}''.
 \end{note}
-For purposes of pointer arithmetic\iref{expr.add} and
-comparison~(\ref{expr.rel}, \ref{expr.eq}),
-an object that is not an array element whose
-address is taken in this way is considered to belong to an array with one
-element of type \tcode{T}.
 \item
 Otherwise, the program is ill-formed.
 \end{itemize}
@@ -4244,10 +4232,10 @@ called. The operand of \tcode{\&} shall not be a bit-field.
 
 \pnum
 \indextext{overloaded function!address of}%
+\begin{note}
 The address of an overloaded function\iref{over} can be taken
 only in a context that uniquely determines which version of the
 overloaded function is referred to (see~\ref{over.over}).
-\begin{note}
 Since the context might determine whether the operand is a static or
 non-static member function, the context can also affect whether the
 expression has type ``pointer to function'' or ``pointer to member
@@ -4565,8 +4553,8 @@ applying \tcode{sizeof} to the subobject, due to virtual base classes
 and less strict padding requirements on potentially-overlapping subobjects.}
 \indextext{array!\idxcode{sizeof}}%
 When applied to an array, the result is the total number of bytes in the
-array. This implies that the size of an array of \term{n} elements is
-\term{n} times the size of an element.
+array. This implies that the size of an array of $n$ elements is
+$n$ times the size of an element.
 
 \pnum
 The lvalue-to-rvalue\iref{conv.lval},
@@ -4993,7 +4981,9 @@ allocation has not been extended, the
 allocation function as the first argument of type
 \tcode{std::size_t}. That argument shall be no less than the size
 of the object being created; it may be greater than the size of the
-object being created only if the object is an array. For arrays of
+object being created only if the object is an array and
+the allocation function is not a non-allocating form\iref{new.delete.placement}.
+For arrays of
 \tcode{char}, \tcode{unsigned char}, and \tcode{std::byte},
 the difference between the
 result of the \grammarterm{new-expression} and the address returned by the
@@ -5037,10 +5027,20 @@ If the \grammarterm{new-placement} syntax is used,
 the \grammarterm{initializer-clause}{s}
 in its \grammarterm{expression-list}
 are the succeeding arguments.
-If no matching function is found
-and the allocated object type has new-extended alignment,
-the alignment argument is removed from the argument list,
-and overload resolution is performed again.
+If no matching function is found then
+\begin{itemize}
+
+\item
+if the allocated object type has new-extended alignment,
+the alignment argument is removed from the argument list;
+
+\item
+otherwise, an argument that
+is the type's alignment and has type \tcode{std::align_val_t}
+is added into the argument list immediately after the first argument;
+
+\end{itemize}
+and then overload resolution is performed again.
 
 \pnum
 \begin{example}
@@ -5070,9 +5070,10 @@ Here, each instance of \tcode{x} is a non-negative unspecified value
 representing array allocation overhead; the result of the
 \grammarterm{new-expression} will be offset by this amount from the value
 returned by \tcode{operator new[]}. This overhead may be applied in all
-array \grammarterm{new-expression}{s}, including those referencing the
-library function \tcode{operator new[](std::size_t, void*)} and other
-placement allocation functions. The amount of overhead may vary from one
+array \grammarterm{new-expression}{s}, including those referencing
+a placement allocation function, except when referencing
+the library function \tcode{operator new[](std::size_t, void*)}.
+The amount of overhead may vary from one
 invocation of \tcode{new} to another.
 \end{example}
 
@@ -5181,13 +5182,12 @@ the lookup finds a single matching deallocation function, that function
 will be called; otherwise, no deallocation function will be called. If
 the lookup finds a usual deallocation
 function
-with a parameter of type \tcode{std::size_t}\iref{basic.stc.dynamic.deallocation}
 and that function,
 considered as a placement deallocation function, would have been
 selected as a match for the allocation function, the program is
 ill-formed. For a non-placement allocation function, the normal deallocation
 function lookup is used to find the matching deallocation
-function\iref{expr.delete}
+function\iref{expr.delete}.
 \begin{example}
 \begin{codeblock}
 struct S {
@@ -5754,11 +5754,12 @@ the result has the type of \tcode{P}.
 \tcode{J} evaluates to 0, the result is a null pointer value.
 \item Otherwise, if \tcode{P} points to an array element $i$
 of an array object \tcode{x} with $n$ elements\iref{dcl.array},%
-\footnote{An object that is not an array element is considered to belong to a
-single-element array for this purpose; see~\ref{expr.unary.op}.
-A pointer past the last element of an array \tcode{x} of $n$ elements
+\footnote{As specified in \ref{basic.compound},
+an object that is not an array element
+is considered to belong to a single-element array for this purpose and
+a pointer past the last element of an array of $n$ elements
 is considered to be equivalent to a pointer to a hypothetical array element
-$n$ for this purpose; see~\ref{basic.compound}.}
+$n$ for this purpose.}
 the expressions \tcode{P + J} and \tcode{J + P}
 (where \tcode{J} has the value $j$)
 point to the (possibly-hypothetical) array element
@@ -5955,20 +5956,6 @@ array-to-pointer conversions\iref{conv.array} are not applied.
 \end{note}
 
 \pnum
-If the composite pointer type is
-a function pointer type,
-a pointer-to-member type, or
-\tcode{std::nullptr_t},
-the result is of type \tcode{std::strong_equality};
-the result is
-\tcode{std::strong_equality::equal}
-if the (possibly converted) operands compare equal\iref{expr.eq}
-and
-\tcode{std::strong_equality::nonequal}
-if they compare unequal,
-otherwise the result of the operator is unspecified.
-
-\pnum
 If the composite pointer type is an object pointer type,
 \tcode{p <=> q} is of type \tcode{std::strong_ordering}.
 If two pointer operands \tcode{p} and \tcode{q} compare equal\iref{expr.eq},
@@ -5986,16 +5973,14 @@ Otherwise, the result is unspecified.
 Otherwise, the program is ill-formed.
 
 \pnum
-The five comparison category types\iref{cmp.categories}
+The three comparison category types\iref{cmp.categories}
 (the types
 \tcode{std::strong_ordering},
-\tcode{std::strong_equality},
-\tcode{std::weak_ordering},
-\tcode{std::weak_equality}, and
+\tcode{std::weak_ordering}, and
 \tcode{std::partial_ordering})
 are not predefined;
 if the header \libheaderref{compare}
-is not included prior to a use of such a class type --
+is not imported or included prior to a use of such a class type --
 even an implicit use in which the type is not named
 (e.g., via the \tcode{auto} specifier\iref{dcl.spec.auto}
 in a defaulted three-way comparison\iref{class.spaceship}
@@ -6056,11 +6041,13 @@ After conversions, the operands shall have the same type.
 
 \pnum
 The result of comparing unequal pointers to objects%
-\footnote{An object that is not an array element is considered to belong to a
-single-element array for this purpose; see~\ref{expr.unary.op}.
-A pointer past the last element of an array \tcode{x} of $n$ elements
-is considered to be equivalent to a pointer to a hypothetical element
-$\mathtt{x[}n\mathtt{]}$ for this purpose; see~\ref{basic.compound}.}
+\footnote{As specified in \ref{basic.compound},
+an object that is not an array element
+is considered to belong to a
+single-element array for this purpose and
+a pointer past the last element of an array of $n$ elements
+is considered to be equivalent to a pointer to a hypothetical array element
+$n$ for this purpose.}
 is defined in terms of a partial order consistent with the following rules:
 
 \begin{itemize}
@@ -6138,9 +6125,11 @@ Comparing pointers is defined as follows:
 \item
 If one pointer represents the address of a complete object, and another
 pointer represents the address one past the last element of a different
-complete object,\footnote{An object that is not an array element is
-considered to belong to a single-element array for this purpose;
-see~\ref{expr.unary.op}.} the result of the comparison is unspecified.
+complete object,%
+\footnote{As specified in \ref{basic.compound},
+an object that is not an array element is
+considered to belong to a single-element array for this purpose.}
+the result of the comparison is unspecified.
 \item
 Otherwise, if the pointers are both null, both point to the same
 \indextext{address}%
@@ -6702,7 +6691,7 @@ is modified by replacing its value with the result of the right operand.
 
 \pnum
 \indextext{assignment!conversion by}%
-The expression is implicitly
+If the right operand is an expression, it is implicitly
 converted\iref{conv} to the cv-unqualified type of the left
 operand.
 
@@ -6716,8 +6705,8 @@ resulting value of the bit-field is
 \pnum
 A simple assignment whose left operand is of
 a \tcode{volatile}-qualified type is deprecated\iref{depr.volatile.type}
-unless the assignment is either a discarded-value expression or
-appears in an unevaluated context.
+unless the (possibly parenthesized) assignment is a discarded-value expression or
+an unevaluated operand.
 
 \pnum
 The behavior of an expression of the form \tcode{E1 \placeholder{op}= E2}
@@ -6876,10 +6865,10 @@ An object or reference is \defn{usable in constant expressions} if it is
 \item a variable that is usable in constant expressions, or
 \item a template parameter object\iref{temp.param}, or
 \item a string literal object\iref{lex.string}, or
-\item a non-mutable subobject or reference member of any of the above, or
-\item a complete temporary object of
-  non-volatile const-qualified integral or enumeration type
-  that is initialized with a constant expression.
+\item a temporary object of non-volatile const-qualified literal type
+  whose lifetime is extended\iref{class.temporary}
+  to that of a variable that is usable in constant expressions, or
+\item a non-mutable subobject or reference member of any of the above.
 \end{itemize}
 
 \pnum
@@ -7116,10 +7105,10 @@ constexpr int y = h(1);             // OK: initializes \tcode{y} with the value 
 
 \pnum
 For the purposes of determining
-whether an expression is a core constant expression,
+whether an expression \tcode{e} is a core constant expression,
 the evaluation of a call to a member function of \tcode{std::allocator<T>}
 as defined in \ref{allocator.members}, where \tcode{T} is a literal type,
-does not disqualify the expression from being a core constant expression,
+does not disqualify \tcode{e} from being a core constant expression,
 even if the actual evaluation of such a call
 would otherwise fail the requirements for a core constant expression.
 Similarly, the evaluation of a call to
@@ -7127,20 +7116,25 @@ Similarly, the evaluation of a call to
 \tcode{std::ranges::destroy_at},
 \tcode{std::construct_at}, or
 \tcode{std::ranges::construct_at}
-is a valid core constant expression unless:
+does not disqualify \tcode{e}
+from being a core constant expression unless:
 \begin{itemize}
 \item
   for a call to \tcode{std::construct_at} or \tcode{std::ranges::construct_at},
   the first argument, of type \tcode{T*},
-  does not point to storage allocated with \tcode{std::allocator<T>} or
+  does not point
+  to storage allocated with \tcode{std::allocator<T>} or
+  to an object whose lifetime began within the evaluation of \tcode{e}, or
   the evaluation of the underlying constructor call
-  is not a core constant expression, or
+  disqualifies \tcode{e} from being a core constant expression, or
 \item
   for a call to \tcode{std::destroy_at} or \tcode{std::ranges::destroy_at},
   the first argument, of type \tcode{T*},
-  does not point to storage allocated with \tcode{std::allocator<T>} or
+  does not point
+  to storage allocated with \tcode{std::allocator<T>} or
+  to an object whose lifetime began within the evaluation of \tcode{e}, or
   the evaluation of the underlying destructor call
-  is not a core constant expression.
+  disqualifies \tcode{e} from being a core constant expression.
 \end{itemize}
 
 \pnum
@@ -7297,9 +7291,6 @@ An expression or conversion is an \defn{immediate invocation}
 if it is an explicit or implicit invocation of an immediate function and
 is not in an immediate function context.
 An immediate invocation shall be a constant expression.
-\begin{note}
-An immediate invocation is evaluated even in an unevaluated operand.
-\end{note}
 
 \pnum
 An expression or conversion \tcode{e} is \defn{manifestly constant-evaluated}
@@ -7308,9 +7299,8 @@ if it is:
 \item a \grammarterm{constant-expression}, or
 \item the condition of a constexpr if statement\iref{stmt.if}, or
 \item an immediate invocation, or
-\item a \grammarterm{constraint-expression}\iref{temp.constr.decl}
-including one formed from the \grammarterm{constraint-logical-or-expression}
-of a \grammarterm{requires-clause}, or
+\item the result of substitution into an atomic constraint expression
+to determine whether it is satisfied\iref{temp.constr.atomic}, or
 \item the initializer of a variable
 that is usable in constant expressions or
 has constant initialization.\footnote{Testing this condition
@@ -7337,6 +7327,10 @@ int q = p + f();                                        // \tcode{m} is 17 for t
 \end{codeblock}
 \end{example}
 \end{itemize}
+\begin{note}
+A manifestly constant-evaluated expression
+is evaluated even in an unevaluated operand.
+\end{note}
 
 \pnum
 \indextext{expression!potentially constant evaluated}%
