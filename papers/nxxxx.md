@@ -9,7 +9,17 @@ Dawn Perchik (co-editor) (Bright Side Computing, LLC)
 
 ## Acknowledgements
 
-...
+Special thanks to
+Marshall Clow,
+Jeff Garland,
+and
+Daniel Sunderland
+for providing LaTeX sources for the LWG "Mandating" papers.
+
+Special thanks to
+Johel Ernesto Guerrero Peña
+for reviewing the edits for many of the motions
+and catching numerous issues.
 
 Thanks to all those who have [submitted editorial
 issues](https://github.com/cplusplus/draft/wiki/How-to-submit-an-editorial-issue)
@@ -93,20 +103,6 @@ Did not change the value of the `__cpp_lib_ranges` macro.
 The requested new value of this macro (`201907L`)
 is lower than the value `201911L` introduced by
 [P1716R3](http://wg21.link/po1716r3) (LWG motion 6).
-
-## Feature test macros
-
-The following feature test macro changes were made
-after consultation with SG10,
-in addition to the feature test macro changes
-requested by motions:
-
-The feature test macro `__cpp_nontype_template_parameter_class` has been removed
-to indicate that the feature added by [P0732R2](http://wg21.link/p0732r2)
-is no longer present in the same form.
-
-The value of the feature test macro `__cpp_nontype_template_args` has been increased
-to `201911L` to indicate support for [P1907R1](http://wg21.link/p1907r1).
 
 ## Disposition of editorial NB comments on C++ 2020 CD1
 
@@ -377,7 +373,13 @@ CH 02: Accepted, fixed in 5ee93fd7.
 
 ## Notable editorial changes
 
-...
+### Section moves
+
+Moved [temp.deduct.guide] under [temp.class],
+alongside the description of members of class templates.
+
+Moved [range.istream] under [range.factories].
+`basic_istream_view` is a range factory not a range adaptor.
 
 ### Section label changes
 
@@ -386,7 +388,17 @@ CH 02: Accepted, fixed in 5ee93fd7.
 
 ## Feature test macros
 
-...
+The following feature test macro changes were made
+after consultation with SG10,
+in addition to the feature test macro changes
+requested by motions:
+
+The feature test macro `__cpp_nontype_template_parameter_class` has been removed
+to indicate that the feature added by [P0732R2](http://wg21.link/p0732r2)
+is no longer present in the same form.
+
+The value of the feature test macro `__cpp_nontype_template_args` has been increased
+to `201911L` to indicate support for [P1907R1](http://wg21.link/p1907r1).
 
 ## Minor editorial fixes
 
