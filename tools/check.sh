@@ -28,8 +28,8 @@ grep -n 'opt{}' *.tex && exit 1
 grep -n "// not defined" $texfiles | sed 's/$/ <--- use \\notdef instead/' | grep . && exit 1
 
 # Library element introducer followed by stuff.
-grep -ne '^\\\(contraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|throws\|complexity\|remarks\|errors\).\+$' $texfiles && exit 1
-# Fixup: sed 's/^\\\(contraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|throws\|complexity\|remarks\|errors\)\s*\(.\)/\\\1\n\2/'
+grep -ne '^\\\(constraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|throws\|complexity\|remarks\|errors\).\+$' $texfiles && exit 1
+# Fixup: sed 's/^\\\(constraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|throws\|complexity\|remarks\|errors\)\s*\(.\)/\\\1\n\2/'
 # Fixup: sed 's/^\\ //'
 
 # Change marker in [diff] followed by stuff.
