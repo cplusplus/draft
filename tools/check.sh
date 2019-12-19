@@ -16,6 +16,9 @@ grep -ne '\s$' *.tex | sed 's/$/<--- trailing whitespace/' | grep . && exit 1
 # Trailing empty lines
 for f in *.tex; do [ $(tail -c 2 $f | wc -l) -eq 1 ] || (echo "$f has trailing empty lines"; exit 1 ) done
 
+# indented \begin{codeblock} / \end{codeblock} (causes unwanted empty space)
+grep -ne '^.\+\\\(begin\|end\){codeblock}' $texfiles && exit 1
+
 # \pnum not alone on a line.
 grep -ne '^.\+\\pnum' $texfiles && exit 1
 grep -ne '\\pnum.\+$' $texfiles && exit 1
