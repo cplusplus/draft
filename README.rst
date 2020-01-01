@@ -51,6 +51,15 @@ Install the following packages:
    latex-mk from the Arch User Repository.
    pacman -S texlive-latexextra
 
+-----------------------------
+Getting Started on Microsoft Windows
+-----------------------------
+
+Install Perl (for example, using a `Cygwin installation <https://cygwin.com/install.html>`_ and adding perl.
+See `sample instructions <https://bennierobinson.com/programming/2016/01/24/perl-windows-2016.html>`_ for more details)
+
+Install `MiKTeX <https://miktex.org/download>`_
+
 ------------
 Instructions
 ------------
