@@ -61,7 +61,7 @@ done | grep . && exit 1
 
 # Comment not aligned to multiple of four. (Ignore lines with "@".)
 for f in $texfiles; do
-    sed -n '/begin{codeblock}/,/end{codeblock}/{/^[^@]*[^ @][^@]*\/\//{=;p}}' $f |
+    sed -n '/begin{codeblock\(tu\)\?}/,/end{codeblock\(tu\)\?}/{/^[^@]*[^ @][^@]*\/\//{=;p}}' $f |
     # prefix output with filename and line
     sed '/^[0-9]\+$/{N;s/\n/:/}' | sed "s/.*/$f:&/" |
     awk '{ match($0,"^[-a-z0-9]*[.]tex:[0-9]*:"); n=match(substr($0,RLENGTH+1),"[ ;]//"); if (n % 4 != 0) print $0 " <--- comment starts in column " n; }'
