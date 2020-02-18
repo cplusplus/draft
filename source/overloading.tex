@@ -1571,7 +1571,8 @@ an aggregate class\iref{dcl.init.aggr}
 with the assumption that any dependent base class has
 no virtual functions and no virtual base classes, and
 the initializer is a non-empty \grammarterm{braced-init-list} or
-parenthesized \grammarterm{expression-list},
+parenthesized \grammarterm{expression-list}, and
+there are no \grammarterm{deduction-guide}{s} for \tcode{C},
 the set contains an additional function template,
 called the \defnadj{aggregate deduction}{candidate}, defined as follows.
 Let $x_1, \dotsc, x_n$ be the elements
@@ -1579,15 +1580,40 @@ of the \grammarterm{initializer-list} or
 \grammarterm{designated-initializer-list}
 of the \grammarterm{braced-init-list}, or
 of the \grammarterm{expression-list}.
-For each $x_i$, let $e_i$ be the corresponding element
+For each $x_i$, let $e_i$ be the corresponding aggregate element
 of \tcode{C} or of one of its (possibly recursive) subaggregates
-that would be initialized by $x_i$\iref{dcl.init.aggr}
-if brace elision is not considered for any element
-that has a dependent type.
-If there is no such element $e_i$, the program is ill-formed.
+that would be initialized by $x_i$\iref{dcl.init.aggr} if
+\begin{itemize}
+\item
+brace elision is not considered for any aggregate element
+that has a dependent non-array type or
+an array type with a value-dependent bound, and
+\item
+each non-trailing aggregate element that is a pack expansion
+is assumed to correspond to no elements of the initializer list, and
+\item
+a trailing aggregate element that is a pack expansion is assumed to correspond
+to all remaining elements of the initializer list (if any).
+\end{itemize}
+If there is no such aggregate element $e_i$ for any $x_i$,
+the aggregate deduction candidate is not added to the set.
 The aggregate deduction candidate is derived as above
 from a hypothetical constructor $\tcode{C}(\tcode{T}_1, \dotsc, \tcode{T}_n)$,
-where $\tcode{T}_i$ is the declared type of the element $e_i$.
+where
+\begin{itemize}
+\item
+if $e_i$ is of array type and
+$x_i$ is a \grammarterm{braced-init-list} or string literal,
+$\tcode{T}_i$ is an rvalue reference to the declared type of $e_i$, and
+\item
+otherwise, $\tcode{T}_i$ is the declared type of $e_i$,
+\end{itemize}
+except that additional parameter packs of the form $\tcode{P}_j \tcode{...}$
+are inserted into the parameter list in their original aggregate element position corresponding to each non-trailing aggregate element of type $\tcode{P}_j$
+that was skipped because it was a parameter pack, and
+the trailing sequence of parameters corresponding
+to a trailing aggregate element that is a pack expansion (if any)
+is replaced by a single parameter of the form $\tcode{T}_n \tcode{...}$.
 
 \pnum
 When resolving a placeholder for a deduced class type\iref{dcl.type.simple}
@@ -1672,13 +1698,22 @@ the guides of the template named by the placeholder are considered to be the
 constructors of that class type for the purpose of forming an overload
 set, and the initializer is provided by the context in which class
 template argument deduction was performed.
-As an exception, the first phase in \ref{over.match.list}
+The following exceptions apply:
+\begin{itemize}
+\item
+The first phase in \ref{over.match.list}
 (considering initializer-list constructors)
 is omitted if the initializer list consists of
 a single expression of type \cv{}~\tcode{U},
 where \tcode{U} is, or is derived from,
 a specialization of the class template
 directly or indirectly named by the placeholder.
+\item
+During template argument deduction for the aggregate deduction candidate,
+the number of elements in a trailing parameter pack
+is only deduced from the number of remaining function arguments
+if it is not otherwise deduced.
+\end{itemize}
 If the function or function template was generated from
 a constructor or \grammarterm{deduction-guide}
 that had an \grammarterm{explicit-specifier},
@@ -1750,6 +1785,21 @@ struct E {
 };
 
 E e1 = {1, 2};                  // OK, deduces \tcode{E<int>}
+
+template <typename... T>
+struct Types {};
+
+template <typename... T>
+struct F : Types<T...>, T... {};
+
+struct X {};
+struct Y {};
+struct Z {};
+struct W { operator Y(); };
+
+F f1 = {Types<X, Y, Z>{}, {}, {}};      // OK, \tcode{F<X, Y, Z>} deduced
+F f2 = {Types<X, Y, Z>{}, X{}, Y{}};    // OK, \tcode{F<X, Y, Z>} deduced
+F f3 = {Types<X, Y, Z>{}, X{}, W{}};    // error: conflicting types deduced; \tcode{operator Y} not considered
 \end{codeblock}
 \end{example}
 
