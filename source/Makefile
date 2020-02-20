@@ -1,3 +1,5 @@
+FIGURES=$(patsubst %.dot,%.pdf,$(wildcard *.dot))
+
 default: full
 
 clean:
@@ -11,3 +13,8 @@ full:
 
 %.pdf: %.dot
 	dot -o $@ -Tpdf $<
+
+clean-figures:
+	rm -f $(FIGURES)
+
+figures: $(FIGURES)
