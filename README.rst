@@ -64,42 +64,22 @@ Install `MiKTeX <https://miktex.org/download>`_
 Instructions
 ------------
 
-To typeset the draft document, from the ``source`` directory:
+To typeset the draft document, from the ``source`` directory run::
 
-#. run ``latexmk -pdf std``
+  make
 
 That's it! You should now have an ``std.pdf`` containing the typeset draft.
-
-Alternative instructions
-========================
-
-If you can't use latexmk for some reason, you can use the Makefiles instead:
-
-#. run ``make rebuild``
-#. run ``make reindex``
-
-If you can't use latexmk or make for some reason, you can run LaTeX manually instead:
-
-#. run ``pdflatex std`` until there are no more changed labels or changed tables
-#. run ``makeindex generalindex``
-#. run ``makeindex libraryindex``
-#. run ``makeindex grammarindex``
-#. run ``makeindex impldefindex``
-#. run ``pdflatex std`` once more.
-#. run ``makeindex -s basic.gst -o xrefindex.gls xrefindex.glo``
-#. run ``makeindex -s basic.gst -o xrefdelta.gls xrefdelta.glo``
-#. run ``pdflatex std`` twice more.
 
 Generated input files
 =====================
 
 To regenerate figures from .dot files, run::
 
-   dot -o<pdfname> -Tpdf <dotfilename>
+   make <pdfname>
 
 For example::
 
-   dot -ofigstreampos.pdf -Tpdf figstreampos.dot
+   make figstreampos.pdf
 
 ----------------
 Acknowledgements
