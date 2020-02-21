@@ -11,6 +11,9 @@ refresh:
 full:
 	latexmk -pdf std
 
+quiet:
+	latexmk -pdf std -e '$$max_repeat = 1;' -silent || ( rm std.pdf; latexmk -pdf std -e '$$max_repeat = 4;' )
+
 %.pdf: %.dot
 	dot -o $@ -Tpdf $<
 
