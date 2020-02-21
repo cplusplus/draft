@@ -675,6 +675,11 @@ namespace std {
                   ForwardIterator first, ForwardIterator last, Function f);
 
   namespace ranges {
+    template<input_iterator I, class Proj = identity,
+             indirectly_unary_invocable<projected<I, Proj>> Fun>
+      constexpr for_each_n_result<I, Fun>
+        for_each_n(I first, iter_difference_t<I> n, Fun f, Proj proj = {});
+
     template<class I, class F>
     struct for_each_result {
       [[no_unique_address]] I in;
@@ -1775,6 +1780,20 @@ namespace std {
                           SampleIterator out, Distance n,
                           UniformRandomBitGenerator&& g);
 
+  namespace ranges {
+    template<input_iterator I, sentinel_for<I> S,
+             weakly_incrementable O, class Gen>
+      requires (forward_iterator<I> || random_access_iterator<O>) &&
+               indirectly_copyable<I, O> &&
+               uniform_random_bit_generator<remove_reference_t<Gen>>
+      O sample(I first, S last, O out, iter_difference_t<I> n, Gen&& g);
+    template<input_range R, weakly_incrementable O, class Gen>
+      requires (forward_range<R> || random_access_iterator<O>) &&
+               indirectly_copyable<iterator_t<R>, O> &&
+               uniform_random_bit_generator<remove_reference_t<Gen>>
+      O sample(R&& r, O out, range_difference_t<R> n, Gen&& g);
+  }
+
   // \ref{alg.random.shuffle}, shuffle
   template<class RandomAccessIterator, class UniformRandomBitGenerator>
     void shuffle(RandomAccessIterator first,
@@ -2809,6 +2828,13 @@ namespace std {
   template<class T, class Compare>
     constexpr const T& clamp(const T& v, const T& lo, const T& hi, Compare comp);
 
+  namespace ranges {
+    template<class T, class Proj = identity,
+             indirect_strict_weak_order<projected<const T*, Proj>> Comp = ranges::less>
+      constexpr const T&
+        clamp(const T& v, const T& lo, const T& hi, Comp comp = {}, Proj proj = {});
+  }
+
   // \ref{alg.lex.comparison}, lexicographical comparison
   template<class InputIterator1, class InputIterator2>
     constexpr bool
@@ -3240,6 +3266,44 @@ If \tcode{f} returns a result, the result is ignored.
 Implementations do not have
 the freedom granted under \ref{algorithms.parallel.exec}
 to make arbitrary copies of elements from the input sequence.
+\end{itemdescr}
+
+\indexlibraryglobal{for_each_n}%
+\begin{itemdecl}
+template<input_iterator I, class Proj = identity,
+         indirectly_unary_invocable<projected<I, Proj>> Fun>
+  constexpr ranges::for_each_n_result<I, Fun>
+    ranges::for_each_n(I first, iter_difference_t<I> n, Fun f, Proj proj = {});
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{n >= 0} is \tcode{true}.
+
+\pnum
+\effects
+Calls \tcode{invoke(f, invoke(proj, *i))}
+for every iterator \tcode{i} in the range
+\range{first}{first + n} in order.
+\begin{note}
+If the result of \tcode{invoke(proj, *i)} is a mutable reference,
+\tcode{f} may apply non-constant functions.
+\end{note}
+
+\pnum
+\returns
+\tcode{\{first + n, std::move(f)\}}.
+
+\pnum
+\remarks
+If \tcode{f} returns a result, the result is ignored.
+
+\pnum
+\begin{note}
+The overload in namespace \tcode{ranges}
+requires \tcode{Fun} to model \libconcept{copy_constructible}.
+\end{note}
 \end{itemdescr}
 
 \rSec2[alg.find]{Find}
@@ -5609,16 +5673,30 @@ template<class PopulationIterator, class SampleIterator,
   SampleIterator sample(PopulationIterator first, PopulationIterator last,
                         SampleIterator out, Distance n,
                         UniformRandomBitGenerator&& g);
+
+template<input_iterator I, sentinel_for<I> S, weakly_incrementable O, class Gen>
+  requires (forward_iterator<I> || random_access_iterator<O>) &&
+           indirectly_copyable<I, O> &&
+           uniform_random_bit_generator<remove_reference_t<Gen>>
+  O ranges::sample(I first, S last, O out, iter_difference_t<I> n, Gen&& g);
+template<input_range R, weakly_incrementable O, class Gen>
+  requires (forward_range<R> || random_access_iterator<O>) &&
+           indirectly_copyable<iterator_t<R>, O> &&
+           uniform_random_bit_generator<remove_reference_t<Gen>>
+  O ranges::sample(R&& r, O out, range_difference_t<R> n, Gen&& g);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \mandates
-\tcode{Distance} is an integer type.
+For the overload in namespace \tcode{std},
+\tcode{Distance} is an integer type and
 \tcode{*first} is writable\iref{iterator.requirements.general} to \tcode{out}.
 
 \pnum
 \expects
+\tcode{out} is not in the range \range{first}{last}.
+For the overload in namespace \tcode{std}:
 \begin{itemize}
 \item
   \tcode{PopulationIterator} meets
@@ -5634,8 +5712,6 @@ template<class PopulationIterator, class SampleIterator,
 \item
   \tcode{remove_reference_t<UniformRandomBitGenerator>} meets
   the requirements of a uniform random bit generator type\iref{rand.req.urng}.
-\item
-  \tcode{out} is not in the range \range{first}{last}.
 \end{itemize}
 
 \pnum
@@ -5660,11 +5736,14 @@ The end of the resulting sample range.
 \remarks
 \begin{itemize}
 \item
-  Stable if and only if \tcode{PopulationIterator} meets
-  the \oldconcept{ForwardIterator} requirements.
+  For the overload in namespace \tcode{std},
+  stable if and only if \tcode{PopulationIterator} meets
+  the \oldconcept{For\-wardIterator} requirements.
+  For the first overload in namespace \tcode{ranges},
+  stable if and only if \tcode{I} models \libconcept{forward_iterator}.
 \item
   To the extent that the implementation of this function makes use
-  of random numbers, the object \tcode{g} shall serve as
+  of random numbers, the object \tcode{g} serves as
   the implementation's source of randomness.
 \end{itemize}
 \end{itemdescr}
@@ -5739,12 +5818,13 @@ template<class ExecutionPolicy, class ForwardIterator>
 \begin{itemdescr}
 \pnum
 \expects
+\tcode{n >= 0} is \tcode{true}.
 The type of \tcode{*first} meets
 the \oldconcept{MoveAssignable} requirements.
 
 \pnum
 \effects
-If \tcode{n <= 0} or \tcode{n >= last - first}, does nothing.
+If \tcode{n == 0} or \tcode{n >= last - first}, does nothing.
 Otherwise, moves the element
 from position \tcode{first + n + i}
 into position \tcode{first + i}
@@ -5755,8 +5835,8 @@ from \tcode{i = 0} and proceeding to \tcode{i = (last - first) - n - 1}.
 \pnum
 \returns
 \tcode{first + (last - first - n)}
-if \tcode{n} is positive and \tcode{n < last - first},
-otherwise \tcode{first} if \tcode{n} is positive, otherwise \tcode{last}.
+if \tcode{n < last - first},
+otherwise \tcode{first}.
 
 \pnum
 \complexity
@@ -5778,17 +5858,18 @@ template<class ExecutionPolicy, class ForwardIterator>
 \begin{itemdescr}
 \pnum
 \expects
+\tcode{n >= 0} is \tcode{true}.
 The type of \tcode{*first} meets
 the \oldconcept{MoveAssignable} requirements.
 \tcode{ForwardIterator} meets
 the \oldconcept{BidirectionalIterator} requirements\iref{bidirectional.iterators} or
-the \oldconcept{ValueSwappable} requirements.
+the \oldconcept{ValueSwap\-pable} requirements.
 
 \pnum
 \effects
-If \tcode{n <= 0} or \tcode{n >= last - first}, does nothing.
+If \tcode{n == 0} or \tcode{n >= last - first}, does nothing.
 Otherwise, moves the element
-from position \tcode{first + i} into \tcode{position first + n + i}
+from position \tcode{first + i} into position \tcode{first + n + i}
 for each non-negative integer \tcode{i < (last - first) - n}.
 In the first overload case, if \tcode{ForwardIterator} meets
 the \oldconcept{BidirectionalIterator} requirements,
@@ -5798,8 +5879,8 @@ from \tcode{i = (last - first) - n - 1} and proceeding to \tcode{i = 0}.
 \pnum
 \returns
 \tcode{first + n}
-if \tcode{n} is positive and \tcode{n < last - first},
-otherwise \tcode{last} if \tcode{n} is positive, otherwise \tcode{first}.
+if \tcode{n < last - first},
+otherwise \tcode{last}.
 
 \pnum
 \complexity
@@ -8332,6 +8413,10 @@ template<class T>
   constexpr const T& clamp(const T& v, const T& lo, const T& hi);
 template<class T, class Compare>
   constexpr const T& clamp(const T& v, const T& lo, const T& hi, Compare comp);
+template<class T, class Proj = identity,
+         indirect_strict_weak_order<projected<const T*, Proj>> Comp = ranges::less>
+  constexpr const T&
+    ranges::clamp(const T& v, const T& lo, const T& hi, Comp comp = {}, Proj proj = {});
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -8355,7 +8440,7 @@ If NaN is avoided, \tcode{T} can be a floating-point type.
 
 \pnum
 \complexity
-At most two comparisons.
+At most two comparisons and three applications of any projection.
 \end{itemdescr}
 
 \rSec2[alg.lex.comparison]{Lexicographical comparison}
