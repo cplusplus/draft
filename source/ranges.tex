@@ -2038,6 +2038,7 @@ namespace std::ranges {
     constexpr explicit iota_view(W value);
     constexpr iota_view(type_identity_t<W> value,
                         type_identity_t<Bound> bound);
+    constexpr iota_view(@\exposid{iterator}@ first, @\exposid{sentinel}@ last) : iota_view(*first, last.@\exposid{bound_}@) {}
 
     constexpr @\exposid{iterator}@ begin() const;
     constexpr auto end() const;
@@ -2048,7 +2049,7 @@ namespace std::ranges {
 
   template<class W, class Bound>
     requires (!@\exposconcept{is-integer-like}@<W> || !@\exposconcept{is-integer-like}@<Bound> ||
-      (@\exposconcept{is-signed-integer-like}@<W> == @\exposconcept{is-signed-integer-like}@<Bound>))
+              (@\exposconcept{is-signed-integer-like}@<W> == @\exposconcept{is-signed-integer-like}@<Bound>))
     iota_view(W, Bound) -> iota_view<W, Bound>;
 }
 \end{codeblock}
@@ -4206,9 +4207,37 @@ from another \libconcept{view}, or all the elements if the adapted
 \pnum
 The name \tcode{views::take} denotes a
 range adaptor object\iref{range.adaptor.object}.
-Given subexpressions \tcode{E} and \tcode{F}, the expression
-\tcode{views::take(E, F)} is expression-equivalent to
-\tcode{take_view\{E, F\}}.
+Let \tcode{E} and \tcode{F} be expressions,
+let \tcode{T} be \tcode{remove_cvref_t<decltype((E))>}, and
+let \tcode{D} be \tcode{range_difference_t<decltype((E))>}.
+If \tcode{decltype((F))} does not model
+\tcode{\libconcept{convertible_to}<D>},
+\tcode{views::take(E, F)} is ill-formed.
+Otherwise, the expression \tcode{views::take(E, F)}
+is expression-equivalent to:
+
+\begin{itemize}
+\item
+If \tcode{T} is a specialization
+of \tcode{ranges::empty_view}\iref{range.empty.view},
+then \tcode{((void) F, \placeholdernc{decay-copy}(E))}.
+
+\item
+Otherwise, if \tcode{T} models
+\libconcept{random_access_range} and \libconcept{sized_range}
+and is
+\begin{itemize}
+\item a specialization of \tcode{span}\iref{views.span} where \tcode{T::extent == dynamic_extent},
+\item a specialization of \tcode{basic_string_view}\iref{string.view},
+\item a specialization of \tcode{ranges::iota_view}\iref{range.iota.view}, or
+\item a specialization of \tcode{ranges::subrange}\iref{range.subrange},
+\end{itemize}
+then \tcode{T\{ranges::begin(E), ranges::begin(E) + min<D>(ranges::size(E), F)\}},
+except that \tcode{E} is evaluated only once.
+
+\item
+Otherwise, \tcode{ranges::take_view\{E, F\}}.
+\end{itemize}
 
 \pnum
 \begin{example}
@@ -4560,9 +4589,37 @@ an empty range if the adapted \tcode{view} contains fewer than $N$ elements.
 \pnum
 The name \tcode{views::drop} denotes
 a range adaptor object\iref{range.adaptor.object}.
-Given subexpressions \tcode{E} and \tcode{F},
-the expression \tcode{views::drop(E, F)}
-is expression-equivalent to \tcode{drop_view\{E, F\}}.
+Let \tcode{E} and \tcode{F} be expressions,
+let \tcode{T} be \tcode{remove_cvref_t<decltype((E))>}, and
+let \tcode{D} be \tcode{range_difference_t<decltype((E))>}.
+If \tcode{decltype((F))} does not model
+\tcode{\libconcept{convertible_to}<D>},
+\tcode{views::drop(E, F)} is ill-formed.
+Otherwise, the expression \tcode{views::drop(E, F)}
+is expression-equivalent to:
+
+\begin{itemize}
+\item
+If \tcode{T} is a specialization of
+\tcode{ranges::empty_view}\iref{range.empty.view},
+then \tcode{((void) F, \placeholdernc{decay-copy}(E))}.
+
+\item
+Otherwise, if \tcode{T} models
+\libconcept{random_access_range} and \libconcept{sized_range}
+and is
+\begin{itemize}
+\item a specialization of \tcode{span}\iref{views.span} where \tcode{T::extent == dynamic_extent},
+\item a specialization of \tcode{basic_string_view}\iref{string.view},
+\item a specialization of \tcode{ranges::iota_view}\iref{range.iota.view}, or
+\item a specialization of \tcode{ranges::subrange}\iref{range.subrange},
+\end{itemize}
+then \tcode{T\{ranges::begin(E) + min<D>(ranges::size(E), F), ranges::end(E)\}},
+except that \tcode{E} is evaluated only once.
+
+\item
+Otherwise, \tcode{ranges::drop_view\{E, F\}}.
+\end{itemize}
 
 \pnum
 \begin{example}
@@ -5773,26 +5830,35 @@ of the counted range\iref{iterator.requirements.general} \countedrange{i}{n}
 for an iterator \tcode{i} and non-negative integer \tcode{n}.
 
 \pnum
-The name \tcode{views::counted} denotes a
-customization point object\iref{customization.point.object}.
+The name \tcode{views::counted} denotes
+a customization point object\iref{customization.point.object}.
 Let \tcode{E} and \tcode{F} be expressions,
-and let \tcode{T} be \tcode{decay_t<decltype((E))>}.
-Then the expression \tcode{views::counted(E, F)} is expression-equivalent to:
-\begin{itemize}
-\item If \tcode{T} models \libconcept{input_or_output_iterator} and
-  \tcode{decltype((F))} models \tcode{\libconcept{convertible_to}<iter_differ\-ence_t<T>>},
-  \begin{itemize}
-  \item \tcode{subrange\{E, E + static_cast<iter_difference_t<T>>(F)\}}
-    if \tcode{T} models \libconceptx{random_access_\-it\-er\-ator}{random_access_iterator}.
-  \item Otherwise,
-    \tcode{subrange\{counted_iterator\{E, F\}, default_sentinel\}}.
-\end{itemize}
+let \tcode{T} be \tcode{decay_t<decltype((E))>}, and
+let \tcode{D} be \tcode{iter_difference_t<T>}.
+If \tcode{decltype((F))} does not model
+\tcode{\libconcept{convertible_to}<D>},
+\tcode{views::counted(E, F)} is ill-formed.
+\begin{note}
+This case can result in substitution failure
+when \tcode{views::counted(E, F)}
+appears in the immediate context of a template instantiation.
+\end{note}
+Otherwise, \tcode{views::counted(E, F)}
+is expression-equivalent to:
 
-\item Otherwise, \tcode{views::counted(E, F)} is ill-formed.
-  \begin{note}
-  This case can result in substitution failure when \tcode{views::counted(E, F)}
-  appears in the immediate context of a template instantiation.
-  \end{note}
+\begin{itemize}
+\item
+If \tcode{T} models \libconcept{contiguous_iterator},
+then \tcode{span\{to_address(E), static_cast<D>(F)\}}.
+
+\item
+Otherwise, if \tcode{T} models \libconcept{random_access_iterator},
+then \tcode{subrange\{E, E + static_cast<D>(F)\}},
+except that \tcode{E} is evaluated only once.
+
+\item
+Otherwise,
+\tcode{subrange\{counted_iterator\{E, F\}, default_sentinel\}}.
 \end{itemize}
 
 \rSec2[range.common]{Common view}
