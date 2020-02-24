@@ -10,6 +10,9 @@ sed -n '/\.tex/{s/^.*\/\([-a-z0-9]\+\.tex\).*$/\1/;h};
 /Overfull [\\]hbox\|LaTeX Warning..Reference/{x;p;x;p}' std.log |
 sed '/^.\+\.tex$/{N;s/\n/:/}' | grep . && exit 1
 
+# Find non-ASCII (Unicode) characters in the source
+LC_ALL=C grep -ne '[^ -~	]' *.tex | sed 's/$/ <--- non-ASCII character/' | grep . && exit 1
+
 # Trailing whitespace in a line.
 grep -ne '\s$' *.tex | sed 's/$/<--- trailing whitespace/' | grep . && exit 1
 
