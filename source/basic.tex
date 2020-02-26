@@ -487,8 +487,6 @@ The definition can appear explicitly in the program, it can be found in
 the standard or a user-defined library, or (when appropriate) it is
 implicitly defined (see~\ref{class.default.ctor}, \ref{class.copy.ctor},
 \ref{class.dtor}, and \ref{class.copy.assign}).
-A definition of an inline function or variable shall be reachable in every
-translation unit in which it is odr-used outside of a discarded statement.
 \begin{example}
 \begin{codeblock}
 auto f() {
@@ -504,6 +502,15 @@ and cannot be defined in any other translation unit
 because the local class \tcode{A} cannot be named outside this
 translation unit.
 \end{example}
+
+\pnum
+A \defn{definition domain} is
+a \grammarterm{private-module-fragment} or
+the portion of a translation unit
+excluding its \grammarterm{private-module-fragment} (if any).
+A definition of an inline function or variable shall be reachable
+from the end of every definition domain
+in which it is odr-used outside of a discarded statement.
 
 \pnum
 \indextext{type!incomplete}%
@@ -1979,8 +1986,8 @@ void test() {
   f(x);                         // OK, calls \tcode{R::f} from interface of \tcode{M}
   f(x, S::Z());                 // error: \tcode{S::f} in module \tcode{M} not considered
                                 // even though \tcode{S} is an associated namespace
-  apply(x, S::Z());             // OK, \tcode{S::f} is visible in instantiation context, and
-                                // \tcode{R::g} is visible even though it has internal linkage
+  apply(x, S::Z());             // error: \tcode{S::f} is visible in instantiation context, but
+                                // \tcode{R::g} has internal linkage and cannot be used outside TU \#2
 }
 \end{codeblocktu}
 \end{example}
@@ -2875,6 +2882,164 @@ Linkage to non-\Cpp{} declarations can be achieved using a
 \grammarterm{linkage-specification}\iref{dcl.link}.
 \end{note}
 \indextext{linkage|)}
+
+\pnum
+A declaration $D$ \defnx{names}{name} an entity $E$ if
+\begin{itemize}
+\item
+$D$ contains a \grammarterm{lambda-expression} whose closure type is $E$,
+\item
+$E$ is not a function or function template and $D$ contains an
+\grammarterm{id-expression},
+\grammarterm{type-specifier},
+\grammarterm{nested-name-specifier},
+\grammarterm{template-name}, or
+\grammarterm{concept-name}
+denoting $E$, or
+\item
+$E$ is a function or function template and
+$D$ contains an expression that names $E$\iref{basic.def.odr} or
+an \grammarterm{id-expression}
+that refers to a set of overloads that contains $E$.
+\begin{note}
+Non-dependent names in an instantiated declaration
+do not refer to a set of overloads\iref{temp.nondep}.
+\end{note}
+\end{itemize}
+
+\pnum
+A declaration is an \defn{exposure}
+if it either names a TU-local entity (defined below), ignoring
+\begin{itemize}
+\item
+the \grammarterm{function-body}
+for a non-inline function or function template
+(but not the deduced return type
+for a (possibly instantiated) definition of a function
+with a declared return type that uses a placeholder type\iref{dcl.spec.auto}),
+\item
+the \grammarterm{initializer}
+for a variable or variable template (but not the variable's type),
+\item
+friend declarations in a class definition, and
+\item
+any reference to a non-volatile const object or reference
+with internal or no linkage initialized with a constant expression
+that is not an odr-use\iref{basic.def.odr},
+\end{itemize}
+or defines a constexpr variable initialized to a TU-local value (defined below).
+\begin{note}
+An inline function template can be an exposure even though
+explicit specializations of it might be usable in other translation units.
+\end{note}
+
+\pnum
+An entity is \defnx{TU-local}{TU-local!entity} if it is
+\begin{itemize}
+\item
+a type, function, variable, or template that
+\begin{itemize}
+\item
+has a name with internal linkage, or
+\item
+does not have a name with linkage and is declared,
+or introduced by a \grammarterm{lambda-expression},
+within the definition of a TU-local entity,
+\end{itemize}
+\item
+a type with no name that is defined outside a
+\grammarterm{class-specifier},
+function body, or
+\grammarterm{initializer}
+or is introduced by a \grammarterm{defining-type-specifier}
+that is used to declare only TU-local entities,
+\item
+a specialization of a TU-local template,
+\item
+a specialization of a template with any TU-local template argument, or
+\item
+a specialization of a template
+whose (possibly instantiated) declaration is an exposure.
+\begin{note}
+The specialization might have been implicitly or explicitly instantiated.
+\end{note}
+\end{itemize}
+
+\pnum
+A value or object is \defnx{TU-local}{TU-local!value or object} if either
+\begin{itemize}
+\item
+it is, or is a pointer to,
+a TU-local function or the object associated with a TU-local variable,
+\item
+it is an object of class or array type and
+any of its subobjects or
+any of the objects or functions
+to which its non-static data members of reference type refer
+is TU-local and is usable in constant expressions.
+\end{itemize}
+
+\pnum
+If a (possibly instantiated) declaration of, or a deduction guide for,
+a non-TU-local entity in a module interface unit
+(outside the \grammarterm{private-module-fragment}, if any) or
+module partition\iref{module.unit} is an exposure,
+the program is ill-formed.
+Such a declaration in any other context is deprecated\iref{depr.local}.
+
+\pnum
+If a declaration that appears in one translation unit
+names a TU-local entity declared
+in another translation unit that is not a header unit,
+the program is ill-formed.
+A declaration instantiated for a template specialization\iref{temp.spec}
+appears at the point of instantiation of the specialization\iref{temp.point}.
+
+\pnum
+\begin{example}
+\begin{codeblocktu}{Translation unit \#1}
+export module A;
+static void f() {}
+inline void it() { f(); }           // error: is an exposure of \tcode{f}
+static inline void its() { f(); }   // OK
+template<int> void g() { its(); }   // OK
+template void g<0>();
+
+decltype(f) *fp;                    // error: \tcode{f} (though not its type) is TU-local
+auto &fr = f;                       // OK
+constexpr auto &fr2 = fr;           // error: is an exposure of \tcode{f}
+constexpr static auto fp2 = fr;     // OK
+
+struct S { void (&ref)(); } s{f};               // OK, value is TU-local
+constexpr extern struct W { S &s; } wrap{s};    // OK, value is not TU-local
+
+static auto x = []{f();};           // OK
+auto x2 = x;                        // error: the closure type is TU-local
+int y = ([]{f();}(),0);             // error: the closure type is not TU-local
+int y2 = (x,0);                     // OK
+
+namespace N {
+  struct A {};
+  void adl(A);
+  static void adl(int);
+}
+void adl(double);
+
+inline void h(auto x) { adl(x); }   // OK, but a specialization might be an exposure
+\end{codeblocktu}
+\begin{codeblocktu}{Translation unit \#2}
+module A;
+void other() {
+  g<0>();                           // OK, specialization is explicitly instantiated
+  g<1>();                           // error: instantiation uses TU-local \tcode{its}
+  h(N::A{});                        // error: overload set contains TU-local \tcode{N::adl(int)}
+  h(0);                             // OK, calls \tcode{adl(double)}
+  adl(N::A{});                      // OK; \tcode{N::adl(int)} not found, calls \tcode{N::adl(N::A)}
+  fr();                             // OK, calls \tcode{f}
+  constexpr auto ptr = fr;          // error: \tcode{fr} is not usable in constant expressions here
+}
+\end{codeblocktu}
+\end{example}
 
 \rSec1[basic.memobj]{Memory and objects}
 
