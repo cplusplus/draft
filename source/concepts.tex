@@ -200,9 +200,9 @@ namespace std {
   template<class T, class... Args>
     concept constructible_from = @\seebelow@;
 
-  // \ref{concept.defaultconstructible}, concept \libconcept{default_constructible}
+  // \ref{concept.default.init}, concept \libconcept{default_initializable}
   template<class T>
-    concept default_constructible = @\seebelow@;
+    concept default_initializable = @\seebelow@;
 
   // \ref{concept.moveconstructible}, concept \libconcept{move_constructible}
   template<class T>
@@ -314,29 +314,33 @@ template<class Derived, class Base>
 \rSec2[concept.convertible]{Concept \cname{convertible_to}}
 
 \pnum
-The \libconcept{convertible_to} concept requires an expression of a particular
-type and value category to be both implicitly and explicitly convertible to some
-other type. The implicit and explicit conversions are required to produce equal
+Given types \tcode{From} and \tcode{To} and
+an expression \tcode{E} such that
+\tcode{decltype((E))} is \tcode{add_rvalue_reference_t<From>},
+\tcode{\libconcept{convertible_to}<From, To>} requires \tcode{E}
+to be both implicitly and explicitly convertible to type \tcode{To}.
+The implicit and explicit conversions are required to produce equal
 results.
 
 \begin{itemdecl}
 template<class From, class To>
   concept @\deflibconcept{convertible_to}@ =
     is_convertible_v<From, To> &&
-    requires(From (&f)()) {
+    requires(add_rvalue_reference_t<From> (&f)()) {
       static_cast<To>(f());
     };
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
-Let \tcode{test} be the invented function:
+Let \tcode{FromR} be \tcode{add_rvalue_reference_t<From>} and
+\tcode{test} be the invented function:
 \begin{codeblock}
-To test(From (&f)()) {
+To test(FromR (&f)()) {
   return f();
 }
 \end{codeblock}
-and let \tcode{f} be a function with no arguments and return type \tcode{From}
+and let \tcode{f} be a function with no arguments and return type \tcode{FromR}
 such that \tcode{f()} is equality-preserving.
 Types \tcode{From} and \tcode{To} model \tcode{\libconcept{convertible_to}<From, To>}
 only if:
@@ -347,11 +351,11 @@ only if:
 \tcode{static_cast<To>(f())} is equal to \tcode{test(f)}.
 
 \item
-\tcode{From} is not a reference-to-object type, or
+\tcode{FromR} is not a reference-to-object type, or
 
 \begin{itemize}
 \item
-If \tcode{From} is an rvalue reference to a non const-qualified type, the
+If \tcode{FromR} is an rvalue reference to a non const-qualified type, the
 resulting state of the object referenced by \tcode{f()} after either above
 expression is valid but unspecified\iref{lib.types.movedfrom}.
 
@@ -735,14 +739,14 @@ template<class T, class... Args>
   concept @\deflibconcept{constructible_from}@ = destructible<T> && is_constructible_v<T, Args...>;
 \end{itemdecl}
 
-\rSec2[concept.defaultconstructible]{Concept \cname{default_constructible}}
+\rSec2[concept.default.init]{Concept \cname{default_initializable}}
 
 \begin{itemdecl}
 template<class T>
   inline constexpr bool @\defexposconcept{is-default-initializable}@ = @\seebelow@;  // \expos
 
 template<class T>
-  concept @\deflibconcept{default_constructible}@ = constructible_from<T> &&
+  concept @\deflibconcept{default_initializable}@ = constructible_from<T> &&
                                   requires { T{}; } &&
                                   @\exposconcept{is-default-initializable}@<T>;
 \end{itemdecl}
@@ -957,14 +961,7 @@ common_reference_t<const remove_reference_t<T>&, const remove_reference_t<U>&>
 \begin{itemdecl}
 template<class T>
   concept @\deflibconcept{totally_ordered}@ =
-    equality_comparable<T> &&
-    requires(const remove_reference_t<T>& a,
-             const remove_reference_t<T>& b) {
-      { a <  b } -> boolean;
-      { a >  b } -> boolean;
-      { a <= b } -> boolean;
-      { a >= b } -> boolean;
-    };
+    equality_comparable<T> && @\exposconcept{partially-ordered-with}@<T, T>;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -978,7 +975,6 @@ lvalues of type \tcode{const remove_reference_t<T>}.
       \tcode{bool(a == b)} is \tcode{true}.
 \item If \tcode{bool(a < b)} and \tcode{bool(b < c)}, then
       \tcode{bool(a < c)}.
-\item \tcode{bool(a >  b) ==  bool(b < a)}.
 \item \tcode{bool(a <= b) == !bool(b < a)}.
 \item \tcode{bool(a >= b) == !bool(a < b)}.
 \end{itemize}
@@ -989,23 +985,12 @@ lvalues of type \tcode{const remove_reference_t<T>}.
 template<class T, class U>
   concept @\deflibconcept{totally_ordered_with}@ =
     totally_ordered<T> && totally_ordered<U> &&
-    common_reference_with<const remove_reference_t<T>&, const remove_reference_t<U>&> &&
+    equality_comparable_with<T, U> &&
     totally_ordered<
       common_reference_t<
         const remove_reference_t<T>&,
         const remove_reference_t<U>&>> &&
-    equality_comparable_with<T, U> &&
-    requires(const remove_reference_t<T>& t,
-             const remove_reference_t<U>& u) {
-      { t <  u } -> boolean;
-      { t >  u } -> boolean;
-      { t <= u } -> boolean;
-      { t >= u } -> boolean;
-      { u <  t } -> boolean;
-      { u >  t } -> boolean;
-      { u <= t } -> boolean;
-      { u >= t } -> boolean;
-    };
+    @\exposconcept{partially-ordered-with}@<T, U>;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -1045,7 +1030,7 @@ template<class T>
 template<class T>
   concept @\deflibconcept{copyable}@ = copy_constructible<T> && movable<T> && assignable_from<T&, const T&>;
 template<class T>
-  concept @\deflibconcept{semiregular}@ = copyable<T> && default_constructible<T>;
+  concept @\deflibconcept{semiregular}@ = copyable<T> && default_initializable<T>;
 template<class T>
   concept @\deflibconcept{regular}@ = semiregular<T> && equality_comparable<T>;
 \end{itemdecl}
