@@ -214,11 +214,9 @@ In Tables~\ref{tab:container.req},
  constant                   \\ \rowsep
 
 \tcode{i <=> j}             &
-  \tcode{strong_ordering}
-  if \tcode{X::iterator} meets the random access iterator requirements,
-  otherwise \tcode{strong_equality} &
-                             &
-                             &
+  \tcode{strong_ordering}   &
+                            &
+  \constraints \tcode{X::iterator} meets the random access iterator requirements. &
  constant                   \\ \rowsep
 
 \tcode{a == b}                  &
@@ -3122,6 +3120,13 @@ namespace std {
   template<class T, size_t N> struct array;
 
   template<class T, size_t N>
+    constexpr bool operator==(const array<T, N>& x, const array<T, N>& y);
+  template<class T, size_t N>
+    constexpr @\placeholder{synth-three-way-result}@<T>
+      operator<=>(const array<T, N>& x, const array<T, N>& y);
+
+  // \ref{array.special}, specialized algorithms
+  template<class T, size_t N>
     constexpr void swap(array<T, N>& x, array<T, N>& y) noexcept(noexcept(x.swap(y)));
 
   // \ref{array.creation}, array creation functions
@@ -3320,6 +3325,14 @@ one of these tables and
 for operations where there is additional semantic information.
 
 \pnum
+\tcode{array<T, N>} is a structural type\iref{temp.param} if
+\tcode{T} is a structural type.
+Two values \tcode{a1} and \tcode{a2} of type \tcode{array<T, N>}
+are template-argument-equivalent\iref{temp.type} if and only if
+each pair of corresponding elements in \tcode{a1} and \tcode{a2}
+are template-argument-equivalent.
+
+\pnum
 The types \tcode{iterator} and \tcode{const_iterator} meet
 the constexpr iterator requirements\iref{iterator.requirements.general}.
 
@@ -3383,10 +3396,6 @@ namespace std {
 
     constexpr T *       data() noexcept;
     constexpr const T * data() const noexcept;
-
-    friend constexpr bool operator==(const array&, const array&) = default;
-    friend constexpr @\placeholder{synth-three-way-result}@<value_type>
-      operator<=>(const array&, const array&);
   };
 
   template<class T, class... U>
@@ -10529,7 +10538,7 @@ namespace std {
     inline constexpr bool ranges::enable_view<span<ElementType, Extent>> =
       Extent == 0 || Extent == dynamic_extent;
   template<class ElementType, size_t Extent>
-    inline constexpr bool ranges::enable_safe_range<span<ElementType, Extent>> = true;
+    inline constexpr bool ranges::enable_borrowed_range<span<ElementType, Extent>> = true;
 
   // \ref{span.objectrep}, views of object representation
   template<class ElementType, size_t Extent>
@@ -10592,11 +10601,11 @@ namespace std {
     template<class It, class End>
       constexpr span(It first, End last);
     template<size_t N>
-      constexpr span(element_type (&arr)[N]) noexcept;
-    template<size_t N>
-      constexpr span(array<value_type, N>& arr) noexcept;
-    template<size_t N>
-      constexpr span(const array<value_type, N>& arr) noexcept;
+      constexpr span(type_identity_t<element_type> (&arr)[N]) noexcept;
+    template<class T, size_t N>
+      constexpr span(array<T, N>& arr) noexcept;
+    template<class T, size_t N>
+      constexpr span(const array<T, N>& arr) noexcept;
     template<class R>
       constexpr span(R&& r);
     constexpr span(const span& other) noexcept = default;
@@ -10756,14 +10765,14 @@ Initializes \tcode{data_} with \tcode{to_address(first)} and
 
 \pnum
 \throws
-Nothing.
+When and what \tcode{last - first} throws.
 \end{itemdescr}
 
 \indexlibraryctor{span}%
 \begin{itemdecl}
-template<size_t N> constexpr span(element_type (&arr)[N]) noexcept;
-template<size_t N> constexpr span(array<value_type, N>& arr) noexcept;
-template<size_t N> constexpr span(const array<value_type, N>& arr) noexcept;
+template<size_t N> constexpr span(type_identity_t<element_type> (&arr)[N]) noexcept;
+template<class T, size_t N> constexpr span(array<T, N>& arr) noexcept;
+template<class T, size_t N> constexpr span(const array<T, N>& arr) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -10777,10 +10786,13 @@ template<size_t N> constexpr span(const array<value_type, N>& arr) noexcept;
 \pnum
 \effects
 Constructs a \tcode{span} that is a view over the supplied array.
+\begin{note}
+\tcode{type_identity_t} affects class template argument deduction.
+\end{note}
 
 \pnum
 \ensures
-\tcode{size() == N \&\& data() == data(arr)}.
+\tcode{size() == N \&\& data() == data(arr)} is \tcode{true}.
 \end{itemdescr}
 
 \indexlibraryctor{span}%
@@ -10796,7 +10808,7 @@ Let \tcode{U} be \tcode{remove_reference_t<ranges::range_reference_t<R>>}.
 \item \tcode{extent == dynamic_extent} is \tcode{true}.
 \item \tcode{R} satisfies \tcode{ranges::\libconcept{contiguous_range}} and
   \tcode{ranges::\libconcept{sized_range}}.
-\item Either \tcode{R} satisfies \tcode{ranges::\libconcept{safe_range}} or
+\item Either \tcode{R} satisfies \tcode{ranges::\libconcept{borrowed_range}} or
 \tcode{is_const_v<element_type>} is \tcode{true}.
 \item \tcode{remove_cvref_t<R>} is not a specialization of \tcode{span}.
 \item \tcode{remove_cvref_t<R>} is not a specialization of \tcode{array}.
@@ -10815,7 +10827,7 @@ of the iterator reference type to \tcode{element_type}.
 \item \tcode{R} models \tcode{ranges::\libconcept{contiguous_range}} and
 \tcode{ranges::\libconcept{sized_range}}.
 \item If \tcode{is_const_v<element_type>} is \tcode{false},
-\tcode{R} models \tcode{ranges::\libconcept{safe_range}}.
+\tcode{R} models \tcode{ranges::\libconcept{borrowed_range}}.
 \end{itemize}
 
 \pnum

@@ -793,8 +793,9 @@ namespace std {
       bool operator>=(const leap& x, const sys_time<Duration>& y);
     template<class Duration>
       bool operator>=(const sys_time<Duration>& x, const leap& y);
-    template<three_way_comparable_with<sys_seconds> Duration>
-      auto operator<=>(const leap& x, const sys_time<Duration>& y);
+    template<class Duration>
+      requires three_way_comparable_with<sys_seconds, sys_time<Duration>>
+      constexpr auto operator<=>(const leap& x, const sys_time<Duration>& y);
 
     // \ref{time.zone.link}, class \tcode{link}
     class link;
@@ -1288,7 +1289,7 @@ template<class Rep2>
 \begin{itemdescr}
 \pnum
 \constraints
-\tcode{is_convertible_v<Rep2, rep>} is \tcode{true} and
+\tcode{is_convertible_v<const Rep2\&, rep>} is \tcode{true} and
 \begin{itemize}
 \item \tcode{treat_as_floating_point_v<rep>} is \tcode{true} or
 \item \tcode{treat_as_floating_point_v<Rep2>} is \tcode{false}.
@@ -1594,7 +1595,7 @@ template<class Rep1, class Period, class Rep2>
 \begin{itemdescr}
 \pnum
 \constraints
-\tcode{is_convertible_v<Rep2, common_type_t<Rep1, Rep2>>} is \tcode{true}.
+\tcode{is_convertible_v<const Rep2\&, common_type_t<Rep1, Rep2>>} is \tcode{true}.
 
 \pnum
 \returns
@@ -1611,7 +1612,7 @@ template<class Rep1, class Rep2, class Period>
 \begin{itemdescr}
 \pnum
 \constraints
-\tcode{is_convertible_v<Rep1, common_type_t<Rep1, Rep2>>} is \tcode{true}.
+\tcode{is_convertible_v<const Rep1\&, common_type_t<Rep1, Rep2>>} is \tcode{true}.
 
 \pnum
 \returns
@@ -1628,7 +1629,7 @@ template<class Rep1, class Period, class Rep2>
 \begin{itemdescr}
 \pnum
 \constraints
-\tcode{is_convertible_v<Rep2, common_type_t<Rep1, Rep2>>} is \tcode{true}
+\tcode{is_convertible_v<const Rep2\&, common_type_t<Rep1, Rep2>>} is \tcode{true}
 and \tcode{Rep2} is not a specialization of \tcode{duration}.
 
 \pnum
@@ -1663,7 +1664,7 @@ template<class Rep1, class Period, class Rep2>
 \begin{itemdescr}
 \pnum
 \constraints
-\tcode{is_convertible_v<Rep2, common_type_t<Rep1, Rep2>>} is \tcode{true} and
+\tcode{is_convertible_v<const Rep2\&, common_type_t<Rep1, Rep2>>} is \tcode{true} and
 \tcode{Rep2} is not a specialization of \tcode{duration}.
 
 \pnum
@@ -2049,11 +2050,11 @@ Otherwise, if \tcode{Period::type} is \tcode{nano},
 
 \item
 Otherwise, if \tcode{Period::type} is \tcode{micro},
-\tcode{\placeholder{units-suffix}} is:
-\begin{itemize}
-\item \tcode{"\textmu{}s"} (\tcode{"\textbackslash{}u00b5\textbackslash{}u0073"}) if the character U+00B5 can be represented in the encoding used for \tcode{charT};
-\item \tcode{"us"} otherwise.
-\end{itemize}
+it is
+\impldef{unit suffix when \tcode{Period::type} is \tcode{micro}}
+whether \tcode{\placeholder{units-suffix}} is
+\tcode{"\textmu{}s"} (\tcode{"\textbackslash{}u00b5\textbackslash{}u0073"}) or
+\tcode{"us"}.
 
 \item
 Otherwise, if \tcode{Period::type} is \tcode{milli},
@@ -2843,7 +2844,8 @@ template<class Duration>
 A \tcode{sys_time} \tcode{t},
 such that \tcode{from_sys(t) == u} if such a mapping exists.
 Otherwise \tcode{u} represents a \tcode{time_point}
-during a leap second insertion
+during a positive leap second insertion,
+the conversion counts that leap second as not inserted,
 and the last representable value of \tcode{sys_time}
 prior to the insertion of the leap second is returned.
 \end{itemdescr}
@@ -2860,7 +2862,7 @@ template<class Duration>
 \returns
 A \tcode{utc_time} \tcode{u}, such that
 \tcode{u.time_since_epoch() - t.time_since_epoch()}
-is equal to the number of leap seconds that were inserted
+is equal to the sum of leap seconds that were inserted
 between \tcode{t} and 1970-01-01.
 If \tcode{t} is exactly the date of leap second insertion,
 then the conversion counts that leap second as inserted.
@@ -2980,11 +2982,13 @@ template<class Duration>
 \begin{itemdescr}
 \pnum
 \returns
-A \tcode{leap_second_info} where \tcode{is_leap_second} is \tcode{true}
-if \tcode{ut} is during a leap second insertion, and otherwise \tcode{false}.
-\tcode{elapsed} is the number of leap seconds between 1970-01-01 and \tcode{ut}.
-If \tcode{is_leap_second} is \tcode{true},
-the leap second referred to by \tcode{ut} is included in the count.
+A \tcode{leap_second_info} \tcode{lsi},
+where \tcode{lsi.is_leap_second} is \tcode{true}
+if \tcode{ut} is during a positive leap second insertion, and
+otherwise \tcode{false}.
+\tcode{lsi.elapsed} is the sum of leap seconds between 1970-01-01 and \tcode{ut}.
+If \tcode{lsi.is_leap_second} is \tcode{true},
+the leap second referred to by \tcode{ut} is included in the sum.
 \end{itemdescr}
 
 \rSec2[time.clock.tai]{Class \tcode{tai_clock}}
@@ -3020,8 +3024,9 @@ and is offset 10s ahead of UTC at this date.
 That is, 1958-01-01 00:00:00 TAI is equivalent to 1957-12-31 23:59:50 UTC\@.
 Leap seconds are not inserted into TAI\@.
 Therefore every time a leap second is inserted into UTC,
-UTC falls another second behind TAI\@.
-For example by 2000-01-01 there had been 22 leap seconds inserted
+UTC shifts another second with respect to TAI\@.
+For example by 2000-01-01 there had been
+22 positive and 0 negative leap seconds inserted
 so 2000-01-01 00:00:00 UTC is equivalent to 2000-01-01 00:00:32 TAI
 (22s plus the initial 10s offset).
 
@@ -3183,7 +3188,7 @@ The clock \tcode{gps_clock} measures
 seconds since the first Sunday of January, 1980 00:00:00 UTC\@.
 Leap seconds are not inserted into GPS\@.
 Therefore every time a leap second is inserted into UTC,
-UTC falls another second behind GPS\@.
+UTC shifts another second with respect to GPS\@.
 Aside from the offset from \tcode{1958y/January/1} to \tcode{1980y/January/Sunday[1]},
 GPS is behind TAI by 19s due to the 10s offset between 1958 and 1970
 and the additional 9 leap seconds inserted between 1970 and 1980.
@@ -6024,6 +6029,14 @@ constexpr year_month& operator+=(const months& dm) noexcept;
 
 \begin{itemdescr}
 \pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
+\pnum
 \effects
 \tcode{*this = *this + dm}.
 
@@ -6038,6 +6051,14 @@ constexpr year_month& operator-=(const months& dm) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
 \pnum
 \effects
 \tcode{*this = *this - dm}.
@@ -6123,6 +6144,14 @@ constexpr year_month operator+(const year_month& ym, const months& dm) noexcept;
 
 \begin{itemdescr}
 \pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
+\pnum
 \returns
 A \tcode{year_month} value \tcode{z} such that \tcode{z.ok() \&\& z - ym == dm}
 is \tcode{true}.
@@ -6139,6 +6168,14 @@ constexpr year_month operator+(const months& dm, const year_month& ym) noexcept;
 
 \begin{itemdescr}
 \pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
+\pnum
 \returns
 \tcode{ym + dm}.
 \end{itemdescr}
@@ -6149,6 +6186,14 @@ constexpr year_month operator-(const year_month& ym, const months& dm) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
 \pnum
 \returns
 \tcode{ym + -dm}.
@@ -6371,6 +6416,14 @@ constexpr year_month_day& operator+=(const months& m) noexcept;
 
 \begin{itemdescr}
 \pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
+\pnum
 \effects
 \tcode{*this = *this + m}.
 
@@ -6385,6 +6438,14 @@ constexpr year_month_day& operator-=(const months& m) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
 \pnum
 \effects
 \tcode{*this = *this - m}.
@@ -6550,6 +6611,14 @@ constexpr year_month_day operator+(const year_month_day& ymd, const months& dm) 
 
 \begin{itemdescr}
 \pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
+\pnum
 \returns
 \tcode{(ymd.year() / ymd.month() + dm) / ymd.day()}.
 
@@ -6568,6 +6637,14 @@ constexpr year_month_day operator+(const months& dm, const year_month_day& ymd) 
 
 \begin{itemdescr}
 \pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
+\pnum
 \returns
 \tcode{ymd + dm}.
 \end{itemdescr}
@@ -6578,6 +6655,14 @@ constexpr year_month_day operator-(const year_month_day& ymd, const months& dm) 
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
 \pnum
 \returns
 \tcode{ymd + (-dm)}.
@@ -6740,6 +6825,14 @@ constexpr year_month_day_last& operator+=(const months& m) noexcept;
 
 \begin{itemdescr}
 \pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
+\pnum
 \effects
 \tcode{*this = *this + m}.
 
@@ -6754,6 +6847,14 @@ constexpr year_month_day_last& operator-=(const months& m) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
 \pnum
 \effects
 \tcode{*this = *this - m}.
@@ -6916,6 +7017,14 @@ constexpr year_month_day_last
 
 \begin{itemdescr}
 \pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
+\pnum
 \returns
 \tcode{(ymdl.year() / ymdl.month() + dm) / last}.
 \end{itemdescr}
@@ -6928,6 +7037,14 @@ constexpr year_month_day_last
 
 \begin{itemdescr}
 \pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
+\pnum
 \returns
 \tcode{ymdl + dm}.
 \end{itemdescr}
@@ -6939,6 +7056,14 @@ constexpr year_month_day_last
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
 \pnum
 \returns
 \tcode{ymdl + (-dm)}.
@@ -7099,6 +7224,14 @@ constexpr year_month_weekday& operator+=(const months& m) noexcept;
 
 \begin{itemdescr}
 \pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
+\pnum
 \effects
 \tcode{*this = *this + m}.
 
@@ -7113,6 +7246,14 @@ constexpr year_month_weekday& operator-=(const months& m) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
 \pnum
 \effects
 \tcode{*this = *this - m}.
@@ -7277,6 +7418,14 @@ constexpr year_month_weekday operator+(const year_month_weekday& ymwd, const mon
 
 \begin{itemdescr}
 \pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
+\pnum
 \returns
 \tcode{(ymwd.year() / ymwd.month() + dm) / ymwd.weekday_indexed()}.
 \end{itemdescr}
@@ -7288,6 +7437,14 @@ constexpr year_month_weekday operator+(const months& dm, const year_month_weekda
 
 \begin{itemdescr}
 \pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
+\pnum
 \returns
 \tcode{ymwd + dm}.
 \end{itemdescr}
@@ -7298,6 +7455,14 @@ constexpr year_month_weekday operator-(const year_month_weekday& ymwd, const mon
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
 \pnum
 \returns
 \tcode{ymwd + (-dm)}.
@@ -7423,6 +7588,14 @@ constexpr year_month_weekday_last& operator+=(const months& m) noexcept;
 
 \begin{itemdescr}
 \pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
+\pnum
 \effects
 \tcode{*this = *this + m}.
 
@@ -7437,6 +7610,14 @@ constexpr year_month_weekday_last& operator-=(const months& m) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
 \pnum
 \effects
 \tcode{*this = *this - m}.
@@ -7580,6 +7761,14 @@ constexpr year_month_weekday_last
 
 \begin{itemdescr}
 \pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
+\pnum
 \returns
 \tcode{(ymwdl.year() / ymwdl.month() + dm) / ymwdl.weekday_last()}.
 \end{itemdescr}
@@ -7592,6 +7781,14 @@ constexpr year_month_weekday_last
 
 \begin{itemdescr}
 \pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
+\pnum
 \returns
 \tcode{ymwdl + dm}.
 \end{itemdescr}
@@ -7603,6 +7800,14 @@ constexpr year_month_weekday_last
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+\constraints
+If the argument supplied by the caller for the \tcode{months} parameter
+is convertible to \tcode{years},
+its implicit conversion sequence to \tcode{years}
+is worse than its implicit conversion sequence to
+\tcode{months}\iref{over.ics.rank}.
+
 \pnum
 \returns
 \tcode{ymwdl + (-dm)}.
@@ -8402,10 +8607,7 @@ operator<<(basic_ostream<charT, traits>& os, const hh_mm_ss<Duration>& hms);
 \effects
 Equivalent to:
 \begin{codeblock}
-return os << format(os.getloc(),
-                    hms.is_negative() ? @\placeholder{STATICALLY-WIDEN}@<charT>("-{:%T}")
-                                      : @\placeholder{STATICALLY-WIDEN}@<charT>("{:%T}"),
-                    abs(hms.to_duration()));
+return os << format(os.getloc(), @\placeholder{STATICALLY-WIDEN}@<charT>("{:%T}"), hms);
 \end{codeblock}
 
 \pnum
@@ -9417,8 +9619,10 @@ namespace std::chrono {
     template<class Duration2, class TimeZonePtr2>
       zoned_time(TimeZonePtr z, const zoned_time<Duration2, TimeZonePtr2>& zt, choose);
 
-    zoned_time(string_view name, const zoned_time<Duration>& zt);
-    zoned_time(string_view name, const zoned_time<Duration>& zt, choose);
+    template<class Duration2, class TimeZonePtr2>
+      zoned_time(string_view name, const zoned_time<Duration2, TimeZonePtr2>& zt);
+    template<class Duration2, class TimeZonePtr2>
+      zoned_time(string_view name, const zoned_time<Duration2, TimeZonePtr2>& zt, choose);
 
     zoned_time& operator=(const sys_time<Duration>& st);
     zoned_time& operator=(const local_time<Duration>& ut);
@@ -9710,13 +9914,16 @@ The \tcode{choose} parameter has no effect.
 \end{itemdescr}
 
 \begin{itemdecl}
-zoned_time(string_view name, const zoned_time<Duration>& y);
+template<class Duration2, class TimeZonePtr2>
+  zoned_time(string_view name, const zoned_time<Duration2, TimeZonePtr2>& y);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \constraints
-\tcode{zoned_time} is constructible from the return type of \tcode{traits::locate_zone(name)} and \tcode{zoned_time}.
+\tcode{zoned_time} is constructible from
+the return type of \tcode{traits::locate_zone(name)} and
+the type \tcode{zoned_time<Duration2, TimeZonePtr2>}.
 
 \pnum
 \effects
@@ -9724,14 +9931,17 @@ Equivalent to construction with \tcode{\{traits::locate_zone(name), y\}}.
 \end{itemdescr}
 
 \begin{itemdecl}
-zoned_time(string_view name, const zoned_time<Duration>& y, choose c);
+template<class Duration2, class TimeZonePtr2>
+  zoned_time(string_view name, const zoned_time<Duration2, TimeZonePtr2>& y, choose c);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \constraints
 \tcode{zoned_time} is constructible from
-the return type of \tcode{traits::locate_zone(name)}, \tcode{zoned_time}, and \tcode{choose}.
+the return type of \tcode{traits::locate_zone(name)},
+the type \tcode{zoned_time<Duration2, TimeZonePtr2>}, and
+the type \tcode{choose}.
 
 \pnum
 \effects
@@ -9895,13 +10105,14 @@ namespace std::chrono {
     // unspecified additional constructors
 
     constexpr sys_seconds date() const noexcept;
+    constexpr seconds value() const noexcept;
   };
 }
 \end{codeblock}
 
 \pnum
 Objects of type \tcode{leap} representing
-the date of the leap second insertions
+the date and value of the leap second insertions
 are constructed and stored in the time zone database when initialized.
 
 \pnum
@@ -9909,39 +10120,39 @@ are constructed and stored in the time zone database when initialized.
 \begin{codeblock}
 for (auto& l : get_tzdb().leaps)
   if (l <= 2018y/March/17d)
-    cout << l.date() << '\n';
+    cout << l.date() << ": " << l.value() << '\n';
 \end{codeblock}
 
 Produces the output:
 
 \begin{outputblock}
-1972-07-01 00:00:00
-1973-01-01 00:00:00
-1974-01-01 00:00:00
-1975-01-01 00:00:00
-1976-01-01 00:00:00
-1977-01-01 00:00:00
-1978-01-01 00:00:00
-1979-01-01 00:00:00
-1980-01-01 00:00:00
-1981-07-01 00:00:00
-1982-07-01 00:00:00
-1983-07-01 00:00:00
-1985-07-01 00:00:00
-1988-01-01 00:00:00
-1990-01-01 00:00:00
-1991-01-01 00:00:00
-1992-07-01 00:00:00
-1993-07-01 00:00:00
-1994-07-01 00:00:00
-1996-01-01 00:00:00
-1997-07-01 00:00:00
-1999-01-01 00:00:00
-2006-01-01 00:00:00
-2009-01-01 00:00:00
-2012-07-01 00:00:00
-2015-07-01 00:00:00
-2017-01-01 00:00:00
+1972-07-01 00:00:00: 1s
+1973-01-01 00:00:00: 1s
+1974-01-01 00:00:00: 1s
+1975-01-01 00:00:00: 1s
+1976-01-01 00:00:00: 1s
+1977-01-01 00:00:00: 1s
+1978-01-01 00:00:00: 1s
+1979-01-01 00:00:00: 1s
+1980-01-01 00:00:00: 1s
+1981-07-01 00:00:00: 1s
+1982-07-01 00:00:00: 1s
+1983-07-01 00:00:00: 1s
+1985-07-01 00:00:00: 1s
+1988-01-01 00:00:00: 1s
+1990-01-01 00:00:00: 1s
+1991-01-01 00:00:00: 1s
+1992-07-01 00:00:00: 1s
+1993-07-01 00:00:00: 1s
+1994-07-01 00:00:00: 1s
+1996-01-01 00:00:00: 1s
+1997-07-01 00:00:00: 1s
+1999-01-01 00:00:00: 1s
+2006-01-01 00:00:00: 1s
+2009-01-01 00:00:00: 1s
+2012-07-01 00:00:00: 1s
+2015-07-01 00:00:00: 1s
+2017-01-01 00:00:00: 1s
 \end{outputblock}
 \end{example}
 
@@ -9956,6 +10167,21 @@ constexpr sys_seconds date() const noexcept;
 \pnum
 \returns
 The date and time at which the leap second was inserted.
+\end{itemdescr}
+
+\indexlibrarymember{value}{leap}%
+\begin{itemdecl}
+constexpr seconds value() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{+1s} to indicate a positive leap second or
+\tcode{-1s} to indicate a negative leap second.
+\begin{note}
+All leap seconds inserted up through 2019 were positive leap seconds.
+\end{note}
 \end{itemdescr}
 
 \rSec3[time.zone.leap.nonmembers]{Non-member functions}
@@ -10102,7 +10328,8 @@ template<class Duration>
 \indexlibrarymember{operator<=>}{leap}%
 \indexlibrarymember{operator<=>}{sys_time}%
 \begin{itemdecl}
-template<three_way_comparable_with<sys_seconds> Duration>
+template<class Duration>
+  requires three_way_comparable_with<sys_seconds, sys_time<Duration>>
   constexpr auto operator<=>(const leap& x, const sys_time<Duration>& y) noexcept;
 \end{itemdecl}
 
@@ -10260,6 +10487,22 @@ the conversion specifier refers to,
 an exception of type \tcode{format_error} is thrown.
 
 \pnum
+The result of formatting
+a \tcode{std::chrono::duration} instance holding a negative value, or
+an \tcode{hh_mm_ss} object \tcode{h} for which \tcode{h.is_negative()} is \tcode{true},
+is equivalent to the output of the corresponding positive value,
+with a \tcode{\exposid{STATICALLY-WIDEN}<charT>("-")} character sequence
+placed before the replacement of the leftmost conversion specifier.
+\begin{example}
+\begin{codeblockdigitsep}
+cout << format("{%:T}", -10'000s);          // prints: \tcode{-02:46:40}
+cout << format("{:%H:%M:%S}", -10'000s);    // prints: \tcode{-02:46:40}
+cout << format("{:minutes %M, hours %H, seconds %S}", -10'000s);
+                                            // prints: \tcode{minutes -46, hours 02, seconds 40}
+\end{codeblockdigitsep}
+\end{example}
+
+\pnum
 Unless explicitly requested,
 the result of formatting a chrono type
 does not contain time zone abbreviation
@@ -10376,7 +10619,10 @@ The modified command \tcode{\%OI} produces
 the locale's alternative representation.
 \\ \rowsep
 \tcode{\%j} &
-The day of the year as a decimal number.
+If the type being formatted is a specialization of \tcode{duration},
+the decimal number of \tcode{days} without padding.
+Otherwise,
+the day of the year as a decimal number.
 Jan 1 is \tcode{001}.
 If the result is less than three digits,
 it is left-padded with \tcode{0} to three digits.
@@ -10546,7 +10792,7 @@ If \tcode{\%Z} is used,
 it is replaced with \tcode{\exposid{STATICALLY-WIDEN}<charT>("UTC")}.
 If \tcode{\%z} (or a modified variant of \tcode{\%z}) is used,
 an offset of \tcode{0min} is formatted.
-If the argument represents a time during a leap second insertion,
+If the argument represents a time during a positive leap second insertion,
 and if a seconds field is formatted,
 the integral portion of that format is
 \tcode{\exposid{STATICALLY-WIDEN}<charT>("60")}.
@@ -10718,7 +10964,8 @@ Each \tcode{parse} overload specified in this subclause
 calls \tcode{from_stream} unqualified,
 so as to enable argument dependent lookup\iref{basic.lookup.argdep}.
 In the following paragraphs,
-let \tcode{is} denote an object of type \tcode{basic_istream<charT, traits>},
+let \tcode{is} denote an object of type \tcode{basic_istream<charT, traits>} and
+let \tcode{I} be \tcode{basic_istream<charT, traits>\&},
 where \tcode{charT} and \tcode{traits} are template parameters in that context.
 
 \begin{itemdecl}
@@ -10730,15 +10977,18 @@ template<class charT, class traits, class Alloc, class Parsable>
 \begin{itemdescr}
 \pnum
 \constraints
+The expression
 \begin{codeblock}
 from_stream(declval<basic_istream<charT, traits>&>(), fmt.c_str(), tp)
 \end{codeblock}
-is a valid expression.
+is well-formed when treated as an unevaluated operand.
 
 \pnum
 \returns
-A manipulator that, when extracted from a
-\tcode{basic_istream<charT, traits>} \tcode{is},
+A manipulator such that
+the expression \tcode{is >> parse(fmt, tp)}
+has type \tcode{I},
+has value \tcode{is}, and
 calls \tcode{from_stream(is, fmt.c_str(), tp)}.
 \end{itemdescr}
 
@@ -10752,15 +11002,18 @@ template<class charT, class traits, class Alloc, class Parsable>
 \begin{itemdescr}
 \pnum
 \constraints
+The expression
 \begin{codeblock}
 from_stream(declval<basic_istream<charT, traits>&>(), fmt.c_str(), tp, addressof(abbrev))
 \end{codeblock}
-is a valid expression.
+is well-formed when treated as an unevaluated operand.
 
 \pnum
 \returns
-A manipulator that, when extracted from a
-\tcode{basic_istream<charT, traits>} \tcode{is},
+A manipulator such that
+the expression \tcode{is >> parse(fmt, tp, abbrev)}
+has type \tcode{I},
+has value \tcode{is}, and
 calls \tcode{from_stream(is, fmt.c_str(), tp, addressof(abbrev))}.
 \end{itemdescr}
 
@@ -10785,8 +11038,10 @@ is well-formed when treated as an unevaluated operand.
 
 \pnum
 \returns
-A manipulator that, when extracted from a
-\tcode{basic_istream<charT, traits>} \tcode{is},
+A manipulator such that
+the expression \tcode{is >> parse(fmt, tp, offset)}
+has type \tcode{I},
+has value \tcode{is}, and
 calls:
 \begin{codeblock}
 from_stream(is,
@@ -10806,16 +11061,19 @@ template<class charT, class traits, class Alloc, class Parsable>
 \begin{itemdescr}
 \pnum
 \constraints
+The expression
 \begin{codeblock}
 from_stream(declval<basic_istream<charT, traits>&>(),
             fmt.c_str(), tp, addressof(abbrev), &offset)
 \end{codeblock}
-is a valid expression.
+is well-formed when treated as an unevaluated operand.
 
 \pnum
 \returns
-A manipulator that, when extracted from a
-\tcode{basic_istream<charT, traits>} \tcode{is},
+A manipulator such that
+the expression \tcode{is >> parse(fmt, tp, abbrev, offset)}
+has type \tcode{I},
+has value \tcode{is}, and
 calls \tcode{from_stream(is, fmt.c_str(), tp, addressof(abbrev), \&offset)}.
 \end{itemdescr}
 
@@ -10887,7 +11145,7 @@ The modified command \tcode{\%\placeholder{N}C} specifies
 the maximum number of characters to read.
 If \tcode{\placeholder{N}} is not specified, the default is 2.
 Leading zeroes are permitted but not required.
-The modified commands \tcode{\%EC} and \tcode{\%OC} interpret
+The modified command \tcode{\%EC} interprets
 the locale's alternative representation of the century.
 \\ \rowsep
 \tcode{\%d} &
@@ -10942,11 +11200,17 @@ The modified command \tcode{\%\placeholder{N}I} specifies
 the maximum number of characters to read.
 If \tcode{\placeholder{N}} is not specified, the default is 2.
 Leading zeroes are permitted but not required.
+The modified command \tcode{\%OI}
+interprets the locale's alternative representation.
 \\ \rowsep
 \tcode{\%j} &
-The day of the year as a decimal number.
+If the type being parsed is a specialization of \tcode{duration},
+a decimal number of \tcode{days}.
+Otherwise,
+the day of the year as a decimal number.
 Jan 1 is \tcode{1}.
-The modified command \tcode{\%\placeholder{N}j} specifies
+In either case,
+the modified command \tcode{\%\placeholder{N}j} specifies
 the maximum number of characters to read.
 If \tcode{\placeholder{N}} is not specified, the default is 3.
 Leading zeroes are permitted but not required.
@@ -11015,8 +11279,6 @@ The modified command \tcode{\%\placeholder{N}u} specifies
 the maximum number of characters to read.
 If \tcode{\placeholder{N}} is not specified, the default is \tcode{1}.
 Leading zeroes are permitted but not required.
-The modified command \tcode{\%Ou} interprets
-the locale's alternative representation.
 \\ \rowsep
 \tcode{\%U} &
 The week number of the year as a decimal number.
@@ -11026,6 +11288,8 @@ The modified command \tcode{\%\placeholder{N}U} specifies
 the maximum number of characters to read.
 If \tcode{\placeholder{N}} is not specified, the default is 2.
 Leading zeroes are permitted but not required.
+The modified command \tcode{\%OU} interprets
+the locale's alternative representation.
 \\ \rowsep
 \tcode{\%V} &
 The ISO week-based week number as a decimal number.
@@ -11051,6 +11315,8 @@ The modified command \tcode{\%\placeholder{N}W} specifies
 the maximum number of characters to read.
 If \tcode{\placeholder{N}} is not specified, the default is 2.
 Leading zeroes are permitted but not required.
+The modified command \tcode{\%OW} interprets
+the locale's alternative representation.
 \\ \rowsep
 \tcode{\%x} &
 The locale's date representation.

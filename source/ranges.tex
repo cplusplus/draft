@@ -24,6 +24,7 @@ as summarized in \tref{range.summary}.
 \rSec1[ranges.syn]{Header \tcode{<ranges>} synopsis}
 
 \indexheader{ranges}%
+\indexlibraryglobal{all_t}%
 \begin{codeblock}
 #include <compare>              // see \ref{compare.syn}
 #include <initializer_list>     // see \ref{initializer.list.syn}
@@ -52,10 +53,10 @@ namespace std::ranges {
     concept range = @\seebelow@;
 
   template<class T>
-    inline constexpr bool enable_safe_range = false;
+    inline constexpr bool enable_borrowed_range = false;
 
   template<class T>
-    concept safe_range = @\seebelow@;
+    concept borrowed_range = @\seebelow@;
 
   template<range R>
     using iterator_t = decltype(ranges::begin(declval<R&>()));
@@ -63,6 +64,8 @@ namespace std::ranges {
     using sentinel_t = decltype(ranges::end(declval<R&>()));
   template<range R>
     using range_difference_t = iter_difference_t<iterator_t<R>>;
+  template<sized_range R>
+    using range_size_t = decltype(ranges::size(declval<R&>()));
   template<range R>
     using range_value_t = iter_value_t<iterator_t<R>>;
   template<range R>
@@ -124,17 +127,17 @@ namespace std::ranges {
   class subrange;
 
   template<input_or_output_iterator I, sentinel_for<I> S, subrange_kind K>
-    inline constexpr bool enable_safe_range<subrange<I, S, K>> = true;
+    inline constexpr bool enable_borrowed_range<subrange<I, S, K>> = true;
 
   // \ref{range.dangling}, dangling iterator handling
   struct dangling;
 
   template<range R>
-    using safe_iterator_t = conditional_t<safe_range<R>, iterator_t<R>, dangling>;
+    using borrowed_iterator_t = conditional_t<borrowed_range<R>, iterator_t<R>, dangling>;
 
   template<range R>
-    using safe_subrange_t =
-      conditional_t<safe_range<R>, subrange<iterator_t<R>>, dangling>;
+    using borrowed_subrange_t =
+      conditional_t<borrowed_range<R>, subrange<iterator_t<R>>, dangling>;
 
   // \ref{range.empty}, empty view
   template<class T>
@@ -142,7 +145,7 @@ namespace std::ranges {
   class empty_view;
 
   template<class T>
-    inline constexpr bool enable_safe_range<empty_view<T>> = true;
+    inline constexpr bool enable_borrowed_range<empty_view<T>> = true;
 
   namespace views {
     template<class T>
@@ -162,7 +165,7 @@ namespace std::ranges {
   class iota_view;
 
   template<weakly_incrementable W, semiregular Bound>
-    inline constexpr bool enable_safe_range<iota_view<W, Bound>> = true;
+    inline constexpr bool enable_borrowed_range<iota_view<W, Bound>> = true;
 
   namespace views { inline constexpr @\unspec@ iota = @\unspec@; }
 
@@ -174,17 +177,19 @@ namespace std::ranges {
     basic_istream_view<Val, CharT, Traits> istream_view(basic_istream<CharT, Traits>& s);
 
   // \ref{range.all}, all view
-  namespace views { inline constexpr @\unspec@ all = @\unspec@; }
+  namespace views {
+    inline constexpr @\unspec@ all = @\unspec@;
 
-  template<viewable_range R>
-    using all_view = decltype(views::all(declval<R>()));
+    template<viewable_range R>
+      using all_t = decltype(all(declval<R>()));
+  }
 
   template<range R>
     requires is_object_v<R>
   class ref_view;
 
   template<class T>
-    inline constexpr bool enable_safe_range<ref_view<T>> = true;
+    inline constexpr bool enable_borrowed_range<ref_view<T>> = true;
 
   // \ref{range.filter}, filter view
   template<input_range V, indirect_unary_predicate<iterator_t<V>> Pred>
@@ -272,9 +277,9 @@ namespace std::ranges {
   class elements_view;
 
   template<class R>
-    using keys_view = elements_view<all_view<R>, 0>;
+    using keys_view = elements_view<views::all_t<R>, 0>;
   template<class R>
-    using values_view = elements_view<all_view<R>, 1>;
+    using values_view = elements_view<views::all_t<R>, 1>;
 
   namespace views {
     template<size_t N>
@@ -296,6 +301,14 @@ namespace std {
   };
   template<class I, class S, ranges::subrange_kind K>
   struct tuple_element<1, ranges::subrange<I, S, K>> {
+    using type = S;
+  };
+  template<class I, class S, ranges::subrange_kind K>
+  struct tuple_element<0, const ranges::subrange<I, S, K>> {
+    using type = I;
+  };
+  template<class I, class S, ranges::subrange_kind K>
+  struct tuple_element<1, const ranges::subrange<I, S, K>> {
     using type = S;
   };
 }
@@ -329,7 +342,7 @@ object\iref{customization.point.object}.
 Given a subexpression \tcode{E} and
 an lvalue \tcode{t} that denotes the same object as \tcode{E},
 if \tcode{E} is an rvalue and
-\tcode{enable_safe_range<remove_cvref_t<decltype((E))>>} is \tcode{false},
+\tcode{enable_borrowed_range<remove_cvref_t<decltype((E))>>} is \tcode{false},
 \tcode{ranges::begin(E)} is ill-formed.
 Otherwise,
 \tcode{ranges::begin(E)} is
@@ -376,7 +389,7 @@ object\iref{customization.point.object}.
 Given a subexpression \tcode{E} and
 an lvalue \tcode{t} that denotes the same object as \tcode{E},
 if \tcode{E} is an rvalue and
-\tcode{enable_safe_range<remove_cvref_t<decltype((E))>>} is \tcode{false},
+\tcode{enable_borrowed_range<remove_cvref_t<decltype((E))>>} is \tcode{false},
 \tcode{ranges::end(E)} is ill-formed.
 Otherwise,
 \tcode{ranges::end(E)} is
@@ -467,7 +480,7 @@ object\iref{customization.point.object}.
 Given a subexpression \tcode{E} and
 an lvalue \tcode{t} that denotes the same object as \tcode{E},
 if \tcode{E} is an rvalue and
-\tcode{enable_safe_range<remove_cvref_t<decltype((E))>>} is \tcode{false},
+\tcode{enable_borrowed_range<remove_cvref_t<decltype((E))>>} is \tcode{false},
 \tcode{ranges::rbegin(E)} is ill-formed.
 Otherwise,
 \tcode{ranges::rbegin(E)} is
@@ -515,7 +528,7 @@ object\iref{customization.point.object}.
 Given a subexpression \tcode{E} and
 an lvalue \tcode{t} that denotes the same object as \tcode{E},
 if \tcode{E} is an rvalue and
-\tcode{enable_safe_range<remove_cvref_t<decltype((E))>>} is \tcode{false},
+\tcode{enable_borrowed_range<remove_cvref_t<decltype((E))>>} is \tcode{false},
 \tcode{ranges::rend(E)} is ill-formed.
 Otherwise,
 \tcode{ranges::rend(E)} is
@@ -836,37 +849,37 @@ might not return equal values or might not be well-defined;
 
 \begin{itemdecl}
 template<class T>
-  concept @\deflibconcept{safe_range}@ =
+  concept @\deflibconcept{borrowed_range}@ =
     range<T> &&
-      (is_lvalue_reference_v<T> || enable_safe_range<remove_cvref_t<T>>);
+      (is_lvalue_reference_v<T> || enable_borrowed_range<remove_cvref_t<T>>);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 Given an expression \tcode{E} such that \tcode{decltype((E))} is \tcode{T},
-\tcode{T} models \libconcept{safe_range} only if
+\tcode{T} models \libconcept{borrowed_range} only if
 the validity of iterators obtained from the object denoted by \tcode{E}
 is not tied to the lifetime of that object.
 
 \pnum
 \begin{note}
 Since the validity of iterators is not tied to the lifetime of
-an object whose type models \libconcept{safe_range},
+an object whose type models \libconcept{borrowed_range},
 a function can accept arguments of such a type by value and
 return iterators obtained from it without danger of dangling.
 \end{note}
 \end{itemdescr}
 
-\indexlibraryglobal{enable_safe_range}%
+\indexlibraryglobal{enable_borrowed_range}%
 \begin{itemdecl}
 template<class>
-  inline constexpr bool enable_safe_range = false;
+  inline constexpr bool enable_borrowed_range = false;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \remarks
-Pursuant to \ref{namespace.std}, users may specialize \tcode{enable_safe_range}
+Pursuant to \ref{namespace.std}, users may specialize \tcode{enable_borrowed_range}
 for cv-unqualified program-defined types.
 Such specializations shall be
 usable in constant expressions\iref{expr.const} and
@@ -875,10 +888,10 @@ have type \tcode{const bool}.
 \pnum
 \begin{example}
 Each specialization \tcode{S} of class template \tcode{subrange}\iref{range.subrange}
-models \libconcept{safe_range} because
+models \libconcept{borrowed_range} because
 \begin{itemize}
 \item
-\tcode{enable_safe_range<S>} is specialized
+\tcode{enable_borrowed_range<S>} is specialized
 to have the value \tcode{true}, and
 
 \item
@@ -908,7 +921,7 @@ template<class T>
 Given an lvalue \tcode{t} of type \tcode{remove_reference_t<T>}, \tcode{T}
 models \libconcept{sized_range} only if
 \begin{itemize}
-\item \tcode{ranges::size(t)} is \bigoh{1}, does not modify \tcode{t},
+\item \tcode{ranges::size(t)} is amortized \bigoh{1}, does not modify \tcode{t},
 and is equal to \tcode{ranges::distance(t)}, and
 
 \item if \tcode{iterator_t<T>} models \libconcept{forward_iterator},
@@ -923,13 +936,6 @@ does not model \libconcept{forward_iterator}
 only if evaluated before the first call to \tcode{ranges::begin(t)}.
 \end{note}
 \end{itemize}
-
-\pnum
-\begin{note}
-The complexity requirement for the evaluation of \tcode{ranges::size}
-is non-amortized, unlike the case for the complexity of the evaluations of
-\tcode{ranges::begin} and \tcode{ranges::end} in the \libconcept{range} concept.
-\end{note}
 \end{itemdescr}
 
 \indexlibraryglobal{disable_sized_range}%
@@ -1077,6 +1083,12 @@ template<class T>
 \end{itemdecl}
 
 \pnum
+Given an expression \tcode{t} such that \tcode{decltype((t))} is \tcode{T\&},
+\tcode{T} models \libconcept{contiguous_range} only if
+\tcode{to_address(\brk{}ranges::begin(t)) == ranges::data(t)}
+is \tcode{true}.
+
+\pnum
 The \libconcept{common_range} concept specifies requirements of
 a \libconcept{range} type for which \tcode{ranges::begin} and
 \tcode{ranges::end} return objects of the same type.
@@ -1097,7 +1109,7 @@ The \libconcept{viewable_range} concept specifies the requirements of a
 \begin{itemdecl}
 template<class T>
   concept @\deflibconcept{viewable_range}@ =
-    range<T> && (safe_range<T> || view<decay_t<T>>);
+    range<T> && (borrowed_range<T> || view<remove_cvref_t<T>>);
 \end{itemdecl}
 
 \rSec1[range.utility]{Range utilities}
@@ -1255,6 +1267,13 @@ iterator and a sentinel into a single object that models the
 \indexlibraryglobal{subrange}%
 \begin{codeblock}
 namespace std::ranges {
+  template<class From, class To>
+    concept @\defexposconcept{convertible-to-non-slicing}@ =                    // \expos
+      convertible_to<From, To> &&
+      !(is_pointer_v<decay_t<From>> &&
+        is_pointer_v<decay_t<To>> &&
+        @\exposconcept{not-same-as}@<remove_pointer_t<decay_t<From>>, remove_pointer_t<decay_t<To>>>);
+
   template<class T>
     concept @\defexposconcept{pair-like}@ =                                     // \expos
       !is_reference_v<T> && requires(T t) {
@@ -1267,16 +1286,11 @@ namespace std::ranges {
       };
 
   template<class T, class U, class V>
-    concept @\defexposconcept{pair-like-convertible-to}@ =                      // \expos
-      !range<T> && @\exposconcept{pair-like}@<remove_reference_t<T>> &&
-      requires(T&& t) {
-        { get<0>(std::forward<T>(t)) } -> convertible_to<U>;
-        { get<1>(std::forward<T>(t)) } -> convertible_to<V>;
-      };
-
-  template<class T, class U, class V>
     concept @\defexposconcept{pair-like-convertible-from}@ =                    // \expos
-      !range<T> && @\exposconcept{pair-like}@<T> && constructible_from<T, U, V>;
+      !range<T> && @\exposconcept{pair-like}@<T> &&
+      constructible_from<T, U, V> &&
+      @\exposconcept{convertible-to-non-slicing}@<U, tuple_element_t<0, T>> &&
+      convertible_to<V, tuple_element_t<1, T>>;
 
   template<class T>
     concept @\defexposconcept{iterator-sentinel-pair}@ =                        // \expos
@@ -1297,35 +1311,24 @@ namespace std::ranges {
   public:
     subrange() = default;
 
-    constexpr subrange(I i, S s) requires (!@\exposid{StoreSize}@);
+    constexpr subrange(@\exposconcept{convertible-to-non-slicing}@<I> auto i, S s) requires (!@\exposid{StoreSize}@);
 
-    constexpr subrange(I i, S s, @\placeholdernc{make-unsigned-like-t}@<iter_difference_t<I>> n)
+    constexpr subrange(@\exposconcept{convertible-to-non-slicing}@<I> auto i, S s,
+                       @\placeholdernc{make-unsigned-like-t}@<iter_difference_t<I>> n)
       requires (K == subrange_kind::sized);
 
     template<@\exposconcept{not-same-as}@<subrange> R>
-      requires safe_range<R> &&
-               convertible_to<iterator_t<R>, I> && convertible_to<sentinel_t<R>, S>
+      requires borrowed_range<R> &&
+               @\exposconcept{convertible-to-non-slicing}@<iterator_t<R>, I> &&
+               convertible_to<sentinel_t<R>, S>
     constexpr subrange(R&& r) requires (!@\exposid{StoreSize}@ || sized_range<R>);
 
-    template<safe_range R>
-      requires convertible_to<iterator_t<R>, I> && convertible_to<sentinel_t<R>, S>
+    template<borrowed_range R>
+      requires @\exposconcept{convertible-to-non-slicing}@<iterator_t<R>, I> &&
+               convertible_to<sentinel_t<R>, S>
     constexpr subrange(R&& r, @\placeholdernc{make-unsigned-like-t}@<iter_difference_t<I>> n)
       requires (K == subrange_kind::sized)
         : subrange{ranges::begin(r), ranges::end(r), n}
-    {}
-
-    template<@\exposconcept{not-same-as}@<subrange> PairLike>
-      requires @\exposconcept{pair-like-convertible-to}@<PairLike, I, S>
-    constexpr subrange(PairLike&& r) requires (!@\exposid{StoreSize}@)
-      : subrange{std::get<0>(std::forward<PairLike>(r)),
-                 std::get<1>(std::forward<PairLike>(r))}
-    {}
-
-    template<@\exposconcept{pair-like-convertible-to}@<I, S> PairLike>
-    constexpr subrange(PairLike&& r, @\placeholdernc{make-unsigned-like-t}@<iter_difference_t<I>> n)
-      requires (K == subrange_kind::sized)
-      : subrange{std::get<0>(std::forward<PairLike>(r)),
-                 std::get<1>(std::forward<PairLike>(r)), n}
     {}
 
     template<@\exposconcept{not-same-as}@<subrange> PairLike>
@@ -1349,6 +1352,9 @@ namespace std::ranges {
   };
 
   template<input_or_output_iterator I, sentinel_for<I> S>
+    subrange(I, S) -> subrange<I, S>;
+
+  template<input_or_output_iterator I, sentinel_for<I> S>
     subrange(I, S, @\placeholdernc{make-unsigned-like-t}@<iter_difference_t<I>>) ->
       subrange<I, S, subrange_kind::sized>;
 
@@ -1359,13 +1365,13 @@ namespace std::ranges {
     subrange(P, @\placeholdernc{make-unsigned-like-t}@<iter_difference_t<tuple_element_t<0, P>>>) ->
       subrange<tuple_element_t<0, P>, tuple_element_t<1, P>, subrange_kind::sized>;
 
-  template<safe_range R>
+  template<borrowed_range R>
     subrange(R&&) ->
       subrange<iterator_t<R>, sentinel_t<R>,
                (sized_range<R> || sized_sentinel_for<sentinel_t<R>, iterator_t<R>>)
                  ? subrange_kind::sized : subrange_kind::unsized>;
 
-  template<safe_range R>
+  template<borrowed_range R>
     subrange(R&&, @\placeholdernc{make-unsigned-like-t}@<range_difference_t<R>>) ->
       subrange<iterator_t<R>, sentinel_t<R>, subrange_kind::sized>;
 
@@ -1387,7 +1393,7 @@ namespace std {
 
 \indexlibraryctor{subrange}%
 \begin{itemdecl}
-constexpr subrange(I i, S s) requires (!@\exposid{StoreSize}@);
+constexpr subrange(@\exposconcept{convertible-to-non-slicing}@<I> auto i, S s) requires (!@\exposid{StoreSize}@);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -1403,7 +1409,8 @@ Initializes \exposid{begin_} with \tcode{std::move(i)} and \exposid{end_} with
 
 \indexlibraryctor{subrange}%
 \begin{itemdecl}
-constexpr subrange(I i, S s, @\placeholdernc{make-unsigned-like-t}@<iter_difference_t<I>> n)
+constexpr subrange(@\exposconcept{convertible-to-non-slicing}@<I> auto i, S s,
+                   @\placeholdernc{make-unsigned-like-t}@<iter_difference_t<I>> n)
   requires (K == subrange_kind::sized);
 \end{itemdecl}
 
@@ -1431,8 +1438,9 @@ when it stores an iterator and sentinel that do not model
 \indexlibraryctor{subrange}%
 \begin{itemdecl}
 template<@\exposconcept{not-same-as}@<subrange> R>
-  requires safe_range<R> &&
-           convertible_to<iterator_t<R>, I> && convertible_to<sentinel_t<R>, S>
+  requires borrowed_range<R> &&
+           @\exposconcept{convertible-to-non-slicing}@<iterator_t<R>, I> &&
+           convertible_to<sentinel_t<R>, S>
 constexpr subrange(R&& r) requires (!@\exposid{StoreSize}@ || sized_range<R>);
 \end{itemdecl}
 
@@ -1623,13 +1631,13 @@ else
 
 \pnum
 The tag type \tcode{dangling} is used together
-with the template aliases \tcode{safe_iterator_t} and \tcode{safe_subrange_t}
+with the template aliases \tcode{borrowed_iterator_t} and \tcode{borrowed_subrange_t}
 to indicate that an algorithm
 that typically returns an iterator into or subrange of a \tcode{range} argument
 does not return an iterator or subrange
 which could potentially reference a range
 whose lifetime has ended for a particular rvalue \tcode{range} argument
-which does not model \libconcept{safe_range}\iref{range.range}.
+which does not model \libconcept{borrowed_range}\iref{range.range}.
 \indexlibraryglobal{dangling}%
 \begin{codeblock}
 namespace std::ranges {
@@ -1659,7 +1667,7 @@ the \tcode{vector} could potentially be destroyed
 before a returned iterator is dereferenced.
 However, the calls at \#2 and \#3 both return iterators
 since the lvalue \tcode{vec} and specializations of \tcode{subrange}
-model \libconcept{safe_range}.
+model \libconcept{borrowed_range}.
 \end{example}
 
 \rSec1[range.factories]{Range factories}
@@ -2152,8 +2160,7 @@ namespace std::ranges {
       requires totally_ordered<W>;
     friend constexpr bool operator>=(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
       requires totally_ordered<W>;
-    friend constexpr compare_three_way_result_t<W> operator<=>(
-        const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+    friend constexpr auto operator<=>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
       requires totally_ordered<W> && three_way_comparable<W>;
 
     friend constexpr @\exposid{iterator}@ operator+(@\exposid{iterator}@ i, difference_type n)
@@ -2407,9 +2414,8 @@ Equivalent to: \tcode{return !(x < y);}
 
 \indexlibrarymember{operator<=>}{iota_view::iterator}
 \begin{itemdecl}
-friend constexpr compare_three_way_result_t<W>
-  operator<=>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
-    requires totally_ordered<W> && three_way_comparable<W>;
+friend constexpr auto operator<=>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+  requires totally_ordered<W> && three_way_comparable<W>;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -2643,7 +2649,7 @@ namespace std::ranges {
   template<class Val, class CharT, class Traits>
   class basic_istream_view<Val, CharT, Traits>::@\exposid{iterator}@ {      // \expos
   public:
-    using iterator_category = input_iterator_tag;
+    using iterator_concept = input_iterator_tag;
     using difference_type = ptrdiff_t;
     using value_type = Val;
 
@@ -2863,6 +2869,7 @@ the move assignment operator is equivalent to:
 \rSec2[range.all]{All view}
 
 \pnum
+\indexlibraryglobal{all}%
 \tcode{views::all} returns a \libconcept{view} that includes all elements of
 its \libconcept{range} argument.
 
@@ -3007,7 +3014,7 @@ namespace std::ranges {
   };
 
   template<class R, class Pred>
-    filter_view(R&&, Pred) -> filter_view<all_view<R>, Pred>;
+    filter_view(R&&, Pred) -> filter_view<views::all_t<R>, Pred>;
 }
 \end{codeblock}
 
@@ -3109,7 +3116,7 @@ satisfy the filter predicate.
 \end{itemize}
 
 \pnum
-\tcode{iterator::iterator_category} is defined as follows:
+\tcode{\exposid{iterator}::iterator_category} is defined as follows:
 \begin{itemize}
 \item Let \tcode{C} denote the type
 \tcode{iterator_traits<iterator_t<V>>::iterator_category}.
@@ -3423,7 +3430,7 @@ namespace std::ranges {
   };
 
   template<class R, class F>
-    transform_view(R&&, F) -> transform_view<all_view<R>, F>;
+    transform_view(R&&, F) -> transform_view<views::all_t<R>, F>;
 }
 \end{codeblock}
 
@@ -3589,9 +3596,8 @@ namespace std::ranges {
       requires random_access_range<@\exposid{Base}@>;
     friend constexpr bool operator>=(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
       requires random_access_range<@\exposid{Base}@>;
-    friend constexpr compare_three_way_result_t<iterator_t<@\exposid{Base}@>>
-      operator<=>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
-        requires random_access_range<@\exposid{Base}@> && three_way_comparable<iterator_t<@\exposid{Base}@>>;
+    friend constexpr auto operator<=>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+      requires random_access_range<@\exposid{Base}@> && three_way_comparable<iterator_t<@\exposid{Base}@>>;
 
     friend constexpr @\exposid{iterator}@ operator+(@\exposid{iterator}@ i, difference_type n)
       requires random_access_range<@\exposid{Base}@>;
@@ -3635,12 +3641,26 @@ namespace std::ranges {
 \end{itemize}
 
 \pnum
+\tcode{iterator::iterator_category} is defined as follows:
 Let \tcode{C} denote the type
 \tcode{iterator_traits<iterator_t<\exposid{Base}>>::iterator_category}.
-If \tcode{C} models \tcode{\libconcept{derived_from}<contiguous_iterator_tag>},
-then \tcode{iterator_category} denotes
-\tcode{random_access_iterator_tag}; otherwise,
+\begin{itemize}
+\item
+If \tcode{is_lvalue_reference_v<invoke_result_t<F\&, range_reference_t<\exposid{Base}>>>}
+is \tcode{true}, then
+\begin{itemize}
+\item
+if \tcode{C} models \tcode{\libconcept{derived_from}<contiguous_iterator_tag>},
+\tcode{iterator_category} denotes \tcode{random_access_iterator_tag};
+
+\item
+otherwise,
 \tcode{iterator_category} denotes \tcode{C}.
+\end{itemize}
+
+\item
+Otherwise, \tcode{iterator_category} denotes \tcode{input_iterator_tag}.
+\end{itemize}
 
 \indexlibrarymember{iterator}{transform_view::iterator}
 \begin{itemdecl}
@@ -3857,9 +3877,8 @@ Equivalent to: \tcode{return !(x < y);}
 
 \indexlibrarymember{operator<=>}{transform_view::iterator}%
 \begin{itemdecl}
-friend constexpr compare_three_way_result_t<iterator_t<@\exposid{Base}@>>
-  operator<=>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
-    requires random_access_range<@\exposid{Base}@> && three_way_comparable<iterator_t<@\exposid{Base}@>>;
+friend constexpr auto operator<=>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+  requires random_access_range<@\exposid{Base}@> && three_way_comparable<iterator_t<@\exposid{Base}@>>;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -4021,7 +4040,7 @@ friend constexpr range_difference_t<@\exposid{Base}@>
 \begin{itemdescr}
 \pnum
 \effects
-Equivalent to: \tcode{return x.\exposid{end_} - y.\exposid{current_};}
+Equivalent to: \tcode{return y.\exposid{end_} - x.\exposid{current_};}
 \end{itemdescr}
 
 \rSec2[range.take]{Take view}
@@ -4130,7 +4149,7 @@ namespace std::ranges {
 
   template<range R>
     take_view(R&&, range_difference_t<R>)
-      -> take_view<all_view<R>>;
+      -> take_view<views::all_t<R>>;
 }
 \end{codeblock}
 
@@ -4264,7 +4283,7 @@ namespace std::ranges {
     // \ref{range.take.while.sentinel}, class template \tcode{take_while_view::\exposid{sentinel}}
     template<bool> class @\exposid{sentinel}@;                      // \expos
 
-    V @\exposid{base_}@;                                            // \expos
+    V @\exposid{base_}@ = V();                                      // \expos
     @\placeholder{semiregular-box}@<Pred> @\exposid{pred_}@; @\itcorr[-1]@                       // \expos
 
   public:
@@ -4290,7 +4309,7 @@ namespace std::ranges {
   };
 
   template<class R, class Pred>
-    take_while_view(R&&, Pred) -> take_while_view<all_view<R>, Pred>;
+    take_while_view(R&&, Pred) -> take_while_view<views::all_t<R>, Pred>;
 }
 \end{codeblock}
 
@@ -4451,12 +4470,12 @@ namespace std::ranges {
       return s < c ? 0 : s - c;
     }
   private:
-    V @\exposid{base_}@;                                    // \expos
-    range_difference_t<V> @\exposid{count_}@;               // \expos
+    V @\exposid{base_}@ = V();                              // \expos
+    range_difference_t<V> @\exposid{count_}@ = 0;           // \expos
   };
 
   template<class R>
-    drop_view(R&&, range_difference_t<R>) -> drop_view<all_view<R>>;
+    drop_view(R&&, range_difference_t<R>) -> drop_view<views::all_t<R>>;
 }
 \end{codeblock}
 
@@ -4557,12 +4576,12 @@ namespace std::ranges {
     { return ranges::end(@\exposid{base_}@); }
 
   private:
-    V @\exposid{base_}@;                                            // \expos
+    V @\exposid{base_}@ = V();                                      // \expos
     @\placeholder{semiregular-box}@<Pred> @\exposid{pred_}@; @\itcorr[-1]@                       // \expos
   };
 
   template<class R, class Pred>
-    drop_while_view(R&&, Pred) -> drop_while_view<all_view<R>, Pred>;
+    drop_while_view(R&&, Pred) -> drop_while_view<views::all_t<R>, Pred>;
 }
 \end{codeblock}
 
@@ -4662,8 +4681,8 @@ namespace std::ranges {
       struct @\exposid{sentinel}@;                  // \expos
 
     V @\exposid{base_}@ = V();                      // \expos
-    all_view<@\exposid{InnerRng}@> @\exposid{inner_}@ =         // \expos, present only when \tcode{!is_reference_v<\exposid{InnerRng}>}
-      all_view<@\exposid{InnerRng}@>();
+    views::all_t<@\exposid{InnerRng}@> @\exposid{inner_}@ =     // \expos, present only when \tcode{!is_reference_v<\exposid{InnerRng}>}
+      views::all_t<@\exposid{InnerRng}@>();
   public:
     join_view() = default;
     constexpr explicit join_view(V base);
@@ -4705,7 +4724,7 @@ namespace std::ranges {
   };
 
   template<class R>
-    explicit join_view(R&&) -> join_view<all_view<R>>;
+    explicit join_view(R&&) -> join_view<views::all_t<R>>;
 }
 \end{codeblock}
 
@@ -5153,7 +5172,7 @@ namespace std::ranges {
     constexpr split_view(V base, Pattern pattern);
 
     template<input_range R>
-      requires constructible_from<V, all_view<R>> &&
+      requires constructible_from<V, views::all_t<R>> &&
                constructible_from<Pattern, single_view<range_value_t<R>>>
     constexpr split_view(R&& r, range_value_t<R> e);
 
@@ -5186,11 +5205,11 @@ namespace std::ranges {
   };
 
   template<class R, class P>
-    split_view(R&&, P&&) -> split_view<all_view<R>, all_view<P>>;
+    split_view(R&&, P&&) -> split_view<views::all_t<R>, views::all_t<P>>;
 
   template<input_range R>
     split_view(R&&, range_value_t<R>)
-      -> split_view<all_view<R>, single_view<range_value_t<R>>>;
+      -> split_view<views::all_t<R>, single_view<range_value_t<R>>>;
 }
 \end{codeblock}
 
@@ -5209,7 +5228,7 @@ Initializes \exposid{base_} with \tcode{std::move(base)}, and
 \indexlibraryctor{split_view}%
 \begin{itemdecl}
 template<input_range R>
-  requires constructible_from<V, all_view<R>> &&
+  requires constructible_from<V, views::all_t<R>> &&
            constructible_from<Pattern, single_view<range_value_t<R>>>
 constexpr split_view(R&& r, range_value_t<R> e);
 \end{itemdecl}
@@ -5687,7 +5706,7 @@ namespace std::ranges {
     constexpr explicit common_view(V r);
 
     template<viewable_range R>
-      requires (!common_range<R> && constructible_from<V, all_view<R>>)
+      requires (!common_range<R> && constructible_from<V, views::all_t<R>>)
     constexpr explicit common_view(R&& r);
 
     constexpr V base() const& requires copy_constructible<V> { return @\exposid{base_}@; }
@@ -5730,7 +5749,7 @@ namespace std::ranges {
   };
 
   template<class R>
-    common_view(R&&) -> common_view<all_view<R>>;
+    common_view(R&&) -> common_view<views::all_t<R>>;
 }
 \end{codeblock}
 
@@ -5748,7 +5767,7 @@ Initializes \exposid{base_} with \tcode{std::move(base)}.
 \indexlibraryctor{common_view}%
 \begin{itemdecl}
 template<viewable_range R>
-  requires (!common_range<R> && constructible_from<V, all_view<R>>)
+  requires (!common_range<R> && constructible_from<V, views::all_t<R>>)
 constexpr explicit common_view(R&& r);
 \end{itemdecl}
 
@@ -5832,12 +5851,10 @@ namespace std::ranges {
 
     constexpr reverse_iterator<iterator_t<V>> begin();
     constexpr reverse_iterator<iterator_t<V>> begin() requires common_range<V>;
-    constexpr reverse_iterator<iterator_t<const V>> begin() const
-      requires common_range<const V>;
+    constexpr auto begin() const requires common_range<const V>;
 
     constexpr reverse_iterator<iterator_t<V>> end();
-    constexpr reverse_iterator<iterator_t<const V>> end() const
-      requires common_range<const V>;
+    constexpr auto end() const requires common_range<const V>;
 
     constexpr auto size() requires sized_range<V> {
       return ranges::size(@\exposid{base_}@);
@@ -5848,7 +5865,7 @@ namespace std::ranges {
   };
 
   template<class R>
-    reverse_view(R&&) -> reverse_view<all_view<R>>;
+    reverse_view(R&&) -> reverse_view<views::all_t<R>>;
 }
 \end{codeblock}
 
@@ -5885,8 +5902,7 @@ the \libconcept{range} concept, this function caches the result within the
 \indexlibrarymember{begin}{reverse_view}%
 \begin{itemdecl}
 constexpr reverse_iterator<iterator_t<V>> begin() requires common_range<V>;
-constexpr reverse_iterator<iterator_t<const V>> begin() const
-  requires common_range<const V>;
+constexpr auto begin() const requires common_range<const V>;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -5898,8 +5914,7 @@ Equivalent to: \tcode{return make_reverse_iterator(ranges::end(base_));}
 \indexlibrarymember{end}{reverse_view}%
 \begin{itemdecl}
 constexpr reverse_iterator<iterator_t<V>> end();
-constexpr reverse_iterator<iterator_t<const V>> end() const
-  requires common_range<const V>;
+constexpr auto end() const requires common_range<const V>;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -5923,7 +5938,7 @@ The name \tcode{views::elements<N>} denotes
 a range adaptor object\iref{range.adaptor.object}.
 Given a subexpression \tcode{E} and constant expression \tcode{N},
 the expression \tcode{views::elements<N>(E)} is expression-equivalent to
-\tcode{elements_view<all_view<decltype((E))>, N>\{E\}}.
+\tcode{elements_view<views::all_t<decltype((E))>, N>\{E\}}.
 
 \begin{example}
 \begin{codeblock}
@@ -5947,7 +5962,7 @@ for (auto&& born : birth_years) {
 \end{example}
 
 \pnum
-\tcode{keys_view} is an alias for \tcode{elements_view<all_view<R>, 0>}, and
+\tcode{keys_view} is an alias for \tcode{elements_view<views::all_t<R>, 0>}, and
 is useful for extracting keys from associative containers.
 
 \begin{example}
@@ -5960,7 +5975,7 @@ for (auto&& name : names) {
 \end{example}
 
 \pnum
-\tcode{values_view} is an alias for \tcode{elements_view<all_view<R>, 1>}, and
+\tcode{values_view} is an alias for \tcode{elements_view<views::all_t<R>, 1>}, and
 is useful for extracting values from associative containers.
 
 \begin{example}
@@ -6045,9 +6060,8 @@ namespace std::ranges {
   template<bool Const>
   class elements_view<V, N>::@\exposid{iterator}@ {                 // \expos
     using @\exposid{base-t}@ = conditional_t<Const, const V, V>;    // \expos
-    friend @\exposid{iterator}@<!Const>;
 
-    iterator_t<@\exposid{base-t}@> @\exposid{current_}@;
+    iterator_t<@\exposid{base-t}@> @\exposid{current_}@ = iterator_t<@\exposid{base-t}@>();
   public:
     using iterator_category = typename iterator_traits<iterator_t<@\exposid{base-t}@>>::iterator_category;
     using value_type = remove_cvref_t<tuple_element_t<N, range_value_t<@\exposid{base-t}@>>>;
@@ -6093,9 +6107,8 @@ namespace std::ranges {
       requires random_access_range<@\exposid{base-t}@>;
     friend constexpr bool operator>=(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
       requires random_access_range<@\exposid{base-t}@>;
-    friend constexpr compare_three_way_result_t<iterator_t<@\exposid{base-t}@>>
-      operator<=>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
-        requires random_access_range<@\exposid{base-t}@> && three_way_comparable<iterator_t<@\exposid{base-t}@>>;
+    friend constexpr auto operator<=>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+      requires random_access_range<@\exposid{base-t}@> && three_way_comparable<iterator_t<@\exposid{base-t}@>>;
 
     friend constexpr @\exposid{iterator}@ operator+(const @\exposid{iterator}@& x, difference_type y)
       requires random_access_range<@\exposid{base-t}@>;
@@ -6340,9 +6353,8 @@ Equivalent to: \tcode{return !(x < y);}
 
 \indexlibrarymember{operator<=>}{elements_view::iterator}%
 \begin{itemdecl}
-friend constexpr compare_three_way_result_t<iterator_t<@\exposid{base-t}@>>
-  operator<=>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
-    requires random_access_range<@\exposid{base-t}@> && three_way_comparable<iterator_t<@\exposid{base-t}@>>;
+friend constexpr auto operator<=>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+  requires random_access_range<@\exposid{base-t}@> && three_way_comparable<iterator_t<@\exposid{base-t}@>>;
 \end{itemdecl}
 
 \begin{itemdescr}
