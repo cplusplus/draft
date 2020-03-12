@@ -102,4 +102,14 @@ done | grep . && exit 1
 # egrep 'placeholder{[-A-Za-z]*}@?[,.]' *.tex 
 # to fix: sed -i 's/placeholder\({[-A-Za-z]*}@\?[.,]\)/placeholdernc\1/g' *.tex
 
+# We can't reliably check if the PDF is up to date, because we don't have a
+# deterministic rebuild process, and different versions of dot produce
+# different files anyway. So just check the timestamp.
+for f in *.dot; do
+  if [ "$f" -nt "${f%.dot}.pdf" ]; then
+    echo -e "need to rebuild ${f%.dot}.pdf:\nmake clean-figures && make figures" >&2
+    exit 1
+  fi
+done
+
 exit 0

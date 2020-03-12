@@ -166,7 +166,8 @@ in that scope.
 
 \pnum
 \indextext{entity!templated}%
-A \defn{templated entity} is
+An entity is \defn{templated}
+if it is
 \begin{itemize}
 \item a template,
 \item an entity defined\iref{basic.def} or created\iref{class.temporary}
@@ -208,10 +209,13 @@ int f();            // error: parentheses required around \tcode{==} expression
 \end{note}
 
 \pnum
-A function template, member function of a class template, variable template,
-or static data
-member of a class template shall be defined in every translation unit in
-which it is implicitly instantiated\iref{temp.inst} unless the
+A definition of
+a function template,
+member function of a class template,
+variable template,
+or static data member of a class template
+shall be reachable from the end of every definition domain\iref{basic.def.odr}
+in which it is implicitly instantiated\iref{temp.inst} unless the
 corresponding specialization is explicitly instantiated\iref{temp.explicit}
 in some translation unit; no diagnostic is required.
 
@@ -373,7 +377,7 @@ template<C3<int>... T> struct s5;       // associates \tcode{(C3<T, int> \&\& ..
 
 \pnum
 A non-type \grammarterm{template-parameter}
-shall have one of the following (optionally cv-qualified) types:
+shall have one of the following (possibly cv-qualified) types:
 \begin{itemize}
 \item a structural type (see below),
 \item a type that contains a placeholder type\iref{dcl.spec.auto}, or
@@ -1217,7 +1221,7 @@ the reference or pointer value shall not refer to
 or be the address of (respectively):
 \begin{itemize}
 \item a temporary object\iref{class.temporary},
-\item a string literal\iref{lex.string},
+\item a string literal object\iref{lex.string},
 \item the result of a \tcode{typeid} expression\iref{expr.typeid},
 \item a predefined \mname{func} variable\iref{dcl.fct.def.general}, or
 \item a subobject\iref{intro.object} of one of the above.
@@ -1256,7 +1260,7 @@ B<void(0)> b4;                  // error: template parameter type cannot be \tco
 
 \pnum
 \begin{note}
-A string literal\iref{lex.string} is
+A \grammarterm{string-literal}\iref{lex.string} is
 not an acceptable \grammarterm{template-argument}
 for a \grammarterm{template-parameter} of non-class type.
 \begin{example}
@@ -1265,8 +1269,8 @@ template<class T, T p> class X {
   @\commentellip@
 };
 
-X<const char*, "Studebaker"> x; // error: string literal as \grammarterm{template-argument}
-X<const char*, "Knope" + 1> x2; // error: subobject of string literal as \grammarterm{template-argument}
+X<const char*, "Studebaker"> x; // error: string literal object as \grammarterm{template-argument}
+X<const char*, "Knope" + 1> x2; // error: subobject of string literal object as \grammarterm{template-argument}
 
 const char p[] = "Vivisectionist";
 X<const char*, p> y;            // OK
@@ -1275,7 +1279,7 @@ struct A {
   constexpr A(const char*) {}
 };
 
-X<A, "Pyrophoricity"> z;        // OK, string literal is a constructor argument to \tcode{A}
+X<A, "Pyrophoricity"> z;        // OK, \grammarterm{string-literal} is a constructor argument to \tcode{A}
 \end{codeblock}
 \end{example}
 \end{note}
@@ -1602,8 +1606,9 @@ An \defn{atomic constraint} is formed from
 an expression \tcode{E}
 and a mapping from the template parameters
 that appear within \tcode{E} to
-template arguments involving the
-template parameters of the constrained entity,
+template arguments that are formed via substitution during constraint normalization
+in the declaration of a constrained entity (and, therefore, can involve the
+unsubstituted template parameters of the constrained entity),
 called the \defn{parameter mapping}\iref{temp.constr.decl}.
 \begin{note}
 Atomic constraints are formed by constraint normalization\iref{temp.constr.normal}.
@@ -1612,13 +1617,68 @@ nor a logical \logop{OR} expression\iref{expr.log.or}.
 \end{note}
 
 \pnum
-Two atomic constraints are
+Two atomic constraints, $e_1$ and $e_2$, are
 \indextext{identical!atomic constraints|see{atomic constraint, identical}}%
 \defnx{identical}{atomic constraint!identical}
-if they are formed from the same
+if they are formed from the same appearance of the same
 \grammarterm{expression}
-and the targets of the parameter mappings are equivalent
-according to the rules for expressions described in \ref{temp.over.link}.
+and if, given a hypothetical template $A$
+whose \grammarterm{template-parameter-list} consists of
+\grammarterm{template-parameter}s corresponding and equivalent\iref{temp.over.link} to
+those mapped by the parameter mappings of the expression,
+a \grammarterm{template-id} naming $A$
+whose \grammarterm{template-argument}s are
+the targets of the parameter mapping of $e_1$
+is the same\iref{temp.type} as
+a \grammarterm{template-id} naming $A$
+whose \grammarterm{template-argument}s are
+the targets of the parameter mapping of $e_2$.
+\begin{note}
+The comparison of parameter mappings of atomic constraints
+operates in a manner similar to that of declaration matching
+with alias template substitution\iref{temp.alias}.
+\begin{example}
+\begin{codeblock}
+template <unsigned N> constexpr bool Atomic = true;
+template <unsigned N> concept C = Atomic<N>;
+template <unsigned N> concept Add1 = C<N + 1>;
+template <unsigned N> concept AddOne = C<N + 1>;
+template <unsigned M> void f()
+  requires Add1<2 * M>;
+template <unsigned M> int f()
+  requires AddOne<2 * M> && true;
+
+int x = f<0>();     // OK, the atomic constraints from concept \tcode{C} in both \tcode{f}s are \tcode{Atomic<N>}
+                    // with mapping similar to $\tcode{N} \mapsto \tcode{2 * M + 1}$
+
+template <unsigned N> struct WrapN;
+template <unsigned N> using Add1Ty = WrapN<N + 1>;
+template <unsigned N> using AddOneTy = WrapN<N + 1>;
+template <unsigned M> void g(Add1Ty<2 * M> *);
+template <unsigned M> void g(AddOneTy<2 * M> *);
+
+void h() {
+  g<0>(nullptr);    // OK, there is only one \tcode{g}
+}
+\end{codeblock}
+\end{example}
+This similarity includes the situation where a program is ill-formed, no diagnostic required,
+when the meaning of the program depends on whether two constructs are equivalent,
+and they are functionally equivalent but not equivalent.
+\begin{example}
+\begin{codeblock}
+template <unsigned N> void f2()
+  requires Add1<2 * N>;
+template <unsigned N> int f2()
+  requires Add1<N * 2> && true;
+void h2() {
+  f2<0>();          // ill-formed, no diagnostic required:
+                    // requires determination of subsumption between atomic constraints that are
+                    // functionally equivalent but not equivalent
+}
+\end{codeblock}
+\end{example}
+\end{note}
 
 \pnum
 To determine if an atomic constraint is
@@ -1632,6 +1692,9 @@ is performed if necessary,
 and \tcode{E} shall be a constant expression of type \tcode{bool}.
 The constraint is satisfied if and only if evaluation of \tcode{E}
 results in \tcode{true}.
+If, at different points in the program, the satisfaction result is different
+for identical atomic constraints and template arguments,
+the program is ill-formed, no diagnostic required.
 \begin{example}
 \begin{codeblock}
 template<typename T> concept C =
@@ -1744,6 +1807,38 @@ The associated constraints of
 \tcode{f6} are \tcode{C1<T> $\land$ C2<T>},
 and those of
 \tcode{f7} are \tcode{C2<T> $\land$ C1<T>}.
+\end{example}
+
+\pnum
+When determining whether a given introduced
+\grammarterm{constraint-expression} $C_1$ of a declaration
+in an instantiated specialization of a templated class
+is equivalent\iref{temp.over.link} to the corresponding
+\grammarterm{constraint-expression} $C_2$ of a declaration
+outside the class body,
+$C_1$ is instantiated.
+If the instantiation results in an invalid expression,
+the \grammarterm{constraint-expression}s are not equivalent.
+\begin{note}
+This can happen when determining which member template is specialized
+by an explicit specialization declaration.
+\end{note}
+\begin{example}
+\begin{codeblock}
+template <class T> concept C = true;
+template <class T> struct A {
+  template <class U> U f(U) requires C<typename T::type>;   // \#1
+  template <class U> U f(U) requires C<T>;                  // \#2
+};
+
+template <> template <class U>
+U A<int>::f(U u) requires C<int> { return u; }              // OK, specializes \#2
+\end{codeblock}
+Substituting \tcode{int} for \tcode{T} in \tcode{C<typename T::type>}
+produces an invalid expression, so the specialization does not match \#1.
+Substituting \tcode{int} for \tcode{T} in \tcode{C<T>} produces \tcode{C<int>},
+which is equivalent to the \grammarterm{constraint-expression} for the specialization,
+so it does match \#2.
 \end{example}
 
 \rSec2[temp.constr.normal]{Constraint normalization}
@@ -2679,7 +2774,7 @@ an \grammarterm{attribute}.
 the \grammarterm{alignment-specifier} without the ellipsis.
 
 \item In a \grammarterm{capture-list}\iref{expr.prim.lambda}; the pattern is
-a \grammarterm{capture}.
+the \grammarterm{capture} without the ellipses.
 
 \item In a \tcode{sizeof...} expression\iref{expr.sizeof}; the pattern is an
 \grammarterm{identifier}.
@@ -3072,7 +3167,14 @@ the \tcode{inline}, \tcode{constexpr}, or \tcode{consteval} specifiers
 be used in such a declaration.
 
 \pnum
-A non-template friend declaration shall not have a \grammarterm{requires-clause}.
+A non-template friend declaration
+with a \grammarterm{requires-clause}
+shall be a definition.
+A friend function template
+with a constraint that depends on a template parameter from an enclosing template
+shall be a definition.
+Such a constrained friend function or function template declaration
+does not declare the same function or function template as a declaration in any other scope.
 
 \rSec2[temp.class.spec]{Class template partial specializations}
 
@@ -3685,8 +3787,12 @@ For instance, one could have redundant parentheses.
 Two \grammarterm{template-head}{s} are
 \defnx{equivalent}{equivalent!\idxgram{template-head}{s}} if
 their \grammarterm{template-parameter-list}{s} have the same length,
-corresponding \grammarterm{template-parameter}{s} are equivalent,
-and if either has a \grammarterm{requires-clause}, they both have
+corresponding \grammarterm{template-parameter}{s} are equivalent
+and such that if either \grammarterm{template-parameter}
+is declared with a \grammarterm{type-constraint},
+they are both declared with \grammarterm{type-constraint}s that are equivalent,
+and if either \grammarterm{template-head} has a \grammarterm{requires-clause},
+they both have
 \grammarterm{requires-clause}{s} and the corresponding
 \grammarterm{constraint-expression}{s} are equivalent.
 Two \grammarterm{template-parameter}{s} are
@@ -3695,13 +3801,11 @@ under the following conditions:
 \begin{itemize}
 \item they declare template parameters of the same kind,
 \item if either declares a template parameter pack, they both do,
-\item if they declare non-type template parameters, they have
-equivalent types,
+\item if they declare non-type template parameters,
+they have equivalent types
+ignoring the use of \grammarterm{type-constraint}{s} for placeholder types, and
 \item if they declare template template parameters, their template
-parameters are equivalent, and
-\item if either is declared with a \grammarterm{type-constraint},
-they both are, and the \grammarterm{type-constraint}{s} are
-equivalent.
+parameters are equivalent.
 \end{itemize}
 When determining whether types or \grammarterm{type-constraint}{s}
 are equivalent, the rules above are used to compare expressions
@@ -3806,8 +3910,7 @@ one of the templates is more specialized than the other. If so, the
 more specialized template is the one chosen by the partial ordering
 process.
 If both deductions succeed, the partial ordering selects
-the more constrained template as described by the rules in
-\ref{temp.constr.order}.
+the more constrained template (if one exists) as determined below.
 
 \pnum
 To produce the transformed template, for each type, non-type, or template
@@ -3820,17 +3923,34 @@ The type replacing the placeholder
 in the type of the value synthesized for a non-type template parameter
 is also a unique synthesized type.
 \end{note}
-If only one of the function templates \placeholder{M} is
-a member function, and that function is a non-static
-member of some class \placeholder{A}, \placeholder{M} is considered to have
-a new first parameter inserted in its function
-parameter list. Given \cv{} as the cv-qualifiers of \placeholder{M}
-(if any), the new parameter is of type ``rvalue reference to
-\cv{}~\placeholder{A}'' if the optional \grammarterm{ref-qualifier} of
-\placeholder{M} is \tcode{\&\&} or if \placeholder{M} has no
-\grammarterm{ref-qualifier} and the first parameter of the other
-template has rvalue reference type. Otherwise, the new parameter is
-of type ``lvalue reference to \cv{}~\placeholder{A}''.
+Each function template $M$ that is a member function
+is considered to have
+a new first parameter of type $X(M)$, described below,
+inserted in its function parameter list.
+If exactly one of the function templates was considered by overload resolution
+via a rewritten candidate\iref{over.match.oper}
+with a reversed order of parameters,
+then the order of the function parameters in its transformed template
+is reversed.
+For a function template $M$ with cv-qualifiers \cv{}
+that is a member of a class $A$:
+
+\begin{itemize}
+\item
+The type $X(M)$ is ``rvalue reference to \cv{}~$A$''
+if the optional \grammarterm{ref-qualifier} of
+$M$ is \tcode{\&\&} or
+if $M$ has no \grammarterm{ref-qualifier} and
+the positionally corresponding parameter of the other transformed template
+has rvalue reference type;
+if this determination depends recursively upon
+whether $X(M)$ is an rvalue reference type,
+it is not considered to have rvalue reference type.
+
+\item
+Otherwise, $X(M)$ is ``lvalue reference to \cv{}~$A$''.
+\end{itemize}
+
 \begin{note}
 This allows a non-static
 member to be ordered with respect to a non-member function and for the results
@@ -3883,6 +4003,84 @@ void m() {
   h(z);             // overload resolution selects \tcode{h(A<T>\&)}
   const A<int> z2;
   h(z2);            // \tcode{h(const T\&)} is called because \tcode{h(A<T>\&)} is not callable
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+If deduction against the other template succeeds for both transformed templates,
+constraints can be considered as follows:
+\begin{itemize}
+\item
+If their \grammarterm{template-parameter-list}{s}
+(possibly including \grammarterm{template-parameter}{s}
+invented for an abbreviated function template\iref{dcl.fct}) or
+function parameter lists differ in length,
+neither template is more specialized than the other.
+\item
+Otherwise:
+\begin{itemize}
+\item
+If exactly one of the templates was considered by overload resolution
+via a rewritten candidate with reversed order of parameters:
+\begin{itemize}
+\item
+If, for either template, some of the \grammarterm{template-parameter}{s}
+are not deducible from their function parameters,
+neither template is more specialized than the other.
+\item
+If there is either no reordering or more than one reordering
+of the associated \grammarterm{template-parameter-list}
+such that
+\begin{itemize}
+\item
+the corresponding \grammarterm{template-parameter}{s}
+of the \grammarterm{template-parameter-list}{s} are equivalent and
+\item
+the function parameters that positionally correspond
+between the two templates are of the same type,
+\end{itemize}
+neither template is more specialized than the other.
+\end{itemize}
+\item
+Otherwise, if the corresponding \grammarterm{template-parameter}{s}
+of the \grammarterm{template-parameter-list}{s}
+are not equivalent\iref{temp.over.link} or
+if the function parameters that positionally correspond
+between the two templates are not of the same type,
+neither template is more specialized than the other.
+\end{itemize}
+\item
+Otherwise, if the context in which the partial ordering is done
+is that of a call to a conversion function and
+the return types of the templates are not the same,
+then neither template is more specialized than the other.
+\item
+Otherwise,
+if one template is more constrained than the other\iref{temp.constr.order},
+the more constrained template is more specialized than the other.
+\item
+Otherwise, neither template is more specialized than the other.
+\end{itemize}
+\begin{example}
+\begin{codeblock}
+template <typename> constexpr bool True = true;
+template <typename T> concept C = True<T>;
+
+void f(C auto &, auto &) = delete;
+template <C Q> void f(Q &, C auto &);
+
+void g(struct A *ap, struct B *bp) {
+  f(*ap, *bp);                  // OK: Can use different methods to produce template parameters
+}
+
+template <typename T, typename U> struct X {};
+
+template <typename T, C U, typename V> bool operator==(X<T, U>, V) = delete;
+template <C T, C U, C V>               bool operator==(T, X<U, V>);
+
+void h() {
+  X<void *, int>{} == 0;        // OK: Correspondence of [\tcode{T}, \tcode{U}, \tcode{V}] and [\tcode{U}, \tcode{V}, \tcode{T}]
 }
 \end{codeblock}
 \end{example}
@@ -4048,7 +4246,7 @@ within its scope.
 \begin{codeblock}
 template<typename T>
 concept C = requires(T x) {
-  { x == x } -> convertible_to<bool>;
+  { x == x } -> std::@\libconcept{convertible_to}@<bool>;
 };
 
 template<typename T>
@@ -4211,7 +4409,8 @@ of a function or function template declaration
 whose \grammarterm{declarator-id} is qualified,
 unless that \grammarterm{parameter-declaration}
 appears in a default argument,
-\item \grammarterm{parameter-declaration} in a \grammarterm{lambda-declarator},
+\item \grammarterm{parameter-declaration} in a \grammarterm{lambda-declarator}
+or \grammarterm{requirement-parameter-list},
 unless that \grammarterm{parameter-declaration} appears in a default argument, or
 \item \grammarterm{parameter-declaration} of a (non-type) \grammarterm{template-parameter}.
 \end{itemize}
@@ -5163,7 +5362,7 @@ dependent\iref{temp.dep.type}.
 \pnum
 An
 \grammarterm{id-expression}
-is type-dependent if it contains
+is type-dependent if it is not a concept-id and it contains
 \begin{itemize}
 \item
 an
@@ -5309,6 +5508,8 @@ An
 is value-dependent if:
 \begin{itemize}
 \item
+it is a concept-id and any of its arguments are dependent,
+\item
 it is type-dependent,
 \item
 it is the name of a non-type template parameter,
@@ -5319,8 +5520,8 @@ instantiation and is not initialized in a \grammarterm{member-declarator},
 it names a static member function that is a dependent member of the current
 instantiation, or
 \item
-it is a constant with literal type and is initialized with an
-expression that is value-dependent.
+it names a potentially-constant variable\iref{expr.const}
+that is initialized with an expression that is value-dependent.
 \end{itemize}
 
 Expressions of the following form are value-dependent if the
@@ -5505,10 +5706,10 @@ to the points of instantiation described above,
 \item
 for any such
 specialization that has a point of instantiation within the
-\grammarterm{top-level-declaration-seq} of the
-translation unit,
+\grammarterm{declaration-seq} of the
+\grammarterm{translation-unit},
 prior to the \grammarterm{private-module-fragment} (if any),
-the point after the \grammarterm{top-level-declaration-seq}
+the point after the \grammarterm{declaration-seq}
 of the \grammarterm{translation-unit}
 is also considered a point of instantiation,
 and
@@ -5882,10 +6083,33 @@ A<function> a;      // error: would declare \tcode{A<function>::t} as a static m
 \rSec2[temp.inst]{Implicit instantiation}
 
 \pnum
+A template specialization $E$ is a \defnadj{declared}{specialization}
+if there is a reachable
+explicit instantiation definition\iref{temp.explicit} or
+explicit specialization declaration\iref{temp.expl.spec}
+for $E$, or
+if there is a reachable explicit instantiation declaration for $E$ and
+$E$ is not
+\begin{itemize}
+\item
+an inline function,
+\item
+declared with a type deduced
+from its initializer or return value\iref{dcl.spec.auto},
+\item
+a potentially-constant variable\iref{expr.const}, or
+\item
+a specialization of a templated class.
+\end{itemize}
+\begin{note}
+An implicit instantiation in an importing translation unit
+cannot use names with internal linkage
+from an imported translation unit\iref{basic.link}.
+\end{note}
+
+\pnum
 \indextext{instantiation!template implicit}%
-Unless a class template specialization has been explicitly
-instantiated\iref{temp.explicit} or explicitly
-specialized\iref{temp.expl.spec},
+Unless a class template specialization is a declared specialization,
 the class template specialization is implicitly instantiated when the
 specialization is referenced in a context that requires a completely-defined
 object type or when the completeness of the class type affects the semantics
@@ -6001,8 +6225,8 @@ Friendly<float> ff;                             // error: produces second defini
 \end{example}
 
 \pnum
-Unless a member of a class template or a member template has been explicitly
-instantiated or explicitly specialized,
+Unless a member of a class template or a member template
+is a declared specialization,
 the specialization of the member is implicitly instantiated when the
 specialization is referenced in a context that requires the member definition
 to exist or
@@ -6013,8 +6237,7 @@ static data member does not occur unless the static data member is itself used
 in a way that requires the definition of the static data member to exist.
 
 \pnum
-Unless a function template specialization has been explicitly instantiated or
-explicitly specialized,
+Unless a function template specialization is a declared specialization,
 the function template specialization is implicitly instantiated when the
 specialization is referenced in a context that requires a function definition
 to exist or
@@ -6028,6 +6251,15 @@ to a member function of an explicitly specialized class template,
 a default argument for a function template or a member function of a
 class template is implicitly instantiated when the function is
 called in a context that requires the value of the default argument.
+\begin{note}
+An inline function
+that is the subject of an explicit instantiation declaration
+is not a declared specialization;
+the intent is that it still be implicitly instantiated
+when odr-used\iref{basic.def.odr}
+so that the body can be considered for inlining,
+but that no out-of-line copy of it be generated in the translation unit.
+\end{note}
 
 \pnum
 \begin{example}
@@ -6058,8 +6290,7 @@ to be implicitly instantiated.
 \end{example}
 
 \pnum
-Unless a variable template specialization has been explicitly instantiated or
-explicitly specialized,
+Unless a variable template specialization is a declared specialization,
 the variable template specialization is implicitly instantiated
 when it is referenced in a context
 that requires a variable definition to exist or
@@ -6258,7 +6489,8 @@ are not instantiated along with the specialization or function itself,
 even for a member function of a local class;
 substitution into the atomic constraints formed from them is instead performed
 as specified in \ref{temp.constr.decl} and \ref{temp.constr.atomic}
-when determining whether the constraints are satisfied.
+when determining whether the constraints are satisfied
+or as specified in \ref{temp.constr.decl} when comparing declarations.
 \begin{note}
 The satisfaction of constraints is determined during name lookup or overload
 resolution\iref{over.match}.
@@ -6444,7 +6676,7 @@ For a given set of template arguments, if an explicit
 instantiation of a template appears after a declaration of
 an explicit specialization for that template, the explicit
 instantiation has no effect. Otherwise, for an explicit instantiation
-definition the definition of a
+definition, the definition of a
 function template, a variable template, a member
 function template, or a member function or static
 data member of a class template shall be present in every
@@ -6529,22 +6761,6 @@ members that have been defined at the point of instantiation.
 \pnum
 An explicit instantiation of a prospective destructor\iref{class.dtor}
 shall name the selected destructor of the class.
-
-\pnum
-Except for inline functions and variables, declarations with types deduced from their
-initializer or return value\iref{dcl.spec.auto}, \tcode{const} variables of
-literal types,
-variables of reference types, and class template specializations,
-explicit instantiation declarations have the
-effect of suppressing the implicit instantiation
-of the definition of the entity to which they refer.
-\begin{note}
-The intent is that an inline function that is the
-subject of an explicit instantiation declaration will still be implicitly
-instantiated when odr-used\iref{basic.def.odr} so that the body can be considered for inlining, but
-that no out-of-line copy of the inline function would be generated in the
-translation unit.
-\end{note}
 
 \pnum
 If an entity is the subject of both an explicit instantiation declaration

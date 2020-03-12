@@ -1,41 +1,23 @@
-### -*- mode: makefile-gmake -*-
+FIGURES=$(patsubst %.dot,%.pdf,$(wildcard *.dot))
 
-FIGURES = $(patsubst %.dot,%.pdf,$(wildcard *.dot))
-
-STDPDF = pdflatex std | grep -v "^Overfull"
-
-default: rebuild
+default: full
 
 clean:
 	rm -f *.aux std.pdf std-gram.ext *.idx *.ilg *.ind *.log *.lot *.lof *.tmp *.out *.glo *.gls *.fls *.fdb* *.toc *.xtr
 
 refresh:
-	$(STDPDF)
+	pdflatex std
 
-rebuild:
-	$(STDPDF)
-	$(STDPDF)
-	$(STDPDF)
+full:
+	latexmk -pdf std
 
-full: $(FIGURES) reindex
+quiet:
+	latexmk -pdf std -e '$$max_repeat = 1;' -silent || ( rm std.pdf; latexmk -pdf std -e '$$max_repeat = 4;' )
 
 %.pdf: %.dot
 	dot -o $@ -Tpdf $<
 
-reindex:
-	$(STDPDF)
-	$(STDPDF)
-	$(STDPDF)
-	makeindex -s generalindex.ist generalindex
-	makeindex headerindex
-	makeindex -s libraryindex.ist libraryindex
-	makeindex grammarindex
-	makeindex impldefindex
-	makeindex conceptindex
-	$(STDPDF)
-	makeindex -s basic.gst -o xrefindex.gls xrefindex.glo
-	makeindex -s basic.gst -o xrefdelta.gls xrefdelta.glo
-	$(STDPDF)
-	$(STDPDF)
+clean-figures:
+	rm -f $(FIGURES)
 
-### Makefile ends here
+figures: $(FIGURES)
