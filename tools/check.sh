@@ -23,7 +23,7 @@ for f in *.tex; do [ $(tail -c 2 $f | wc -l) -eq 1 ] || (echo "$f has trailing e
 grep -ne '^.\+\\\(begin\|end\){codeblock}' $texfiles && exit 1
 
 # \pnum not alone on a line.
-grep -ne '^.\+\\pnum' $texfiles && exit 1
+grep -ne '^[^%]\+\\pnum' $texfiles && exit 1
 grep -ne '\\pnum.\+$' $texfiles && exit 1
 # Fixup: sed '/\\pnum.\+$/s/\\pnum\s*/\\pnum\n/'
 
