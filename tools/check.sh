@@ -115,4 +115,15 @@ for f in *.dot; do
   fi
 done
 
+# Cross references since the previous standard.
+function indexentries() { sed 's,\\glossaryentry{\(.*\)@.*,\1,' "$1" | LANG=C sort; }
+function removals() { diff -u "$1" "$2" | grep '^-' | grep -v '^---' | sed 's/^-//'; }
+function difference() { diff -u "$1" "$2" | grep '^[-+]' | grep -v '^\(---\|+++\)'; }
+XREFDELTA="$(difference <(indexentries xrefdelta.glo) <(removals <(indexentries xrefprev) <(indexentries xrefindex.glo)))"
+if [ -n "$XREFDELTA" ]; then
+  echo "incorrect entries in xrefdelta.tex:" >&2
+  echo "$XREFDELTA" | sed 's,^-,spurious ,; s,^+,missing ,;' >&2
+  exit 1
+fi
+
 exit 0
