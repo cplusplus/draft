@@ -124,6 +124,13 @@ for f in $texlibdesc; do
     sed 's/$/ <--- \\pnum missing/'
 done | grep . && exit 1
 
+# Cross-references pointing to their own section.
+for f in $texfiles; do
+    sed -n '/^\\rSec/{s/^.rSec.\[/S /;s/\].*$//;=;p};/\\iref{/{s/^.*\\.\?ref{\([-a-z.0-9]\+\)}.*/R \1/g;=;p}' $f |
+    sed '/^[0-9]\+$/{N;s/\n/: /}' | sed "s/.*/$f:&/" |
+    awk '$2 == "S" { seclabel = $3 } $2 == "R" && $3 == seclabel { print $1 " section self-reference to [" $3 "]" }'
+done | grep . && exit 1
+
 # \placeholder before (
 #egrep 'placeholder{[-A-Za-z]*}@?\(' *.tex
 # to fix: sed -i 's/placeholder\({[-A-Za-z]*}@\?(\)/placeholdernc\1/g' *.tex
