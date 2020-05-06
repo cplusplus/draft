@@ -27,6 +27,11 @@ grep -ne '^[^%]\+\\pnum' $texfiles && exit 1
 grep -ne '\\pnum.\+$' $texfiles && exit 1
 # Fixup: sed '/\\pnum.\+$/s/\\pnum\s*/\\pnum\n/'
 
+# Two consecutive \pnum
+for f in $texfiles; do
+    awk 'prev == $0 && /^\\pnum/ { print FILENAME ":" FNR ": duplicate \pnum on consecutive lines" } { prev = $0 }' $f
+done | grep . && exit 1
+
 # \opt used incorrectly.
 grep -n '\\opt[^{]' $texfiles && exit 1
 grep -n 'opt{}' *.tex && exit 1
