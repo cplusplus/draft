@@ -4371,6 +4371,31 @@ is called
 \defn{direct-initialization}.
 
 \pnum
+An \defnadj{implicitly movable}{entity} is
+a variable with automatic storage duration
+that is either a non-volatile object or
+an rvalue reference to a non-volatile object type.
+The copy-initialization performed for one of the following is
+known as \defn{result-initialization}:
+\begin{itemize}
+\item the operand of a \tcode{return}\iref{stmt.return} or
+\tcode{co_return}\iref{stmt.return.coroutine} statement
+that is a (possibly parenthesized) \grammarterm{id-expression}
+that names an implicitly movable entity declared in the body
+or \grammarterm{parameter-declaration-clause} of the innermost enclosing
+function or \grammarterm{lambda-expression}, or
+
+\item the operand of a \grammarterm{throw-expression}\iref{expr.throw}
+that is a (possibly parenthesized) \grammarterm{id-expression}
+that names an implicitly movable entity
+whose scope does not extend beyond the \grammarterm{compound-statement}
+of the innermost \grammarterm{try-block} or \grammarterm{function-try-block}
+(if any)
+whose \grammarterm{compound-statement} or \grammarterm{ctor-initializer}
+encloses the \grammarterm{throw-expression},
+\end{itemize}
+
+\pnum
 The semantics of initializers are as follows.
 The
 \indextext{type!destination}%
@@ -4450,9 +4475,13 @@ Otherwise, if the initialization is direct-initialization,
 or if it is copy-initialization where the cv-unqualified version of the source
 type is the same class as, or a derived class of, the class of the destination,
 constructors are considered.
-The applicable constructors
-are enumerated\iref{over.match.ctor}, and the best one is chosen
-through overload resolution\iref{over.match}. Then:
+The applicable constructors are enumerated\iref{over.match.ctor}
+and the best one is chosen through overload resolution\iref{over.match}.
+For result-initialization,
+overload resolution is first performed as if the operand were an rvalue.
+For any other initialization, or if the first overload resolution fails,
+overload resolution is performed again without altering value categories.
+Then:
 \begin{itemize}
 \item
 If overload resolution is successful,
@@ -4512,6 +4541,10 @@ user-defined conversions that can convert from the
 source type to the destination type or (when a conversion function
 is used) to a derived class thereof are enumerated as described in~\ref{over.match.copy},
 and the best one is chosen through overload resolution\iref{over.match}.
+For result-initialization, overload resolution is first performed
+as if the operand were an rvalue.
+For any other initialization, or if the first overload resolution fails,
+overload resolution is performed again without altering value categories.
 If the conversion cannot be done or
 is ambiguous, the initialization is ill-formed.  The function
 selected is called with the initializer expression as its
@@ -4570,6 +4603,63 @@ int c = b;
 \end{codeblock}
 \end{note}
 \end{itemize}
+
+\pnum
+\begin{example}
+\begin{codeblock}
+class Thing {
+public:
+  Thing();
+  ~Thing();
+  Thing(Thing&&);
+private:
+  Thing(const Thing&);
+};
+
+Thing f(bool b) {
+  Thing t;
+  if (b)
+    throw t;            // OK: \tcode{Thing(Thing\&\&)} used (or elided) to throw \tcode{t}
+  return t;             // OK: \tcode{Thing(Thing\&\&)} used (or elided) to return \tcode{t}
+}
+
+Thing t2 = f(false);    // OK: no extra copy/move performed, \tcode{t2} constructed by call to \tcode{f}
+
+struct Weird {
+  Weird();
+  Weird(Weird&);
+};
+
+Weird g() {
+  Weird w;
+  return w;             // OK: first overload resolution fails, second overload resolution selects \tcode{Weird(Weird\&)}
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\begin{example}
+\begin{codeblock}
+template<class T> void g(const T&);
+
+template<class T> void f() {
+  T x;
+  try {
+    T y;
+    try { g(x); }
+    catch (...) {
+      if (/*...*/)
+        throw x;        // does not move
+      throw y;          // moves
+    }
+    g(y);
+  } catch(...) {
+    g(x);
+    g(y);               // error: \tcode{y} is not in scope
+  }
+}
+\end{codeblock}
+\end{example}
 
 \pnum
 An \grammarterm{initializer-clause} followed by an ellipsis is a
