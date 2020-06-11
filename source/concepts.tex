@@ -1,0 +1,1303 @@
+%!TEX root = std.tex
+\rSec0[concepts]{Concepts library}
+
+\rSec1[concepts.general]{General}
+
+\pnum
+This Clause describes library components that \Cpp{} programs may use to perform
+compile-time validation of template arguments and perform function dispatch
+based on properties of types. The purpose of these concepts is to establish
+a foundation for equational reasoning in programs.
+
+\pnum
+The following subclauses describe language-related concepts, comparison
+concepts, object concepts, and callable concepts as summarized in
+\tref{concepts.summary}.
+
+\begin{libsumtab}{Fundamental concepts library summary}{concepts.summary}
+\ref{concepts.equality} & Equality preservation     &                    \\ \hline
+\ref{concepts.lang}     & Language-related concepts & \tcode{<concepts>} \\
+\ref{concepts.compare}  & Comparison concepts       &                    \\
+\ref{concepts.object}   & Object concepts           &                    \\
+\ref{concepts.callable} & Callable concepts         &                    \\
+\end{libsumtab}
+
+\rSec1[concepts.equality]{Equality preservation}
+
+\pnum
+An expression is \defnx{equality-preserving}{expression!equality-preserving} if,
+given equal inputs, the expression results in equal outputs. The inputs to an
+expression are the set of the expression's operands. The output of an expression
+is the expression's result and all operands modified by the expression.
+For the purposes of this subclause,
+the operands of an expression are the largest subexpressions that include only:
+\begin{itemize}
+\item
+an \grammarterm{id-expression}\iref{expr.prim.id}, and
+\item
+invocations of the library function templates
+\tcode{std::move},
+\tcode{std::forward}, and
+\tcode{std::declval}~(\ref{forward}, \ref{declval}).
+\end{itemize}
+\begin{example}
+The operands of the expression \tcode{a = std::move(b)} are
+\tcode{a} and \tcode{std::move(b)}.
+\end{example}
+
+\pnum
+Not all input values need be valid for a given expression; e.g., for integers
+\tcode{a} and \tcode{b}, the expression \tcode{a / b} is not well-defined when
+\tcode{b} is \tcode{0}. This does not preclude the expression \tcode{a / b}
+being equality-preserving. The \term{domain} of an expression is the set of
+input values for which the expression is required to be well-defined.
+
+\pnum
+Expressions required to be equality-preserving are further
+required to be stable: two evaluations of such an expression with the same input
+objects are required to have equal outputs absent any explicit intervening
+modification of those input objects.
+\begin{note}
+This requirement allows generic code to reason about the current values of
+objects based on knowledge of the prior values as observed via
+equality-preserving expressions. It effectively forbids spontaneous changes to
+an object, changes to an object from another thread of execution, changes to an
+object as side effects of non-modifying expressions, and changes to an object as
+side effects of modifying a distinct object if those changes could be observable
+to a library function via an equality-preserving expression that is required to
+be valid for that object.
+\end{note}
+
+\pnum
+Expressions declared in a \grammarterm{requires-expression} in the library clauses are
+required to be equality-preserving, except for those annotated with the comment
+``not required to be equality-preserving.'' An expression so annotated
+may be equality-preserving, but is not required to be so.
+
+\pnum
+An expression that may alter the value of one or more of its inputs in a manner
+observable to equality-preserving expressions is said to modify those inputs.
+The library clauses use a notational convention to specify which expressions declared
+in a \grammarterm{requires-expression} modify which inputs: except where
+otherwise specified, an expression operand that is a non-constant lvalue or
+rvalue may be modified. Operands that are constant lvalues or rvalues are
+required to not be modified.
+For the purposes of this subclause,
+the cv-qualification and value category of each operand
+are determined by assuming
+that each template type parameter
+denotes a cv-unqualified complete non-array object type.
+
+\pnum
+Where a \grammarterm{requires-expression} declares an expression that is
+non-modifying for some constant lvalue operand, additional variations of that
+expression that accept a non-constant lvalue or (possibly constant) rvalue for
+the given operand are also required except where such an expression variation is
+explicitly required with differing semantics. These
+\term{implicit expression variations} are required to meet the semantic
+requirements of the declared expression. The extent to which an implementation
+validates the syntax of the variations is unspecified.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+template<class T> concept C = requires(T a, T b, const T c, const T d) {
+  c == d;           // \#1
+  a = std::move(b); // \#2
+  a = c;            // \#3
+};
+\end{codeblock}
+
+For the above example:
+\begin{itemize}
+\item
+Expression \#1 does not modify either of its operands, \#2 modifies both of its
+operands, and \#3 modifies only its first operand \tcode{a}.
+
+\item
+Expression \#1 implicitly requires additional expression variations that meet
+the requirements for \tcode{c == d} (including non-modification), as if the
+expressions
+\begin{codeblock}
+                                            c  ==           b;
+          c  == std::move(d);               c  == std::move(b);
+std::move(c) ==           d;      std::move(c) ==           b;
+std::move(c) == std::move(d);     std::move(c) == std::move(b);
+
+          a  ==           d;                a  ==           b;
+          a  == std::move(d);               a  == std::move(b);
+std::move(a) ==           d;      std::move(a) ==           b;
+std::move(a) == std::move(d);     std::move(a) == std::move(b);
+\end{codeblock}
+had been declared as well.
+
+\item
+Expression \#3 implicitly requires additional expression variations that meet
+the requirements for \tcode{a = c} (including non-modification of the second
+operand), as if the expressions \tcode{a = b} and \tcode{a = std::move(c)} had
+been declared. Expression \#3 does not implicitly require an expression
+variation with a non-constant rvalue second operand, since expression \#2
+already specifies exactly such an expression explicitly.
+\end{itemize}
+\end{example}
+
+\pnum
+\begin{example}
+The following type \tcode{T} meets the explicitly stated syntactic requirements
+of concept \tcode{C} above but does not meet the additional implicit
+requirements:
+
+\begin{codeblock}
+struct T {
+  bool operator==(const T&) const { return true; }
+  bool operator==(T&) = delete;
+};
+\end{codeblock}
+
+\tcode{T} fails to meet the implicit requirements of \tcode{C},
+so \tcode{T} satisfies but does not model \tcode{C}.
+Since implementations are not required to validate the syntax
+of implicit requirements, it is unspecified whether an implementation diagnoses
+as ill-formed a program that requires \tcode{C<T>}.
+\end{example}
+
+\rSec1[concepts.syn]{Header \tcode{<concepts>} synopsis}
+
+\indexheader{concepts}%
+\begin{codeblock}
+namespace std {
+  // \ref{concepts.lang}, language-related concepts
+  // \ref{concept.same}, concept \libconcept{same_as}
+  template<class T, class U>
+    concept same_as = @\seebelow@;
+
+  // \ref{concept.derived}, concept \libconcept{derived_from}
+  template<class Derived, class Base>
+    concept derived_from = @\seebelow@;
+
+  // \ref{concept.convertible}, concept \libconcept{convertible_to}
+  template<class From, class To>
+    concept convertible_to = @\seebelow@;
+
+  // \ref{concept.commonref}, concept \libconcept{common_reference_with}
+  template<class T, class U>
+    concept common_reference_with = @\seebelow@;
+
+  // \ref{concept.common}, concept \libconcept{common_with}
+  template<class T, class U>
+    concept common_with = @\seebelow@;
+
+  // \ref{concepts.arithmetic}, arithmetic concepts
+  template<class T>
+    concept integral = @\seebelow@;
+  template<class T>
+    concept signed_integral = @\seebelow@;
+  template<class T>
+    concept unsigned_integral = @\seebelow@;
+  template<class T>
+    concept floating_point = @\seebelow@;
+
+  // \ref{concept.assignable}, concept \libconcept{assignable_from}
+  template<class LHS, class RHS>
+    concept assignable_from = @\seebelow@;
+
+  // \ref{concept.swappable}, concept \libconcept{swappable}
+  namespace ranges {
+    inline namespace @\unspec@ {
+      inline constexpr @\unspec@ swap = @\unspec@;
+    }
+  }
+  template<class T>
+    concept swappable = @\seebelow@;
+  template<class T, class U>
+    concept swappable_with = @\seebelow@;
+
+  // \ref{concept.destructible}, concept \libconcept{destructible}
+  template<class T>
+    concept destructible = @\seebelow@;
+
+  // \ref{concept.constructible}, concept \libconcept{constructible_from}
+  template<class T, class... Args>
+    concept constructible_from = @\seebelow@;
+
+  // \ref{concept.default.init}, concept \libconcept{default_initializable}
+  template<class T>
+    concept default_initializable = @\seebelow@;
+
+  // \ref{concept.moveconstructible}, concept \libconcept{move_constructible}
+  template<class T>
+    concept move_constructible = @\seebelow@;
+
+  // \ref{concept.copyconstructible}, concept \libconcept{copy_constructible}
+  template<class T>
+    concept copy_constructible = @\seebelow@;
+
+  // \ref{concepts.compare}, comparison concepts
+  // \ref{concept.equalitycomparable}, concept \libconcept{equality_comparable}
+  template<class T>
+    concept equality_comparable = @\seebelow@;
+  template<class T, class U>
+    concept equality_comparable_with = @\seebelow@;
+
+  // \ref{concept.totallyordered}, concept \libconcept{totally_ordered}
+  template<class T>
+    concept totally_ordered = @\seebelow@;
+  template<class T, class U>
+    concept totally_ordered_with = @\seebelow@;
+
+  // \ref{concepts.object}, object concepts
+  template<class T>
+    concept movable = @\seebelow@;
+  template<class T>
+    concept copyable = @\seebelow@;
+  template<class T>
+    concept semiregular = @\seebelow@;
+  template<class T>
+    concept regular = @\seebelow@;
+
+  // \ref{concepts.callable}, callable concepts
+  // \ref{concept.invocable}, concept \libconcept{invocable}
+  template<class F, class... Args>
+    concept invocable = @\seebelow@;
+
+  // \ref{concept.regularinvocable}, concept \libconcept{regular_invocable}
+  template<class F, class... Args>
+    concept regular_invocable = @\seebelow@;
+
+  // \ref{concept.predicate}, concept \libconcept{predicate}
+  template<class F, class... Args>
+    concept predicate = @\seebelow@;
+
+  // \ref{concept.relation}, concept \libconcept{relation}
+  template<class R, class T, class U>
+    concept relation = @\seebelow@;
+
+  // \ref{concept.equiv}, concept \libconcept{equivalence_relation}
+  template<class R, class T, class U>
+    concept equivalence_relation = @\seebelow@;
+
+  // \ref{concept.strictweakorder}, concept \libconcept{strict_weak_order}
+  template<class R, class T, class U>
+    concept strict_weak_order = @\seebelow@;
+}
+\end{codeblock}
+
+\rSec1[concepts.lang]{Language-related concepts}
+
+\rSec2[concepts.lang.general]{General}
+
+\pnum
+Subclause \ref{concepts.lang} contains the definition of concepts corresponding to language
+features. These concepts express relationships between types, type
+classifications, and fundamental type properties.
+
+\rSec2[concept.same]{Concept \cname{same_as}}
+
+\begin{itemdecl}
+template<class T, class U>
+  concept @\defexposconcept{same-as-impl}@ = is_same_v<T, U>;       // \expos
+
+template<class T, class U>
+  concept @\deflibconcept{same_as}@ = @\exposconcept{same-as-impl}@<T, U> && @\exposconcept{same-as-impl}@<U, T>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\begin{note}
+\tcode{\libconcept{same_as}<T, U>} subsumes \tcode{\libconcept{same_as}<U, T>} and
+vice versa.
+\end{note}
+\end{itemdescr}
+
+\rSec2[concept.derived]{Concept \cname{derived_from}}
+
+\begin{itemdecl}
+template<class Derived, class Base>
+  concept @\deflibconcept{derived_from}@ =
+    is_base_of_v<Base, Derived> &&
+    is_convertible_v<const volatile Derived*, const volatile Base*>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\begin{note}
+\tcode{\libconcept{derived_from}<Derived, Base>} is satisfied if and only if
+\tcode{Derived} is publicly and unambiguously derived from \tcode{Base}, or
+\tcode{Derived} and \tcode{Base} are the same class type ignoring cv-qualifiers.
+\end{note}
+\end{itemdescr}
+
+\rSec2[concept.convertible]{Concept \cname{convertible_to}}
+
+\pnum
+Given types \tcode{From} and \tcode{To} and
+an expression \tcode{E} such that
+\tcode{decltype((E))} is \tcode{add_rvalue_reference_t<From>},
+\tcode{\libconcept{convertible_to}<From, To>} requires \tcode{E}
+to be both implicitly and explicitly convertible to type \tcode{To}.
+The implicit and explicit conversions are required to produce equal
+results.
+
+\begin{itemdecl}
+template<class From, class To>
+  concept @\deflibconcept{convertible_to}@ =
+    is_convertible_v<From, To> &&
+    requires(add_rvalue_reference_t<From> (&f)()) {
+      static_cast<To>(f());
+    };
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{FromR} be \tcode{add_rvalue_reference_t<From>} and
+\tcode{test} be the invented function:
+\begin{codeblock}
+To test(FromR (&f)()) {
+  return f();
+}
+\end{codeblock}
+and let \tcode{f} be a function with no arguments and return type \tcode{FromR}
+such that \tcode{f()} is equality-preserving.
+Types \tcode{From} and \tcode{To} model \tcode{\libconcept{convertible_to}<From, To>}
+only if:
+
+\begin{itemize}
+\item
+\tcode{To} is not an object or reference-to-object type, or
+\tcode{static_cast<To>(f())} is equal to \tcode{test(f)}.
+
+\item
+\tcode{FromR} is not a reference-to-object type, or
+
+\begin{itemize}
+\item
+If \tcode{FromR} is an rvalue reference to a non const-qualified type, the
+resulting state of the object referenced by \tcode{f()} after either above
+expression is valid but unspecified\iref{lib.types.movedfrom}.
+
+\item
+Otherwise, the object referred to by \tcode{f()} is not modified by either above
+expression.
+\end{itemize}
+\end{itemize}
+\end{itemdescr}
+
+
+\rSec2[concept.commonref]{Concept \cname{common_reference_with}}
+
+\pnum
+For two types \tcode{T} and \tcode{U}, if \tcode{common_reference_t<T, U>}
+is well-formed and denotes a type \tcode{C} such that both
+\tcode{\libconcept{convertible_to}<T, C>}
+and
+\tcode{\libconcept{convertible_to}<U, C>}
+are modeled, then \tcode{T} and \tcode{U} share a
+\term{common reference type}, \tcode{C}.
+\begin{note}
+\tcode{C} could be the same as \tcode{T}, or \tcode{U}, or it could be a
+different type. \tcode{C} may be a reference type.
+\end{note}
+
+\begin{itemdecl}
+template<class T, class U>
+  concept @\deflibconcept{common_reference_with}@ =
+    @\libconcept{same_as}@<common_reference_t<T, U>, common_reference_t<U, T>> &&
+    @\libconcept{convertible_to}@<T, common_reference_t<T, U>> &&
+    @\libconcept{convertible_to}@<U, common_reference_t<T, U>>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{C} be \tcode{common_reference_t<T, U>}.
+Let \tcode{t1} and \tcode{t2} be equality-preserving
+expressions\iref{concepts.equality} such that
+\tcode{decltype((t1))} and \tcode{decltype((t2))} are each \tcode{T}, and
+let \tcode{u1} and \tcode{u2} be equality-preserving expressions such that
+\tcode{decltype((u1))} and \tcode{decltype((u2))} are each \tcode{U}.
+\tcode{T} and \tcode{U} model \tcode{\libconcept{common_reference_with}<T, U>}
+only if:
+\begin{itemize}
+\item \tcode{C(t1)} equals \tcode{C(t2)} if and only if
+  \tcode{t1} equals \tcode{t2}, and
+\item \tcode{C(u1)} equals \tcode{C(u2)} if and only if
+  \tcode{u1} equals \tcode{u2}.
+\end{itemize}
+
+\pnum
+\begin{note}
+Users can customize the behavior of \libconcept{common_reference_with} by specializing
+the \tcode{basic_common_reference} class template\iref{meta.trans.other}.
+\end{note}
+\end{itemdescr}
+
+\rSec2[concept.common]{Concept \cname{common_with}}
+
+\pnum
+If \tcode{T} and \tcode{U} can both be explicitly converted to some third type,
+\tcode{C}, then \tcode{T} and \tcode{U} share a \term{common type},
+\tcode{C}.
+\begin{note}
+\tcode{C} could be the same as \tcode{T}, or \tcode{U}, or it could be a
+different type. \tcode{C} might not be unique.
+\end{note}
+
+\begin{itemdecl}
+template<class T, class U>
+  concept @\deflibconcept{common_with}@ =
+    @\libconcept{same_as}@<common_type_t<T, U>, common_type_t<U, T>> &&
+    requires {
+      static_cast<common_type_t<T, U>>(declval<T>());
+      static_cast<common_type_t<T, U>>(declval<U>());
+    } &&
+    common_reference_with<
+      add_lvalue_reference_t<const T>,
+      add_lvalue_reference_t<const U>> &&
+    common_reference_with<
+      add_lvalue_reference_t<common_type_t<T, U>>,
+      common_reference_t<
+        add_lvalue_reference_t<const T>,
+        add_lvalue_reference_t<const U>>>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{C} be \tcode{common_type_t<T, U>}.
+Let \tcode{t1} and \tcode{t2} be
+equality-preserving expressions\iref{concepts.equality} such that
+\tcode{decltype((t1))} and \tcode{decltype((t2))} are each \tcode{T}, and
+let \tcode{u1} and \tcode{u2} be equality-preserving expressions such that
+\tcode{decltype((u1))} and \tcode{decltype((u2))} are each \tcode{U}.
+\tcode{T} and \tcode{U} model \tcode{\libconcept{common_with}<T, U>}
+only if:
+\begin{itemize}
+\item \tcode{C(t1)} equals \tcode{C(t2)} if and only if
+  \tcode{t1} equals \tcode{t2}, and
+\item \tcode{C(u1)} equals \tcode{C(u2)} if and only if
+  \tcode{u1} equals \tcode{u2}.
+\end{itemize}
+
+\pnum
+\begin{note}
+Users can customize the behavior of \libconcept{common_with} by specializing the
+\tcode{common_type} class template\iref{meta.trans.other}.
+\end{note}
+
+\end{itemdescr}
+
+\rSec2[concepts.arithmetic]{Arithmetic concepts}
+
+\begin{itemdecl}
+template<class T>
+  concept @\deflibconcept{integral}@ = is_integral_v<T>;
+template<class T>
+  concept @\deflibconcept{signed_integral}@ = integral<T> && is_signed_v<T>;
+template<class T>
+  concept @\deflibconcept{unsigned_integral}@ = integral<T> && !signed_integral<T>;
+template<class T>
+  concept @\deflibconcept{floating_point}@ = is_floating_point_v<T>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\begin{note}
+\libconcept{signed_integral} can be modeled even by types that are
+not signed integer types\iref{basic.fundamental}; for example, \tcode{char}.
+\end{note}
+
+\pnum
+\begin{note}
+\libconcept{unsigned_integral} can be modeled even by types that are
+not unsigned integer types\iref{basic.fundamental}; for example, \tcode{bool}.
+\end{note}
+\end{itemdescr}
+
+\rSec2[concept.assignable]{Concept \cname{assignable_from}}
+
+\begin{itemdecl}
+template<class LHS, class RHS>
+  concept @\deflibconcept{assignable_from}@ =
+    is_lvalue_reference_v<LHS> &&
+    common_reference_with<const remove_reference_t<LHS>&, const remove_reference_t<RHS>&> &&
+    requires(LHS lhs, RHS&& rhs) {
+      { lhs = std::forward<RHS>(rhs) } -> @\libconcept{same_as}@<LHS>;
+    };
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let:
+\begin{itemize}
+\item \tcode{lhs} be an lvalue that refers to an object \tcode{lcopy} such that
+  \tcode{decltype((lhs))} is \tcode{LHS},
+\item \tcode{rhs} be an expression such that \tcode{decltype((rhs))} is
+  \tcode{RHS}, and
+\item \tcode{rcopy} be a distinct object that is equal to \tcode{rhs}.
+\end{itemize}
+\tcode{LHS} and \tcode{RHS} model
+\tcode{\libconcept{assignable_from}<LHS, RHS>} only if
+
+\begin{itemize}
+\item \tcode{addressof(lhs = rhs) == addressof(lcopy)}.
+
+\item After evaluating \tcode{lhs = rhs}:
+
+\begin{itemize}
+\item \tcode{lhs} is equal to \tcode{rcopy}, unless \tcode{rhs} is a non-const
+xvalue that refers to \tcode{lcopy}.
+
+\item If \tcode{rhs} is a non-\tcode{const} xvalue, the resulting state of the
+object to which it refers is valid but unspecified\iref{lib.types.movedfrom}.
+
+\item Otherwise, if \tcode{rhs} is a glvalue, the object to which it refers is
+  not modified.
+\end{itemize}
+\end{itemize}
+
+\pnum
+\begin{note}
+Assignment need not be a total function\iref{structure.requirements};
+in particular, if assignment to an object \tcode{x} can result in a modification
+of some other object \tcode{y}, then \tcode{x = y} is likely not in the domain
+of \tcode{=}.
+\end{note}
+\end{itemdescr}
+
+\rSec2[concept.swappable]{Concept \cname{swappable}}
+
+\pnum
+Let \tcode{t1} and \tcode{t2} be equality-preserving expressions that denote
+distinct equal objects of type \tcode{T}, and let \tcode{u1} and \tcode{u2}
+similarly denote distinct equal objects of type \tcode{U}.
+\begin{note}
+\tcode{t1} and \tcode{u1} can denote distinct objects, or the same object.
+\end{note}
+An operation
+\term{exchanges the values} denoted by \tcode{t1} and \tcode{u1} if and only
+if the operation modifies neither \tcode{t2} nor \tcode{u2} and:
+\begin{itemize}
+\item If \tcode{T} and \tcode{U} are the same type, the result of the operation
+  is that \tcode{t1} equals \tcode{u2} and \tcode{u1} equals \tcode{t2}.
+
+\item If \tcode{T} and \tcode{U} are different types and
+  \tcode{\libconcept{common_reference_with}<decltype((t1)), decltype((u1))>}
+  is modeled,
+  the result of the operation is that
+  \tcode{C(t1)} equals \tcode{C(u2)}
+  and
+  \tcode{C(u1)} equals \tcode{C(t2)}
+  where \tcode{C} is \tcode{common_reference_t<decltype((t1)), decltype((u1))>}.
+\end{itemize}
+
+\pnum
+\indexlibraryglobal{swap}%
+The name \tcode{ranges::swap} denotes a customization point
+object\iref{customization.point.object}. The expression
+\tcode{ranges::swap(E1, E2)} for subexpressions \tcode{E1}
+and \tcode{E2} is expression-equivalent to an expression
+\tcode{S} determined as follows:
+
+\begin{itemize}
+\item
+  \tcode{S} is \tcode{(void)swap(E1, E2)}\footnote{The name \tcode{swap} is used
+  here unqualified.} if \tcode{E1} or \tcode{E2}
+  has class or enumeration type\iref{basic.compound} and that expression is valid, with
+  overload resolution performed in a context that includes the declaration
+\begin{codeblock}
+template<class T>
+  void swap(T&, T&) = delete;
+\end{codeblock}
+  and does not include a declaration of \tcode{ranges::swap}.
+  If the function selected by overload resolution does not
+  exchange the values denoted by
+  \tcode{E1} and \tcode{E2},
+  the program is ill-formed, no diagnostic required.
+
+\item
+  Otherwise, if \tcode{E1} and \tcode{E2}
+  are lvalues of array types\iref{basic.compound}
+  with equal extent and \tcode{ranges::swap(*E1, *E2)}
+  is a valid expression,
+  \tcode{S} is \tcode{(void)ranges::swap_ranges(E1, E2)},
+  except that
+  \tcode{noexcept(S)} is equal to
+  \tcode{noexcept(\brk{}ranges::swap(*E1, *E2))}.
+
+\item
+  Otherwise, if \tcode{E1} and \tcode{E2} are lvalues of the
+  same type \tcode{T} that models \tcode{\libconcept{move_constructible}<T>} and
+  \tcode{\libconcept{assignable_from}<T\&, T>},
+  \tcode{S} is an expression that exchanges the denoted values.
+  \tcode{S} is a constant expression if
+  \begin{itemize}
+  \item \tcode{T} is a literal type\iref{basic.types},
+  \item both \tcode{E1 = std::move(E2)} and \tcode{E2 = std::move(E1)} are
+    constant subexpressions\iref{defns.const.subexpr}, and
+  \item the full-expressions of the initializers in the declarations
+\begin{codeblock}
+T t1(std::move(E1));
+T t2(std::move(E2));
+\end{codeblock}
+are constant subexpressions.
+  \end{itemize}
+  \tcode{noexcept(S)} is equal to
+  \tcode{is_nothrow_move_constructible_v<T> \&\& is_nothrow_move_assignable\-_v<T>}.
+
+\item
+  Otherwise, \tcode{ranges::swap(E1, E2)} is ill-formed.
+  \begin{note}
+  This case can result in substitution failure when \tcode{ranges::swap(E1, E2)}
+  appears in the immediate context of a template instantiation.
+  \end{note}
+\end{itemize}
+
+\pnum
+\begin{note}
+Whenever \tcode{ranges::swap(E1, E2)} is a valid expression, it
+exchanges the values denoted by
+\tcode{E1} and \tcode{E2} and has type \tcode{void}.
+\end{note}
+
+\begin{itemdecl}
+template<class T>
+  concept @\deflibconcept{swappable}@ = requires(T& a, T& b) { ranges::swap(a, b); };
+\end{itemdecl}
+
+\begin{itemdecl}
+template<class T, class U>
+  concept @\deflibconcept{swappable_with}@ =
+    common_reference_with<T, U> &&
+    requires(T&& t, U&& u) {
+      ranges::swap(std::forward<T>(t), std::forward<T>(t));
+      ranges::swap(std::forward<U>(u), std::forward<U>(u));
+      ranges::swap(std::forward<T>(t), std::forward<U>(u));
+      ranges::swap(std::forward<U>(u), std::forward<T>(t));
+    };
+\end{itemdecl}
+
+\pnum
+\begin{note}
+The semantics of the \libconcept{swappable} and \libconcept{swappable_with}
+concepts are fully defined by the \tcode{ranges::swap} customization point object.
+\end{note}
+
+\pnum
+\begin{example}
+User code can ensure that the evaluation of \tcode{swap} calls
+is performed in an appropriate context under the various conditions as follows:
+\begin{codeblock}
+#include <cassert>
+#include <concepts>
+#include <utility>
+
+namespace ranges = std::ranges;
+
+template<class T, std::@\libconcept{swappable_with}@<T> U>
+void value_swap(T&& t, U&& u) {
+  ranges::swap(std::forward<T>(t), std::forward<U>(u));
+}
+
+template<std::swappable T>
+void lv_swap(T& t1, T& t2) {
+  ranges::swap(t1, t2);
+}
+
+namespace N {
+  struct A { int m; };
+  struct Proxy {
+    A* a;
+    Proxy(A& a) : a{&a} {}
+    friend void swap(Proxy x, Proxy y) {
+      ranges::swap(*x.a, *y.a);
+    }
+  };
+  Proxy proxy(A& a) { return Proxy{ a }; }
+}
+
+int main() {
+  int i = 1, j = 2;
+  lv_swap(i, j);
+  assert(i == 2 && j == 1);
+
+  N::A a1 = { 5 }, a2 = { -5 };
+  value_swap(a1, proxy(a2));
+  assert(a1.m == -5 && a2.m == 5);
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[concept.destructible]{Concept \cname{destructible}}
+
+\pnum
+The \libconcept{destructible} concept specifies properties of all types,
+instances of which can be destroyed at the end of their lifetime, or reference
+types.
+
+\begin{itemdecl}
+template<class T>
+  concept @\deflibconcept{destructible}@ = is_nothrow_destructible_v<T>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\begin{note}
+Unlike the \oldconcept{Destructible} requirements~(\tref{cpp17.destructible}), this
+concept forbids destructors that are potentially throwing, even if a particular
+invocation of the destructor does not actually throw.
+\end{note}
+\end{itemdescr}
+
+\rSec2[concept.constructible]{Concept \cname{constructible_from}}
+
+\pnum
+The \libconcept{constructible_from} concept constrains the initialization of a
+variable of a given type with a particular set of argument types.
+
+\begin{itemdecl}
+template<class T, class... Args>
+  concept @\deflibconcept{constructible_from}@ = destructible<T> && is_constructible_v<T, Args...>;
+\end{itemdecl}
+
+\rSec2[concept.default.init]{Concept \cname{default_initializable}}
+
+\begin{itemdecl}
+template<class T>
+  inline constexpr bool @\exposid{is-default-initializable}@ = @\seebelow@;  // \expos
+
+template<class T>
+  concept @\deflibconcept{default_initializable}@ = constructible_from<T> &&
+                                  requires { T{}; } &&
+                                  @\exposid{is-default-initializable}@<T>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+For a type \tcode{T}, \tcode{\exposid{is-default-initializable}<T>} is \tcode{true}
+if and only if the variable definition
+\begin{codeblock}
+T t;
+\end{codeblock}
+is well-formed for some invented variable \tcode{t};
+otherwise it is \tcode{false}.
+Access checking is performed as if in a context unrelated to \tcode{T}.
+Only the validity of the immediate context of the variable initialization is considered.
+\end{itemdescr}
+
+\rSec2[concept.moveconstructible]{Concept \cname{move_constructible}}
+
+\begin{itemdecl}
+template<class T>
+  concept @\deflibconcept{move_constructible}@ = constructible_from<T, T> && @\libconcept{convertible_to}@<T, T>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+If \tcode{T} is an object type, then let \tcode{rv} be an rvalue of type
+\tcode{T} and \tcode{u2} a distinct object of type \tcode{T} equal to
+\tcode{rv}. \tcode{T} models \libconcept{move_constructible} only if
+
+\begin{itemize}
+\item After the definition \tcode{T u = rv;}, \tcode{u} is equal to \tcode{u2}.
+
+\item \tcode{T(rv)} is equal to \tcode{u2}.
+
+\item If \tcode{T} is not \tcode{const}, \tcode{rv}'s resulting state is valid
+but unspecified\iref{lib.types.movedfrom}; otherwise, it is unchanged.
+\end{itemize}
+\end{itemdescr}
+
+\rSec2[concept.copyconstructible]{Concept \cname{copy_constructible}}
+
+\begin{itemdecl}
+template<class T>
+  concept @\deflibconcept{copy_constructible}@ =
+    move_constructible<T> &&
+    constructible_from<T, T&> && @\libconcept{convertible_to}@<T&, T> &&
+    constructible_from<T, const T&> && @\libconcept{convertible_to}@<const T&, T> &&
+    constructible_from<T, const T> && @\libconcept{convertible_to}@<const T, T>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+If \tcode{T} is an object type, then let \tcode{v} be an lvalue of type
+(possibly \tcode{const}) \tcode{T} or an rvalue of type \tcode{const T}.
+\tcode{T} models \libconcept{copy_constructible} only if
+
+\begin{itemize}
+\item After the definition \tcode{T u = v;},
+\tcode{u} is equal to \tcode{v}\iref{concepts.equality} and
+\tcode{v} is not modified.
+
+\item \tcode{T(v)} is equal to \tcode{v} and does not modify \tcode{v}.
+\end{itemize}
+
+\end{itemdescr}
+
+\rSec1[concepts.compare]{Comparison concepts}
+
+\rSec2[concepts.compare.general]{General}
+
+\pnum
+Subclause \ref{concepts.compare} describes concepts that establish relationships and orderings
+on values of possibly differing object types.
+
+\rSec2[concept.booleantestable]{Boolean testability}
+
+\pnum
+The exposition-only \exposconcept{boolean-testable} concept
+specifies the requirements on expressions
+that are convertible to \tcode{bool} and
+for which the logical operators~%
+(\ref{expr.log.and}, \ref{expr.log.or}, \ref{expr.unary.op})
+have the conventional semantics.
+
+\begin{itemdecl}
+template<class T>
+  concept @\defexposconcept{boolean-testable-impl}@ = @\libconcept{convertible_to}@<T, bool>;  // \expos
+\end{itemdecl}
+
+\pnum
+Let \tcode{e} be an expression such that
+\tcode{decltype((e))} is \tcode{T}.
+\tcode{T} models \exposconcept{boolean-testable-impl} only if:
+
+\begin{itemize}
+\item
+either \tcode{remove_cvref_t<T>} is not a class type, or
+name lookup for the names \tcode{operator\&\&} and \tcode{operator||}
+within the scope of \tcode{remove_cvref_t<T>}
+as if by class member access lookup\iref{class.member.lookup}
+results in an empty declaration set; and
+
+\item
+name lookup for the names \tcode{operator\&\&} and \tcode{operator||} in
+the associated namespaces and
+entities of \tcode{T}\iref{basic.lookup.argdep}
+finds no disqualifying declaration (defined below).
+\end{itemize}
+
+\pnum
+A \defnadj{disqualifying}{parameter}
+is a function parameter whose declared type \tcode{P}
+
+\begin{itemize}
+\item
+is not dependent on a template parameter, and
+there exists an implicit conversion sequence\iref{over.best.ics}
+from \tcode{e} to \tcode{P}; or
+
+\item
+is dependent on one or more template parameters, and either
+\begin{itemize}
+\item
+\tcode{P} contains no template parameter that
+participates in template argument deduction\iref{temp.deduct.type}, or
+\item
+template argument deduction
+using the rules for deducing template arguments
+in a function call\iref{temp.deduct.call} and
+\tcode{e} as the argument succeeds.
+\end{itemize}
+\end{itemize}
+
+\pnum
+\indextext{template!function!key parameter of}%
+A \defnadj{key}{parameter} of a function template \tcode{D}
+is a function parameter of type \cv{} \tcode{X} or reference thereto,
+where \tcode{X} names a specialization of a class template that
+is a member of the same namespace as \tcode{D}, and
+\tcode{X} contains at least one template parameter that
+participates in template argument deduction.
+\begin{example}
+In
+\begin{codeblock}
+namespace Z {
+  template<class> struct C {};
+  template<class T>
+    void operator&&(C<T> x, T y);
+  template<class T>
+    void operator||(C<type_identity_t<T>> x, T y);
+}
+\end{codeblock}
+the declaration of \tcode{Z::operator\&\&}
+contains one key parameter, \tcode{C<T> x}, and
+the declaration of \tcode{Z::operator||}
+contains no key parameters.
+\end{example}
+
+\pnum
+A \defnadj{disqualifying}{declaration} is
+
+\begin{itemize}
+\item
+a (non-template) function declaration that
+contains at least one disqualifying parameter; or
+
+\item
+a function template declaration that
+contains at least one disqualifying parameter, where
+\begin{itemize}
+\item at least one disqualifying parameter is a key parameter; or
+\item the declaration contains no key parameters; or
+\item the declaration declares a function template that
+is not visible in its namespace\iref{namespace.memdef}.
+\end{itemize}
+\end{itemize}
+
+\pnum
+\begin{note}
+The intention is to ensure that
+given two types \tcode{T1} and \tcode{T2}
+that each model \exposconcept{boolean-testable-impl},
+the \tcode{\&\&} and \tcode{||} operators within the expressions
+\tcode{declval<T1>() \&\& declval<T2>()} and
+\tcode{declval<T1>() || declval<T2>()}
+resolve to the corresponding built-in operators.
+\end{note}
+
+\begin{itemdecl}
+template<class T>
+  concept @\defexposconcept{boolean-testable}@ =                // \expos
+    @\exposconcept{boolean-testable-impl}@<T> && requires (T&& t) {
+      { !std::forward<T>(t) } -> @\exposconcept{boolean-testable-impl}@;
+    };
+\end{itemdecl}
+
+\pnum
+Let \tcode{e} be an expression such that
+\tcode{decltype((e))} is \tcode{T}.
+\tcode{T} models \exposconcept{boolean-testable} only if
+\tcode{bool(e) == !bool(!e)}.
+
+\pnum
+\begin{example}
+The types
+\tcode{bool},
+\tcode{true_type}\iref{meta.type.synop},
+\tcode{int*}, and
+\tcode{bitset<N>::reference}\iref{template.bitset}
+model \exposconceptx{boolean\--testable}{boolean-testable}.
+\end{example}
+
+\rSec2[concept.equalitycomparable]{Concept \cname{equality_comparable}}
+
+\begin{itemdecl}
+template<class T, class U>
+  concept @\defexposconcept{weakly-equality-comparable-with}@ = // \expos
+    requires(const remove_reference_t<T>& t,
+             const remove_reference_t<U>& u) {
+      { t == u } -> @\exposconcept{boolean-testable}@;
+      { t != u } -> @\exposconcept{boolean-testable}@;
+      { u == t } -> @\exposconcept{boolean-testable}@;
+      { u != t } -> @\exposconcept{boolean-testable}@;
+    };
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Given types \tcode{T} and \tcode{U},
+let \tcode{t} and \tcode{u} be lvalues of types
+\tcode{const remove_reference_t<T>} and
+\tcode{const remove_reference_t<U>} respectively.
+\tcode{T} and \tcode{U} model
+\tcode{\placeholder{weakly-equality-comparable-with}<T, U>} only if
+\begin{itemize}
+\item \tcode{t == u}, \tcode{u == t}, \tcode{t != u}, and \tcode{u != t}
+      have the same domain.
+\item \tcode{bool(u == t) ==  bool(t == u)}.
+\item \tcode{bool(t != u) == !bool(t == u)}.
+\item \tcode{bool(u != t) ==  bool(t != u)}.
+\end{itemize}
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class T>
+  concept @\deflibconcept{equality_comparable}@ = @\exposconcept{weakly-equality-comparable-with}@<T, T>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{a} and \tcode{b} be objects of type \tcode{T}.
+\tcode{T} models \libconcept{equality_comparable} only if
+\tcode{bool(a == b)} is \tcode{true} when \tcode{a} is equal to
+\tcode{b}\iref{concepts.equality}, and \tcode{false} otherwise.
+
+\pnum
+\begin{note}
+The requirement that the expression \tcode{a == b} is equality-preserving
+implies that \tcode{==} is transitive and symmetric.
+\end{note}
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class T, class U>
+  concept @\deflibconcept{equality_comparable_with}@ =
+    equality_comparable<T> && equality_comparable<U> &&
+    common_reference_with<const remove_reference_t<T>&, const remove_reference_t<U>&> &&
+    equality_comparable<
+      common_reference_t<
+        const remove_reference_t<T>&,
+        const remove_reference_t<U>&>> &&
+    @\exposconcept{weakly-equality-comparable-with}@<T, U>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Given types \tcode{T} and \tcode{U},
+let \tcode{t} be an lvalue of type \tcode{const remove_reference_t<T>},
+\tcode{u} be an lvalue of type \tcode{const remove_reference_t<U>},
+and \tcode{C} be:
+\begin{codeblock}
+common_reference_t<const remove_reference_t<T>&, const remove_reference_t<U>&>
+\end{codeblock}
+\tcode{T} and \tcode{U} model
+\tcode{\libconcept{equality_comparable_with}<T, U>} only if
+\tcode{bool(t == u) == bool(C(t) == C(u))}.
+\end{itemdescr}
+
+\rSec2[concept.totallyordered]{Concept \cname{totally_ordered}}
+
+\begin{itemdecl}
+template<class T>
+  concept @\deflibconcept{totally_ordered}@ =
+    @\libconcept{equality_comparable}@<T> && @\exposconcept{partially-ordered-with}@<T, T>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Given a type \tcode{T}, let \tcode{a}, \tcode{b}, and \tcode{c} be
+lvalues of type \tcode{const remove_reference_t<T>}.
+\tcode{T} models \libconcept{totally_ordered} only if
+
+\begin{itemize}
+\item Exactly one of \tcode{bool(a < b)}, \tcode{bool(a > b)}, or
+      \tcode{bool(a == b)} is \tcode{true}.
+\item If \tcode{bool(a < b)} and \tcode{bool(b < c)}, then
+      \tcode{bool(a < c)}.
+\item \tcode{bool(a <= b) == !bool(b < a)}.
+\item \tcode{bool(a >= b) == !bool(a < b)}.
+\end{itemize}
+
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class T, class U>
+  concept @\deflibconcept{totally_ordered_with}@ =
+    @\libconcept{totally_ordered}@<T> && @\libconcept{totally_ordered}@<U> &&
+    @\libconcept{equality_comparable_with}@<T, U> &&
+    @\libconcept{totally_ordered}@<
+      common_reference_t<
+        const remove_reference_t<T>&,
+        const remove_reference_t<U>&>> &&
+    @\exposconcept{partially-ordered-with}@<T, U>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Given types \tcode{T} and \tcode{U},
+let \tcode{t} be an lvalue of type \tcode{const remove_reference_t<T>},
+\tcode{u} be an lvalue of type \tcode{const remove_reference_t<U>},
+and \tcode{C} be:
+\begin{codeblock}
+common_reference_t<const remove_reference_t<T>&, const remove_reference_t<U>&>
+\end{codeblock}
+\tcode{T} and \tcode{U} model
+\tcode{\libconcept{totally_ordered_with}<T, U>} only if
+
+\begin{itemize}
+\item \tcode{bool(t <  u) == bool(C(t) <  C(u)).}
+\item \tcode{bool(t >  u) == bool(C(t) >  C(u)).}
+\item \tcode{bool(t <= u) == bool(C(t) <= C(u)).}
+\item \tcode{bool(t >= u) == bool(C(t) >= C(u)).}
+\item \tcode{bool(u <  t) == bool(C(u) <  C(t)).}
+\item \tcode{bool(u >  t) == bool(C(u) >  C(t)).}
+\item \tcode{bool(u <= t) == bool(C(u) <= C(t)).}
+\item \tcode{bool(u >= t) == bool(C(u) >= C(t)).}
+\end{itemize}
+\end{itemdescr}
+
+\rSec1[concepts.object]{Object concepts}
+
+\pnum
+This subclause describes concepts that specify the basis of the
+value-oriented programming style on which the library is based.
+
+\begin{itemdecl}
+template<class T>
+  concept @\deflibconcept{movable}@ = is_object_v<T> && move_constructible<T> &&
+                    @\libconcept{assignable_from}@<T&, T> && swappable<T>;
+template<class T>
+  concept @\deflibconcept{copyable}@ = @\libconcept{copy_constructible}@<T> && @\libconcept{movable}@<T> && @\libconcept{assignable_from}@<T&, T&> &&
+                     @\libconcept{assignable_from}@<T&, const T&> && @\libconcept{assignable_from}@<T&, const T>;
+template<class T>
+  concept @\deflibconcept{semiregular}@ = copyable<T> && default_initializable<T>;
+template<class T>
+  concept @\deflibconcept{regular}@ = semiregular<T> && equality_comparable<T>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\begin{note}
+The \libconcept{semiregular} concept is modeled by types that behave similarly
+to built-in types like \tcode{int}, except that they might not
+be comparable with \tcode{==}.
+\end{note}
+
+\pnum
+\begin{note}
+The \libconcept{regular} concept is modeled by types that behave similarly to
+built-in types like \tcode{int} and that are comparable with
+\tcode{==}.
+\end{note}
+\end{itemdescr}
+
+\rSec1[concepts.callable]{Callable concepts}
+
+\rSec2[concepts.callable.general]{General}
+
+\pnum
+The concepts in subclause \ref{concepts.callable} describe the requirements on function
+objects\iref{function.objects} and their arguments.
+
+\rSec2[concept.invocable]{Concept \cname{invocable}}
+
+\pnum
+The \libconcept{invocable} concept specifies a relationship between a callable
+type\iref{func.def} \tcode{F} and a set of argument types \tcode{Args...} which
+can be evaluated by the library function \tcode{invoke}\iref{func.invoke}.
+
+\begin{itemdecl}
+template<class F, class... Args>
+  concept @\deflibconcept{invocable}@ = requires(F&& f, Args&&... args) {
+    invoke(std::forward<F>(f), std::forward<Args>(args)...); // not required to be equality-preserving
+  };
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\begin{example}
+A function that generates random numbers can model \libconcept{invocable},
+since the \tcode{invoke} function call expression is not required to be
+equality-preserving\iref{concepts.equality}.
+\end{example}
+\end{itemdescr}
+
+\rSec2[concept.regularinvocable]{Concept \cname{regular_invocable}}
+
+\begin{itemdecl}
+template<class F, class... Args>
+  concept @\deflibconcept{regular_invocable}@ = invocable<F, Args...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The \tcode{invoke} function call expression shall be
+equality-preserving\iref{concepts.equality} and
+shall not modify the function object or the arguments.
+\begin{note}
+This requirement supersedes the annotation in the definition of
+\libconcept{invocable}.
+\end{note}
+
+\pnum
+\begin{example}
+A random number generator does not model \libconcept{regular_invocable}.
+\end{example}
+
+\pnum
+\begin{note}
+The distinction between \libconcept{invocable} and \libconcept{regular_invocable}
+is purely semantic.
+\end{note}
+\end{itemdescr}
+
+\rSec2[concept.predicate]{Concept \cname{predicate}}
+
+\begin{itemdecl}
+template<class F, class... Args>
+  concept @\deflibconcept{predicate}@ =
+    @\libconcept{regular_invocable}@<F, Args...> && @\exposconcept{boolean-testable}@<invoke_result_t<F, Args...>>;
+\end{itemdecl}
+
+\rSec2[concept.relation]{Concept \cname{relation}}
+
+\begin{itemdecl}
+template<class R, class T, class U>
+  concept @\deflibconcept{relation}@ =
+    predicate<R, T, T> && predicate<R, U, U> &&
+    predicate<R, T, U> && predicate<R, U, T>;
+\end{itemdecl}
+
+\rSec2[concept.equiv]{Concept \cname{equivalence_relation}}
+
+\begin{itemdecl}
+template<class R, class T, class U>
+  concept @\deflibconcept{equivalence_relation}@ = relation<R, T, U>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+A \libconcept{relation} models \libconcept{equivalence_relation} only if
+it imposes an equivalence relation on its arguments.
+\end{itemdescr}
+
+\rSec2[concept.strictweakorder]{Concept \cname{strict_weak_order}}
+
+\begin{itemdecl}
+template<class R, class T, class U>
+  concept @\deflibconcept{strict_weak_order}@ = relation<R, T, U>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+A \libconcept{relation} models \libconcept{strict_weak_order} only if
+it imposes a \term{strict weak ordering} on its arguments.
+
+\pnum
+The term
+\term{strict}
+refers to the
+requirement of an irreflexive relation (\tcode{!comp(x, x)} for all \tcode{x}),
+and the term
+\term{weak}
+to requirements that are not as strong as
+those for a total ordering,
+but stronger than those for a partial
+ordering.
+If we define
+\tcode{equiv(a, b)}
+as
+\tcode{!comp(a, b) \&\& !comp(b, a)},
+then the requirements are that
+\tcode{comp}
+and
+\tcode{equiv}
+both be transitive relations:
+
+\begin{itemize}
+\item
+\tcode{comp(a, b) \&\& comp(b, c)}
+implies
+\tcode{comp(a, c)}
+\item
+\tcode{equiv(a, b) \&\& equiv(b, c)}
+implies
+\tcode{equiv(a, c)}
+\end{itemize}
+
+\pnum
+\begin{note}
+Under these conditions, it can be shown that
+\begin{itemize}
+\item
+\tcode{equiv}
+is an equivalence relation,
+\item
+\tcode{comp}
+induces a well-defined relation on the equivalence
+classes determined by
+\tcode{equiv}, and
+\item
+the induced relation is a strict total ordering.
+\end{itemize}
+\end{note}
+\end{itemdescr}
