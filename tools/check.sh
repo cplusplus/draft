@@ -29,7 +29,7 @@ grep -ne '\\pnum.\+$' $texfiles && exit 1
 
 # Two consecutive \pnum
 for f in $texfiles; do
-    awk 'prev == $0 && /^\\pnum/ { print FILENAME ":" FNR ": duplicate \pnum on consecutive lines" } { prev = $0 }' $f
+    awk 'prev == $0 && /^\\pnum/ { print FILENAME ":" FNR ": duplicate \\pnum on consecutive lines" } { prev = $0 }' $f
 done | grep . && exit 1
 
 # \opt used incorrectly.
@@ -103,11 +103,11 @@ done | grep . && exit 1
 # to fix: sed -i 's/placeholder\({[-A-Za-z]*}@\?(\)/placeholdernc\1/g' *.tex
 
 # \placeholdernc before <
-#egrep 'placeholdernc{[-A-Za-z]*}@?<' *.tex 
-# to fix: sed -i 's/placeholdernc\({[-A-Za-z]*}@\?<\)/placeholder\1/g' *.tex 
+#egrep 'placeholdernc{[-A-Za-z]*}@?<' *.tex
+# to fix: sed -i 's/placeholdernc\({[-A-Za-z]*}@\?<\)/placeholder\1/g' *.tex
 
 # \placeholder before . or ,
-# egrep 'placeholder{[-A-Za-z]*}@?[,.]' *.tex 
+# egrep 'placeholder{[-A-Za-z]*}@?[,.]' *.tex
 # to fix: sed -i 's/placeholder\({[-A-Za-z]*}@\?[.,]\)/placeholdernc\1/g' *.tex
 
 # We can't reliably check if the PDF is up to date, because we don't have a
