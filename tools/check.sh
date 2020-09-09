@@ -90,6 +90,14 @@ for f in $texfiles; do
     sed 's/$/ <--- "shall" inside a note/'
 done | grep . && exit 1
 
+# Hanging paragraphs
+for f in $texfiles; do
+    sed -n '/^\\rSec/{=;p};/^[^\\]/{s/^.*$/x/;=;p}' $f |
+    # prefix output with filename and line
+    sed '/^[0-9]\+$/{N;s/\n/:/}' | sed "s/.*/$f:&/" |
+    awk -F: 'BEGIN { prevlevel = 0 } $3 ~ /^\\rSec./ { match($3, "[0-9]"); level=substr($3, RSTART, 1); if (text && level > prevlevel) { print prevsec " <-- Hanging paragraph follows" } prevlevel = level; prevsec = $3; text = 0 } $3 == "x" { text = 1 }'
+done | grep . && exit 1
+
 # Library descriptive macros not immediately preceded by \pnum.
 for f in $texlibdesc; do
     sed -n '/^\\pnum/{h;:x;n;/^\\index/b x;/^\\\(constraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|throws\|complexity\|remarks\|errors\)/{x;/\n/{x;=;p};d};/^\\pnum/D;H;b x}' $f |
