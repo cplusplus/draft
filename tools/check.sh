@@ -5,9 +5,9 @@ texfiles=$(ls *.tex | grep -v macros.tex | grep -v layout.tex | grep -v tables.t
 texlibdesc="support.tex concepts.tex diagnostics.tex utilities.tex strings.tex containers.tex iterators.tex ranges.tex algorithms.tex numerics.tex time.tex locales.tex iostreams.tex regex.tex atomics.tex threads.tex"
 texlib="lib-intro.tex $texlibdesc"
 
-# Discover "Overfull \hbox" and "Reference ... undefined" messages from LaTeX.
+# Discover "Overfull \[hv]box" and "Reference ... undefined" messages from LaTeX.
 sed -n '/\.tex/{s/^.*\/\([-a-z0-9]\+\.tex\).*$/\1/;h};
-/Overfull [\\]hbox\|LaTeX Warning..Reference/{x;p;x;p}' std.log |
+/Overfull [\\][hv]box\|LaTeX Warning..Reference/{x;p;x;p}' std.log |
 sed '/^.\+\.tex$/{N;s/\n/:/}' | grep . && exit 1
 
 # Find non-ASCII (Unicode) characters in the source
