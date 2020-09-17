@@ -82,12 +82,12 @@ grep -n "&[ 0-9a-z_]\+) = delete" $texfiles && exit 1
 # Bad characters in label. "-" is allowed due to a single remaining offender.
 grep -n '^\\rSec.\[[^]]*[^-a-z.0-9][^]]*\]{' $texfiles | sed 's/$/ <--- bad character in label/' | grep . && exit 1
 
-# "shall" inside a note
+# "shall", "may", or "should" inside a note
 for f in $texfiles; do
-    sed -n '/begin{note}/,/end{note}/{/shall[^a-zA-Z]/{=;p}}' $f |
+    sed -n '/begin{note}/,/end{note}/{/\(shall\|may\|should\)[^a-zA-Z]/{=;p}}' $f |
     # prefix output with filename and line
     sed '/^[0-9]\+$/{N;s/\n/:/}' | sed "s/.*/$f:&/" |
-    sed 's/$/ <--- "shall" inside a note/'
+    sed 's/$/ <--- "shall", "should", or "may" inside a note/'
 done | grep . && exit 1
 
 # Hanging paragraphs
