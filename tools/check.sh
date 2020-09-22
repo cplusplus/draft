@@ -88,7 +88,7 @@ grep -n '^\\rSec.\[[^]]*[^-a-z.0-9][^]]*\]{' $texfiles | sed 's/$/ <--- bad char
 
 # "shall", "may", or "should" inside a note
 for f in $texfiles; do
-    sed -n '/begin{note}/,/end{note}/{/\(shall\|may\|should\)[^a-zA-Z]/{=;p}}' $f |
+    sed -n '/begin{\(note\|footnote\)}/,/end{\(note\|footnote\)}/{/\(shall\|may\|should\)[^a-zA-Z]/{=;p}}' $f |
     # prefix output with filename and line
     sed '/^[0-9]\+$/{N;s/\n/:/}' | sed "s/.*/$f:&/" |
     sed 's/$/ <--- "shall", "should", or "may" inside a note/'
