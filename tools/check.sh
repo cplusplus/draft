@@ -59,6 +59,10 @@ grep -ne '^.*[^ ]\s*\\\(begin\|end\){\(example\|note\)}' $texfiles && exit 1
 grep -ne '\\\(begin\|end\){\(example\|note\)}[^%]\+$' $texfiles && exit 1
 # Fixup: sed 's/\(\\\(begin\|end\){\(example\|note\)}\)\s*\([^ ].*\)$/\1\n\4/'
 
+# \end{note} or \end{example} at the end of a table cell
+grep -n -A1 '\\end{\(example\|note\)}' $texfiles | grep -- '- *\(\\\\\|&\)' |
+sed 's/$/ <--- needs tailnote or tailexample/' | grep . && exit 1
+
 # Blank line between "begin example" and "begin codeblock"
 for f in $texfiles; do
     sed -n '/\\begin{example}/{N;N;/\n\n\\begin{codeblock}$/{=;p}}' $f |
