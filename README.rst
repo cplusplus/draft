@@ -79,7 +79,7 @@ To regenerate figures from .dot files, run::
 
 For example::
 
-   make figstreampos.pdf
+   make figvirt.pdf
 
 ----------------
 Acknowledgements
