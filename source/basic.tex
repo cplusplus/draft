@@ -1442,6 +1442,243 @@ of a \grammarterm{typedef-name} and of the type to which it refers are found,
 the declaration of the \grammarterm{typedef-name} is discarded
 instead of the type declaration.
 
+\rSec2[class.member.lookup]{Member name lookup}%
+\indextext{lookup!member name}%
+\indextext{ambiguity!base class member}%
+\indextext{ambiguity!member access}
+
+\pnum
+A \defn{search} in a scope $X$ for a name $N$ from a program point $P$
+is a single search in $X$ for $N$ from $P$
+unless $X$ is the scope of a class or class template $T$, in which case the
+following steps define the result of the search.
+\begin{note}
+The result differs only
+if $N$ is a \grammarterm{conversion-function-id} or
+if the single search would find nothing.
+\end{note}
+
+\pnum
+The \defn{lookup set} for $N$ in $C$, called $S(N,C)$,
+consists of two component sets:
+the \term{declaration set}, a set of members named $N$; and
+the \term{subobject set},
+a set of subobjects where declarations of these members were found
+(possibly via \grammarterm{using-declaration}{s}).
+In the declaration set, type declarations (including injected-class-names)
+are replaced by the types they designate. $S(N,C)$ is calculated as follows:
+
+\pnum
+The declaration set is the result of
+a single search in the scope of $C$ for $N$
+from immediately after the \grammarterm{class-specifier} of $C$
+if $P$ is in a complete-class context of $C$ or
+from $P$ otherwise.
+If the resulting declaration set is not empty, the subobject set
+contains $C$ itself, and calculation is complete.
+
+\pnum
+Otherwise (i.e., $C$ does not contain a declaration of $N$
+or the resulting declaration set is empty), $S(N,C)$ is initially empty.
+Calculate the lookup set for $N$
+in each direct non-dependent\iref{temp.dep.type} base class subobject $B_i$, and
+merge each such lookup set $S(N,B_i)$ in turn into $S(N,C)$.
+\begin{note}
+If $T$ is incomplete,
+only base classes whose \grammarterm{base-specifier} appears before $P$
+are considered.
+If $T$ is an instantiated class, its base classes are not dependent.
+\end{note}
+
+\pnum
+The following steps define the result of merging lookup set $S(N,B_i)$
+into the intermediate $S(N,C)$:
+
+\begin{itemize}
+\item If each of the subobject members of $S(N,B_i)$ is a base class
+subobject of at least one of the subobject members of $S(N,C)$, or if
+$S(N,B_i)$ is empty, $S(N,C)$ is unchanged and the merge is complete.
+Conversely, if each of the subobject members of $S(N,C)$ is a base class
+subobject of at least one of the subobject members of $S(N,B_i)$, or if
+$S(N,C)$ is empty, the new $S(N,C)$ is a copy of $S(N,B_i)$.
+
+\item Otherwise, if the declaration sets of $S(N,B_i)$ and $S(N,C)$
+differ, the merge is ambiguous: the new $S(N,C)$ is a lookup set with an
+invalid declaration set and the union of the subobject sets. In
+subsequent merges, an invalid declaration set is considered different
+from any other.
+
+\item Otherwise, the new $S(N,C)$ is a lookup set with the shared set of
+declarations and the union of the subobject sets.
+\end{itemize}
+
+\pnum
+The result of the search is the declaration set of $S(N,T)$.
+If it is an invalid set, the program is ill-formed.
+If it differs from the result of a search in $T$ for $N$
+from immediately after the \grammarterm{class-specifier} of $T$,
+the program is ill-formed, no diagnostic required.
+\begin{example}
+\begin{codeblock}
+struct A { int x; };                    // S(x,A) = \{ \{ \tcode{A::x} \}, \{ \tcode{A} \} \}
+struct B { float x; };                  // S(x,B) = \{ \{ \tcode{B::x} \}, \{ \tcode{B} \} \}
+struct C: public A, public B { };       // S(x,C) = \{ invalid, \{ \tcode{A} in \tcode{C}, \tcode{B} in \tcode{C} \} \}
+struct D: public virtual C { };         // S(x,D) = S(x,C)
+struct E: public virtual C { char x; }; // S(x,E) = \{ \{ \tcode{E::x} \}, \{ \tcode{E} \} \}
+struct F: public D, public E { };       // S(x,F) = S(x,E)
+int main() {
+  F f;
+  f.x = 0;                              // OK, lookup finds \tcode{E::x}
+}
+\end{codeblock}
+
+$S(\tcode{x},\tcode{F})$ is unambiguous because the \tcode{A} and \tcode{B} base
+class subobjects of \tcode{D} are also base class subobjects of \tcode{E}, so
+$S(\tcode{x},\tcode{D})$ is discarded in the first merge step.
+\end{example}
+
+\pnum
+If $N$ is a non-dependent \grammarterm{conversion-function-id},
+conversion function templates that are members of $T$ are considered.
+For each such template $F$, the lookup set $S(t,T)$ is constructed,
+considering a function template declaration to have the name $t$
+only if it corresponds to a declaration of $F$\iref{basic.scope.scope}.
+The members of the declaration set of each such lookup set,
+which shall not be an invalid set, are included in the result.
+\begin{note}
+Overload resolution will discard those
+that cannot convert to the type specified by $N$\iref{temp.over}.
+\end{note}
+
+\pnum
+\begin{note}
+A static member, a nested type or an enumerator defined in a base class
+\tcode{T} can unambiguously be found even if an object has more than one
+base class subobject of type \tcode{T}. Two base class subobjects share
+the non-static member subobjects of their common virtual base classes.
+\end{note}
+\begin{example}
+\begin{codeblock}
+struct V {
+  int v;
+};
+struct A {
+  int a;
+  static int   s;
+  enum { e };
+};
+struct B : A, virtual V { };
+struct C : A, virtual V { };
+struct D : B, C { };
+
+void f(D* pd) {
+  pd->v++;          // OK: only one \tcode{v} (virtual)
+  pd->s++;          // OK: only one \tcode{s} (static)
+  int i = pd->e;    // OK: only one \tcode{e} (enumerator)
+  pd->a++;          // error: ambiguous: two \tcode{a}{s} in \tcode{D}
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\begin{note}
+\indextext{dominance!virtual base class}%
+When virtual base classes are used, a hidden declaration can be reached
+along a path through the subobject lattice that does not pass through
+the hiding declaration. This is not an ambiguity. The identical use with
+non-virtual base classes is an ambiguity; in that case there is no
+unique instance of the name that hides all the others.
+\end{note}
+\begin{example}
+\begin{codeblock}
+struct V { int f();  int x; };
+struct W { int g();  int y; };
+struct B : virtual V, W {
+  int f();  int x;
+  int g();  int y;
+};
+struct C : virtual V, W { };
+
+struct D : B, C { void glorp(); };
+\end{codeblock}
+
+\begin{importgraphic}
+{Name lookup}
+{class.lookup}
+{figname.pdf}
+\end{importgraphic}
+
+As illustrated in \fref{class.lookup},
+the names declared in \tcode{V} and the left-hand instance of \tcode{W}
+are hidden by those in \tcode{B}, but the names declared in the
+right-hand instance of \tcode{W} are not hidden at all.
+\begin{codeblock}
+void D::glorp() {
+  x++;              // OK: \tcode{B::x} hides \tcode{V::x}
+  f();              // OK: \tcode{B::f()} hides \tcode{V::f()}
+  y++;              // error: \tcode{B::y} and \tcode{C}'s \tcode{W::y}
+  g();              // error: \tcode{B::g()} and \tcode{C}'s \tcode{W::g()}
+}
+\end{codeblock}
+\end{example}
+\indextext{ambiguity!class conversion}%
+
+\pnum
+An explicit or implicit conversion from a pointer to or
+an expression designating an object
+of a
+derived class to a pointer or reference to one of its base classes shall
+unambiguously refer to a unique object representing the base class.
+\begin{example}
+\begin{codeblock}
+struct V { };
+struct A { };
+struct B : A, virtual V { };
+struct C : A, virtual V { };
+struct D : B, C { };
+
+void g() {
+  D d;
+  B* pb = &d;
+  A* pa = &d;       // error: ambiguous: \tcode{C}'s \tcode{A} or \tcode{B}'s \tcode{A}?
+  V* pv = &d;       // OK: only one \tcode{V} subobject
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\begin{note}
+Even if the result of name lookup is unambiguous, use of a name found in
+multiple subobjects might still be
+ambiguous~(\ref{conv.mem}, \ref{expr.ref}, \ref{class.access.base}).
+\end{note}
+\begin{example}
+\begin{codeblock}
+struct B1 {
+  void f();
+  static void f(int);
+  int i;
+};
+struct B2 {
+  void f(double);
+};
+struct I1: B1 { };
+struct I2: B1 { };
+
+struct D: I1, I2, B2 {
+  using B1::f;
+  using B2::f;
+  void g() {
+    f();                        // Ambiguous conversion of \tcode{this}
+    f(0);                       // Unambiguous (static)
+    f(0.0);                     // Unambiguous (only one \tcode{B2})
+    int B1::* mpB1 = &D::i;     // Unambiguous
+    int D::* mpD = &D::i;       // Ambiguous conversion
+  }
+};
+\end{codeblock}
+\end{example}
+
 \rSec2[basic.lookup.unqual]{Unqualified name lookup}
 
 \pnum
@@ -1485,7 +1722,7 @@ namespace N {
   template <class T> int h(T);
 }
 
-int x = f<N::A>(N::A());        // OK: lookup of \tcode{f} finds nothing, \tcode{f} treated as template name
+int x = f<N::A>(N::A());        // OK: lookup of \tcode{f} finds nothing, $N$ treated as template name
 int y = g<N::A>(N::A());        // OK: lookup of \tcode{g} finds a function, \tcode{g} treated as template name
 int z = h<N::A>(N::A());        // error: \tcode{h<} does not begin a \grammarterm{template-id}
 \end{codeblock}
@@ -1499,7 +1736,7 @@ namespace N {
     friend void f(A &);
     operator int();
     void g(A a) {
-      int i = f(a);             // \tcode{f} is the typedef, not the friend function: equivalent to \tcode{int(a)}
+      int i = f(a);             // $N$ is the typedef, not the friend function: equivalent to \tcode{int(a)}
     }
   };
 }
