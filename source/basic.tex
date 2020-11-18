@@ -2030,19 +2030,15 @@ int main() {
 \indextext{lookup!qualified name|(}%
 \indextext{name!qualified}%
 \indextext{qualification!explicit}%
-The name of a class or namespace member
-or enumerator can be referred to after the
-\tcode{::} scope resolution operator\iref{expr.prim.id.qual} applied to a
-\grammarterm{nested-name-specifier} that denotes its class,
-namespace, or enumeration.
-If a
-\tcode{::} scope resolution
-operator
-in a \grammarterm{nested-name-specifier} is not preceded by a \grammarterm{decltype-specifier},
-lookup of the name preceding that \tcode{::} considers only namespaces, types, and
-templates whose specializations are types. If the
-name found does not designate a namespace or a class, enumeration, or dependent type,
-the program is ill-formed.
+Lookup of an \grammarterm{identifier}
+followed by a \tcode{::} scope resolution operator
+considers only
+namespaces, types, and templates whose specializations are types.
+If a name, \grammarterm{template-id}, or \grammarterm{decltype-specifier}
+is followed by a \tcode{::},
+it shall  designate a namespace, class, enumeration, or dependent type,
+and the \tcode{::} is never interpreted as
+a complete \grammarterm{nested-name-specifier}.
 \begin{example}
 \begin{codeblock}
 class A {
@@ -2051,62 +2047,130 @@ public:
 };
 int main() {
   int A;
-  A::n = 42;        // OK
-  A b;              // error: \tcode{A} does not name a type
+  A::n = 42;            // OK
+  A b;                  // error: \tcode{A} does not name a type
+}
+template<int> struct B : A {};
+namespace N {
+  template<int> void B();
+  int f() {
+    return B<0>::n;     // error: N::B<0> is not a type
+  }
 }
 \end{codeblock}
 \end{example}
 
-\pnum
-\begin{note}
-Multiply qualified names, such as \tcode{N1::N2::N3::n}, can
-be used to refer to members of nested classes\iref{class.nest} or
-members of nested namespaces.
-\end{note}
+\indextext{operator!scope resolution}%
+\indextext{scope resolution operator|see{operator, scope resolution}}%
 
 \pnum
-In a declaration in which the \grammarterm{declarator-id} is a
-\grammarterm{qualified-id}, names used before the \grammarterm{qualified-id}
-being declared are looked up in the defining namespace scope; names
-following the \grammarterm{qualified-id} are looked up in the scope of the
-member's class or namespace.
+A member-qualified name is
+the (unique) component name\iref{expr.prim.id.unqual}, if any, of
+\begin{itemize}
+\item
+an \grammarterm{unqualified-id} or
+\item
+a \grammarterm{nested-name-specifier} of the form
+\grammarterm{type-name} \tcode{::} or \grammarterm{namespace-name} \tcode{::}
+\end{itemize}
+in the \grammarterm{id-expression} of a class member access expression\iref{expr.ref}.
+A \defnadj{qualified}{name} is a member-qualified name or the terminal name of
+a \grammarterm{qualified-id},
+a \grammarterm{using-declarator},
+a \grammarterm{typename-specifier},
+a \grammarterm{qualified-namespace-specifier}, or
+a \grammarterm{nested-name-specifier},
+\grammarterm{elaborated-type-specifier}, or
+\grammarterm{class-or-decltype}
+that has a \grammarterm{nested-name-specifier}\iref{expr.prim.id.qual}.
+The \defn{lookup context} of a member-qualified name is
+the type of its associated object expression
+(considered dependent if the object expression is type-dependent).
+The lookup context of any other qualified name is
+the type, template, or namespace
+nominated by the preceding \grammarterm{nested-name-specifier}.
+\begin{note}
+When parsing a class member access,
+the name following the \tcode{->} or \tcode{.} is
+a qualified name even though it is not yet known of which kind.
+\end{note}
+\begin{example}
+In
+\begin{codeblock}
+  N::C::m.Base::f()
+\end{codeblock}
+\tcode{Base} is a member-qualified name;
+the other qualified names are \tcode{C}, \tcode{m}, and \tcode{f}.
+\end{example}
+
+\pnum
+Qualified name lookup in a class, namespace, or enumeration performs
+a search of the scope associated with it\iref{class.member.lookup}
+except as specified below.
+Unless otherwise specified,
+a qualified name undergoes qualified name lookup in its lookup context
+from the point where it appears
+unless the lookup context either
+is dependent and is not the current instantiation\iref{temp.dep.type} or
+is not a class or class template.
+If nothing is found by qualified lookup for a member-qualified name
+that is the terminal name of a \grammarterm{nested-name-specifier} and
+is not dependent, it undergoes unqualified lookup.
+\begin{note}
+During lookup for a template specialization, no names are dependent.
+\end{note}
 \begin{example}
 \begin{codeblock}
-class X { };
-class C {
-  class X { };
-  static const int number = 50;
-  static X arr[number];
+int f();
+struct A {
+  int B, C;
+  template<int> using D = void;
+  using T = void;
+  void f();
 };
-X C::arr[number];   // error:
-                    // equivalent to \tcode{::X} \tcode{C::arr[C::number];}
-                    // and not to \tcode{C::X} \tcode{C::arr[C::number];}
+using B = A;
+template<int> using C = A;
+template<int> using D = A;
+template<int> using X = A;
+
+template<class T>
+void g(T *p) {                  // as instantiated for \tcode{g<A>}:
+  p->X<0>::f();                 // error: \tcode{A::X} not found in \tcode{((p->X) < 0) > ::f()}
+  p->template X<0>::f();        // OK: \tcode{::X} found in definition context
+  p->B::f();                    // OK: non-type \tcode{A::B} ignored
+  p->template C<0>::f();        // error: \tcode{A::C} is not a template
+  p->template D<0>::f();        // error: \tcode{A::D<0>} is not a class type
+  p->T::f();                    // error: \tcode{A::T} is not a class type
+}
+template void g(A*);
 \end{codeblock}
 \end{example}
 
 \pnum
-\indextext{operator!scope resolution}%
-\indextext{scope resolution operator|see{operator, scope resolution}}%
-A name prefixed by the unary scope operator \tcode{::}\iref{expr.prim.id.qual}
-is looked up in global scope, in the translation unit where it is used.
-The name shall be declared in global namespace scope or shall be a name
-whose declaration is visible in global scope because of a
-\grammarterm{using-directive}\iref{namespace.qual}. The use of \tcode{::}
-allows a global name to be referred to even if its identifier has been
-hidden\iref{basic.lookup}.
-
-\pnum
-A name prefixed by a \grammarterm{nested-name-specifier} that
-nominates an enumeration type shall represent an \grammarterm{enumerator}
-of that enumeration.
-
-\pnum
-In a \grammarterm{qualified-id} of the form:
-
-\begin{ncbnf}
-\opt{nested-name-specifier} type-name \terminal{::} \terminal{\~} type-name
-\end{ncbnf}
-the second \grammarterm{type-name} is looked up in the same scope as the first.
+If a qualified name $Q$ follows a \tcode{\~}:
+\begin{itemize}
+\item
+If $Q$ is a member-qualified name,
+it undergoes unqualified lookup as well as qualified lookup.
+\item
+Otherwise, its \grammarterm{nested-name-specifier} $N$ shall nominate a type.
+If $N$ has another \grammarterm{nested-name-specifier} $S$,
+$Q$ is looked up as if its lookup context were that nominated by $S$.
+\item
+Otherwise, if the terminal name of $N$ is a member-qualified name $M$,
+$Q$ is looked up as if $\tcode{\~}Q$ appeared in place of $M$ (as above).
+\item
+Otherwise, $Q$ undergoes unqualified lookup.
+\item
+Each lookup for $Q$ considers only
+types (if $Q$ is not followed by a \tcode{<}) and
+templates whose specializations are types.
+If it finds nothing or is ambiguous, it is discarded.
+\item
+The \grammarterm{type-name} that is or contains $Q$
+shall refer to its (original) lookup context (ignoring cv-qualification) under
+the interpretation established by at least one (successful) lookup performed.
+\end{itemize}
 \begin{example}
 \begin{codeblock}
 struct C {
@@ -2115,23 +2179,20 @@ struct C {
 typedef int I1, I2;
 extern int* p;
 extern int* q;
-p->C::I::~I();      // \tcode{I} is looked up in the scope of \tcode{C}
-q->I1::~I2();       // \tcode{I2} is looked up in the scope of the postfix-expression
-
+void f() {
+  p->C::I::~I();        // \tcode{I} is looked up in the scope of \tcode{C}
+  q->I1::~I2();         // \tcode{I2} is found by unqualified lookup
+}
 struct A {
   ~A();
 };
 typedef A AB;
 int main() {
   AB* p;
-  p->AB::~AB();     // explicitly calls the destructor for \tcode{A}
+  p->AB::~AB();         // explicitly calls the destructor for \tcode{A}
 }
 \end{codeblock}
 \end{example}
-\begin{note}
-\ref{basic.lookup.classref} describes how name
-lookup proceeds after the \tcode{.} and \tcode{->} operators.
-\end{note}
 
 \rSec3[class.qual]{Class members}
 
