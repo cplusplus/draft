@@ -68,11 +68,12 @@ A \grammarterm{class-specifier} whose
 An unnamed class thus can't
 be \tcode{final}.
 \end{note}
+Otherwise, the \grammarterm{class-name} is an \grammarterm{identifier};
+it is not looked up, and the \grammarterm{class-specifier} introduces it.
 
 \pnum
-A \grammarterm{class-name} is inserted into the scope in which it is
-declared immediately after the \grammarterm{class-name} is seen. The
-\grammarterm{class-name} is also inserted into the scope of the class
+The
+\grammarterm{class-name} is also bound in the scope of the class (template)
 itself; this is known as the \defn{injected-class-name}.
 For purposes of access checking, the injected-class-name is treated as
 if it were a public member name.
@@ -87,17 +88,27 @@ whenever it is named.
 
 \pnum
 If a \grammarterm{class-head-name} contains a \grammarterm{nested-name-specifier},
-the \grammarterm{class-specifier} shall refer to a class that was
-previously declared directly in the class or namespace to which the
-\grammarterm{nested-name-specifier} refers,
-or in an element of the inline namespace set\iref{namespace.def} of that namespace
-(i.e., not merely inherited or
-introduced by a \grammarterm{using-declaration}), and the
-\grammarterm{class-specifier} shall appear in a namespace enclosing the
-previous declaration.
-In such cases, the \grammarterm{nested-name-specifier} of the
-\grammarterm{class-head-name} of the
-definition shall not begin with a \grammarterm{decltype-specifier}.
+the \grammarterm{class-specifier} shall not inhabit a class scope.
+If its \grammarterm{class-name} is an \grammarterm{identifier},
+the\grammarterm{ class-specifier} shall correspond to
+one or more declarations nominable in
+the class, class template, or namespace to which the
+\grammarterm{nested-name-specifier} refers;
+they shall all have the same target scope, and the target scope of the
+\grammarterm{class-specifier} is that scope.
+\begin{example}
+\begin{codeblock}
+namespace N {
+  template<class>
+  struct A {
+    struct B;
+  };
+}
+using N::A;
+template<class T> struct A<T>::B {};    // OK
+template<> struct A<void> {};           // error: \tcode{A} not nominable in \tcode{::}
+\end{codeblock}
+\end{example}
 
 \pnum
 \begin{note}
@@ -323,8 +334,8 @@ int f(X);
 int f(Y);
 \end{codeblock}
 \indextext{overloading}%
-declare an overloaded\iref{over} function \tcode{f()} and not
-simply a single function \tcode{f()} twice. For the same reason,
+declare overloads\iref{over} named \tcode{f} and not
+simply a single function \tcode{f} twice. For the same reason,
 \begin{codeblock}
 struct S { int a; };
 struct S { int a; };            // error: double definition
@@ -334,16 +345,11 @@ is ill-formed because it defines \tcode{S} twice.
 
 \pnum
 \indextext{definition!scope of class}%
-\indextext{class name!scope of}%
-A class declaration introduces the class name into the scope where
-\indextext{name hiding!class definition}%
-it is declared and hides any
-class, variable, function, or other declaration of that name in an
-enclosing scope\iref{basic.scope}. If a class name is declared in a
-scope where a variable, function, or enumerator of the same name is also
-declared, then when both declarations are in scope, the class can be
-referred to only using an
-\grammarterm{elaborated-type-specifier}\iref{basic.lookup.elab}.
+\begin{note}
+It can be necessary to use an \grammarterm{elaborated-type-specifier}
+to refer to a class
+that belongs to a scope in which its name is also bound to
+a variable, function, or enumerator\iref{basic.lookup.elab}.
 \begin{example}
 \begin{codeblock}
 struct stat {
@@ -352,20 +358,18 @@ struct stat {
 
 stat gstat;                     // use plain \tcode{stat} to define variable
 
-int stat(struct stat*);         // redeclare \tcode{stat} as function
+int stat(struct stat*);         // \tcode{stat} now also names a function
 
 void f() {
   struct stat* ps;              // \tcode{struct} prefix needed to name \tcode{struct stat}
-  stat(ps);                     // call \tcode{stat()}
+  stat(ps);                     // call \tcode{stat} function
 }
 \end{codeblock}
 \end{example}
 \indextext{class name!elaborated}%
 \indextext{declaration!forward class}%
-A \grammarterm{declaration} consisting solely of \grammarterm{class-key}
-\grammarterm{identifier}\tcode{;} is either a redeclaration of the name in the current scope
-or a forward declaration of the identifier as a class name. It
-introduces the class name into the current scope.
+An \grammarterm{elaborated-type-specifier} can also be used to declare
+an \grammarterm{identifier} as a \grammarterm{class-name}.
 \begin{example}
 \begin{codeblock}
 struct s { int a; };
@@ -378,7 +382,6 @@ void g() {
 }
 \end{codeblock}
 \end{example}
-\begin{note}
 Such declarations allow definition of classes that refer to each other.
 \begin{example}
 \begin{codeblock}
@@ -405,8 +408,8 @@ operator functions in~\ref{over.oper}.
 \begin{note}
 An \grammarterm{elaborated-type-specifier}\iref{dcl.type.elab} can also
 be used as a \grammarterm{type-specifier} as part of a declaration. It
-differs from a class declaration in that if a class of the elaborated
-name is in scope the elaborated name will refer to it.
+differs from a class declaration in that it can refer to
+an existing class of the given name.
 \end{note}
 \begin{example}
 \begin{codeblock}
@@ -503,7 +506,7 @@ The \grammarterm{member-specification} in a class definition declares the
 full set of members of the class; no member can be added elsewhere.
 A \defnadj{direct}{member} of a class \tcode{X} is a member of \tcode{X}
 that was first declared within the \grammarterm{member-specification} of \tcode{X},
-including anonymous union objects\iref{class.union.anon} and direct members thereof.
+including anonymous union members\iref{class.union.anon} and direct members thereof.
 Members of a class are data members, member
 functions\iref{class.mfct}, nested types, enumerators,
 and member templates\iref{temp.mem} and specializations thereof.
@@ -575,15 +578,23 @@ are sufficiently different\iref{over.load}.
 \end{note}
 
 \pnum
+A redeclaration of a class member outside its class definition shall be
+a definition,
+an explicit specialization, or
+an explicit instantiation (\ref{temp.expl.spec}, \ref{temp.explicit}).
+The member shall not be a non-static data member.
+
+\pnum
 \indextext{completely defined}%
-A \defn{complete-class context} of a class is a
+A \defn{complete-class context} of a class (template) is a
 \begin{itemize}
 \item function body\iref{dcl.fct.def.general},
 \item default argument\iref{dcl.fct.default},
+\item default template argument\iref{temp.param},
 \item \grammarterm{noexcept-specifier}\iref{except.spec}, or
 \item default member initializer
 \end{itemize}
-within the \grammarterm{member-specification} of the class.
+within the \grammarterm{member-specification} of the class or class template.
 \begin{note}
 A complete-class context of a nested class is also a complete-class
 context of any enclosing class, if the nested class is defined within
@@ -852,47 +863,15 @@ pointer-interconvertible~(\ref{basic.compound}, \ref{expr.static.cast}).
 \pnum
 \indextext{member function!inline}%
 \indextext{definition!member function}%
-A member function may be defined\iref{dcl.fct.def} in its class definition,
-in which case it is an inline\iref{dcl.inline} member function
-if it is attached to the global module, or
-it may be defined outside of its class
-definition if it has already been declared but not defined in its class
-definition.
+If a member function is attached to the global module and is defined\iref{dcl.fct.def} in its class definition,
+it is inline\iref{dcl.inline}.
 \begin{note}
 A member function is also inline if it is declared
 \tcode{inline}, \tcode{constexpr}, or \tcode{consteval}.
 \end{note}
 
 \pnum
-A member function definition that appears outside of the
-class definition shall appear in a namespace scope enclosing the class
-definition. Except for member function definitions that appear outside
-of a class definition, and except for explicit specializations of member
-functions of class templates and member function
-templates\iref{temp.spec} appearing outside of the class definition, a
-member function shall not be redeclared.
-\begin{note}
-There can be at most one definition of a non-inline member function in
-a program. There can be more than one
-inline member function definition in a program.
-See~\ref{basic.def.odr} and~\ref{dcl.inline}.
-\end{note}
-\begin{note}
-Member functions of a class have the linkage of the name of the class.
-See~\ref{basic.link}.
-\end{note}
-
-\pnum
 \indextext{operator!scope resolution}%
-If the definition of a member function is lexically outside its class
-definition, the member function name shall be qualified by its class
-name using the \tcode{::} operator.
-\begin{note}
-A name used in a member function definition (that is, in the
-\grammarterm{parameter-declaration-clause} including the default
-arguments\iref{dcl.fct.default} or in the member function body) is looked up
-as described in~\ref{basic.lookup}.
-\end{note}
 \begin{example}
 \begin{codeblock}
 struct X {
@@ -903,23 +882,14 @@ struct X {
 void X::f(T t = count) { }
 \end{codeblock}
 
-The member function \tcode{f} of class \tcode{X} is defined in global
-scope; the notation \tcode{X::f} specifies that the function \tcode{f}
+The definition of the member function \tcode{f} of class \tcode{X} inhabits the global
+scope; the notation \tcode{X::f} indicates that the function \tcode{f}
 is a member of class \tcode{X} and in the scope of class \tcode{X}. In
 the function definition, the parameter type \tcode{T} refers to the
 typedef member \tcode{T} declared in class \tcode{X} and the default
 argument \tcode{count} refers to the static data member \tcode{count}
 declared in class \tcode{X}.
 \end{example}
-
-\pnum
-\begin{note}
-A \tcode{static} local variable or local type in a member function always refers to
-the same entity, whether or not the member function is inline.
-\end{note}
-
-\pnum
-Previously declared member functions may be mentioned in friend declarations.
 
 \pnum
 \indextext{local class!member function in}%
@@ -973,9 +943,8 @@ object that is not of type \tcode{X}, or of a type derived from
 \pnum
 When an \grammarterm{id-expression}\iref{expr.prim.id} that is not part of a
 class member access syntax\iref{expr.ref} and not used to form a
-pointer to member\iref{expr.unary.op} is used in
-a member of class \tcode{X} in a context where \tcode{this} can be
-used\iref{expr.prim.this},
+pointer to member\iref{expr.unary.op} is used
+where the current class is \tcode{X}\iref{expr.prim.this},
 if name
 lookup\iref{basic.lookup} resolves the name in the
 \grammarterm{id-expression} to a non-static non-type member of some class
@@ -984,7 +953,7 @@ and if either the \grammarterm{id-expression} is potentially evaluated or
 \tcode{C} is \tcode{X} or a base class of \tcode{X},
 the \grammarterm{id-expression} is transformed into a class
 member access expression\iref{expr.ref} using
-\tcode{(*this)}\iref{class.this} as the \grammarterm{postfix-expression}
+\tcode{(*this)} as the \grammarterm{postfix-expression}
 to the left of the \tcode{.} operator.
 \begin{note}
 If \tcode{C} is not \tcode{X} or a base class of \tcode{X}, the class
@@ -1034,29 +1003,13 @@ See, for example, \libheaderref{cstring}.
 \indextext{member function!const}%
 \indextext{member function!volatile}%
 \indextext{member function!const volatile}%
-A non-static member function may be declared \tcode{const},
-\tcode{volatile}, or \tcode{const} \tcode{volatile}. These
-\grammarterm{cv-qualifier}{s} affect the type of the \tcode{this}
-pointer\iref{class.this}. They also affect the function
-type\iref{dcl.fct} of the member function; a member function declared
-\tcode{const} is a \defn{const member function}, a member function
-declared \tcode{volatile} is a \defn{volatile member function} and a
-member function declared \tcode{const} \tcode{volatile} is a
-\defn{const volatile member function}.
-\begin{example}
-\begin{codeblock}
-struct X {
-  void g() const;
-  void h() const volatile;
-};
-\end{codeblock}
-
-\tcode{X::g} is a const member function and \tcode{X::h} is a
-const volatile member function.
-\end{example}
-
-\pnum
-A non-static member function may be declared with a \grammarterm{ref-qualifier}\iref{dcl.fct}; see~\ref{over.match.funcs}.
+\begin{note}
+A non-static member function can be declared with
+\grammarterm{cv-qualifier}{s}, which affect the type of the \tcode{this}
+pointer\iref{expr.prim.this},
+and/or a \grammarterm{ref-qualifier}\iref{dcl.fct};
+both affect overload resolution\iref{over.match.funcs}
+\end{note}
 
 \pnum
 A non-static member function may be declared
