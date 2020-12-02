@@ -32,6 +32,9 @@ for f in $texfiles; do
     awk 'prev == $0 && /^\\pnum/ { print FILENAME ":" FNR ": duplicate \\pnum on consecutive lines" } { prev = $0 }' $f
 done | grep . && exit 1
 
+# punctuation after the footnote marker
+grep -n "\\end{footnote" $texfiles | grep -v '}[@)%]\?$' && exit 1
+
 # \opt used incorrectly.
 grep -n '\\opt[^{]' $texfiles && exit 1
 grep -n 'opt{}' *.tex && exit 1
