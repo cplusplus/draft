@@ -1387,6 +1387,9 @@ constexpr functions.
 If \tcode{is_trivially_destructible_v<$\tcode{T}_i$>} is \tcode{true} for all $\tcode{T}_i$,
 then the destructor of \tcode{tuple} is trivial.
 
+\pnum
+The default constructor of \tcode{tuple<>} is trivial.
+
 \indexlibraryctor{tuple}%
 \begin{itemdecl}
 constexpr explicit(@\seebelow@) tuple();
@@ -7113,8 +7116,8 @@ namespace std {
   template<class T, class D>
     bool operator>=(nullptr_t, const unique_ptr<T, D>& y);
   template<class T, class D>
-    requires @\libconcept{three_way_comparable_with}@<typename unique_ptr<T, D>::pointer, nullptr_t>
-    compare_three_way_result_t<typename unique_ptr<T, D>::pointer, nullptr_t>
+    requires @\libconcept{three_way_comparable}@<typename unique_ptr<T, D>::pointer>
+    compare_three_way_result_t<typename unique_ptr<T, D>::pointer>
       operator<=>(const unique_ptr<T, D>& x, nullptr_t);
 
   template<class E, class T, class Y, class D>
@@ -8226,7 +8229,6 @@ namespace std {
     using size_type                              = size_t;
     using difference_type                        = ptrdiff_t;
     using propagate_on_container_move_assignment = true_type;
-    using is_always_equal                        = true_type;
 
     constexpr allocator() noexcept;
     constexpr allocator(const allocator&) noexcept;
@@ -8239,6 +8241,10 @@ namespace std {
   };
 }
 \end{codeblock}
+
+\pnum
+\tcode{allocator_traits<allocator<T>>::is_always_equal::value}
+is \tcode{true} for any \tcode{T}.
 
 \rSec3[allocator.members]{Members}
 
@@ -8892,7 +8898,9 @@ Calls \tcode{reset(u.release())} followed by
 
 \pnum
 \ensures
-\tcode{u.get() == nullptr}.
+If \tcode{this != addressof(u)},
+\tcode{u.get() == nullptr},
+otherwise \tcode{u.get()} is unchanged.
 
 \pnum
 \returns
@@ -9611,15 +9619,17 @@ The second function template returns \tcode{!(nullptr < x)}.
 \indexlibrarymember{operator<=>}{unique_ptr}%
 \begin{itemdecl}
 template<class T, class D>
-  requires @\libconcept{three_way_comparable_with}@<typename unique_ptr<T, D>::pointer, nullptr_t>
-  compare_three_way_result_t<typename unique_ptr<T, D>::pointer, nullptr_t>
+  requires @\libconcept{three_way_comparable}@<typename unique_ptr<T, D>::pointer>
+  compare_three_way_result_t<typename unique_ptr<T, D>::pointer>
     operator<=>(const unique_ptr<T, D>& x, nullptr_t);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \returns
-\tcode{compare_three_way()(x.get(), nullptr)}.
+\begin{codeblock}
+compare_three_way()(x.get(), static_cast<typename unique_ptr<T, D>::pointer>(nullptr)).
+\end{codeblock}
 \end{itemdescr}
 
 \rSec3[unique.ptr.io]{I/O}
@@ -10795,7 +10805,9 @@ template<class T>
 \begin{itemdescr}
 \pnum
 \returns
-\tcode{compare_three_way()(a.get(), nullptr)}.
+\begin{codeblock}
+compare_three_way()(a.get(), static_cast<typename shared_ptr<T>::element_type*>(nullptr).
+\end{codeblock}
 \end{itemdescr}
 
 \rSec3[util.smartptr.shared.spec]{Specialized algorithms}
@@ -11061,7 +11073,7 @@ constexpr weak_ptr() noexcept;
 \begin{itemdescr}
 \pnum
 \effects
-Constructs an empty \tcode{weak_ptr} object.
+Constructs an empty \tcode{weak_ptr} object that stores a null pointer value.
 
 \pnum
 \ensures
@@ -11083,7 +11095,8 @@ For the second and third constructors, \tcode{Y*} is compatible with \tcode{T*}.
 \pnum
 \effects
 If \tcode{r} is empty, constructs
-an empty \tcode{weak_ptr} object; otherwise, constructs
+an empty \tcode{weak_ptr} object that stores a null pointer value;
+otherwise, constructs
 a \tcode{weak_ptr} object that shares ownership
 with \tcode{r} and stores a copy of the pointer stored in \tcode{r}.
 
@@ -11109,8 +11122,8 @@ Move constructs a \tcode{weak_ptr} instance from \tcode{r}.
 
 \pnum
 \ensures
-\tcode{*this} shall contain the old value of \tcode{r}.
-\tcode{r} shall be empty. \tcode{r.use_count() == 0}.
+\tcode{*this} contains the old value of \tcode{r}.
+\tcode{r} is empty, stores a null pointer value, and \tcode{r.use_count() == 0}.
 \end{itemdescr}
 
 \rSec3[util.smartptr.weak.dest]{Destructor}
@@ -11692,9 +11705,6 @@ namespace std::pmr {
     template<class T, class... Args>
       void construct(T* p, Args&&... args);
 
-    template<class T>
-      void destroy(T* p);
-
     polymorphic_allocator select_on_container_copy_construction() const;
 
     memory_resource* resource() const;
@@ -11899,7 +11909,7 @@ template<class T>
 \effects
 Equivalent to:
 \begin{codeblock}
-destroy(p);
+allocator_traits<polymorphic_allocator>::destroy(*this, p);
 deallocate_object(p);
 \end{codeblock}
 \end{itemdescr}
@@ -11927,18 +11937,6 @@ and constructor arguments \tcode{std::forward<Args>(args)...}.
 \pnum
 \throws
 Nothing unless the constructor for \tcode{T} throws.
-\end{itemdescr}
-
-\indexlibrarymember{destroy}{polymorphic_allocator}%
-\begin{itemdecl}
-template<class T>
-  void destroy(T* p);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-As if by \tcode{p->\~T()}.
 \end{itemdescr}
 
 \indexlibrarymember{select_on_container_copy_construction}{polymorphic_allocator}%
@@ -12382,29 +12380,6 @@ A \tcode{monotonic_buffer_resource} is a special-purpose memory resource
 intended for very fast memory allocations in situations
 where memory is used to build up a few objects
 and then is released all at once when the memory resource object is destroyed.
-It has the following qualities:
-\begin{itemize}
-\item
-A call to \tcode{deallocate} has no effect,
-thus the amount of memory consumed increases monotonically
-until the resource is destroyed.
-\item
-The program can supply an initial buffer,
-which the allocator uses to satisfy memory requests.
-\item
-When the initial buffer (if any) is exhausted,
-it obtains additional buffers from an \defn{upstream} memory resource
-supplied at construction.
-Each additional buffer is larger than the previous one,
-following a geometric progression.
-\item
-It is intended for access from one thread of control at a time.
-Specifically, calls to \tcode{allocate} and \tcode{deallocate}
-do not synchronize with one another.
-\item
-It frees the allocated memory on destruction,
-even if \tcode{deallocate} has not been called for some of the allocated blocks.
-\end{itemize}
 
 \indexlibraryglobal{monotonic_buffer_resource}%
 \begin{codeblock}
@@ -12512,6 +12487,8 @@ void release();
 \effects
 Calls \tcode{upstream_rsrc->deallocate()} as necessary
 to release all allocated memory.
+Resets \tcode{current_buffer} and \tcode{next_buffer_size}
+to their initial values at construction.
 
 \pnum
 \begin{note}
@@ -21052,6 +21029,13 @@ namespace std {
 \pnum
 An instance of \tcode{basic_format_args} provides access to formatting
 arguments.
+Implementations should
+optimize the representation of \tcode{basic_format_args}
+for a small number of formatting arguments.
+\begin{note}
+For example, by storing indices of type alternatives separately from values
+and packing the former.
+\end{note}
 
 \indexlibraryctor{basic_format_args}%
 \begin{itemdecl}
@@ -21088,15 +21072,6 @@ basic_format_arg<Context> get(size_t i) const noexcept;
 \returns
 \tcode{i < size_ ?\ data_[i] :\ basic_format_arg<Context>()}.
 \end{itemdescr}
-
-\pnum
-\begin{note}
-Implementations are encouraged
-to optimize the representation of \tcode{basic_format_args}
-for small number of formatting arguments
-by storing indices of type alternatives separately from values
-and packing the former.
-\end{note}
 
 \rSec2[format.error]{Class \tcode{format_error}}
 
