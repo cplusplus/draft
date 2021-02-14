@@ -48,7 +48,6 @@ Getting Started on Arch Linux
 
 Install the following packages:
 
-   latex-mk from the Arch User Repository.
    pacman -S texlive-latexextra
 
 -----------------------------
