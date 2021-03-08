@@ -384,10 +384,8 @@ namespace std {
   // \ref{iterators.counted}, counted iterators
   template<@\libconcept{input_or_output_iterator}@ I> class counted_iterator;
 
-  template<class I>
-    struct incrementable_traits<counted_iterator<I>>;
-
   template<@\libconcept{input_iterator}@ I>
+    requires @\seebelow@
     struct iterator_traits<counted_iterator<I>>;
 
   // \ref{unreachable.sentinel}, unreachable sentinel
@@ -1011,6 +1009,14 @@ has no members by any of the above names.
 Explicit or partial specializations of \tcode{iterator_traits} may
 have a member type \tcode{iterator_concept} that is used to indicate
 conformance to the iterator concepts\iref{iterator.concepts}.
+\begin{example}
+To indicate conformance to the \libconcept{input_iterator} concept
+but a lack of conformance to
+the \oldconcept{InputIter\-ator} requirements\iref{input.iterators},
+an \tcode{iterator_traits} specialization might have
+\tcode{iterator_concept} denote \tcode{input_iterator_tag}
+but not define \tcode{iterator_category}.
+\end{example}
 
 \pnum
 \tcode{iterator_traits} is specialized for pointers as
@@ -4085,7 +4091,7 @@ namespace std {
   public:
     using iterator_type     = Iterator;
     using iterator_concept  = input_iterator_tag;
-    using iterator_category = @\seebelow@;
+    using iterator_category = @\seebelow@;                      // not always present
     using value_type        = iter_value_t<Iterator>;
     using difference_type   = iter_difference_t<Iterator>;
     using pointer           = Iterator;
@@ -4135,7 +4141,11 @@ namespace std {
 \end{codeblock}
 
 \pnum
-The member \grammarterm{typedef-name} \tcode{iterator_category} denotes
+The member \grammarterm{typedef-name} \tcode{iterator_category} is defined
+if and only if the \grammarterm{qualified-id}
+\tcode{iterator_traits<It\-erator>::iterator_category}
+is valid and denotes a type.
+In that case, \tcode{iterator_category} denotes
 \begin{itemize}
 \item
 \tcode{random_access_iterator_tag} if
@@ -4795,7 +4805,8 @@ otherwise it denotes \tcode{input_iterator_tag}.
 \item
 \tcode{iterator_category} denotes
 \tcode{forward_iterator_tag}
-if \tcode{iterator_traits<I>::iterator_category}
+if the \grammarterm{qualified-id} \tcode{iterator_traits<I>::iter\-ator_category}
+is valid and denotes a type that
 models \tcode{\libconcept{derived_from}<forward_iterator_tag>};
 otherwise it denotes \tcode{input_iterator_tag}.
 
@@ -4990,7 +5001,33 @@ common_iterator tmp = *this;
 ++*this;
 return tmp;
 \end{codeblock}
-Otherwise, equivalent to: \tcode{return get<I>(v_)++;}
+Otherwise, if
+\tcode{requires (I\& i) \{ \{ *i++ \} -> \exposconceptnc{can-reference}; \}}
+is \tcode{true} or
+\tcode{\libconcept{constructible_\newline{}from}<iter_value_t<I>, iter_reference_t<I>>}
+is \tcode{false},
+equivalent to:
+\begin{codeblock}
+return get<I>(v_)++;
+\end{codeblock}
+Otherwise, equivalent to:
+\begin{codeblock}
+@\exposid{postfix-proxy}@ p(**this);
+++*this;
+return p;
+\end{codeblock}
+where \exposid{postfix-proxy} is the exposition-only class:
+\begin{codeblock}
+class @\exposid{postfix-proxy}@ {
+  iter_value_t<I> keep_;
+  @\exposid{postfix-proxy}@(iter_reference_t<I>&& x)
+    : keep_(std::move(x)) {}
+public:
+  const iter_value_t<I>& operator*() const {
+    return keep_;
+  }
+};
+\end{codeblock}
 \end{itemdescr}
 
 \rSec3[common.iter.cmp]{Comparisons}
@@ -5151,7 +5188,13 @@ namespace std {
   class counted_iterator {
   public:
     using iterator_type = I;
-
+    using value_type = iter_value_t<I>;                         // present only
+                        // if \tcode{I} models \libconcept{indirectly_readable}
+    using difference_type = iter_difference_t<I>;
+    using iterator_concept = typename I::iterator_concept;      // present only
+                        // if the \grammarterm{qualified-id} \tcode{I::iterator_concept} is valid and denotes a type
+    using iterator_category = typename I::iterator_category;    // present only
+                        // if the \grammarterm{qualified-id} \tcode{I::iterator_category} is valid and denotes a type
     constexpr counted_iterator() = default;
     constexpr counted_iterator(I x, iter_difference_t<I> n);
     template<class I2>
@@ -5168,6 +5211,9 @@ namespace std {
     constexpr decltype(auto) operator*();
     constexpr decltype(auto) operator*() const
       requires @\exposconcept{dereferenceable}@<const I>;
+
+    constexpr auto operator->() const noexcept
+      requires @\libconcept{contiguous_iterator}@<I>;
 
     constexpr counted_iterator& operator++();
     decltype(auto) operator++(int);
@@ -5223,14 +5269,11 @@ namespace std {
     iter_difference_t<I> length = 0;    // \expos
   };
 
-  template<class I>
-  struct incrementable_traits<counted_iterator<I>> {
-    using difference_type = iter_difference_t<I>;
-  };
-
   template<@\libconcept{input_iterator}@ I>
+    requires @\libconcept{same_as}@<@\exposid{ITER_TRAITS}@(I), iterator_traits<I>>   // see \ref{iterator.concepts.general}
   struct iterator_traits<counted_iterator<I>> : iterator_traits<I> {
-    using pointer = void;
+    using pointer = conditional_t<@\libconcept{contiguous_iterator}@<I>,
+                                  add_pointer_t<iter_reference_t<I>>, void>;
   };
 }
 \end{codeblock}
@@ -5337,6 +5380,18 @@ constexpr decltype(auto) operator*() const
 \pnum
 \effects
 Equivalent to: \tcode{return *current;}
+\end{itemdescr}
+
+\indexlibrarymember{operator->}{counted_iterator}%
+\begin{itemdecl}
+constexpr auto operator->() const noexcept
+  requires @\libconcept{contiguous_iterator}@<I>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return to_address(current);}
 \end{itemdescr}
 
 \indexlibrarymember{operator[]}{counted_iterator}%
