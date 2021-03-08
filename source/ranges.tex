@@ -1765,22 +1765,21 @@ constexpr subrange& advance(iter_difference_t<I> n);
 \pnum
 \effects
 Equivalent to:
-\begin{itemize}
-\item If \exposid{StoreSize} is \tcode{true},
 \begin{codeblock}
+if constexpr (bidirectional_iterator<I>) {
+  if (n < 0) {
+    ranges::advance(@\exposid{begin_}@, n);
+    if constexpr (@\exposid{StoreSize}@)
+      @\exposid{size_}@ += @\placeholdernc{to-unsigned-like}@(-n);
+    return *this;
+  }
+}
+
 auto d = n - ranges::advance(@\exposid{begin_}@, n, @\exposid{end_}@);
-if (d >= 0)
+if constexpr (@\exposid{StoreSize}@)
   @\exposid{size_}@ -= @\placeholdernc{to-unsigned-like}@(d);
-else
-  @\exposid{size_}@ += @\placeholdernc{to-unsigned-like}@(-d);
 return *this;
 \end{codeblock}
-\item Otherwise,
-\begin{codeblock}
-ranges::advance(@\exposid{begin_}@, n, @\exposid{end_}@);
-return *this;
-\end{codeblock}
-\end{itemize}
 \end{itemdescr}
 
 \indexlibrarymember{get}{subrange}%
@@ -4915,6 +4914,10 @@ constexpr auto begin();
 
 \begin{itemdescr}
 \pnum
+\expects
+\tcode{\exposid{pred_}.has_value()} is \tcode{true}.
+
+\pnum
 \returns
 \tcode{ranges::find_if_not(\exposid{base_}, cref(*\exposid{pred_}))}.
 
@@ -5053,16 +5056,17 @@ namespace std::ranges {
   template<bool Const>
   struct join_view<V>::@\exposid{iterator}@ {
   private:
-    using @\exposid{Parent}@ = @\exposid{maybe-const}@<Const, join_view>;               // \expos
-    using @\exposid{Base}@   = @\exposid{maybe-const}@<Const, V>;                       // \expos
+    using @\exposid{Parent}@    = @\exposid{maybe-const}@<Const, join_view>;            // \expos
+    using @\exposid{Base}@      = @\exposid{maybe-const}@<Const, V>;                    // \expos
+    using @\exposid{OuterIter}@ = iterator_t<@\exposid{Base}@>;                         // \expos
+    using @\exposid{InnerIter}@ = iterator_t<range_reference_t<@\exposid{Base}@>>;      // \expos
 
     static constexpr bool @\exposid{ref-is-glvalue}@ =                      // \expos
       is_reference_v<range_reference_t<@\exposid{Base}@>>;
 
-    iterator_t<@\exposid{Base}@> @\exposid{outer_}@ = iterator_t<@\exposid{Base}@>();               // \expos
-    iterator_t<range_reference_t<@\exposid{Base}@>> @\exposid{inner_}@ =                // \expos
-      iterator_t<range_reference_t<@\exposid{Base}@>>();
-    @\exposid{Parent}@* @\exposid{parent_}@ = nullptr;                                  // \expos
+    @\exposid{OuterIter}@ @\exposid{outer_}@ = @\exposid{OuterIter}@();                             // \expos
+    @\exposid{InnerIter}@ @\exposid{inner_}@ = @\exposid{InnerIter}@();                             // \expos
+    @\exposid{Parent}@* @\exposidnc{parent_}@ = nullptr;                                  // \expos
 
     constexpr void @\exposid{satisfy}@();                                   // \expos
   public:
@@ -5072,17 +5076,16 @@ namespace std::ranges {
     using difference_type   = @\seebelow@;
 
     @\exposid{iterator}@() = default;
-    constexpr @\exposid{iterator}@(@\exposid{Parent}@& parent, iterator_t<@\exposid{Base}@> outer);
+    constexpr @\exposid{iterator}@(@\exposid{Parent}@& parent, @\exposid{OuterIter}@ outer);
     constexpr @\exposid{iterator}@(@\exposid{iterator}@<!Const> i)
       requires Const &&
-               @\libconcept{convertible_to}@<iterator_t<V>, iterator_t<@\exposid{Base}@>> &&
-               @\libconcept{convertible_to}@<iterator_t<@\exposid{InnerRng}@>,
-                              iterator_t<range_reference_t<@\exposid{Base}@>>>;
+               @\libconcept{convertible_to}@<iterator_t<V>, @\exposid{OuterIter}@> &&
+               @\libconcept{convertible_to}@<iterator_t<@\exposid{InnerRng}@>, @\exposid{InnerIter}@>;
 
     constexpr decltype(auto) operator*() const { return *@\exposid{inner_}@; }
 
-    constexpr iterator_t<@\exposid{Base}@> operator->() const
-      requires @\exposconcept{has-arrow}@<iterator_t<@\exposid{Base}@>> && @\libconcept{copyable}@<iterator_t<@\exposid{Base}@>>;
+    constexpr @\exposid{InnerIter}@ operator->() const
+      requires @\exposconcept{has-arrow}@<@\exposid{InnerIter}@> && @\libconcept{copyable}@<@\exposid{InnerIter}@>;
 
     constexpr @\exposid{iterator}@& operator++();
     constexpr void operator++(int);
@@ -5185,13 +5188,13 @@ for (; @\exposid{outer_}@ != ranges::end(@\exposid{parent_}@->@\exposid{base_}@)
     return;
 }
 if constexpr (@\exposid{ref-is-glvalue}@)
-  @\exposid{inner_}@ = iterator_t<range_reference_t<@\exposid{Base}@>>();
+  @\exposid{inner_}@ = @\exposid{InnerIter}@();
 \end{codeblock}
 \end{itemdescr}
 
 \indexlibraryctor{join_view::iterator}%
 \begin{itemdecl}
-constexpr @\exposid{iterator}@(@\exposid{Parent}@& parent, iterator_t<@\exposid{Base}@> outer);
+constexpr @\exposid{iterator}@(@\exposid{Parent}@& parent, @\exposid{OuterIter}@ outer);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -5205,9 +5208,8 @@ Initializes \exposid{outer_} with \tcode{std::move(outer)} and
 \begin{itemdecl}
 constexpr @\exposid{iterator}@(@\exposid{iterator}@<!Const> i)
   requires Const &&
-           @\libconcept{convertible_to}@<iterator_t<V>, iterator_t<@\exposid{Base}@>> &&
-           @\libconcept{convertible_to}@<iterator_t<@\exposid{InnerRng}@>,
-                          iterator_t<range_reference_t<@\exposid{Base}@>>>;
+           @\libconcept{convertible_to}@<iterator_t<V>, @\exposid{OuterIter}@> &&
+           @\libconcept{convertible_to}@<iterator_t<@\exposid{InnerRng}@>, @\exposid{InnerIter}@>;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -5220,8 +5222,8 @@ Initializes \exposid{outer_} with \tcode{std::move(i.\exposid{outer_})},
 
 \indexlibrarymember{operator->}{join_view::iterator}%
 \begin{itemdecl}
-constexpr iterator_t<@\exposid{Base}@> operator->() const
-  requires @\exposconcept{has-arrow}@<iterator_t<@\exposid{Base}@>> && copyable<iterator_t<@\exposid{Base}@>>;
+constexpr @\exposid{InnerIter}@ operator->() const
+  requires @\exposconcept{has-arrow}@<@\exposid{InnerIter}@> && @\libconcept{copyable}@<@\exposid{InnerIter}@>;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -5672,11 +5674,17 @@ const auto end = ranges::end(@\exposid{parent_}@->@\exposid{base_}@);
 if (@\placeholder{current}@ == end) return *this;
 const auto [pbegin, pend] = subrange{@\exposid{parent_}@->@\exposid{pattern_}@};
 if (pbegin == pend) ++@\placeholder{current}@;
+else if constexpr (@\exposconcept{tiny-range}@<Pattern>) {
+  @\placeholder{current}@ = ranges::find(std::move(@\placeholder{current}@), end, *pbegin);
+  if (@\placeholder{current}@ != end) {
+    ++@\placeholder{current}@;
+  }
+}
 else {
   do {
-    auto [b, p] = ranges::mismatch(std::move(@\placeholder{current}@), end, pbegin, pend);
-    @\placeholder{current}@ = std::move(b);
+    auto [b, p] = ranges::mismatch(@\placeholder{current}@, end, pbegin, pend);
     if (p == pend) {
+      @\placeholder{current}@ = b;
       break;            // The pattern matched; skip it
     }
   } while (++@\placeholder{current}@ != end);
@@ -6308,10 +6316,14 @@ namespace std::ranges {
       { get<N>(t) } -> convertible_to<const tuple_element_t<N, T>&>;
     };
 
+  template<class T, size_t N>
+  concept @\defexposconcept{returnable-element}@ =                  // \expos
+    is_reference_v<T> || move_constructible<tuple_element_t<N, T>>;
 
   template<@\libconcept{input_range}@ V, size_t N>
     requires @\libconcept{view}@<V> && @\exposconcept{has-tuple-element}@<range_value_t<V>, N> &&
-             @\exposconcept{has-tuple-element}@<remove_reference_t<range_reference_t<V>>, N>
+             @\exposconcept{has-tuple-element}@<remove_reference_t<range_reference_t<V>>, N> &&
+             @\exposconcept{returnable-element}@<range_reference_t<V>, N>
   class elements_view : public view_interface<elements_view<V, N>> {
   public:
     elements_view() = default;
@@ -6372,12 +6384,16 @@ Initializes \exposid{base_} with \tcode{std::move(base)}.
 namespace std::ranges {
   template<@\libconcept{input_range}@ V, size_t N>
     requires @\libconcept{view}@<V> && @\exposconcept{has-tuple-element}@<range_value_t<V>, N> &&
-             @\exposconcept{has-tuple-element}@<remove_reference_t<range_reference_t<V>>, N>
+             @\exposconcept{has-tuple-element}@<remove_reference_t<range_reference_t<V>>, N> &&
+             @\exposconcept{returnable-element}@<range_reference_t<V>, N>
   template<bool Const>
   class elements_view<V, N>::@\exposid{iterator}@ {                 // \expos
     using @\exposid{Base}@ = @\exposid{maybe-const}@<Const, V>;                 // \expos
 
-    iterator_t<@\exposid{Base}@> @\exposid{current_}@ = iterator_t<@\exposid{Base}@>();
+    iterator_t<@\exposid{Base}@> @\exposid{current_}@ = iterator_t<@\exposid{Base}@>();     // \expos
+
+    static constexpr decltype(auto) @\exposid{get-element}@(const iterator_t<@\exposid{Base}@>& i);     // \expos
+
   public:
     using iterator_category = typename iterator_traits<iterator_t<@\exposid{Base}@>>::iterator_category;
     using value_type = remove_cvref_t<tuple_element_t<N, range_value_t<@\exposid{Base}@>>>;
@@ -6393,10 +6409,10 @@ namespace std::ranges {
     constexpr iterator_t<@\exposid{Base}@> base() &&;
 
     constexpr decltype(auto) operator*() const
-    { return get<N>(*@\exposid{current_}@); }
+    { return @\exposid{get-element}@(@\exposid{current_}@); }
 
     constexpr @\exposid{iterator}@& operator++();
-    constexpr void operator++(int) requires (!@\libconcept{forward_range}@<@\exposid{Base}@>);
+    constexpr void operator++(int);
     constexpr @\exposid{iterator}@ operator++(int) requires @\libconcept{forward_range}@<@\exposid{Base}@>;
 
     constexpr @\exposid{iterator}@& operator--() requires @\libconcept{bidirectional_range}@<@\exposid{Base}@>;
@@ -6409,7 +6425,7 @@ namespace std::ranges {
 
     constexpr decltype(auto) operator[](difference_type n) const
       requires @\libconcept{random_access_range}@<@\exposid{Base}@>
-    { return get<N>(*(@\exposid{current_}@ + n)); }
+    { return @\exposid{get-element}@(@\exposid{current_}@ + n); }
 
     friend constexpr bool operator==(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
       requires @\libconcept{equality_comparable}@<iterator_t<@\exposid{Base}@>>;
@@ -6436,6 +6452,25 @@ namespace std::ranges {
   };
 }
 \end{codeblock}
+
+\indexlibrarymember{\exposid{get-element}}{elements_view::iterator}%
+\begin{itemdecl}
+static constexpr decltype(auto) @\exposid{get-element}@(const iterator_t<@\exposid{Base}@>& i);     // \expos
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if constexpr (is_reference_v<range_reference_t<@\exposid{Base}@>>) {
+  return get<N>(*i);
+} else {
+  using E = remove_cv_t<tuple_element_t<N, range_reference_t<@\exposid{Base}@>>>;
+  return static_cast<E>(get<N>(*i));
+}
+\end{codeblock}
+\end{itemdescr}
 
 \indexlibraryctor{elements_view::iterator}%
 \begin{itemdecl}
@@ -6500,7 +6535,7 @@ return *this;
 
 \indexlibrarymember{operator++}{elements_view::iterator}%
 \begin{itemdecl}
-constexpr void operator++(int) requires (!@\libconcept{forward_range}@<@\exposid{Base}@>);
+constexpr void operator++(int);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -6715,7 +6750,8 @@ Equivalent to: \tcode{return x.\exposid{current_} - y.\exposid{current_};}
 namespace std::ranges {
   template<@\libconcept{input_range}@ V, size_t N>
     requires @\libconcept{view}@<V> && @\placeholder{has-tuple-element}@<range_value_t<V>, N> &&
-             @\placeholder{has-tuple-element}@<remove_reference_t<range_reference_t<V>>, N>
+             @\placeholder{has-tuple-element}@<remove_reference_t<range_reference_t<V>>, N> &&
+             @\exposconcept{returnable-element}@<range_reference_t<V>, N>
   template<bool Const>
   class elements_view<V, N>::@\exposid{sentinel}@ {                 // \expos
   private:
