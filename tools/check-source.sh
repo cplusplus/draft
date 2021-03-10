@@ -98,18 +98,18 @@ grep -n -A1 '\\end{\(example\|note\)}' $texfiles | grep -- '- *\(\\\\\|&\)' |
 
 # Blank line between "begin example" and "begin codeblock"
 for f in $texfiles; do
-    sed -n '/\\begin{example}/{N;N;/\n\n\\begin{codeblock}$/{=;p}}' $f |
+    sed -n '/\\begin{example}/{N;N;/\n\n\\begin{codeblock}$/{=;p;};}' $f |
     # prefix output with filename and line
-    sed '/^[0-9]\+$/{N;s/\n/:/}' | sed "s/.*/$f:&/"
+    sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/"
 done |
     fail 'blank line between "begin example" and "begin codeblock"' || failed=1
-# Fixup: sed '/\\begin{example}/{N;s/\n$//}'
+# Fixup: sed '/\\begin{example}/{N;s/\n$//;}'
 
 # Comment not aligned to multiple of four. (Ignore lines with "@".)
 for f in $texfiles; do
-    sed -n '/begin{codeblock\(tu\)\?}/,/end{codeblock\(tu\)\?}/{/^[^@]*[^ @][^@]*\/\//{=;p}}' $f |
+    sed -n '/begin{codeblock\(tu\)\?}/,/end{codeblock\(tu\)\?}/{/^[^@]*[^ @][^@]*\/\//{=;p;};}' $f |
     # prefix output with filename and line
-    sed '/^[0-9]\+$/{N;s/\n/:/}' | sed "s/.*/$f:&/" |
+    sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/" |
     awk '{ match($0,"^[-a-z0-9]*[.]tex:[0-9]*:"); n=match(substr($0,RLENGTH+1),"[ ;]//"); if (n % 4 != 0) print "comment starts in column " n ": " $0; }'
 done |
     fail "comment not aligned" || failed=1
@@ -125,26 +125,26 @@ grep -n '^\\rSec.\[[^]]*[^-a-z.0-9][^]]*\]{' $texfiles |
 
 # "shall", "may", or "should" inside a note
 for f in $texfiles; do
-    sed -n '/begin{\(note\|footnote\)}/,/end{\(note\|footnote\)}/{/\(shall\|may\|should\)[^a-zA-Z]/{=;p}}' $f |
+    sed -n '/begin{\(note\|footnote\)}/,/end{\(note\|footnote\)}/{/\(shall\|may\|should\)[^a-zA-Z]/{=;p;};}' $f |
     # prefix output with filename and line
-    sed '/^[0-9]\+$/{N;s/\n/:/}' | sed "s/.*/$f:&/"
+    sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/"
 done |
     fail '"shall", "should", or "may" inside a note' || failed=1
 
 # Hanging paragraphs
 for f in $texfiles; do
-    sed -n '/^\\rSec/{=;p};/^\\pnum/{s/^.*$/x/;=;p}' $f |
+    sed -n '/^\\rSec/{=;p;};/^\\pnum/{s/^.*$/x/;=;p;}' $f |
     # prefix output with filename and line
-    sed '/^[0-9]\+$/{N;s/\n/:/}' | sed "s/.*/$f:&/" |
+    sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/" |
     awk -F: 'BEGIN { prevlevel = 0 } $3 ~ /^\\rSec./ { match($3, "[0-9]"); level=substr($3, RSTART, 1); if (text && level > prevlevel) { print prevsec " <-- Hanging paragraph follows" } prevlevel = level; prevsec = $3; text = 0 } $3 == "x" { text = 1 }'
 done |
     fail 'hanging paragraph' || failed=1
 
 # Subclauses without siblings
 for f in $texfiles; do
-    sed -n '/^\\rSec/{=;p}' $f |
+    sed -n '/^\\rSec/{=;p;}' $f |
     # prefix output with filename and line
-    sed '/^[0-9]\+$/{N;s/\n/:/}' | sed "s/.*/$f:&/" |
+    sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/" |
     awk -F: 'BEGIN { prevlevel = 0 }
       {
 	match($3, "[0-9]");
@@ -160,7 +160,7 @@ done | fail 'subclause without siblings' || failed=1
 
 # Library descriptive macros not immediately preceded by \pnum.
 for f in $texlibdesc; do
-    sed -n '/^\\pnum/{h;:x;n;/^\\index/b x;/^\\\(constraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|throws\|complexity\|remarks\|errors\)/{x;/\n/{x;=;p};d};/^\\pnum/D;H;b x}' $f |
+    sed -n '/^\\pnum/{h;:x;n;/^\\index/b x;/^\\\(constraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|throws\|complexity\|remarks\|errors\)/{x;/\n/{x;=;p;};d;};/^\\pnum/D;H;b x;}' $f |
     # prefix output with filename and line
     sed '/^[0-9]\+$/{N;s/\n/:/}' | sed "s/.*/$f:&/"
 done |
@@ -168,8 +168,8 @@ done |
 
 # Cross-references pointing to their own section.
 for f in $texfiles; do
-    sed -n '/^\\rSec/{s/^.rSec.\[/S /;s/\].*$//;=;p};/\\iref{/{s/^.*\\.\?ref{\([-a-z.0-9]\+\)}.*/R \1/g;=;p}' $f |
-    sed '/^[0-9]\+$/{N;s/\n/: /}' | sed "s/.*/$f:&/" |
+    sed -n '/^\\rSec/{s/^.rSec.\[/S /;s/\].*$//;=;p;};/\\iref{/{s/^.*\\.\?ref{\([-a-z.0-9]\+\)}.*/R \1/g;=;p;}' $f |
+    sed '/^[0-9]\+$/{N;s/\n/: /;}' | sed "s/.*/$f:&/" |
     awk '$2 == "S" { seclabel = $3 } $2 == "R" && $3 == seclabel { print $1 " section self-reference to [" $3 "]" }'
 done |
     fail "cross-reference to its own section" || failed=1
