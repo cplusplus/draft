@@ -13,9 +13,9 @@ function fail() {
 
 
 # Discover "Overfull \[hv]box" and "Reference ... undefined" messages from LaTeX.
-sed -n '/\.tex/{s/^.*\/\([-a-z0-9]\+\.tex\).*$/\1/;h};
-/Overfull [\\][hv]box\|LaTeX Warning..Reference/{x;p;x;p}' std.log |
-    sed '/^.\+\.tex$/{N;s/\n/:/}' | fail || failed=1
+sed -n '/\.tex/{s/^.*\/\([-a-z0-9]\+\.tex\).*$/\1/;h;};
+/Overfull [\\][hv]box\|LaTeX Warning..Reference/{x;p;x;p;}' std.log |
+    sed '/^.\+\.tex$/{N;s/\n/:/;}' | fail || failed=1
 
 
 # Cross references since the previous standard.

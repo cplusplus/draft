@@ -162,7 +162,7 @@ done | fail 'subclause without siblings' || failed=1
 for f in $texlibdesc; do
     sed -n '/^\\pnum/{h;:x;n;/^\\index/b x;/^\\\(constraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|throws\|complexity\|remarks\|errors\)/{x;/\n/{x;=;p;};d;};/^\\pnum/D;H;b x;}' $f |
     # prefix output with filename and line
-    sed '/^[0-9]\+$/{N;s/\n/:/}' | sed "s/.*/$f:&/"
+    sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/"
 done |
     fail '\\pnum missing' || failed=1
 
