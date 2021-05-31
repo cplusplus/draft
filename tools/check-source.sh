@@ -73,6 +73,10 @@ grep -ne '^\\\(constraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|
 # Fixup: sed 's/^\\\(constraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|throws\|complexity\|remarks\|errors\)\s*\(.\)/\\\1\n\2/'
 # Fixup: sed 's/^\\ //'
 
+# Order of library elements.
+../tools/element-order.awk *.tex |
+    fail 'incorrect ordering of library elements' || failed=1
+
 # Change marker in [diff] followed by stuff.
 grep -Hne '^\\\(change\|rationale\|effect\|difficulty\|howwide\)\s.\+$' compatibility.tex |
     fail "change marker in [diff] followed by stuff" || failed=1
