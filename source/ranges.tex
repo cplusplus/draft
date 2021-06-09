@@ -249,9 +249,7 @@ namespace std::ranges {
 
   // \ref{range.join}, join view
   template<@\libconcept{input_range}@ V>
-    requires @\libconcept{view}@<V> && @\libconcept{input_range}@<range_reference_t<V>> &&
-             (is_reference_v<range_reference_t<V>> ||
-              @\libconcept{view}@<range_value_t<V>>)
+    requires @\libconcept{view}@<V> && @\libconcept{input_range}@<range_reference_t<V>>
   class join_view;
 
   namespace views { inline constexpr @\unspec@ join = @\unspec@; }
@@ -3159,6 +3157,89 @@ the move assignment operator is equivalent to:
 \end{codeblock}
 \end{itemize}
 
+\rSec2[range.nonprop.cache]{Non-propagating cache}
+
+\pnum
+Some types in subclause \ref{range.adaptors} are specified in terms of
+an exposition-only class template \exposid{non-propagating-\brk{}cache}.
+\tcode{\exposid{non-propagating-cache}<T>} behaves exactly like \tcode{optional<T>}
+with the following differences:
+\begin{itemize}
+\item
+\tcode{\exposid{non-propagating-cache}<T>} constrains its type parameter \tcode{T}
+with \tcode{is_object_v<T>}.
+\item
+The copy constructor is equivalent to:
+\begin{codeblock}
+constexpr @\exposid{non-propagating-cache}@(const @\exposid{non-propagating-cache}@&) noexcept { }
+\end{codeblock}
+\item
+The move constructor is equivalent to:
+\begin{codeblock}
+constexpr @\exposid{non-propagating-cache}@(@\exposid{non-propagating-cache}@&& other) noexcept {
+  other.reset();
+}
+\end{codeblock}
+\item
+The copy assignment operator is equivalent to:
+\begin{codeblock}
+constexpr @\exposid{non-propagating-cache}@& operator=(const @\exposid{non-propagating-cache}@& other) noexcept {
+  if (addressof(other) != this)
+    reset();
+  return *this;
+}
+\end{codeblock}
+\item
+The move assignment operator is equivalent to:
+\begin{codeblock}
+constexpr @\exposid{non-propagating-cache}@& operator=(@\exposid{non-propagating-cache}@&& other) noexcept {
+  reset();
+  other.reset();
+  return *this;
+}
+\end{codeblock}
+\item
+\tcode{\exposid{non-propagating-cache}<T>} has an additional member function template
+specified as follows:
+\begin{itemdecl}
+template<class I>
+  constexpr T& @\exposid{emplace-deref}@(const I& i);    // \expos
+\end{itemdecl}
+
+\begin{itemdescr}
+% Indenting the \item markers is necessary to avoid check errors complaining
+% about missing pnum.
+ \mandates
+The declaration \tcode{T t(*i);} is well-formed
+for some invented variable \tcode{t}.
+
+ \effects
+Calls \tcode{reset()}.
+Then initializes the contained value as if direct-non-list-initializing
+an object of type \tcode{T} with the argument \tcode{*i}.
+
+ \ensures
+\tcode{*this} contains a value.
+
+ \returns
+A reference to the new contained value.
+
+ \throws
+Any exception thrown by the initialization of the contained value.
+
+ \remarks
+If an exception is thrown during the initialization of \tcode{T},
+\tcode{*this} does not contain a value, and
+the previous value (if any) has been destroyed.
+\end{itemdescr}
+\end{itemize}
+
+\pnum
+\begin{note}
+\exposid{non-propagating-cache} enables an input view
+to temporarily cache values as it is iterated over.
+\end{note}
+
 \rSec2[range.all]{All view}
 
 \rSec3[range.all.general]{General}
@@ -5066,9 +5147,7 @@ for (char ch : greeting)
 \begin{codeblock}
 namespace std::ranges {
   template<@\libconcept{input_range}@ V>
-    requires @\libconcept{view}@<V> && @\libconcept{input_range}@<range_reference_t<V>> &&
-             (is_reference_v<range_reference_t<V>> ||
-              @\libconcept{view}@<range_value_t<V>>)
+    requires @\libconcept{view}@<V> && @\libconcept{input_range}@<range_reference_t<V>>
   class join_view : public view_interface<join_view<V>> {
   private:
     using @\exposid{InnerRng}@ =                    // \expos
@@ -5081,8 +5160,7 @@ namespace std::ranges {
       struct @\exposid{sentinel}@;                  // \expos
 
     V @\exposid{base_}@ = V();                      // \expos
-    views::all_t<@\exposid{InnerRng}@> @\exposid{inner_}@ =     // \expos, present only when \tcode{!is_reference_v<\exposid{InnerRng}>}
-      views::all_t<@\exposid{InnerRng}@>();
+    @\exposid{non-propagating-cache}@<remove_cv_t<@\exposid{InnerRng}@>> @\exposid{inner_}@; // \expos, present only when \tcode{!is_reference_v<\exposid{InnerRng}>}
   public:
     join_view() = default;
     constexpr explicit join_view(V base);
@@ -5147,9 +5225,7 @@ Initializes \exposid{base_} with \tcode{std::move(base)}.
 \begin{codeblock}
 namespace std::ranges {
   template<@\libconcept{input_range}@ V>
-    requires @\libconcept{view}@<V> && @\libconcept{input_range}@<range_reference_t<V>> &&
-             (is_reference_v<range_reference_t<V>> ||
-              @\libconcept{view}@<range_value_t<V>>)
+    requires @\libconcept{view}@<V> && @\libconcept{input_range}@<range_reference_t<V>>
   template<bool Const>
   struct join_view<V>::@\exposid{iterator}@ {
   private:
@@ -5275,15 +5351,15 @@ constexpr void @\exposid{satisfy}@();       // \expos
 \effects
 Equivalent to:
 \begin{codeblock}
-auto update_inner = [this](range_reference_t<@\exposid{Base}@> x) -> auto& {
-  if constexpr (@\exposid{ref-is-glvalue}@) // \tcode{x} is a reference
-    return x;
+auto update_inner = [this](const iterator_t<@\exposid{Base}@>& x) -> auto&& {
+  if constexpr (@\exposid{ref-is-glvalue}@)     // *x is a reference
+    return *x;
   else
-    return (@\exposid{parent_}@->@\exposid{inner_}@ = views::all(std::move(x)));
+    return @\exposid{parent_}@->@\exposid{inner_}@.@\exposid{emplace-deref}@(x);
 };
 
 for (; @\exposid{outer_}@ != ranges::end(@\exposid{parent_}@->@\exposid{base_}@); ++@\exposid{outer_}@) {
-  auto& inner = update_inner(*@\exposid{outer_}@);
+  auto&& inner = update_inner(@\exposid{outer_}@);
   @\exposid{inner_}@ = ranges::begin(inner);
   if (@\exposid{inner_}@ != ranges::end(inner))
     return;
@@ -5343,7 +5419,7 @@ constexpr @\exposid{iterator}@& operator++();
 Let \tcode{\placeholder{inner-range}} be:
 \begin{itemize}
 \item If \exposid{ref-is-glvalue} is \tcode{true}, \tcode{*\exposid{outer_}}.
-\item Otherwise, \tcode{\exposid{parent_}->\exposid{inner_}}.
+\item Otherwise, \tcode{*\exposid{parent_}->\exposid{inner_}}.
 \end{itemize}
 
 \pnum
@@ -5462,9 +5538,7 @@ Equivalent to: \tcode{return ranges::iter_swap(x.\exposid{inner_}, y.\exposid{in
 \begin{codeblock}
 namespace std::ranges {
   template<@\libconcept{input_range}@ V>
-    requires @\libconcept{view}@<V> && @\libconcept{input_range}@<range_reference_t<V>> &&
-             (is_reference_v<range_reference_t<V>> ||
-              @\libconcept{view}@<range_value_t<V>>)
+    requires @\libconcept{view}@<V> && @\libconcept{input_range}@<range_reference_t<V>>
   template<bool Const>
   struct join_view<V>::@\exposid{sentinel}@ {
   private:
