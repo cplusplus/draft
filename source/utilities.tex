@@ -6812,8 +6812,33 @@ construct objects in
 uninitialized memory
 buffers~(\ref{pointer.traits}--\ref{specialized.addressof} and \ref{specialized.algorithms}).
 The header also defines the templates
-\tcode{unique_ptr}, \tcode{shared_ptr}, \tcode{weak_ptr}, and various function
+\tcode{unique_ptr}, \tcode{shared_ptr}, \tcode{weak_ptr},
+\tcode{out_ptr_t}, \tcode{inout_ptr_t}, and various function
 templates that operate on objects of these types\iref{smartptr}.
+
+\pnum
+Let \tcode{\exposid{POINTER_OF}(T)} denote a type that is
+\begin{itemize}
+\item
+\tcode{T::pointer} if the \grammarterm{qualified-id} \tcode{T::pointer}
+is valid and denotes a type,
+\item
+otherwise, \tcode{T::element_type*}
+if the \grammarterm{qualified-id} \tcode{T::element_type}
+is valid and denotes a type,
+\item
+otherwise, \tcode{pointer_traits<T>::element_type*}.
+\end{itemize}
+
+\pnum
+Let \tcode{\exposid{POINTER_OF_OR}(T, U)} denote a type that is:
+\begin{itemize}
+\item
+\tcode{\exposid{POINTER_OF}(T)}
+if \tcode{\exposid{POINTER_OF}(T)} is valid and denotes a type,
+\item
+otherwise, \tcode{U}.
+\end{itemize}
 
 \begin{codeblock}
 #include <compare>              // see \ref{compare.syn}
@@ -7265,6 +7290,22 @@ namespace std {
   template<class T> struct atomic;
   template<class T> struct atomic<shared_ptr<T>>;
   template<class T> struct atomic<weak_ptr<T>>;
+
+  // \ref{out.ptr.t}, class template \tcode{out_ptr_t}
+  template<class Smart, class Pointer, class... Args>
+    class out_ptr_t;
+
+  // \ref{out.ptr}, function template \tcode{out_ptr}
+  template<class Pointer = void, class Smart, class... Args>
+    auto out_ptr(Smart& s, Args&&... args);
+
+  // \ref{inout.ptr.t}, class template \tcode{inout_ptr_t}
+  template<class Smart, class Pointer, class... Args>
+    class inout_ptr_t;
+
+  // \ref{inout.ptr}, function template \tcode{inout_ptr}
+  template<class Pointer = void, class Smart, class... Args>
+    auto inout_ptr(Smart& s, Args&&... args);
 }
 \end{codeblock}
 
@@ -11329,6 +11370,462 @@ For an object \tcode{p} of type \tcode{shared_ptr<T>},
 the same value as \tcode{hash<typename shared_ptr<T>::element_type*>()(p.get())}.
 \end{itemdescr}%
 \indextext{smart pointers|)}
+
+\rSec2[out.ptr.t]{Class template \tcode{out_ptr_t}}
+
+\pnum
+\tcode{out_ptr_t} is a class template used to adapt types
+such as smart pointers\iref{smartptr}
+for functions that use output pointer parameters.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include <memory>
+#include <cstdio>
+
+int fopen_s(std::FILE** f, const char* name, const char* mode);
+
+struct fclose_deleter {
+  void operator()(std::FILE* f) const noexcept {
+    std::fclose(f);
+  }
+};
+
+int main(int, char*[]) {
+  constexpr const char* file_name = "ow.o";
+  std::unique_ptr<std::FILE, fclose_deleter> file_ptr;
+  int err = fopen_s(std::out_ptr<std::FILE*>(file_ptr), file_name, "r+b");
+  if (err != 0)
+    return 1;
+  // \tcode{*file_ptr} is valid
+  return 0;
+}
+\end{codeblock}
+\tcode{unique_ptr} can be used with \tcode{out_ptr}
+to be passed into an output pointer-style function,
+without needing to hold onto an intermediate pointer value and
+manually delete it on error or failure.
+\end{example}
+
+\indexlibraryglobal{out_ptr_t}%
+\begin{codeblock}
+namespace std {
+  template<class Smart, class Pointer, class... Args>
+  class out_ptr_t {
+  public:
+    explicit out_ptr_t(Smart&, Args...);
+    out_ptr_t(const out_ptr_t&) = delete;
+
+    ~out_ptr_t();
+
+    operator Pointer*() const noexcept;
+    operator void**() const noexcept;
+
+  private:
+    Smart& s;                   // \expos
+    tuple<Args...> a;           // \expos
+    Pointer p;                  // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+\tcode{Pointer} shall meet the \oldconcept{NullablePointer} requirements.
+If \tcode{Smart} is a specialization of \tcode{shared_ptr} and
+\tcode{sizeof...(Args) == 0},
+the program is ill-formed.
+\begin{note}
+It is typically a user error to reset a \tcode{shared_ptr}
+without specifying a deleter,
+as \tcode{shared_ptr} will replace a custom deleter upon usage of \tcode{reset},
+as specified in \ref{util.smartptr.shared.mod}.
+\end{note}
+
+\pnum
+Program-defined specializations of \tcode{out_ptr_t}
+that depend on at least one program-defined type
+need not meet the requirements for the primary template.
+
+\pnum
+Evaluations of the conversion functions
+on the same object may conflict\iref{intro.races}.
+
+\indexlibraryctor{out_ptr_t}%
+\begin{itemdecl}
+explicit out_ptr_t(Smart& smart, Args... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \tcode{s} with \tcode{smart},
+\tcode{a} with \tcode{std::forward<Args>(args)...}, and
+value-initializes \tcode{p}.
+
+\pnum
+\begin{note}
+The constructor is not \tcode{noexcept}
+to allow for a variety of non-terminating and safe implementation strategies.
+For example, an implementation can allocate
+a \tcode{shared_ptr}'s internal node in the constructor and
+let implementation-defined exceptions escape safely.
+The destructor can then move the allocated control block in directly and
+avoid any other exceptions.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarydtor{out_ptr_t}%
+\begin{itemdecl}
+~out_ptr_t();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{SP} be
+\tcode{\exposid{POINTER_OF_OR}(Smart, Pointer)}\iref{memory.general}.
+
+\pnum
+\effects
+Equivalent to:
+\begin{itemize}
+\item
+% pretend to \item that there is real text here, but undo the vertical spacing
+\mbox{}\vspace{-\baselineskip}\vspace{-\parskip}
+\begin{codeblock}
+if (p) {
+  apply([&](auto&&... args) {
+    s.reset(static_cast<SP>(p), std::forward<Args>(args)...); }, std::move(a));
+}
+\end{codeblock}
+if the expression
+\tcode{s.reset(static_cast<SP>(p), std::forward<Args>(args)...)}
+is well-\linebreak formed;
+\item
+otherwise,
+\begin{codeblock}
+if (p) {
+  apply([&](auto&&... args) {
+    s = Smart(static_cast<SP>(p), std::forward<Args>(args)...); }, std::move(a));
+}
+\end{codeblock}
+if \tcode{is_constructible_v<Smart, SP, Args...>} is \tcode{true};
+\item
+otherwise, the program is ill-formed.
+\end{itemize}
+\end{itemdescr}
+
+\begin{itemdecl}
+operator Pointer*() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{operator void**()} has not been called on \tcode{*this}.
+
+\pnum
+\returns
+\tcode{addressof(const_cast<Pointer\&>(p))}.
+\end{itemdescr}
+
+\begin{itemdecl}
+operator void**() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{is_same_v<Pointer, void*>} is \tcode{false}.
+
+\pnum
+\mandates
+\tcode{is_pointer_v<Pointer>} is \tcode{true}.
+
+\pnum
+\expects
+\tcode{operator Pointer*()} has not been called on \tcode{*this}.
+
+\pnum
+\returns
+A pointer value \tcode{v} such that:
+\begin{itemize}
+\item
+the initial value \tcode{*v} is equivalent to \tcode{static_cast<void*>(p)} and
+\item
+any modification of \tcode{*v}
+that is not followed by a subsequent modification of \tcode{*this}
+affects the value of \tcode{p} during the destruction of \tcode{*this},
+such that \tcode{static_cast<void*>(p) == *v}.
+\end{itemize}
+
+\pnum
+\remarks
+Accessing \tcode{*v} outside the lifetime of \tcode{*this}
+has undefined behavior.
+
+\pnum
+\begin{note}
+\tcode{reinterpret_cast<void**>(static_cast<Pointer*>(*this))}
+can be a viable implementation strategy.
+\end{note}
+\end{itemdescr}
+
+\rSec2[out.ptr]{Function template \tcode{out_ptr}}
+
+\indexlibraryglobal{out_ptr}%
+\begin{itemdecl}
+template<class Pointer = void, class Smart, class... Args>
+  auto out_ptr(Smart& s, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{P} be \tcode{Pointer}
+if \tcode{is_void_v<Pointer>} is \tcode{false},
+otherwise \tcode{\exposid{POINTER_OF}(Smart)}.
+
+\pnum
+\returns
+\tcode{out_ptr_t<Smart, P, Args\&\&...>(s, std::forward<Args>(args)...)}
+\end{itemdescr}
+
+\rSec2[inout.ptr.t]{Class template \tcode{inout_ptr_t}}
+
+\pnum
+\tcode{inout_ptr_t} is a class template used to adapt types
+such as smart pointers\iref{smartptr}
+for functions that use output pointer parameters
+whose dereferenced values may first be deleted
+before being set to another allocated value.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include <memory>
+
+struct star_fish* star_fish_alloc();
+int star_fish_populate(struct star_fish** ps, const char* description);
+
+struct star_fish_deleter {
+  void operator() (struct star_fish* c) const noexcept;
+};
+
+using star_fish_ptr = std::unique_ptr<star_fish, star_fish_deleter>;
+
+int main(int, char*[]) {
+  star_fish_ptr peach(star_fish_alloc());
+  // ...
+  // used, need to re-make
+  int err = star_fish_populate(std::inout_ptr(peach), "caring clown-fish liker");
+  return err;
+}
+\end{codeblock}
+A \tcode{unique_ptr} can be used with \tcode{inout_ptr}
+to be passed into an output pointer-style function.
+The original value will be properly deleted
+according to the function it is used with and
+a new value reset in its place.
+\end{example}
+
+\indexlibraryglobal{inout_ptr_t}%
+\begin{codeblock}
+namespace std {
+  template<class Smart, class Pointer, class... Args>
+  class inout_ptr_t {
+  public:
+    explicit inout_ptr_t(Smart&, Args...);
+    inout_ptr_t(const inout_ptr_t&) = delete;
+
+    ~inout_ptr_t();
+
+    operator Pointer*() const noexcept;
+    operator void**() const noexcept;
+
+  private:
+    Smart& s;                   // \expos
+    tuple<Args...> a;           // \expos
+    Pointer p;                  // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+\tcode{Pointer} shall meet the \oldconcept{NullablePointer} requirements.
+If \tcode{Smart} is a specialization of \tcode{shared_ptr},
+the program is ill-formed.
+\begin{note}
+It is impossible to properly acquire unique ownership of the managed resource
+from a \tcode{shared_ptr} given its shared ownership model.
+\end{note}
+
+\pnum
+Program-defined specializations of \tcode{inout_ptr_t}
+that depend on at least one program-defined type
+need not meet the requirements for the primary template.
+
+\pnum
+Evaluations of the conversion functions on the same object
+may conflict\iref{intro.races}.
+
+\indexlibraryctor{inout_ptr_t}%
+\begin{itemdecl}
+explicit inout_ptr_t(Smart& smart, Args... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \tcode{s} with \tcode{smart},
+\tcode{a} with \tcode{std::forward<Args>(args)...}, and
+\tcode{p} to either
+\begin{itemize}
+\item \tcode{smart} if \tcode{is_pointer_v<Smart>} is \tcode{true},
+\item otherwise, \tcode{smart.get()}.
+\end{itemize}
+
+\pnum
+\remarks
+An implementation can call \tcode{s.release()}.
+
+\pnum
+\begin{note}
+The constructor is not \tcode{noexcept}
+to allow for a variety of non-terminating and safe implementation strategies.
+For example, an intrusive pointer implementation with a control block
+can allocate in the constructor and safely fail with an exception.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarydtor{inout_ptr_t}%
+\begin{itemdecl}
+~inout_ptr_t();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{SP} be
+\tcode{\exposid{POINTER_OF_OR}(Smart, Pointer)}\iref{memory.general}.
+
+\pnum
+Let \exposid{release-statement} be \tcode{s.release();}
+if an implementation does not call \tcode{s.release()} in the constructor.
+Otherwise, it is empty.
+
+\pnum
+\effects
+Equivalent to:
+\begin{itemize}
+\item
+% pretend to \item that there is real text here, but undo the vertical spacing
+\mbox{}\vspace{-\baselineskip}\vspace{-\parskip}
+\begin{codeblock}
+if (p) {
+  apply([&](auto&&... args) {
+    s = Smart( static_cast<SP>(p), std::forward<Args>(args)...); }, std::move(a));
+}
+\end{codeblock}
+if \tcode{is_pointer_v<Smart>} is \tcode{true};
+\item
+otherwise,
+\begin{codeblock}
+if (p) {
+  apply([&](auto&&... args) {
+    @\exposid{release-statement}@;
+    s.reset(static_cast<SP>(p), std::forward<Args>(args)...); }, std::move(a));
+}
+\end{codeblock}
+if the expression
+\tcode{s.reset(static_cast<SP>(p), std::forward<Args>(args)...)}
+is well-\newline formed;
+\item
+otherwise,
+\begin{codeblock}
+if (p) {
+  apply([&](auto&&... args) {
+    @\exposid{release-statement}@;
+    s = Smart(static_cast<SP>(p), std::forward<Args>(args)...); }, std::move(a));
+}
+\end{codeblock}
+if \tcode{is_constructible_v<Smart, SP, Args...>} is \tcode{true};
+\item
+otherwise, the program is ill-formed.
+\end{itemize}
+\end{itemdescr}
+
+\begin{itemdecl}
+operator Pointer*() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{operator void**()} has not been called on \tcode{*this}.
+
+\pnum
+\returns
+\tcode{addressof(const_cast<Pointer\&>(p))}.
+\end{itemdescr}
+
+\begin{itemdecl}
+operator void**() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{is_same_v<Pointer, void*>} is \tcode{false}.
+
+\pnum
+\mandates
+\tcode{is_pointer_v<Pointer>} is \tcode{true}.
+
+\pnum
+\expects
+\tcode{operator Pointer*()} has not been called on \tcode{*this}.
+
+\pnum
+\returns
+A pointer value \tcode{v} such that:
+\begin{itemize}
+\item
+the initial value \tcode{*v} is equivalent to \tcode{static_cast<void*>(p)} and
+\item
+any modification of \tcode{*v}
+that is not followed by subsequent modification of \tcode{*this}
+affects the value of \tcode{p} during the destruction of \tcode{*this},
+such that \tcode{static_cast<void*>(p) == *v}.
+\end{itemize}
+
+\pnum
+\remarks
+Accessing \tcode{*v} outside the lifetime of \tcode{*this}
+has undefined behavior.
+
+\pnum
+\begin{note}
+\tcode{reinterpret_cast<void**>(static_cast<Pointer*>(*this))}
+can be a viable implementation strategy.
+\end{note}
+\end{itemdescr}
+
+\rSec2[inout.ptr]{Function template \tcode{inout_ptr}}
+
+\indexlibraryglobal{inout_ptr}%
+\begin{itemdecl}
+template<class Pointer = void, class Smart, class... Args>
+  auto inout_ptr(Smart& s, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{P} be \tcode{Pointer} if \tcode{is_void_v<Pointer>} is \tcode{false},
+otherwise \tcode{\exposid{POINTER_OF}(Smart)}.
+
+\pnum
+\returns
+\tcode{inout_ptr_t<Smart, P, Args\&\&...>(s, std::forward<Args>(args)...)}.
+\end{itemdescr}
 
 \rSec1[mem.res]{Memory resources}
 
