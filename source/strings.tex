@@ -107,7 +107,9 @@ and
 \tcode{r}
 denotes an lvalue of type
 \tcode{C}.
-Operations on \tcode{X} shall not throw exceptions.
+No expression which is part of the character traits requirements
+specified in this subclause \ref{char.traits.require}
+shall exit via an exception.
 
 \begin{libreqtab4d}
 {Character traits requirements}
@@ -822,6 +824,7 @@ namespace std {
       constexpr explicit basic_string(const T& t, const Allocator& a = Allocator());
     constexpr basic_string(const charT* s, size_type n, const Allocator& a = Allocator());
     constexpr basic_string(const charT* s, const Allocator& a = Allocator());
+    basic_string(nullptr_t) = delete;
     constexpr basic_string(size_type n, charT c, const Allocator& a = Allocator());
     template<class InputIterator>
       constexpr basic_string(InputIterator begin, InputIterator end,
@@ -838,6 +841,7 @@ namespace std {
     template<class T>
       constexpr basic_string& operator=(const T& t);
     constexpr basic_string& operator=(const charT* s);
+    basic_string& operator=(nullptr_t) = delete;
     constexpr basic_string& operator=(charT c);
     constexpr basic_string& operator=(initializer_list<charT>);
 
@@ -3005,7 +3009,7 @@ return s.@\placeholder{G}@(sv, pos);
 
 \pnum
 \remarks
-The expression inside \tcode{noexcept} is equivalent to
+The exception specification is equivalent to
 \tcode{is_nothrow_convertible_v<const T\&, basic_string_view<charT, traits>>}.
 \end{itemdescr}
 
@@ -3059,7 +3063,7 @@ Equivalent to: \tcode{return basic_string_view<charT, traits>(*this).compare(t);
 
 \pnum
 \remarks
-The expression inside \tcode{noexcept} is equivalent to
+The exception specification is equivalent to
 \tcode{is_nothrow_convertible_v<const T\&, basic_string_view<charT, traits>>}.
 \end{itemdescr}
 
@@ -4086,9 +4090,12 @@ Because \tcode{basic_string_view} refers to a constant sequence, \tcode{iterator
     constexpr basic_string_view(const basic_string_view&) noexcept = default;
     constexpr basic_string_view& operator=(const basic_string_view&) noexcept = default;
     constexpr basic_string_view(const charT* str);
+    basic_string_view(nullptr_t) = delete;
     constexpr basic_string_view(const charT* str, size_type len);
     template<class It, class End>
       constexpr basic_string_view(It begin, End end);
+    template<class R>
+      constexpr basic_string_view(R&& r);
 
     // \ref{string.view.iterators}, iterator support
     constexpr const_iterator begin() const noexcept;
@@ -4177,9 +4184,11 @@ Because \tcode{basic_string_view} refers to a constant sequence, \tcode{iterator
     size_type size_;            // \expos
   };
 
-  // \ref{string.view.deduct}, deduction guide
+  // \ref{string.view.deduct}, deduction guides
   template<class It, class End>
     basic_string_view(It, End) -> basic_string_view<iter_value_t<It>>;
+  template<class R>
+    basic_string_view(R&&) -> basic_string_view<ranges::range_value_t<R>>;
 }
 \end{codeblock}
 
@@ -4277,6 +4286,45 @@ template<class It, class End>
 \effects
 Initializes \tcode{data_} with \tcode{to_address(begin)} and
 initializes \tcode{size_} with \tcode{end - begin}.
+\end{itemdescr}
+
+\indexlibraryctor{basic_string_view}%
+\begin{itemdecl}
+template<class R>
+  constexpr basic_string_view(R&& r);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{d} be an lvalue of type \tcode{remove_cvref_t<R>}.
+
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{R} models
+\tcode{ranges::\libconcept{contiguous_range}} and \tcode{ranges::\libconcept{sized_range}},
+\item
+\tcode{is_same_v<ranges::range_value_t<R>, charT>} is \tcode{true},
+\item
+\tcode{is_convertible_v<R, const charT*>} is \tcode{false},
+\item
+\tcode{d.operator ::std::basic_string_view<charT, traits>()}
+is not a valid expression, and
+\item
+if the \grammarterm{qualified-id} \tcode{remove_reference_t<R>::traits_type}
+is valid and denotes a type,
+\tcode{is_same_v<remove_reference_t<R>::traits_type, traits>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\effects
+Initializes \tcode{data_} with \tcode{ranges::data(r)} and
+\tcode{size_} with \tcode{ranges::size(r)}.
+
+\pnum
+\throws
+Any exception thrown by \tcode{ranges::data(r)} and \tcode{ranges::size(r)}.
 \end{itemdescr}
 
 \rSec3[string.view.iterators]{Iterator support}
@@ -4954,7 +5002,7 @@ Determines \tcode{xpos}.
 Otherwise, returns \tcode{npos}.
 \end{itemdescr}
 
-\rSec2[string.view.deduct]{Deduction guide}
+\rSec2[string.view.deduct]{Deduction guides}
 
 \begin{itemdecl}
 template<class It, class End>
@@ -4970,11 +5018,22 @@ template<class It, class End>
 \end{itemize}
 \end{itemdescr}
 
+\begin{itemdecl}
+template<class R>
+  basic_string_view(R&&) -> basic_string_view<ranges::range_value_t<R>>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{R} satisfies \tcode{ranges::\libconcept{contiguous_range}}.
+\end{itemdescr}
+
 \rSec2[string.view.comparison]{Non-member comparison functions}
 
 \pnum
 Let \tcode{S} be \tcode{basic_string_view<charT, traits>}, and \tcode{sv} be an instance of \tcode{S}.
-Implementations shall provide sufficient additional overloads marked \tcode{constexpr} and \tcode{noexcept}
+Implementations shall provide sufficient additional overloads marked \keyword{constexpr} and \keyword{noexcept}
 so that an object \tcode{t} with an implicit conversion to \tcode{S} can be compared according to \tref{string.view.comparison.overloads}.
 \begin{libtab2}{Additional \tcode{basic_string_view} comparison overloads}{string.view.comparison.overloads}{cc}{Expression}{Equivalent to}
 \tcode{t == sv} & \tcode{S(t) == sv} \\
@@ -5470,7 +5529,7 @@ namespace std {
   wchar_t* wmemchr(wchar_t* s, wchar_t c, size_t n);            // see \ref{library.c}
   size_t wcslen(const wchar_t* s);
   wchar_t* wmemset(wchar_t* s, wchar_t c, size_t n);
-  size_t wcsftime(wchar_t* s, size_t maxsize, const wchar_t* format, const struct tm* timeptr);
+  size_t wcsftime(wchar_t* s, size_t maxsize, const wchar_t* format, const tm* timeptr);
   wint_t btowc(int c);
   int wctob(wint_t c);
 
@@ -5492,7 +5551,7 @@ namespace std {
 \pnum
 The contents and meaning of the header \libheader{cwchar}
 are the same as the C standard library header
-\libheader{wchar.h}, except that it does not declare a type \tcode{wchar_t}.
+\libheader{wchar.h}, except that it does not declare a type \keyword{wchar_t}.
 
 \pnum
 \begin{note}
@@ -5533,7 +5592,7 @@ The contents and meaning of the header \libheaderdef{cuchar}
 are the same as the C standard library header
 \libheader{uchar.h}, except that it
 declares the additional \tcode{mbrtoc8} and \tcode{c8rtomb} functions
-and does not declare types \tcode{char16_t} nor \tcode{char32_t}.
+and does not declare types \keyword{char16_t} nor \keyword{char32_t}.
 
 \xrefc{7.28}
 
@@ -5692,7 +5751,7 @@ the resulting state described is the initial conversion state.
 \pnum
 \returns
 The number of bytes stored in the array object (including any shift sequences).
-If \tcode{c8} does not contribute to a sequence of \tcode{char8_t}
+If \tcode{c8} does not contribute to a sequence of \keyword{char8_t}
 corresponding to a valid multibyte character,
 the value of the macro \tcode{EILSEQ} is stored in \tcode{errno},
 \tcode{(size_t) (-1)} is returned, and the conversion state is unspecified.

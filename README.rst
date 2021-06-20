@@ -24,7 +24,7 @@ Install the `MacTeX distribution <http://tug.org/mactex/>`_.
 If you are on a slow network, you'll want to get the `BasicTeX package <http://tug.org/mactex/morepackages.html>`_ instead,
 then run the following command to install the other packages that the draft requires:
 
-   sudo tlmgr install latexmk isodate substr relsize ulem fixme rsfs extract layouts enumitem l3packages l3kernel
+   sudo tlmgr install latexmk isodate substr relsize ulem fixme rsfs extract layouts enumitem l3packages l3kernel imakeidx splitindex
 
 ---------------------------------------
 Getting Started on Debian-based Systems
@@ -32,7 +32,7 @@ Getting Started on Debian-based Systems
 
 Install the following packages:
 
-   sudo apt-get install latexmk texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended texlive-generic-recommended lmodern
+   sudo apt-get install latexmk texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended lmodern
 
 -------------------------
 Getting Started on Fedora
@@ -48,7 +48,6 @@ Getting Started on Arch Linux
 
 Install the following packages:
 
-   latex-mk from the Arch User Repository.
    pacman -S texlive-latexextra
 
 -----------------------------
