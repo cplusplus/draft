@@ -127,6 +127,10 @@ grep -n "&[ 0-9a-z_]\+) = delete" $texfiles |
 grep -n '^\\rSec.\[[^]]*[^-a-z.0-9][^]]*\]{' $texfiles |
     fail 'bad character in label' || failed=1
 
+# Use of parenthesized \ref
+grep -n '[ ~](\\ref{[.a-z0-9]*})' $texfiles |
+    fail 'replace \\ref with \\iref' || failed=1
+
 # "shall", "may", or "should" inside a note
 for f in $texfiles; do
     sed -n '/begin{\(note\|footnote\)}/,/end{\(note\|footnote\)}/{/\(shall\|may\|should\)[^a-zA-Z]/{=;p;};}' $f |
