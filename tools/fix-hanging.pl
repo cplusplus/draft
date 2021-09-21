@@ -1,7 +1,7 @@
 $d = 0; $h = 0;
 $buff = "";
 while (<>) {
-  if ($_ =~ /\rSec(\d)/) {
+  if ($_ =~ /\subclause(\d)/) {
     $newd = $1;
     if ($newd > $d && $h) {
       # found hanging paras

@@ -88,7 +88,7 @@ void process(std::string filename, counter& count)
   // In the current draft, they're sometimes followed by comments, so
   // we use regex_search() instead of regex_match() to be robust.
   std::regex include{"^\\\\include\\{(.*)\\}"},
-             rSec{"^\\\\rSec([0-9])\\[(.*)\\]\\{(.*)\\}"},
+             subclause{"^\\\\subclause([0-9])\\[(.*)\\]\\{(.*)\\}"},
              annex{"^\\\\(inf|norm)annex\\{(.*)\\}\\{(.*)\\}"};
 
   std::string line;
@@ -98,7 +98,7 @@ void process(std::string filename, counter& count)
       auto filename = results.str(1);
       filename += ".tex";
       process(filename, count);
-    } else if (regex_search(line, results, rSec)) {
+    } else if (regex_search(line, results, subclause)) {
       auto level = results.str(1)[0] - '0';
       auto shortname = results.str(2);
       auto longname = results.str(3);

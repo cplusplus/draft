@@ -124,7 +124,7 @@ grep -n "&[ 0-9a-z_]\+) = delete" $texfiles |
 # to fix: sed '/= delete/s/&[ 0-9a-z_]\+)/\&)/'
 
 # Bad characters in label. "-" is allowed due to a single remaining offender.
-grep -n '^\\rSec.\[[^]]*[^-a-z.0-9][^]]*\]{' $texfiles |
+grep -n '^\\subclause.\[[^]]*[^-a-z.0-9][^]]*\]{' $texfiles |
     fail 'bad character in label' || failed=1
 
 # Use of parenthesized \ref
@@ -141,16 +141,16 @@ done |
 
 # Hanging paragraphs
 for f in $texfiles; do
-    sed -n '/^\\rSec/{=;p;};/^\\pnum/{s/^.*$/x/;=;p;}' $f |
+    sed -n '/^\\subclause/{=;p;};/^\\pnum/{s/^.*$/x/;=;p;}' $f |
     # prefix output with filename and line
     sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/" |
-    awk -F: 'BEGIN { prevlevel = 0 } $3 ~ /^\\rSec./ { match($3, "[0-9]"); level=substr($3, RSTART, 1); if (text && level > prevlevel) { print prevsec " <-- Hanging paragraph follows" } prevlevel = level; prevsec = $3; text = 0 } $3 == "x" { text = 1 }'
+    awk -F: 'BEGIN { prevlevel = 0 } $3 ~ /^\\subclause./ { match($3, "[0-9]"); level=substr($3, RSTART, 1); if (text && level > prevlevel) { print prevsec " <-- Hanging paragraph follows" } prevlevel = level; prevsec = $3; text = 0 } $3 == "x" { text = 1 }'
 done |
     fail 'hanging paragraph' || failed=1
 
 # Subclauses without siblings
 for f in $texfiles; do
-    sed -n '/^\\rSec/{=;p;}' $f |
+    sed -n '/^\\subclause/{=;p;}' $f |
     # prefix output with filename and line
     sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/" |
     awk -F: 'BEGIN { prevlevel = 0 }
@@ -176,7 +176,7 @@ done |
 
 # Cross-references pointing to their own section.
 for f in $texfiles; do
-    sed -n '/^\\rSec/{s/^.rSec.\[/S /;s/\].*$//;=;p;};/\\iref{/{s/^.*\\.\?ref{\([-a-z.0-9]\+\)}.*/R \1/g;=;p;}' $f |
+    sed -n '/^\\subclause/{s/^.subclause.\[/S /;s/\].*$//;=;p;};/\\iref{/{s/^.*\\.\?ref{\([-a-z.0-9]\+\)}.*/R \1/g;=;p;}' $f |
     sed '/^[0-9]\+$/{N;s/\n/: /;}' | sed "s/.*/$f:&/" |
     awk '$2 == "S" { seclabel = $3 } $2 == "R" && $3 == seclabel { print $1 " section self-reference to [" $3 "]" }'
 done |
