@@ -1443,21 +1443,34 @@ the component name of that construct that appears lexically last.
 \pnum
 The result is the entity denoted by
 the \grammarterm{unqualified-id}\iref{basic.lookup.unqual}.
-If the entity is a local entity\iref{basic.pre}
-and naming it from outside of an unevaluated operand
-within the scope where the \grammarterm{unqualified-id} appears
-would result in some intervening \grammarterm{lambda-expression}
-capturing it by copy\iref{expr.prim.lambda.capture},
+If the \grammarterm{unqualified-id} appears
+in a \grammarterm{lambda-expression} at program point $P$ and
+the entity is a local entity\iref{basic.pre} or a variable declared by
+an \grammarterm{init-capture}\iref{expr.prim.lambda.capture},
+then let $S$ be the \grammarterm{compound-expression} of
+the innermost enclosing \grammarterm{lambda-expression} of $P$.
+If naming the entity from outside of an unevaluated operand within $S$
+would refer to an entity
+captured by copy in some intervening \grammarterm{lambda-expression},
+then let $E$ be the innermost such \grammarterm{lambda-expression}, and:
+\begin{itemize}
+\item
+If $P$ is in $E$'s function parameter scope
+but not its \grammarterm{parameter-declaration-clause}, then
 the type of the expression is
 the type of a class member access expression\iref{expr.ref}
 naming the non-static data member
 that would be declared for such a capture
-in the object parameter\iref{dcl.fct} of the function call operator of
-the innermost such intervening \grammarterm{lambda-expression}.
+in the object parameter\iref{dcl.fct} of the function call operator of $E$.
 \begin{note}
-If that \grammarterm{lambda-expression} is not declared \keyword{mutable},
+If $E$ is not declared \keyword{mutable},
 the type of such an identifier will typically be \keyword{const} qualified.
 \end{note}
+\item
+Otherwise (if $P$ either precedes $E$'s function parameter scope or
+is in $E$'s \grammarterm{parameter-declaration-clause}),
+the program is ill-formed.
+\end{itemize}
 Otherwise, the type of the expression is the type of the result.
 \begin{note}
 If the entity is a template parameter object for
@@ -1477,12 +1490,24 @@ it is a bit-field if the identifier designates a bit-field.
 \begin{codeblock}
 void f() {
   float x, &r = x;
-  [=] {
+  [=]() -> decltype((x)) {      // lambda returns \tcode{float const\&} because this lambda is not \tcode{mutable} and
+                                // \tcode{x} is an lvalue
     decltype(x) y1;             // \tcode{y1} has type \tcode{float}
-    decltype((x)) y2 = y1;      // \tcode{y2} has type \tcode{float const\&} because this lambda
-                                // is not \keyword{mutable} and \tcode{x} is an lvalue
+    decltype((x)) y2 = y1;      // \tcode{y2} has type \tcode{float const\&}
     decltype(r) r1 = y1;        // \tcode{r1} has type \tcode{float\&}
     decltype((r)) r2 = y2;      // \tcode{r2} has type \tcode{float const\&}
+    return y2;
+  };
+
+  [=]<decltype(x) P>{};         // error: \tcode{x} refers to local entity but precedes the
+                                // lambda's function parameter scope
+  [=](decltype((x)) y){};       // error: \tcode{x} refers to local entity but is in the lambda's
+                                // \grammarterm{parameter-declaration-clause}
+  [=]{
+      []<decltype(x) P>{};      // OK, \tcode{x} is in the outer lambda's function parameter scope
+      [](decltype((x)) y){};    // OK, lambda takes a parameter of type \tcode{float const\&}
+      [x=1](decltype((x)) z){}; // error: \tcode{x} refers to \grammarterm{init-capture} but is in the lambda's
+                                // \grammarterm{parameter-declaration-clause}
   };
 }
 \end{codeblock}
@@ -2197,8 +2222,8 @@ void f() {
 \end{example}
 
 \pnum
-An \grammarterm{init-capture} inhabits the scope of
-the \grammarterm{lambda-expression}'s \grammarterm{compound-statement}.
+An \grammarterm{init-capture} inhabits the function parameter scope of
+the \grammarterm{lambda-expression}'s \grammarterm{parameter-declaration-clause}.
 An \grammarterm{init-capture} without ellipsis
 behaves as if it declares and explicitly captures a variable of
 the form ``\keyword{auto} \grammarterm{init-capture} \tcode{;}'', except that:
@@ -2224,6 +2249,9 @@ auto y = [&r = x, x = x+1]()->int {
          }();                               // Updates \tcode{::x} to 6, and initializes \tcode{y} to 7.
 
 auto z = [a = 42](int a) { return 1; };     // error: parameter and local variable have the same name
+auto counter = [i=0]() mutable -> decltype(i) {     // OK, returns \tcode{int}
+  return i++;
+};
 \end{codeblock}
 \end{example}
 
