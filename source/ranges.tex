@@ -194,6 +194,14 @@ namespace std::ranges {
   template<class T>
     inline constexpr bool enable_borrowed_range<ref_view<T>> = true;
 
+  // \ref{range.owning.view}, owning view
+  template<range R>
+    requires @\seebelow@
+  class owning_view;
+
+  template<class T>
+    inline constexpr bool enable_borrowed_range<owning_view<T>> = enable_borrowed_range<T>;
+
   // \ref{range.filter}, filter view
   template<@\libconcept{input_range}@ V, @\libconcept{indirect_unary_predicate}@<iterator_t<V>> Pred>
     requires @\libconcept{view}@<V> && is_object_v<Pred>
@@ -1176,9 +1184,9 @@ that satisfy but do not in fact model \libconcept{sized_range}.
 
 \pnum
 The \libconcept{view} concept specifies the requirements of a \libconcept{range} type
-that has constant time move construction, move assignment, and destruction;
-that is, the cost of these operations is
-independent of the number of elements in the \libconcept{view}.
+that has the semantic properties below,
+which make it suitable for use in
+constructing range adaptor pipelines\iref{range.adaptors}.
 
 \begin{itemdecl}
 template<class T>
@@ -1194,10 +1202,17 @@ template<class T>
 \tcode{T} has \bigoh{1} move construction; and
 
 \item
-\tcode{T} has \bigoh{1} move assignment; and
+move assignment of an object of type \tcode{T}
+is no more complex than destruction followed by move construction; and
 
 \item
-\tcode{T} has \bigoh{1} destruction; and
+if $N$ copies and/or moves are made from an object of type \tcode{T}
+that contained $M$ elements,
+then those $N$ objects have \bigoh{N+M} destruction
+\begin{note}
+This implies that a moved-from object of type \tcode{T} has \bigoh{1} destruction
+\end{note}%
+; and
 
 \item
 \tcode{\libconcept{copy_constructible}<T>} is \tcode{false}, or
@@ -1205,7 +1220,8 @@ template<class T>
 
 \item
 \tcode{\libconcept{copyable}<T>} is \tcode{false}, or
-\tcode{T} has \bigoh{1} copy assignment.
+copy assignment of an object of type \tcode{T}
+is no more complex than destruction followed by copy construction.
 \end{itemize}
 
 \pnum
@@ -1220,8 +1236,9 @@ and shares ownership with all its copies.
 \item A \libconcept{range} type that generates its elements on demand.
 \end{itemize}
 
-Most containers\iref{containers} are not views since
-destruction of the container destroys the elements,
+A container such as \tcode{vector<string>}
+does not meet the semantic requirements of \libconcept{view}
+since copying the container copies all of the elements,
 which cannot be done in constant time.
 \end{example}
 \end{itemdescr}
@@ -1325,6 +1342,18 @@ template<class T>
     @\libconcept{range}@<T> && @\libconcept{same_as}@<iterator_t<T>, sentinel_t<T>>;
 \end{itemdecl}
 
+\begin{itemdecl}
+template<class R>
+  inline constexpr bool @\exposidnc{is-initializer-list}@ = @\seebelow@;        // \expos
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+For a type \tcode{R},
+\tcode{\exposid{is-initializer-list}<R>} is \tcode{true} if and only if
+\tcode{remove_cvref_t<R>} is a specialization of \tcode{initializer_list}.
+\end{itemdescr}
+
 \pnum
 The \libconcept{viewable_range} concept specifies the requirements of a
 \libconcept{range} type that can be converted to a \libconcept{view} safely.
@@ -1334,7 +1363,8 @@ template<class T>
   concept @\deflibconcept{viewable_range}@ =
     @\libconcept{range}@<T> &&
     ((@\libconcept{view}@<remove_cvref_t<T>> && @\libconcept{constructible_from}@<remove_cvref_t<T>, T>) ||
-     (!@\libconcept{view}@<remove_cvref_t<T>> && @\libconcept{borrowed_range}@<T>));
+     (!@\libconcept{view}@<remove_cvref_t<T>> &&
+      (is_lvalue_reference_v<T> || (@\libconcept{movable}@<remove_reference_t<T>> && !@\exposid{is-initializer-list}@<T>))));
 \end{itemdecl}
 
 \rSec1[range.utility]{Range utilities}
@@ -3280,7 +3310,7 @@ models \libconcept{view}.
 
 \item Otherwise, \tcode{ref_view\{E\}} if that expression is well-formed.
 
-\item Otherwise, \tcode{subrange\{E\}}.
+\item Otherwise, \tcode{owning_view\{E\}}.
 \end{itemize}
 
 \rSec3[range.ref.view]{Class template \tcode{ref_view}}
@@ -3346,6 +3376,67 @@ The expression in the \grammarterm{requires-clause} is equivalent to:
 \end{codeblock}
 \end{itemdescr}
 
+\rSec3[range.owning.view]{Class template \tcode{owning_view}}
+
+\pnum
+\tcode{owning_view} is a move-only view
+of the elements of some other \libconcept{range}.
+\begin{codeblock}
+namespace std::ranges {
+  template<@\libconcept{range}@ R>
+    requires @\libconcept{movable}@<R> && (!@\exposid{is-initializer-list}@<R>) // see \ref{range.refinements}
+  class owning_view : public view_interface<owning_view<R>> {
+  private:
+    R @\exposid{r_}@ = R();         // \expos
+  public:
+    owning_view() requires @\libconcept{default_initializable}@<R> = default;
+    constexpr owning_view(R&& t);
+
+    owning_view(owning_view&&) = default;
+    owning_view& operator=(owning_view&&) = default;
+
+    constexpr R& base() & noexcept { return @\exposid{r_}@; }
+    constexpr const R& base() const& noexcept { return @\exposid{r_}@; }
+    constexpr R&& base() && noexcept { return std::move(@\exposid{r_}@); }
+    constexpr const R&& base() const&& noexcept { return std::move(@\exposid{r_}@); }
+
+    constexpr iterator_t<R> begin() { return ranges::begin(@\exposid{r_}@); }
+    constexpr sentinel_t<R> end() { return ranges::end(@\exposid{r_}@); }
+
+    constexpr auto begin() const requires @\libconcept{range}@<const R>
+    { return ranges::begin(@\exposid{r_}@); }
+    constexpr auto end() const requires @\libconcept{range}@<const R>
+    { return ranges::end(@\exposid{r_}@); }
+
+    constexpr bool empty()
+      requires requires { ranges::empty(@\exposid{r_}@); }
+    { return ranges::empty(@\exposid{r_}@); }
+    constexpr bool empty() const
+      requires requires { ranges::empty(@\exposid{r_}@); }
+    { return ranges::empty(@\exposid{r_}@); }
+
+    constexpr auto size() requires @\libconcept{sized_range}@<R>
+    { return ranges::size(@\exposid{r_}@); }
+    constexpr auto size() const requires @\libconcept{sized_range}@<const R>
+    { return ranges::size(@\exposid{r_}@); }
+
+    constexpr auto data() requires @\libconcept{contiguous_range}@<R>
+    { return ranges::data(@\exposid{r_}@); }
+    constexpr auto data() const requires @\libconcept{contiguous_range}@<const R>
+    { return ranges::data(@\exposid{r_}@); }
+  };
+}
+\end{codeblock}
+
+\begin{itemdecl}
+constexpr owning_view(R&& t);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{r_} with \tcode{std::move(t)}.
+\end{itemdescr}
 
 \rSec2[range.filter]{Filter view}
 
