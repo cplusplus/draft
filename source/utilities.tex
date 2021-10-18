@@ -1465,10 +1465,31 @@ template<class... UTypes> constexpr explicit(@\seebelow@) tuple(UTypes&&... u);
 
 \begin{itemdescr}
 \pnum
+Let \exposid{disambiguating-constraint} be:
+\begin{itemize}
+\item
+\tcode{negation<is_same<remove_cvref_t<$\tcode{U}_0$>, tuple>>}
+if \tcode{sizeof...(Types)} is 1;
+\item
+otherwise,
+\tcode{bool_constant<!is_same_v<remove_cvref_t<$\tcode{U}_0$>, allocator_arg_t> ||
+is_-\newline{}same_v<remove_cvref_t<$\tcode{T}_0$>, allocator_arg_t>>}
+if \tcode{sizeof...(Types)} is 2 or 3;
+\item
+otherwise, \tcode{true_type}.
+\end{itemize}
+
+\pnum
 \constraints
-\tcode{sizeof...(Types)} equals \tcode{sizeof...(UTypes)} and
-$\tcode{sizeof...(Types)} \geq 1$ and
-\tcode{is_constructible_v<$\tcode{T}_i$, $\tcode{U}_i$>} is \tcode{true} for all $i$.
+\begin{itemize}
+\item
+\tcode{sizeof...(Types)} equals \tcode{sizeof...(UTypes)},
+\item
+$\tcode{sizeof...(Types)} \geq 1$, and
+\item
+\tcode{conjunction_v<\exposid{disambiguating-constraint},
+is_constructible<Types, UTypes>...>} is\newline \tcode{true}.
+\end{itemize}
 
 \pnum
 \effects
@@ -2392,6 +2413,11 @@ namespace std {
   template<class T>
     class optional;
 
+  template<class T>
+    constexpr bool @\exposid{is-optional}@ = false;                 // \expos
+  template<class T>
+    constexpr bool @\exposid{is-optional}@<optional<T>> = true;     // \expos
+
   // \ref{optional.nullopt}, no-value state indicator
   struct nullopt_t{@\seebelow@};
   inline constexpr nullopt_t nullopt(@\unspec@);
@@ -2434,7 +2460,7 @@ namespace std {
   template<class T, class U> constexpr bool operator<=(const T&, const optional<U>&);
   template<class T, class U> constexpr bool operator>=(const optional<T>&, const U&);
   template<class T, class U> constexpr bool operator>=(const T&, const optional<U>&);
-  template<class T, @\libconcept{three_way_comparable_with}@<T> U>
+  template<class T, class U> requires (!@\exposid{is-optional}@<U>) && @\libconcept{three_way_comparable_with}@<T, U>
     constexpr compare_three_way_result_t<T, U>
       operator<=>(const optional<T>&, const U&);
 
@@ -2501,12 +2527,12 @@ namespace std {
     constexpr void swap(optional&) noexcept(@\seebelow@);
 
     // \ref{optional.observe}, observers
-    constexpr const T* operator->() const;
-    constexpr T* operator->();
-    constexpr const T& operator*() const&;
-    constexpr T& operator*() &;
-    constexpr T&& operator*() &&;
-    constexpr const T&& operator*() const&&;
+    constexpr const T* operator->() const noexcept;
+    constexpr T* operator->() noexcept;
+    constexpr const T& operator*() const& noexcept;
+    constexpr T& operator*() & noexcept;
+    constexpr T&& operator*() && noexcept;
+    constexpr const T&& operator*() const&& noexcept;
     constexpr explicit operator bool() const noexcept;
     constexpr bool has_value() const noexcept;
     constexpr const T& value() const&;
@@ -3224,8 +3250,8 @@ the state of \tcode{*val} and \tcode{*rhs.val} is determined by the exception sa
 
 \indexlibrarymember{operator->}{optional}%
 \begin{itemdecl}
-constexpr const T* operator->() const;
-constexpr T* operator->();
+constexpr const T* operator->() const noexcept;
+constexpr T* operator->() noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -3238,18 +3264,14 @@ constexpr T* operator->();
 \tcode{val}.
 
 \pnum
-\throws
-Nothing.
-
-\pnum
 \remarks
 These functions are constexpr functions.
 \end{itemdescr}
 
 \indexlibrarymember{operator*}{optional}%
 \begin{itemdecl}
-constexpr const T& operator*() const&;
-constexpr T& operator*() &;
+constexpr const T& operator*() const& noexcept;
+constexpr T& operator*() & noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -3262,18 +3284,14 @@ constexpr T& operator*() &;
 \tcode{*val}.
 
 \pnum
-\throws
-Nothing.
-
-\pnum
 \remarks
 These functions are constexpr functions.
 \end{itemdescr}
 
 \indexlibrarymember{operator*}{optional}%
 \begin{itemdecl}
-constexpr T&& operator*() &&;
-constexpr const T&& operator*() const&&;
+constexpr T&& operator*() && noexcept;
+constexpr const T&& operator*() const&& noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -3831,7 +3849,7 @@ Equivalent to: \tcode{return x.has_value() ? v >= *x : true;}
 
 \indexlibrarymember{operator<=>}{optional}%
 \begin{itemdecl}
-template<class T, @\libconcept{three_way_comparable_with}@<T> U>
+template<class T, class U> requires (!@\exposid{is-optional}@<U>) && @\libconcept{three_way_comparable_with}@<T, U>
   constexpr compare_three_way_result_t<T, U>
     operator<=>(const optional<T>& x, const U& v);
 \end{itemdecl}
@@ -4583,7 +4601,7 @@ Otherwise, if \tcode{is_nothrow_constructible_v<$\tcode{T}_j$, T> ||}
 \tcode{!is_nothrow_move_constructible_v<$\tcode{T}_j$>} is \tcode{true},
 equivalent to \tcode{emplace<$j$>(std::forward<T>(t))}.
 \item
-Otherwise, equivalent to \tcode{operator=(variant(std::forward<T>(t)))}.
+Otherwise, equivalent to \tcode{emplace<$j$>($\tcode{T}_j$(std::forward<T>(t)))}.
 \end{itemize}
 
 \pnum
@@ -8580,7 +8598,7 @@ namespace std {
     unique_ptr& operator=(nullptr_t) noexcept;
 
     // \ref{unique.ptr.single.observers}, observers
-    add_lvalue_reference_t<T> operator*() const;
+    add_lvalue_reference_t<T> operator*() const noexcept(@\seebelow@);
     pointer operator->() const noexcept;
     pointer get() const noexcept;
     deleter_type& get_deleter() noexcept;
@@ -8955,7 +8973,7 @@ As if by \tcode{reset()}.
 
 \indexlibrarymember{operator*}{unique_ptr}%
 \begin{itemdecl}
-add_lvalue_reference_t<T> operator*() const;
+add_lvalue_reference_t<T> operator*() const noexcept(noexcept(*declval<pointer>()));
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -14010,7 +14028,7 @@ template<class T> constexpr reference_wrapper<T> ref(reference_wrapper<T> t) noe
 \begin{itemdescr}
 \pnum
 \returns
-\tcode{ref(t.get())}.
+\tcode{t}.
 \end{itemdescr}
 
 \indexlibrarymember{cref}{reference_wrapper}%
@@ -14032,7 +14050,7 @@ template<class T> constexpr reference_wrapper<const T> cref(reference_wrapper<T>
 \begin{itemdescr}
 \pnum
 \returns
-\tcode{cref(t.get())}.
+\tcode{t}.
 \end{itemdescr}
 
 \rSec2[arithmetic.operations]{Arithmetic operations}
@@ -18321,8 +18339,9 @@ Such specializations are needed when only explicit conversions
 are desired between the template arguments.
 \end{note}
 Such a specialization need not have a member named \tcode{type},
-but if it does, that member shall be a \grammarterm{typedef-name}
-for an accessible and unambiguous cv-unqualified non-reference type \tcode{C}
+but if it does,
+the \grammarterm{qualified-id} \tcode{common_type<T1, T2>::type} shall denote
+a cv-unqualified non-reference type
 to which each of the types \tcode{T1} and \tcode{T2} is explicitly convertible.
 Moreover, \tcode{common_type_t<T1, T2>} shall denote
 the same type, if any, as does \tcode{common_type_t<T2, T1>}.
@@ -18386,8 +18405,10 @@ are needed when only explicit conversions are desired
 between the template arguments.
 \end{note}
 Such a specialization need not have a member named \tcode{type}, but if it does,
-that member shall be a \grammarterm{typedef-name} for an accessible and
-unambiguous type \tcode{C} to which each of the types \tcode{TQual<T>} and
+the \grammarterm{qualified-id}
+\tcode{basic_common_reference<T, U, TQual, UQual>::type}
+shall denote a type
+to which each of the types \tcode{TQual<T>} and
 \tcode{UQual<U>} is convertible.
 Moreover, \tcode{basic_common_reference<T, U, TQual, UQual>::type} shall denote
 the same type, if any, as does
@@ -21211,8 +21232,8 @@ iterator out();
 
 \begin{itemdescr}
 \pnum
-\returns
-\tcode{out_}.
+\effects
+Equivalent to: \tcode{return std::move(out_);}
 \end{itemdescr}
 
 \indexlibrarymember{advance_to}{basic_format_context}%
@@ -21223,7 +21244,7 @@ void advance_to(iterator it);
 \begin{itemdescr}
 \pnum
 \effects
-Equivalent to: \tcode{out_ = it;}
+Equivalent to: \tcode{out_ = std::move(it);}
 \end{itemdescr}
 
 \indextext{left-pad}%
