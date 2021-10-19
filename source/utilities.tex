@@ -13624,6 +13624,11 @@ namespace std {
   template<class R, class... ArgTypes>
     bool operator==(const function<R(ArgTypes...)>&, nullptr_t) noexcept;
 
+  // \ref{func.wrap.move}, move only wrapper
+  template<class... S> class move_only_function;        // \notdef
+  template<class R, class... ArgTypes>
+    class move_only_function<R(ArgTypes...) @\cv{}@ @\placeholder{ref}@ noexcept(@\placeholder{noex}@)>; // \seebelow
+
   // \ref{func.search}, searchers
   template<class ForwardIterator, class BinaryPredicate = equal_to<>>
     class default_searcher;
@@ -15514,8 +15519,8 @@ used in a function call expression\iref{expr.call} of \tcode{pm}.
 \indextext{function object!wrapper|(}
 
 \pnum
-Subclause \ref{func.wrap} describes a polymorphic wrapper class that
-encapsulates arbitrary callable objects.
+Subclause \ref{func.wrap} describes polymorphic wrapper classes that
+encapsulate arbitrary callable objects.
 
 \rSec3[func.wrap.badcall]{Class \tcode{bad_function_call}}%
 \indexlibraryglobal{bad_function_call}%
@@ -15660,7 +15665,7 @@ function(const function& f);
 \pnum
 \ensures
 \tcode{!*this} if \tcode{!f}; otherwise,
-\tcode{*this} targets a copy of \tcode{f.target()}.
+the target object of \tcode{*this} is a copy of \tcode{f.target()}.
 
 \pnum
 \throws
@@ -15742,7 +15747,7 @@ a specialization of the \tcode{function} class template, and
 \end{itemize}
 
 \pnum
-Otherwise, \tcode{*this} targets an object of type \tcode{FD}
+Otherwise, \tcode{*this} has a target object of type \tcode{FD}
 direct-non-list-initialized with \tcode{std::forward<F>(f)}.
 
 \pnum
@@ -15895,7 +15900,7 @@ void swap(function& other) noexcept;
 \begin{itemdescr}
 \pnum
 \effects
-Interchanges the targets of \tcode{*this} and \tcode{other}.
+Interchanges the target objects of \tcode{*this} and \tcode{other}.
 \end{itemdescr}
 
 \rSec4[func.wrap.func.cap]{Capacity}
@@ -15985,6 +15990,400 @@ template<class R, class... ArgTypes>
 \effects
 As if by: \tcode{f1.swap(f2);}
 \end{itemdescr}%
+
+\rSec3[func.wrap.move]{Move only wrapper}
+
+\rSec4[func.wrap.move.general]{General}
+
+\pnum
+The header provides partial specializations of \tcode{move_only_function}
+for each combination of the possible replacements
+of the placeholders \cv{}, \placeholder{ref}, and \placeholder{noex} where
+\begin{itemize}
+\item
+\cv{} is either const or empty,
+\item
+\placeholder{ref} is either \tcode{\&}, \tcode{\&\&}, or empty, and
+\item
+\placeholder{noex} is either \tcode{true} or \tcode{false}.
+\end{itemize}
+
+\pnum
+For each of the possible combinations of the placeholders mentioned above,
+there is a placeholder \placeholder{inv-quals} defined as follows:
+\begin{itemize}
+\item
+If \placeholder{ref} is empty, let \placeholder{inv-quals} be \tcode{\cv{}\&},
+\item
+otherwise, let \placeholder{inv-quals} be \cv{} \placeholder{ref}.
+\end{itemize}
+
+\rSec4[func.wrap.move.class]{Class template \tcode{move_only_function}}
+
+\indexlibraryglobal{move_only_function}%
+\begin{codeblock}
+namespace std {
+  template<class... S> class move_only_function;                // \notdef
+
+  template<class R, class... ArgTypes>
+  class move_only_function<R(ArgTypes...) @\cv{}@ @\placeholder{ref}@ noexcept(@\placeholder{noex}@)> {
+  public:
+    using result_type = R;
+
+    // \ref{func.wrap.move.ctor}, constructors, assignment, and destructor
+    move_only_function() noexcept;
+    move_only_function(nullptr_t) noexcept;
+    move_only_function(move_only_function&&) noexcept;
+    template<class F> move_only_function(F&&);
+    template<class T, class... Args>
+      explicit move_only_function(in_place_type_t<T>, Args&&...);
+    template<class T, class U, class... Args>
+      explicit move_only_function(in_place_type_t<T>, initializer_list<U>, Args&&...);
+
+    move_only_function& operator=(move_only_function&&);
+    move_only_function& operator=(nullptr_t) noexcept;
+    template<class F> move_only_function& operator=(F&&);
+
+    ~move_only_function();
+
+    // \ref{func.wrap.move.inv}, invocation
+    explicit operator bool() const noexcept;
+    R operator()(ArgTypes...) @\cv{}@ @\placeholder{ref}@ noexcept(@\placeholder{noex}@);
+
+    // \ref{func.wrap.move.util}, utility
+    void swap(move_only_function&) noexcept;
+    friend void swap(move_only_function&, move_only_function&) noexcept;
+    friend bool operator==(const move_only_function&, nullptr_t) noexcept;
+
+  private:
+    template<class VT>
+      static constexpr bool @\exposid{is-callable-from}@ = @\seebelow@;       // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+The \tcode{move_only_function} class template provides polymorphic wrappers
+that generalize the notion of a callable object\iref{func.def}.
+These wrappers can store, move, and call arbitrary callable objects,
+given a call signature, allowing functions to be first-class objects.
+
+\pnum
+\recommended
+Implementations should avoid the use of dynamically allocated memory
+for a small contained value.
+\begin{note}
+Such small-object optimization can only be applied to a type \tcode{T}
+for which \tcode{is_nothrow_move_constructible_v<T>} is \tcode{true}.
+\end{note}
+
+\rSec4[func.wrap.move.ctor]{Constructors, assignment, and destructor}
+
+\indexlibrarymember{\exposid{is-callable-from}}{move_only_function}%
+\begin{itemdecl}
+template<class VT>
+  static constexpr bool @\exposid{is-callable-from}@ = @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+If \placeholder{noex} is \tcode{true},
+\tcode{\exposid{is-callable-from}<VT>} is equal to:
+\begin{codeblock}
+is_nothrow_invocable_r_v<R, VT @\cv{}@ @\placeholder{ref}@, ArgTypes...> &&
+is_nothrow_invocable_r_v<R, VT @\placeholder{inv-quals}@, ArgTypes...>
+\end{codeblock}
+Otherwise, \tcode{\exposid{is-callable-from}<VT>} is equal to:
+\begin{codeblock}
+is_invocable_r_v<R, VT @\cv{}@ @\placeholder{ref}@, ArgTypes...> &&
+is_invocable_r_v<R, VT @\placeholder{inv-quals}@, ArgTypes...>
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryctor{move_only_function}%
+\begin{itemdecl}
+move_only_function() noexcept;
+move_only_function(nullptr_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\ensures
+\tcode{*this} has no target object.
+\end{itemdescr}
+
+\indexlibraryctor{move_only_function}%
+\begin{itemdecl}
+move_only_function(move_only_function&& f) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\ensures
+The target object of \tcode{*this} is
+the target object \tcode{f} had before construction, and
+\tcode{f} is in a valid state with an unspecified value.
+\end{itemdescr}
+
+\indexlibraryctor{move_only_function}%
+\begin{itemdecl}
+template<class F> move_only_function(F&& f);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{VT} be \tcode{decay_t<F>}.
+
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{remove_cvref_t<F>} is not the same type as \tcode{move_only_function}, and
+\item
+\tcode{remove_cvref_t<F>} is not a specialization of \tcode{in_place_type_t}, and
+\item
+\tcode{\exposid{is-callable-from}<VT>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{is_constructible_v<VT, F>} is \tcode{true}.
+
+\pnum
+\expects
+\tcode{VT} meets the \oldconcept{Destructible} requirements, and
+if \tcode{is_move_constructible_v<VT>} is \tcode{true},
+\tcode{VT} meets the \oldconcept{MoveConstructible} requirements.
+
+\pnum
+\ensures
+\tcode{*this} has no target object if any of the following hold:
+\begin{itemize}
+\item
+\tcode{f} is a null function pointer value, or
+\item
+\tcode{f} is a null member pointer value, or
+\item
+\tcode{remove_cvref_t<F>} is a specialization of
+the \tcode{move_only_function} class template,
+and \tcode{f} has no target object.
+\end{itemize}
+Otherwise, \tcode{*this} has a target object of type \tcode{VT}
+direct-non-list-initialized with \tcode{std::forward<F>(f)}.
+
+\pnum
+\throws
+Any exception thrown by the initialization of the target object.
+May throw \tcode{bad_alloc} unless \tcode{VT} is
+a function pointer or a specialization of \tcode{reference_wrapper}.
+\end{itemdescr}
+
+\indexlibraryctor{move_only_function}%
+\begin{itemdecl}
+template<class T, class... Args>
+  explicit move_only_function(in_place_type_t<T>, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{VT} be \tcode{decay_t<T>}.
+
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{is_constructible_v<VT, Args...>} is \tcode{true}, and
+\item
+\tcode{\exposid{is-callable-from}<VT>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{VT} is the same type as \tcode{T}.
+
+\pnum
+\expects
+\tcode{VT} meets the \oldconcept{Destructible} requirements, and
+if \tcode{is_move_constructible_v<VT>} is \tcode{true},
+\tcode{VT} meets the \oldconcept{MoveConstructible} requirements.
+
+\pnum
+\ensures
+\tcode{*this} has a target object of type \tcode{VT}
+direct-non-list-initialized with \tcode{std::forward<Args>\brk{}(args)...}.
+
+\pnum
+\throws
+Any exception thrown by the initialization of the target object.
+May throw \tcode{bad_alloc} unless \tcode{VT} is
+a function pointer or a specialization of \tcode{reference_wrapper}.
+\end{itemdescr}
+
+\indexlibraryctor{move_only_function}%
+\begin{itemdecl}
+template<class T, class U, class... Args>
+  explicit move_only_function(in_place_type_t<T>, initializer_list<U> ilist, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{VT} be \tcode{decay_t<T>}.
+
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{is_constructible_v<VT, initializer_list<U>\&, ArgTypes...>} is
+\tcode{true}, and
+\item
+\tcode{\exposid{is-callable-from}<VT>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{VT} is the same type as \tcode{T}.
+
+\pnum
+\expects
+\tcode{VT} meets the \oldconcept{Destructible} requirements, and
+if \tcode{is_move_constructible_v<VT>} is \tcode{true},
+\tcode{VT} meets the \oldconcept{MoveConstructible} requirements.
+
+\pnum
+\ensures
+\tcode{*this} has a target object of type \tcode{VT}
+direct-non-list-initialized with
+\tcode{ilist, std::for\-ward<ArgTypes>(args)...}.
+
+\pnum
+\throws
+Any exception thrown by the initialization of the target object.
+May throw \tcode{bad_alloc} unless \tcode{VT} is
+a function pointer or a specialization of \tcode{reference_wrapper}.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{move_only_function}%
+\begin{itemdecl}
+move_only_function& operator=(move_only_function&& f);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{move_only_function(std::move(f)).swap(*this);}
+
+\pnum
+\returns
+\tcode{*this}.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{move_only_function}%
+\begin{itemdecl}
+move_only_function& operator=(nullptr_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Destroys the target object of \tcode{*this}, if any.
+
+\returns
+\tcode{*this}.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{move_only_function}%
+\begin{itemdecl}
+template<class F> move_only_function& operator=(F&& f);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{move_only_function(std::forward<F>(f)).swap(*this);}
+
+\pnum
+\returns
+\tcode{*this}.
+\end{itemdescr}
+
+\indexlibrarydtor{move_only_function}%
+\begin{itemdecl}
+~move_only_function();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Destroys the target object of \tcode{*this}, if any.
+\end{itemdescr}
+
+\rSec4[func.wrap.move.inv]{Invocation}
+
+\indexlibrarymember{operator bool}{move_only_function}%
+\begin{itemdecl}
+explicit operator bool() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if \tcode{*this} has a target object, otherwise \tcode{false}.
+\end{itemdescr}
+
+\indexlibrarymember{operator()}{move_only_function}%
+\begin{itemdecl}
+R operator()(ArgTypes... args) @\cv{}@ @\placeholder{ref}@ noexcept(@\placeholder{noex}@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{*this} has a target object.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return @\placeholder{INVOKE}@<R>(static_cast<F @\placeholder{inv-quals}@>(f), std::forward<ArgTypes>(args)...);
+\end{codeblock}
+where \tcode{f} is an lvalue designating the target object of \tcode{*this} and
+\tcode{F} is the type of \tcode{f}.
+\end{itemdescr}
+
+\rSec4[func.wrap.move.util]{Utility}
+
+\indexlibrarymember{swap}{move_only_function}%
+\begin{itemdecl}
+void swap(move_only_function& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Exchanges the target objects of \tcode{*this} and \tcode{other}.
+\end{itemdescr}
+
+\indexlibrarymember{swap}{move_only_function}%
+\begin{itemdecl}
+friend void swap(move_only_function& f1, move_only_function& f2) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{f1.swap(f2)}.
+\end{itemdescr}
+
+\indexlibrarymember{operator==}{move_only_function}%
+\begin{itemdecl}
+friend bool operator==(const move_only_function& f, nullptr_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if \tcode{f} has no target object, otherwise \tcode{false}.
+\end{itemdescr}
 \indextext{function object!wrapper|)}
 
 \rSec2[func.search]{Searchers}
