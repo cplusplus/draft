@@ -17,6 +17,22 @@ sed -n '/\.tex/{s/^.*\/\([-a-z0-9]\+\.tex\).*$/\1/;h};
 /Overfull [\\][hv]box\|LaTeX Warning..Reference/{x;p;x;p}' std.log |
     sed '/^.\+\.tex$/{N;s/\n/:/}' | fail || failed=1
 
+# Check for dangling "see" in general index (does not work with formatting)
+grep item < std-generalindex.ind | sed 's/,.*$//;s/\\[sub]*item //' |
+    awk '/^  [^ ]/ { item=$0; print $0 }  /^    [^ ]/ { subitem=$0; print item ", " $0 } /^      [^ ]/ { print item ", " subitem ", " $0 }' |
+    sed 's/^ *//;s/  */ /g' | sort > tmp.txt
+
+grep -o '\\see{[^}]*}' < std-generalindex.ind |
+    sed 's/^\\see{//;s/}$//;s/\\-//' |
+    grep -v "leavevmode\|texttt\|textsc\|kern" |
+    while read see; do
+	if grep -q "$see" tmp.txt; then
+	    :
+	else
+	    grep -n "see{$see}" *.tex | sed 's/$/ is dangling/'
+	fi
+    done | fail || failed=1
+rm -f tmp.txt
 
 # Cross references since the previous standard.
 function indexentries() { sed 's,\\glossaryentry{\(.*\)@.*,\1,' "$1" | LANG=C sort; }
