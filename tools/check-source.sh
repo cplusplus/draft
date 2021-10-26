@@ -67,6 +67,10 @@ grep -n 'opt{}' *.tex |
 grep -n "// not defined" $texfiles |
     fail "use \\notdef instead" || failed=1
 
+# Use \Cpp{} instead of C++
+grep -n '^[^%]*[^{"]C++[^"}]' $texfiles |
+    fail 'use \Cpp{} instead' || failed=1
+
 # Library element introducer followed by stuff.
 grep -ne '^\\\(constraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|throws\|complexity\|remarks\|errors\).\+$' $texlibdesc |
     fail 'stuff after library element' || failed=1
