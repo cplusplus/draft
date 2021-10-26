@@ -63,6 +63,10 @@ grep -n '\\opt[^{]' $texfiles |
 grep -n 'opt{}' *.tex |
     fail '\\opt used incorrectly' || failed=1
 
+# Use \expos insted of "exposition only"
+grep -n "// exposition only" $texfiles |
+    fail 'use \\expos instead' || failed=1
+
 # Use \notdef instead of "not defined".
 grep -n "// not defined" $texfiles |
     fail "use \\notdef instead" || failed=1
