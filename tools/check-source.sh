@@ -71,6 +71,16 @@ grep -n "// not defined" $texfiles |
 grep -n '^[^%]*[^{"]C++[^"}]' $texfiles |
     fail 'use \Cpp{} instead' || failed=1
 
+# Use \unicode instead of U+nnnn
+grep -n 'U+' $texfiles |
+    fail 'use \\unicode or \\ucode or \\uname instead' || failed=1
+
+# Hex digits inside \ucode and \unicode must be lowercase so that \textsc works
+grep -n 'ucode{[^}]*[^0-9a-f}][^}]*}' $texfiles |
+    fail 'use lowercase hex digits inside \\ucode' || failed=1
+grep -n 'unicode{[^}]*[^0-9a-f}][^}]*}' $texfiles |
+    fail 'use lowercase hex digits inside \\unicode' || failed=1
+
 # Library element introducer followed by stuff.
 grep -ne '^\\\(constraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|throws\|complexity\|remarks\|errors\).\+$' $texlibdesc |
     fail 'stuff after library element' || failed=1
