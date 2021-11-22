@@ -81,6 +81,10 @@ grep -n 'ucode{[^}]*[^0-9a-f}][^}]*}' $texfiles |
 grep -n 'unicode{[^}]*[^0-9a-f}][^}]*}' $texfiles |
     fail 'use lowercase hex digits inside \\unicode' || failed=1
 
+# Use \xrefc instead of "ISO C x.y.z"
+grep -n "^ISO C [0-9]*\." $texfiles |
+    fail 'use \\xrefc instead' || failed=1
+
 # Library element introducer followed by stuff.
 grep -ne '^\\\(constraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|throws\|complexity\|remarks\|errors\).\+$' $texlibdesc |
     fail 'stuff after library element' || failed=1
