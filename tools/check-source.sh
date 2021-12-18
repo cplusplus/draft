@@ -63,6 +63,10 @@ grep -n '\\opt[^{]' $texfiles |
 grep -n 'opt{}' *.tex |
     fail '\\opt used incorrectly' || failed=1
 
+# Use \expos insted of "exposition only"
+grep -n "// exposition only" $texfiles |
+    fail 'use \\expos instead' || failed=1
+
 # Use \notdef instead of "not defined".
 grep -n "// not defined" $texfiles |
     fail "use \\notdef instead" || failed=1
@@ -70,6 +74,20 @@ grep -n "// not defined" $texfiles |
 # Use \Cpp{} instead of C++
 grep -n '^[^%]*[^{"]C++[^"}]' $texfiles |
     fail 'use \Cpp{} instead' || failed=1
+
+# Use \unicode instead of U+nnnn
+grep -n 'U+' $texfiles |
+    fail 'use \\unicode or \\ucode or \\uname instead' || failed=1
+
+# Hex digits inside \ucode and \unicode must be lowercase so that \textsc works
+grep -n 'ucode{[^}]*[^0-9a-f}][^}]*}' $texfiles |
+    fail 'use lowercase hex digits inside \\ucode' || failed=1
+grep -n 'unicode{[^}]*[^0-9a-f}][^}]*}' $texfiles |
+    fail 'use lowercase hex digits inside \\unicode' || failed=1
+
+# Use \xrefc instead of "ISO C x.y.z"
+grep -n "^ISO C [0-9]*\." $texfiles |
+    fail 'use \\xrefc instead' || failed=1
 
 # Library element introducer followed by stuff.
 grep -ne '^\\\(constraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|throws\|complexity\|remarks\|errors\).\+$' $texlibdesc |
