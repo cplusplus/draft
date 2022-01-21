@@ -153,8 +153,8 @@ grep -n "&[ 0-9a-z_]\+) = delete" $texfiles |
     fail 'named parameter in deleted special member' || failed=1
 # to fix: sed '/= delete/s/&[ 0-9a-z_]\+)/\&)/'
 
-# Bad characters in label. "-" is allowed due to a single remaining offender.
-grep -n '^\\rSec.\[[^]]*[^-a-z.0-9][^]]*\]{' $texfiles |
+# Bad characters in label.
+grep -n '^\\rSec.\[[^]]*[^a-z.0-9][^]]*\]{' $texfiles |
     fail 'bad character in label' || failed=1
 
 # Use of parenthesized \ref

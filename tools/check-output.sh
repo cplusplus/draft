@@ -34,6 +34,13 @@ grep -o '\\see{[^}]*}' < std-generalindex.ind |
     done | fail || failed=1
 rm -f tmp.txt
 
+# Find bad labels
+grep newlabel `ls *.aux | grep -v std.aux` | awk -F '{' '{ print  $2 }' |
+    sed 's/}//g' | sed 's/^tab://;s/fig://;s/idx.*\..//' |
+    grep -v '^[a-z.0-9]*$' |
+    sed 's/^\(.*\)$/bad label \1/' |
+    fail || failed=1
+
 # Find grammar index entries missing a definition
 cat std-grammarindex.ind |
     awk 'BEGIN { def=1 } /^  .item/ { if (def==0) { gsub("[{},]", "", item); print item } item=$NF; def=0; next } /hyperindexformat/ { def=1 }' |
