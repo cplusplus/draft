@@ -2937,6 +2937,147 @@ A friend function\iref{class.friend} defined
 within a nested class has no special access rights to
 members of an enclosing class.
 
+\rSec2[class.free]{Free store}%
+\indextext{free store}%
+
+\pnum
+\indextext{\idxcode{new}!type of}
+Any allocation function for a class
+\tcode{T}
+is a static member (even if not explicitly declared
+\keyword{static}).
+
+\pnum
+\begin{example}
+\begin{codeblock}
+class Arena;
+struct B {
+  void* operator new(std::size_t, Arena*);
+};
+struct D1 : B {
+};
+
+Arena*  ap;
+void foo(int i) {
+  new (ap) D1;      // calls \tcode{B::operator new(std::size_t, Arena*)}
+  new D1[i];        // calls \tcode{::operator new[](std::size_t)}
+  new D1;           // error: \tcode{::operator new(std::size_t)} hidden
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\indextext{\idxcode{delete}!type of}%
+Any deallocation function for a class
+\tcode{X}
+is a static member (even if not explicitly declared
+\keyword{static}).
+\begin{example}
+\begin{codeblock}
+class X {
+  void operator delete(void*);
+  void operator delete[](void*, std::size_t);
+};
+
+class Y {
+  void operator delete(void*, std::size_t);
+  void operator delete[](void*);
+};
+\end{codeblock}
+\end{example}
+
+\pnum
+Since member allocation and deallocation functions are
+\keyword{static}
+they cannot be virtual.
+\begin{note}
+However, when the
+\grammarterm{cast-expression}
+of a
+\grammarterm{delete-expression}
+refers to an object of class type with a virtual destructor,
+because the deallocation function is chosen by the destructor
+of the dynamic type of the object, the effect is the same in that case.
+For example,
+\begin{codeblock}
+struct B {
+  virtual ~B();
+  void operator delete(void*, std::size_t);
+};
+
+struct D : B {
+  void operator delete(void*);
+};
+
+struct E : B {
+  void log_deletion();
+  void operator delete(E *p, std::destroying_delete_t) {
+    p->log_deletion();
+    p->~E();
+    ::operator delete(p);
+  }
+};
+
+void f() {
+  B* bp = new D;
+  delete bp;        // 1: uses \tcode{D::operator delete(void*)}
+  bp = new E;
+  delete bp;        // 2: uses \tcode{E::operator delete(E*, std::destroying_delete_t)}
+}
+\end{codeblock}
+Here, storage for the object of class
+\tcode{D}
+is deallocated by
+\tcode{D::operator delete()},
+and
+the object of class \tcode{E} is destroyed
+and its storage is deallocated
+by \tcode{E::operator delete()},
+due to the virtual destructor.
+\end{note}
+\begin{note}
+Virtual destructors have no effect on the deallocation function actually
+called when the
+\grammarterm{cast-expression}
+of a
+\grammarterm{delete-expression}
+refers to an array of objects of class type.
+For example,
+\begin{codeblock}
+struct B {
+  virtual ~B();
+  void operator delete[](void*, std::size_t);
+};
+
+struct D : B {
+  void operator delete[](void*, std::size_t);
+};
+
+void f(int i) {
+  D* dp = new D[i];
+  delete [] dp;     // uses \tcode{D::operator delete[](void*, std::size_t)}
+  B* bp = new D[i];
+  delete[] bp;      // undefined behavior
+}
+\end{codeblock}
+\end{note}
+
+\pnum
+Access to the deallocation function is checked statically,
+even if a different one is actually executed.
+\begin{example}
+For the call on line ``// 1'' above,
+if
+\tcode{B::operator delete()}
+had been private, the delete expression would have been ill-formed.
+\end{example}
+
+\pnum
+\begin{note}
+If a deallocation function has no explicit \grammarterm{noexcept-specifier}, it
+has a non-throwing exception specification\iref{except.spec}.
+\end{note}
+
 \rSec1[class.union]{Unions}%
 
 \rSec2[class.union.general]{General}%
@@ -6633,146 +6774,5 @@ struct C {
 };
 \end{codeblock}
 \end{example}
-
-\rSec1[class.free]{Free store}%
-\indextext{free store}%
-
-\pnum
-\indextext{\idxcode{new}!type of}
-Any allocation function for a class
-\tcode{T}
-is a static member (even if not explicitly declared
-\keyword{static}).
-
-\pnum
-\begin{example}
-\begin{codeblock}
-class Arena;
-struct B {
-  void* operator new(std::size_t, Arena*);
-};
-struct D1 : B {
-};
-
-Arena*  ap;
-void foo(int i) {
-  new (ap) D1;      // calls \tcode{B::operator new(std::size_t, Arena*)}
-  new D1[i];        // calls \tcode{::operator new[](std::size_t)}
-  new D1;           // error: \tcode{::operator new(std::size_t)} hidden
-}
-\end{codeblock}
-\end{example}
-
-\pnum
-\indextext{\idxcode{delete}!type of}%
-Any deallocation function for a class
-\tcode{X}
-is a static member (even if not explicitly declared
-\keyword{static}).
-\begin{example}
-\begin{codeblock}
-class X {
-  void operator delete(void*);
-  void operator delete[](void*, std::size_t);
-};
-
-class Y {
-  void operator delete(void*, std::size_t);
-  void operator delete[](void*);
-};
-\end{codeblock}
-\end{example}
-
-\pnum
-Since member allocation and deallocation functions are
-\keyword{static}
-they cannot be virtual.
-\begin{note}
-However, when the
-\grammarterm{cast-expression}
-of a
-\grammarterm{delete-expression}
-refers to an object of class type with a virtual destructor,
-because the deallocation function is chosen by the destructor
-of the dynamic type of the object, the effect is the same in that case.
-For example,
-\begin{codeblock}
-struct B {
-  virtual ~B();
-  void operator delete(void*, std::size_t);
-};
-
-struct D : B {
-  void operator delete(void*);
-};
-
-struct E : B {
-  void log_deletion();
-  void operator delete(E *p, std::destroying_delete_t) {
-    p->log_deletion();
-    p->~E();
-    ::operator delete(p);
-  }
-};
-
-void f() {
-  B* bp = new D;
-  delete bp;        // 1: uses \tcode{D::operator delete(void*)}
-  bp = new E;
-  delete bp;        // 2: uses \tcode{E::operator delete(E*, std::destroying_delete_t)}
-}
-\end{codeblock}
-Here, storage for the object of class
-\tcode{D}
-is deallocated by
-\tcode{D::operator delete()},
-and
-the object of class \tcode{E} is destroyed
-and its storage is deallocated
-by \tcode{E::operator delete()},
-due to the virtual destructor.
-\end{note}
-\begin{note}
-Virtual destructors have no effect on the deallocation function actually
-called when the
-\grammarterm{cast-expression}
-of a
-\grammarterm{delete-expression}
-refers to an array of objects of class type.
-For example,
-\begin{codeblock}
-struct B {
-  virtual ~B();
-  void operator delete[](void*, std::size_t);
-};
-
-struct D : B {
-  void operator delete[](void*, std::size_t);
-};
-
-void f(int i) {
-  D* dp = new D[i];
-  delete [] dp;     // uses \tcode{D::operator delete[](void*, std::size_t)}
-  B* bp = new D[i];
-  delete[] bp;      // undefined behavior
-}
-\end{codeblock}
-\end{note}
-
-\pnum
-Access to the deallocation function is checked statically,
-even if a different one is actually executed.
-\begin{example}
-For the call on line ``// 1'' above,
-if
-\tcode{B::operator delete()}
-had been private, the delete expression would have been ill-formed.
-\end{example}
-
-\pnum
-\begin{note}
-If a deallocation function has no explicit \grammarterm{noexcept-specifier}, it
-has a non-throwing exception specification\iref{except.spec}.
-\end{note}
 
 \indextext{class|)}
