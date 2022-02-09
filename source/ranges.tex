@@ -139,6 +139,16 @@ namespace std::ranges {
   template<@\libconcept{range}@ R>
     using borrowed_subrange_t = @\seebelow@;
 
+  // \ref{range.utility.conv}, range conversions
+  template<class C, @\libconcept{input_range}@ R, class... Args> requires (!@\libconcept{view}@<C>)
+    constexpr C to(R&& r, Args&&... args);
+  template<template<class...> class C, @\libconcept{input_range}@ R, class... Args>
+    constexpr auto to(R&& r, Args&&... args) -> @\seebelow@;
+  template<class C, class... Args> requires (!@\libconcept{view}@<C>)
+    constexpr auto to(Args&&... args) -> @\seebelow@;
+  template<template<class...> class C, class... Args>
+    constexpr auto to(Args&&... args) -> @\seebelow@;
+
   // \ref{range.empty}, empty view
   template<class T>
     requires is_object_v<T>
@@ -402,6 +412,9 @@ namespace std {
   struct tuple_element<1, const ranges::subrange<I, S, K>> {
     using type = S;
   };
+
+  struct from_range_t { explicit from_range_t() = default; };
+  inline constexpr from_range_t from_range{};
 }
 \end{codeblock}
 
@@ -1986,6 +1999,221 @@ otherwise,
 both \tcode{borrowed_iterator_t<R>} and \tcode{borrowed_subrange_t<R>}
 denote \tcode{dangling}.
 \end{itemize}
+
+\rSec2[range.utility.conv]{Range conversions}
+
+\rSec3[range.utility.conv.general]{General}
+
+\pnum
+The range conversion functions construct
+an object (usually a container) from a range,
+by using a constructor taking a range,
+a \tcode{from_range_t} tagged constructor, or
+a constructor taking a pair of iterators, or
+by inserting each element of the range into the default-constructed object.
+
+\pnum
+\tcode{ranges::to} is applied recursively,
+allowing the conversion of a range of ranges.
+
+\begin{example}
+\begin{codeblock}
+string_view str = "the quick brown fox";
+auto words = views::split(str, ' ') | to<vector<string>>();
+// \tcode{words} is \tcode{vector<string>\{"the", "quick", "brown", "fox"\}}
+\end{codeblock}
+\end{example}
+
+\pnum
+Let \exposid{reservable-container} be defined as follows:
+\begin{codeblock}
+template<class Container>
+constexpr bool @\exposid{reservable-container}@ =          // \expos
+  @\libconcept{sized_range}@<Container> &&
+  requires(Container& c, range_size_t<Container> n) {
+    c.reserve(n);
+    { c.capacity() } -> @\libconcept{same_as}@<decltype(n)>;
+    { c.max_size() } -> @\libconcept{same_as}@<decltype(n)>;
+  };
+\end{codeblock}
+
+\pnum
+Let \exposid{container-insertable} be defined as follows:
+\begin{codeblock}
+template<class Container, class Ref>
+constexpr bool @\exposid{container-insertable}@ =          // \expos
+  requires(Container& c, Ref&& ref) {
+    requires (requires { c.push_back(std::forward<Ref>(ref)); } ||
+              requires { c.insert(c.end(), std::forward<Ref>(ref)); });
+  };
+\end{codeblock}
+
+\pnum
+Let \exposid{container-inserter} be defined as follows:
+\begin{codeblock}
+template<typename Ref>
+auto @\exposid{container-inserter}@(C& c) {                // \expos
+  if constexpr (requires { c.push_back(declval<Ref>()); })
+    return back_inserter(c);
+  else
+    return inserter(c, c.end());
+};
+\end{codeblock}
+
+\rSec3[range.utility.conv.to]{\tcode{ranges::to}}
+
+\indexlibrarymember{to}{ranges}%
+\begin{itemdecl}
+template<class C, @\libconcept{input_range}@ R, class... Args> requires (!@\libconcept{view}@<C>)
+  constexpr C to(R&& r, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+An object of type \tcode{C}
+constructed from the elements of \tcode{r} in the following manner:
+\begin{itemize}
+\item
+If \tcode{\libconcept{convertible_to}<range_reference_t<R>, range_value_t<C>>}
+is \tcode{true}:
+\begin{itemize}
+\item
+If \tcode{\libconcept{constructible_from}<C, R, Args...>} is \tcode{true}:
+\begin{codeblock}
+C(std::forward<R>(r), std::forward<Args>(args)...)
+\end{codeblock}
+\item
+Otherwise, if
+\tcode{\libconcept{constructible_from}<C, from_range_t, R, Args...>}
+is \tcode{true}:
+\begin{codeblock}
+C(from_range, std::forward<R>(r), std::forward<Args>(args)...)
+\end{codeblock}
+\item
+Otherwise, if
+\begin{itemize}
+\item
+\tcode{\libconcept{common_range}<R>} is \tcode{true},
+\item
+\tcode{\exposconcept{cpp17-input-iterator}<iterator_t<R>>} is \tcode{true}, and
+\item
+\tcode{\libconcept{constructible_from}<C, iterator_t<R>, sentinel_t<R>, Args...>}
+is \tcode{true}:
+\end{itemize}
+\begin{codeblock}
+C(ranges::begin(r), ranges::end(r), std::forward<Args>(args)...)
+\end{codeblock}
+\item
+Otherwise, if
+\begin{itemize}
+\item
+\tcode{\libconcept{constructible_from}<C, Args...>} is \tcode{true}, and
+\item
+\tcode{\exposid{container-insertable}<C, range_reference_t<R>>} is \tcode{true}:
+\end{itemize}
+\begin{codeblock}
+C c(std::forward<Args>(args)...);
+if constexpr (@\libconcept{sized_range}@<R> && @\exposid{reservable-container}@<C>)
+  c.reserve(ranges::size(r));
+ranges::copy(r, @\exposid{container-inserter}@<range_reference_t<R>>(c));
+\end{codeblock}
+\end{itemize}
+
+\item
+Otherwise,
+if \tcode{\libconcept{input_range}<range_reference_t<R>>} is \tcode{true}:
+\begin{codeblock}
+to<C>(r | views::transform([](auto&& elem) {
+  return to<range_value_t<C>>(std::forward<decltype(elem)>(elem));
+}), std::forward<Args>(args)...);
+\end{codeblock}
+
+\item
+Otherwise, the program is ill-formed.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibrarymember{to}{ranges}%
+\begin{itemdecl}
+template<template<class...> class C, @\libconcept{input_range}@ R, class... Args>
+  constexpr auto to(R&& r, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \exposid{input-iterator} be an exposition-only type:
+\begin{codeblock}
+struct @\exposid{input-iterator}@ {                        // \expos
+  using iterator_category = input_iterator_tag;
+  using value_type = range_value_t<R>;
+  using difference_type = ptrdiff_t;
+  using pointer = add_pointer_t<range_reference_t<R>>;
+  using reference = range_reference_t<R>;
+  reference operator*() const;
+  pointer operator->() const;
+  @\exposid{input-iterator}@& operator++();
+  @\exposid{input-iterator}@ operator++(int);
+  bool operator==(const @\exposid{input-iterator}@&) const;
+};
+\end{codeblock}
+\begin{note}
+\exposid{input-iterator} meets
+the syntactic requirements of \oldconcept{InputIterator}.
+\end{note}
+
+\pnum
+Let \tcode{\placeholder{DEDUCE_EXPR}} be defined as follows:
+\begin{itemize}
+\item
+\tcode{C(declval<R>(), declval<Args>()...)} if that is a valid expression,
+\item
+otherwise, \tcode{C(from_range, declval<R>(), declval<Args>()...)}
+if that is a valid expression,
+\item
+otherwise,
+\begin{codeblock}
+C(declval<@\exposid{input-iterator}@>(), declval<@\exposid{input-iterator}@>(), declval<Args>()...)
+\end{codeblock}
+if that is a valid expression,
+\item
+otherwise, the program is ill-formed.
+\end{itemize}
+
+\pnum
+\returns
+\tcode{to<decltype(\placeholder{DEDUCE_EXPR})>(std::forward<R>(r), std::forward<Args>(args)...)}.
+\end{itemdescr}
+
+\rSec3[range.utility.conv.adaptors]{\tcode{ranges::to} adaptors}
+
+\indexlibrarymember{to}{ranges}%
+\begin{itemdecl}
+template<class C, class... Args> requires (!@\libconcept{view}@<C>)
+  constexpr auto to(Args&&... args);
+template<template<class...> class C, class... Args>
+  constexpr auto to(Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+A range adaptor closure object\iref{range.adaptor.object} \tcode{f}
+that is a perfect forwarding call wrapper\iref{func.require}
+with the following properties:
+\begin{itemize}
+\item
+It has no target object.
+\item
+Its bound argument entities \tcode{bound_args} consist of
+objects of types \tcode{decay_t<Args>...}
+direct-non-list-initialized with \tcode{std::forward<Args>(args)...},
+respectively.
+\item
+Its call pattern is \tcode{to<C>(r, bound_args...)},
+where \tcode{r} is the argument used in a function call expression of \tcode{f}.
+\end{itemize}
+\end{itemdescr}
 
 \rSec1[range.factories]{Range factories}
 
