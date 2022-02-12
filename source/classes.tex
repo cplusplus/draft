@@ -782,7 +782,7 @@ The \defn{common initial sequence} of two standard-layout struct\iref{class.prop
 types is the longest sequence of non-static data
 members and bit-fields in declaration order, starting with the first
 such entity in each of the structs, such that corresponding entities
-have layout-compatible types,
+have layout-compatible types\iref{basic.types},
 either both entities are declared with
 the \tcode{no_unique_address} attribute\iref{dcl.attr.nouniqueaddr}
 or neither is,
@@ -1208,12 +1208,13 @@ They come into effect when the constructor for the
 most derived object\iref{intro.object} ends.
 
 \pnum
-\indextext{restriction!constructor}%
-A
-\tcode{return}
-statement in the body of a constructor shall not specify a return value.
 \indextext{constructor!address of}%
 The address of a constructor shall not be taken.
+\indextext{restriction!constructor}%
+\begin{note}
+A \tcode{return} statement in the body of a constructor
+cannot specify a return value\iref{stmt.return}.
+\end{note}
 
 \pnum
 A constructor shall not be a coroutine.
@@ -1304,7 +1305,7 @@ that is defaulted and not defined as deleted
 is
 \defnx{implicitly defined}{constructor!implicitly defined}
 when it is odr-used\iref{term.odr.use}
-to create an object of its class type\iref{intro.object},
+to initialize an object of its class type\iref{intro.object},
 when it is needed for constant evaluation\iref{expr.const}, or
 when it is explicitly defaulted after its first declaration.
 The implicitly-defined default constructor performs the set of
@@ -1329,19 +1330,12 @@ implicit exception specification, see~\ref{dcl.fct.def}.
 \end{note}
 
 \pnum
-\indextext{constructor!implicitly called}%
-Default constructors are called implicitly to create class objects of static, thread,
-or automatic storage duration~(\ref{basic.stc.static}, \ref{basic.stc.thread}, \ref{basic.stc.auto}) defined
-without an initializer\iref{dcl.init},
-are called to create class objects of dynamic storage duration\iref{basic.stc.dynamic} created by a
-\grammarterm{new-expression}
-in which the
-\grammarterm{new-initializer}
-is omitted\iref{expr.new}, or
-are called when the explicit type conversion syntax\iref{expr.type.conv} is
-used.
-A program is ill-formed if the default constructor for an object
-is implicitly used and the constructor is not accessible\iref{class.access}.
+\begin{note}
+\indextext{constructor!implicitly invoked}%
+A default constructor is implicitly invoked to initialize
+a class object when no initializer is specified\iref{dcl.init.general}.
+Such a default constructor is required to be accessible\iref{class.access}.
+\end{note}
 
 \pnum
 \begin{note}
@@ -2078,8 +2072,13 @@ and in particular,
 the selected destructor may be deleted\iref{dcl.fct.def.delete}.
 
 \pnum
-\indextext{restriction!destructor}%
+\indextext{destructor!address of}%
 The address of a destructor shall not be taken.
+\indextext{restriction!destructor}%
+\begin{note}
+A \tcode{return} statement in the body of a destructor
+cannot specify a return value\iref{stmt.return}.
+\end{note}
 \indextext{\idxcode{const}!destructor and}%
 \indextext{\idxcode{volatile}!destructor and}%
 A destructor can be invoked for a
@@ -2865,6 +2864,149 @@ void f() {
 \end{codeblock}
 \end{example}
 
+\rSec2[class.free]{Allocation and deallocation functions}%
+\indextext{free store}%
+
+\pnum
+\indextext{\idxcode{new}!type of}%
+\indextext{allocation function!class-specific}%
+Any allocation function for a class
+\tcode{T}
+is a static member (even if not explicitly declared
+\keyword{static}).
+
+\pnum
+\begin{example}
+\begin{codeblock}
+class Arena;
+struct B {
+  void* operator new(std::size_t, Arena*);
+};
+struct D1 : B {
+};
+
+Arena*  ap;
+void foo(int i) {
+  new (ap) D1;      // calls \tcode{B::operator new(std::size_t, Arena*)}
+  new D1[i];        // calls \tcode{::operator new[](std::size_t)}
+  new D1;           // error: \tcode{::operator new(std::size_t)} hidden
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\indextext{\idxcode{delete}!type of}%
+\indextext{deallocation function!class-specific}%
+Any deallocation function for a class
+\tcode{X}
+is a static member (even if not explicitly declared
+\keyword{static}).
+\begin{example}
+\begin{codeblock}
+class X {
+  void operator delete(void*);
+  void operator delete[](void*, std::size_t);
+};
+
+class Y {
+  void operator delete(void*, std::size_t);
+  void operator delete[](void*);
+};
+\end{codeblock}
+\end{example}
+
+\pnum
+Since member allocation and deallocation functions are
+\keyword{static}
+they cannot be virtual.
+\begin{note}
+However, when the
+\grammarterm{cast-expression}
+of a
+\grammarterm{delete-expression}
+refers to an object of class type with a virtual destructor,
+because the deallocation function is chosen by the destructor
+of the dynamic type of the object, the effect is the same in that case.
+For example,
+\begin{codeblock}
+struct B {
+  virtual ~B();
+  void operator delete(void*, std::size_t);
+};
+
+struct D : B {
+  void operator delete(void*);
+};
+
+struct E : B {
+  void log_deletion();
+  void operator delete(E *p, std::destroying_delete_t) {
+    p->log_deletion();
+    p->~E();
+    ::operator delete(p);
+  }
+};
+
+void f() {
+  B* bp = new D;
+  delete bp;        // 1: uses \tcode{D::operator delete(void*)}
+  bp = new E;
+  delete bp;        // 2: uses \tcode{E::operator delete(E*, std::destroying_delete_t)}
+}
+\end{codeblock}
+Here, storage for the object of class
+\tcode{D}
+is deallocated by
+\tcode{D::operator delete()},
+and
+the object of class \tcode{E} is destroyed
+and its storage is deallocated
+by \tcode{E::operator delete()},
+due to the virtual destructor.
+\end{note}
+\begin{note}
+Virtual destructors have no effect on the deallocation function actually
+called when the
+\grammarterm{cast-expression}
+of a
+\grammarterm{delete-expression}
+refers to an array of objects of class type.
+For example,
+\begin{codeblock}
+struct B {
+  virtual ~B();
+  void operator delete[](void*, std::size_t);
+};
+
+struct D : B {
+  void operator delete[](void*, std::size_t);
+};
+
+void f(int i) {
+  D* dp = new D[i];
+  delete [] dp;     // uses \tcode{D::operator delete[](void*, std::size_t)}
+  B* bp = new D[i];
+  delete[] bp;      // undefined behavior
+}
+\end{codeblock}
+\end{note}
+
+\pnum
+Access to the deallocation function is checked statically,
+even if a different one is actually executed.
+\begin{example}
+For the call on line ``// 1'' above,
+if
+\tcode{B::operator delete()}
+had been private, the delete expression would have been ill-formed.
+\end{example}
+
+\pnum
+\begin{note}
+If a deallocation function has no explicit \grammarterm{noexcept-specifier}, it
+has a non-throwing exception specification\iref{except.spec}.
+\end{note}
+
 \rSec2[class.nest]{Nested class declarations}%
 \indextext{definition!nested class}%
 
@@ -3613,7 +3755,7 @@ If a virtual member function $F$ is declared in a class $B$, and,
 in a class $D$ derived (directly or indirectly) from $B$,
 a declaration of a member function $G$
 corresponds\iref{basic.scope.scope} to a declaration of $F$,
-ignoring \grammarterm{trailing requires-clause}s,
+ignoring trailing \grammarterm{requires-clause}s,
 \indextext{override|see{function, virtual, override}}%
 then $G$ \defnx{overrides}{function!virtual!override}
 \begin{footnote}
@@ -6634,146 +6776,5 @@ struct C {
 };
 \end{codeblock}
 \end{example}
-
-\rSec1[class.free]{Free store}%
-\indextext{free store}%
-
-\pnum
-\indextext{\idxcode{new}!type of}
-Any allocation function for a class
-\tcode{T}
-is a static member (even if not explicitly declared
-\keyword{static}).
-
-\pnum
-\begin{example}
-\begin{codeblock}
-class Arena;
-struct B {
-  void* operator new(std::size_t, Arena*);
-};
-struct D1 : B {
-};
-
-Arena*  ap;
-void foo(int i) {
-  new (ap) D1;      // calls \tcode{B::operator new(std::size_t, Arena*)}
-  new D1[i];        // calls \tcode{::operator new[](std::size_t)}
-  new D1;           // error: \tcode{::operator new(std::size_t)} hidden
-}
-\end{codeblock}
-\end{example}
-
-\pnum
-\indextext{\idxcode{delete}!type of}%
-Any deallocation function for a class
-\tcode{X}
-is a static member (even if not explicitly declared
-\keyword{static}).
-\begin{example}
-\begin{codeblock}
-class X {
-  void operator delete(void*);
-  void operator delete[](void*, std::size_t);
-};
-
-class Y {
-  void operator delete(void*, std::size_t);
-  void operator delete[](void*);
-};
-\end{codeblock}
-\end{example}
-
-\pnum
-Since member allocation and deallocation functions are
-\keyword{static}
-they cannot be virtual.
-\begin{note}
-However, when the
-\grammarterm{cast-expression}
-of a
-\grammarterm{delete-expression}
-refers to an object of class type with a virtual destructor,
-because the deallocation function is chosen by the destructor
-of the dynamic type of the object, the effect is the same in that case.
-For example,
-\begin{codeblock}
-struct B {
-  virtual ~B();
-  void operator delete(void*, std::size_t);
-};
-
-struct D : B {
-  void operator delete(void*);
-};
-
-struct E : B {
-  void log_deletion();
-  void operator delete(E *p, std::destroying_delete_t) {
-    p->log_deletion();
-    p->~E();
-    ::operator delete(p);
-  }
-};
-
-void f() {
-  B* bp = new D;
-  delete bp;        // 1: uses \tcode{D::operator delete(void*)}
-  bp = new E;
-  delete bp;        // 2: uses \tcode{E::operator delete(E*, std::destroying_delete_t)}
-}
-\end{codeblock}
-Here, storage for the object of class
-\tcode{D}
-is deallocated by
-\tcode{D::operator delete()},
-and
-the object of class \tcode{E} is destroyed
-and its storage is deallocated
-by \tcode{E::operator delete()},
-due to the virtual destructor.
-\end{note}
-\begin{note}
-Virtual destructors have no effect on the deallocation function actually
-called when the
-\grammarterm{cast-expression}
-of a
-\grammarterm{delete-expression}
-refers to an array of objects of class type.
-For example,
-\begin{codeblock}
-struct B {
-  virtual ~B();
-  void operator delete[](void*, std::size_t);
-};
-
-struct D : B {
-  void operator delete[](void*, std::size_t);
-};
-
-void f(int i) {
-  D* dp = new D[i];
-  delete [] dp;     // uses \tcode{D::operator delete[](void*, std::size_t)}
-  B* bp = new D[i];
-  delete[] bp;      // undefined behavior
-}
-\end{codeblock}
-\end{note}
-
-\pnum
-Access to the deallocation function is checked statically,
-even if a different one is actually executed.
-\begin{example}
-For the call on line ``// 1'' above,
-if
-\tcode{B::operator delete()}
-had been private, the delete expression would have been ill-formed.
-\end{example}
-
-\pnum
-\begin{note}
-If a deallocation function has no explicit \grammarterm{noexcept-specifier}, it
-has a non-throwing exception specification\iref{except.spec}.
-\end{note}
 
 \indextext{class|)}

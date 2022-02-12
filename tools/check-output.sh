@@ -34,6 +34,13 @@ grep -o '\\see{[^}]*}' < std-generalindex.ind |
     done | fail || failed=1
 rm -f tmp.txt
 
+# Find grammar index entries missing a definition
+cat std-grammarindex.ind |
+    awk 'BEGIN { def=1 } /^  .item/ { if (def==0) { gsub("[{},]", "", item); print item } item=$NF; def=0; next } /hyperindexformat/ { def=1 }' |
+    grep -v -- '-keyword$' |    # xxx-keyword is special
+    sed 's/^\(.*\)$/grammar non-terminal \1 has no definition/' |
+    fail || failed=1
+
 # Cross references since the previous standard.
 function indexentries() { sed 's,\\glossaryentry{\(.*\)@.*,\1,' "$1" | LANG=C sort; }
 function removals() { diff -u "$1" "$2" | grep '^-' | grep -v '^---' | sed 's/^-//'; }

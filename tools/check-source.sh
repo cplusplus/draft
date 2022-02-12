@@ -108,6 +108,14 @@ grep -Hne '^\\\(change\|rationale\|effect\|difficulty\|howwide\)\s.\+$' compatib
 grep -ne 'template\s<class' $texlib |
     fail 'space between "template" and "<class"' || failed=1
 
+# "Class" heading without namespace
+for f in $texlib; do
+    sed -n '/rSec[0-9].*{Class/,/\\end{codeblock}/{/\\begin{example}/,/\\end{example}/b;/\\begin{codeblock}/,/\(^namespace\)\|\(\\end{codeblock}\)/{s/template<[^>]*>//;/\(class\|struct\)[A-Za-z0-9_: ]*{/{=;p;};};}' $f |
+    # prefix output with filename and line
+    sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/"
+done |
+    fail 'No namespace around class definition' || failed=1
+
 # \begin{example/note} with non-whitespace in front on the same line.
 grep -ne '^.*[^ ]\s*\\\(begin\|end\){\(example\|note\)}' $texfiles |
     fail "non-whitespace before note/example begins" || failed=1
