@@ -7409,6 +7409,8 @@ namespace std {
   template<class T, class Alloc, class U, class V>
     constexpr auto uses_allocator_construction_args(const Alloc& alloc,
                                                     const pair<U, V>&& pr) noexcept;
+  template<class T, class Alloc, class U>
+    constexpr auto uses_allocator_construction_args(const Alloc& alloc, U&& u) noexcept;
   template<class T, class Alloc, class... Args>
     constexpr T make_obj_using_allocator(const Alloc& alloc, Args&&... args);
   template<class T, class Alloc, class... Args>
@@ -8347,6 +8349,58 @@ return uses_allocator_construction_args<T>(alloc, piecewise_construct,
 \end{codeblock}
 \end{itemdescr}
 
+\indexlibraryglobal{uses_allocator_construction_args}%
+\begin{itemdecl}
+template<class T, class Alloc, class U>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc, U&& u) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \exposid{FUN} be the function template:
+\begin{codeblock}
+template<class A, class B>
+  void @\exposid{FUN}@(const pair<A, B>&);
+\end{codeblock}
+
+\pnum
+\constraints
+\tcode{T} is a specialization of \tcode{pair}, and
+the expression \tcode{\exposid{FUN}(u)} is not well-formed
+when considered as an unevaluated operand.
+
+\pnum
+Let \exposid{pair-constructor} be an exposition-only class defined as follows:
+
+\begin{codeblock}
+class @\exposid{pair-constructor}@ {
+  using @\exposid{pair-type}@ = remove_cv_t<T>;                             // \expos
+
+  constexpr auto @\exposid{do-construct}@(const @\exposid{pair-type}@& p) const {       // \expos
+    return make_obj_using_allocator<@\exposid{pair-type}@>(@\exposid{alloc_}@, p);
+  }
+  constexpr auto @\exposid{do-construct}@(@\exposid{pair-type}@&& p) const {            // \expos
+    return make_obj_using_allocator<@\exposid{pair-type}@>(@\exposid{alloc_}@, std::move(p));
+  }
+
+  const Alloc& @\exposid{alloc_}@;  // \expos
+  U& @\exposid{u_}@;                // \expos
+
+public:
+  constexpr operator @\exposid{pair-type}@() const {
+    return @\exposid{do-construct}@(std::forward<U>(@\exposid{u_}@));
+  }
+};
+\end{codeblock}
+
+\pnum
+\returns
+\tcode{make_tuple(pc)},
+where \tcode{pc} is a \exposid{pair-constructor} object
+whose \exposid{alloc_} member is initialized with \tcode{alloc} and
+whose \exposid{u_} member is initialized with \tcode{u}.
+\end{itemdescr}
+
 \indexlibraryglobal{make_obj_using_allocator}%
 \begin{itemdecl}
 template<class T, class Alloc, class... Args>
@@ -9086,9 +9140,9 @@ namespace std {
 
     // \ref{unique.ptr.single.ctor}, constructors
     constexpr unique_ptr() noexcept;
-    explicit unique_ptr(pointer p) noexcept;
-    unique_ptr(pointer p, @\seebelow@ d1) noexcept;
-    unique_ptr(pointer p, @\seebelow@ d2) noexcept;
+    explicit unique_ptr(type_identity_t<pointer> p) noexcept;
+    unique_ptr(type_identity_t<pointer> p, @\seebelow@ d1) noexcept;
+    unique_ptr(type_identity_t<pointer> p, @\seebelow@ d2) noexcept;
     unique_ptr(unique_ptr&& u) noexcept;
     constexpr unique_ptr(nullptr_t) noexcept;
     template<class U, class E>
@@ -9187,7 +9241,7 @@ returns a reference to the stored deleter.
 
 \indexlibraryctor{unique_ptr}%
 \begin{itemdecl}
-explicit unique_ptr(pointer p) noexcept;
+explicit unique_ptr(type_identity_t<pointer> p) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9195,11 +9249,6 @@ explicit unique_ptr(pointer p) noexcept;
 \constraints
 \tcode{is_pointer_v<deleter_type>} is \tcode{false} and
 \tcode{is_default_constructible_v<deleter_type>} is \tcode{true}.
-
-\pnum
-\mandates
-This constructor is not selected by
-class template argument deduction\iref{over.match.class.deduct}.
 
 \pnum
 \expects
@@ -9220,19 +9269,14 @@ returns a reference to the stored deleter.
 
 \indexlibraryctor{unique_ptr}%
 \begin{itemdecl}
-unique_ptr(pointer p, const D& d) noexcept;
-unique_ptr(pointer p, remove_reference_t<D>&& d) noexcept;
+unique_ptr(type_identity_t<pointer> p, const D& d) noexcept;
+unique_ptr(type_identity_t<pointer> p, remove_reference_t<D>&& d) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \constraints
 \tcode{is_constructible_v<D, decltype(d)>} is \tcode{true}.
-
-\pnum
-\mandates
-These constructors are not selected by
-class template argument deduction\iref{over.match.class.deduct}.
 
 \pnum
 \expects
@@ -12518,7 +12562,17 @@ Destroys this \tcode{memory_resource}.
 \begin{itemdescr}
 \pnum
 \effects
-Equivalent to: \tcode{return do_allocate(bytes, alignment);}
+Allocates storage by calling \tcode{do_allocate(bytes, alignment)} and
+implicitly creates objects within the allocated region of storage.
+
+\pnum
+\returns
+A pointer to a suitable created object\iref{intro.object}
+in the allocated region of storage.
+
+\pnum
+\throws
+What and when the call to \tcode{do_allocate} throws.
 \end{itemdescr}
 
 \indexlibrarymember{deallocate}{memory_resource}%
@@ -20909,14 +20963,15 @@ the size of the content and the alignment option has no effect.
 \tcode{<} &
 Forces the field to be aligned to the start of the available space.
 This is the default for
-non-arithmetic types, \tcode{charT}, and \tcode{bool},
+non-arithmetic non-pointer types, \tcode{charT}, and \tcode{bool},
 unless an integer presentation type is specified.
 \\ \rowsep
 %
 \tcode{>} &
 Forces the field to be aligned to the end of the available space.
 This is the default for
-arithmetic types other than \tcode{charT} and \tcode{bool}
+arithmetic types other than \tcode{charT} and \tcode{bool},
+pointer types,
 or when an integer presentation type is specified.
 \\ \rowsep
 %
@@ -21256,7 +21311,7 @@ none,
 Copies textual representation, either \tcode{true} or \tcode{false}, to the output.
 \\ \rowsep
 %
-\tcode{b}, \tcode{B}, \tcode{c}, \tcode{d}, \tcode{o}, \tcode{x}, \tcode{X} &
+\tcode{b}, \tcode{B}, \tcode{d}, \tcode{o}, \tcode{x}, \tcode{X} &
 As specified in \tref{format.type.int}
 for the value
 \tcode{static_cast<unsigned char>(value)}.
@@ -21590,9 +21645,7 @@ Places the character representation of formatting
 the arguments provided by \tcode{args},
 formatted according to the specifications given in \tcode{fmt},
 into the range \range{out}{out + N},
-where \tcode{N} is
-\tcode{formatted_size(fmt, args...)} for the functions without a \tcode{loc} parameter and
-\tcode{formatted_size(loc, fmt, args...)} for the functions with a \tcode{loc} parameter.
+where \tcode{N} is the number of characters in that character representation.
 If present, \tcode{loc} is used for locale-specific formatting.
 
 \pnum
@@ -22090,7 +22143,7 @@ namespace std {
     using char_type = charT;
     template<class T> using formatter_type = formatter<T, charT>;
 
-    basic_format_arg<basic_format_context> arg(size_t id) const;
+    basic_format_arg<basic_format_context> arg(size_t id) const noexcept;
     std::locale locale();
 
     iterator out();
@@ -22133,7 +22186,7 @@ by wrapping those in temporary objects with a uniform interface
 
 \indexlibrarymember{arg}{basic_format_context}%
 \begin{itemdecl}
-basic_format_arg<basic_format_context> arg(size_t id) const;
+basic_format_arg<basic_format_context> arg(size_t id) const noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
