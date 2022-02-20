@@ -198,9 +198,7 @@ done | fail 'subclause without siblings' || failed=1
 
 # Library descriptive macros not immediately preceded by \pnum.
 for f in $texlibdesc; do
-    sed -n '/^\\pnum/{h;:x;n;/^\\index/b x;/^\\\(constraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|throws\|complexity\|remarks\|errors\)/{x;/\n/{x;=;p;};d;};/^\\pnum/D;H;b x;}' $f |
-    # prefix output with filename and line
-    sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/"
+    awk '/^\\pnum/ { seenpnum=1; next } /^\\index/ { next } /^\\(constraints|mandates|expects|effects|sync|ensures|returns|throws|complexity|remarks|errors)/ { if(seenpnum == 0) { print FILENAME ":" FNR ":" $0 } } { seenpnum=0 }' $f
 done |
     fail '\\pnum missing' || failed=1
 
