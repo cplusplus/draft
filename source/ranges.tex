@@ -428,6 +428,13 @@ namespace std::ranges {
       enable_borrowed_range<V>;
 
   namespace views { inline constexpr @\unspec@ slide = @\unspec@; }
+
+  // \ref{range.chunk.by}, chunk by view
+  template<@\libconcept{forward_range}@ V, @\libconcept{indirect_binary_predicate}@<iterator_t<V>, iterator_t<V>> Pred>
+    requires @\libconcept{view}@<V> && is_object_v<Pred>
+  class chunk_by_view;
+
+  namespace views { inline constexpr @\unspec@ chunk_by = @\unspec@; }
 }
 
 namespace std {
@@ -12531,4 +12538,333 @@ friend constexpr range_difference_t<V>
 \pnum
 \returns
 \tcode{y.\exposid{end_} - x.\exposid{last_ele_}}.
+\end{itemdescr}
+
+\rSec2[range.chunk.by]{Chunk by view}
+
+\rSec3[range.chunk.by.overview]{Overview}
+
+\pnum
+\tcode{chunk_by_view} takes a \libconcept{view} and a predicate, and
+splits the \libconcept{view} into \tcode{subrange}s
+between each pair of adjacent elements
+for which the predicate returns \tcode{false}.
+
+\pnum
+\indexlibrarymember{chunk_by}{views}%
+The name \tcode{views::chunk_by} denotes
+a range adaptor object\iref{range.adaptor.object}.
+Given subexpressions \tcode{E} and \tcode{F},
+the expression \tcode{views::chunk_by(E, F)} is expression-equivalent to
+\tcode{chunk_by_view(E, F)}.
+\begin{example}
+\begin{codeblock}
+vector v = {1, 2, 2, 3, 0, 4, 5, 2};
+
+for (auto r : v | views::chunk_by(ranges::less_equal{})) {
+  cout << '[';
+  auto sep = "";
+  for(auto i : r) {
+    cout << sep << i;
+    sep = ", ";
+  }
+  cout << "] ";
+}
+\end{codeblock}
+The above prints: \tcode{[1, 2, 2, 3] [0, 4, 5] [2]}
+\end{example}
+
+\rSec3[range.chunk.by.view]{Class template \tcode{chunk_by_view}}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<@\libconcept{forward_range}@ V, @\libconcept{indirect_binary_predicate}@<iterator_t<V>, iterator_t<V>> Pred>
+    requires @\libconcept{view}@<V> && is_object_v<Pred>
+  class chunk_by_view : public view_interface<chunk_by_view<V, Pred>> {
+    V @\exposid{base_}@ = V();                       // \expos
+    @\exposid{copyable-box}@<Pred> @\exposid{pred_}@ = Pred();  // \expos
+
+    // \ref{range.chunk.by.iter}, class \tcode{chunk_by_view::\exposid{iterator}}
+    class @\exposid{iterator}@;                     // \expos
+
+  public:
+    chunk_by_view() requires @\libconcept{default_initializable}@<V> && @\libconcept{default_initializable}@<Pred> = default;
+    constexpr explicit chunk_by_view(V base, Pred pred);
+
+    constexpr V base() const & requires @\libconcept{copy_constructible}@<V> { return @\exposid{base_}@; }
+    constexpr V base() && { return std::move(@\exposid{base_}@); }
+
+    constexpr const Pred& pred() const;
+
+    constexpr @\exposid{iterator}@ begin();
+    constexpr auto end();
+
+    constexpr iterator_t<V> @\exposid{find-next}@(iterator_t<V>);                 // \expos
+    constexpr iterator_t<V> @\exposid{find-prev}@(iterator_t<V>)                  // \expos
+      requires @\libconcept{bidirectional_range}@<V>;
+  };
+
+  template<class R, class Pred>
+    chunk_by_view(R&&, Pred) -> chunk_by_view<views::all_t<R>, Pred>;
+}
+\end{codeblock}
+
+\begin{itemdecl}
+constexpr explicit chunk_by_view(V base, Pred pred);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{base_} with \tcode{std::move(base)} and
+\exposid{pred_} with \tcode{std::move(pred)}.
+\end{itemdescr}
+
+\indexlibrarymember{pred}{chunk_by_view}%
+\begin{itemdecl}
+constexpr const Pred& pred() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return *\exposid{pred_};}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@ begin();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{\exposid{pred_}.has_value()} is \tcode{true}.
+
+\pnum
+\returns
+\tcode{\exposid{iterator}(*this, ranges::begin(\exposid{base_}), \exposid{find-next}(ranges::begin(\exposid{base_})))}.
+
+\pnum
+\remarks
+In order to provide
+the amortized constant-time complexity required by the \libconcept{range} concept,
+this function caches the result within the \tcode{chunk_by_view}
+for use on subsequent calls.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr auto end();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if constexpr (@\libconcept{common_range}@<V>) {
+  return @\exposid{iterator}@(*this, ranges::end(@\exposid{base_}@), ranges::end(@\exposid{base_}@));
+} else {
+  return default_sentinel;
+}
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr iterator_t<V> @\exposid{find-next}@(iterator_t<V> current);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{\exposid{pred_}.has_value()} is \tcode{true}.
+
+\pnum
+\returns
+\begin{codeblock}
+ranges::next(ranges::adjacent_find(current, ranges::end(@\exposid{base_}@), not_fn(ref(*@\exposid{pred_}@))),
+             1, ranges::end(@\exposid{base_}@))
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr iterator_t<V> @\exposid{find-prev}@(iterator_t<V> current) requires @\libconcept{bidirectional_range}@<V>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\begin{itemize}
+\item
+\tcode{current} is not equal to \tcode{ranges::begin(\exposid{base_})}.
+\item
+\tcode{\exposid{pred_}.has_value()} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\returns
+An iterator \tcode{i}
+in the range \range{ranges::begin(\exposid{base_})}{current} such that:
+\begin{itemize}
+\item
+\tcode{ranges::adjacent_find(i, current, not_fn(ref(*\exposid{pred_})))} is equal to \tcode{current}; and
+\item
+if \tcode{i} is not equal to \tcode{ranges::begin(\exposid{base_})},
+then \tcode{bool(invoke(*\exposid{pred_}, *ranges::prev(i), *i))}
+is \tcode{false}.
+\end{itemize}
+\end{itemdescr}
+
+\rSec3[range.chunk.by.iter]{Class \tcode{chunk_by_view::\exposid{iterator}}}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<@\libconcept{forward_range}@ V, @\libconcept{indirect_binary_predicate}@<iterator_t<V>, iterator_t<V>> Pred>
+    requires @\libconcept{view}@<V> && is_object_v<Pred>
+  class chunk_by_view<V, Pred>::@\exposid{iterator}@ {
+    chunk_by_view* @\exposid{parent_}@ = nullptr;                                   // \expos
+    iterator_t<V> @\exposid{current_}@ = iterator_t<V>();                           // \expos
+    iterator_t<V> @\exposid{next_}@    = iterator_t<V>();                           // \expos
+
+    constexpr @\exposid{iterator}@(chunk_by_view& parent, iterator_t<V> current,    // \expos
+                       iterator_t<V> next);
+
+  public:
+    using value_type = subrange<iterator_t<V>>;
+    using difference_type  = range_difference_t<V>;
+    using iterator_category = input_iterator_tag;
+    using iterator_concept = @\seebelow@;
+
+    @\exposid{iterator}@() = default;
+
+    constexpr value_type operator*() const;
+    constexpr @\exposid{iterator}@& operator++();
+    constexpr @\exposid{iterator}@ operator++(int);
+
+    constexpr @\exposid{iterator}@& operator--() requires @\libconcept{bidirectional_range}@<V>;
+    constexpr @\exposid{iterator}@ operator--(int) requires @\libconcept{bidirectional_range}@<V>;
+
+    friend constexpr bool operator==(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y);
+    friend constexpr bool operator==(const @\exposid{iterator}@& x, default_sentinel_t);
+  };
+}
+\end{codeblock}
+
+\pnum
+\tcode{\exposid{iterator}::iterator_concept} is defined as follows:
+\begin{itemize}
+\item
+If \tcode{V} models \libconcept{bidirectional_range},
+then \tcode{iterator_concept} denotes \tcode{bidirectional_iterator_tag}.
+\item
+Otherwise, \tcode{iterator_concept} denotes \tcode{forward_iterator_tag}.
+\end{itemize}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@(chunk_by_view& parent, iterator_t<V> current, iterator_t<V> next);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{parent_} with \tcode{addressof(parent)},
+\exposid{current_} with \tcode{current}, and
+\exposid{next_} with \tcode{next}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr value_type operator*() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\exposid{current_} is not equal to \exposid{next_}.
+
+\pnum
+\returns
+\tcode{subrange(\exposid{current_}, \exposid{next_})}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@& operator++();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\exposid{current_} is not equal to \exposid{next_}.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+@\exposid{current_}@ = @\exposid{next_}@;
+@\exposid{next_}@ = @\exposid{parent_}@->@\exposid{find-next}@(@\exposid{current_}@);
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@ operator++(int);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto tmp = *this;
+++*this;
+return tmp;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@& operator--() requires @\libconcept{bidirectional_range}@<V>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+@\exposid{next_}@ = @\exposid{current_}@;
+@\exposid{current_}@ = @\exposid{parent_}@->@\exposid{find-prev}@(@\exposid{next_}@);
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@ operator--(int) requires @\libconcept{bidirectional_range}@<V>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto tmp = *this;
+--*this;
+return tmp;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr bool operator==(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{x.\exposid{current_} == y.\exposid{current_}}.
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr bool operator==(const @\exposid{iterator}@& x, default_sentinel_t);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{x.\exposid{current_} == x.\exposid{next_}}.
 \end{itemdescr}
