@@ -281,6 +281,18 @@ namespace std::ranges {
 
   namespace views { inline constexpr @\unspec@ join = @\unspec@; }
 
+  // \ref{range.join.with}, join with view
+  template<class R, class P>
+    concept @\exposconcept{compatible-joinable-ranges}@ = @\seebelow@; // \expos
+
+  template<@\libconcept{input_range}@ V, @\libconcept{forward_range}@ Pattern>
+    requires @\libconcept{view}@<V> && @\libconcept{input_range}@<range_reference_t<V>>
+          && @\libconcept{view}@<Pattern>
+          && @\exposconcept{compatible-joinable-ranges}@<range_reference_t<V>, Pattern>
+  class join_with_view;
+
+  namespace views { inline constexpr @\unspec@ join_with = @\unspec@; }
+
   // \ref{range.lazy.split}, lazy split view
   template<class R>
     concept @\exposconcept{tiny-range}@ = @\seebelow@;   // \expos
@@ -6064,6 +6076,588 @@ friend constexpr bool operator==(const @\exposid{iterator}@<OtherConst>& x, cons
 \pnum
 \effects
 Equivalent to: \tcode{return x.\exposid{outer_} == y.\exposid{end_};}
+\end{itemdescr}
+
+\rSec2[range.join.with]{Join with view}
+
+\rSec3[range.join.with.overview]{Overview}
+
+\pnum
+\tcode{join_with_view} takes a \libconcept{view} and a delimiter, and
+flattens the \libconcept{view},
+inserting every element of the delimiter
+in between elements of the \libconcept{view}.
+The delimiter can be a single element or a \libconcept{view} of elements.
+
+\pnum
+\indexlibrarymember{join_with}{views}%
+The name \tcode{views::join_with} denotes
+a range adaptor object\iref{range.adaptor.object}.
+Given subexpressions \tcode{E} and \tcode{F},
+the expression \tcode{views::join_with(E, F)} is expression-equivalent to
+\tcode{join_with_view(E, F)}.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+vector<string> vs = {"the", "quick", "brown", "fox"};
+for (char c : vs | join_with('-')) {
+  cout << c;
+}
+\end{codeblock}
+The above prints: \tcode{the-quick-brown-fox}
+\end{example}
+
+\rSec3[range.join.with.view]{Class template \tcode{join_with_view}}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<class R, class P>
+  concept @\defexposconcept{compatible-joinable-ranges}@ =            // \expos
+      @\libconcept{common_with}@<range_value_t<R>, range_value_t<P>> &&
+      @\libconcept{common_reference_with}@<range_reference_t<R>, range_reference_t<P>> &&
+      @\libconcept{common_reference_with}@<range_rvalue_reference_t<R>, range_rvalue_reference_t<P>>;
+
+  template<class R>
+  concept @\defexposconcept{bidirectional-common}@ = @\libconcept{bidirectional_range}@<R> && @\libconcept{common_range}@<R>;    // \expos
+
+  template<@\libconcept{input_range}@ V, @\libconcept{forward_range}@ Pattern>
+    requires @\libconcept{view}@<V> && @\libconcept{input_range}@<range_reference_t<V>>
+          && @\libconcept{view}@<Pattern>
+          && @\exposconcept{compatible-joinable-ranges}@<range_reference_t<V>, Pattern>
+  class join_with_view : public view_interface<join_with_view<V, Pattern>> {
+    using @\exposid{InnerRng}@ = range_reference_t<V>;                  // \expos
+
+    V @\exposid{base_}@ = V();                                          // \expos
+    @\exposid{non-propagating-cache}@<remove_cv_t<@\exposid{InnerRng}@>> @\exposid{inner_}@;   // \expos, present only
+                                                            // when \tcode{!is_reference_v<\exposid{InnerRng}>}
+    Pattern @\exposid{pattern_}@ = Pattern();                           // \expos
+
+    // \ref{range.join.with.iterator}, class template \tcode{join_with_view::\exposid{iterator}}
+    template<bool Const> struct @\exposid{iterator}@;                   // \expos
+
+    // \ref{range.join.with.sentinel}, class template \tcode{join_with_view::\exposid{sentinel}}
+    template<bool Const> struct @\exposid{sentinel}@;                   // \expos
+
+  public:
+    join_with_view()
+      requires @\libconcept{default_initializable}@<V> && @\libconcept{default_initializable}@<Pattern> = default;
+
+    constexpr join_with_view(V base, Pattern pattern);
+
+    template<input_range R>
+      requires @\libconcept{constructible_from}@<V, views::all_t<R>> &&
+               @\libconcept{constructible_from}@<Pattern, single_view<range_value_t<@\exposid{InnerRng}@>>>
+    constexpr join_with_view(R&& r, range_value_t<@\exposid{InnerRng}@> e);
+
+    constexpr V base() const& requires @\libconcept{copy_constructible}@<V> { return @\exposid{base_}@; }
+    constexpr V base() && { return std::move(@\exposid{base_}@); }
+
+    constexpr auto begin() {
+      constexpr bool use_const =
+        @\exposconcept{simple-view}@<V> && is_reference_v<@\exposid{InnerRng}@> && @\exposconcept{simple-view}@<Pattern>;
+      return @\exposid{iterator}@<use_const>{*this, ranges::begin(@\exposid{base_}@)};
+    }
+    constexpr auto begin() const
+      requires @\libconcept{input_range}@<const V> &&
+               @\libconcept{forward_range}@<const Pattern> &&
+               is_reference_v<range_reference_t<const V>> {
+      return @\exposid{iterator}@<true>{*this, ranges::begin(@\exposid{base_}@)};
+    }
+
+    constexpr auto end() {
+      if constexpr (@\libconcept{forward_range}@<V> &&
+                    is_reference_v<@\exposid{InnerRng}@> && @\libconcept{forward_range}@<@\exposid{InnerRng}@> &&
+                    @\libconcept{common_range}@<V> && @\libconcept{common_range}@<@\exposid{InnerRng}@>)
+        return @\exposid{iterator}@<@\exposconcept{simple-view}@<V> && @\exposconcept{simple-view}@<Pattern>>{*this, ranges::end(@\exposid{base_}@)};
+      else
+        return @\exposid{sentinel}@<@\exposconcept{simple-view}@<V> && @\exposconcept{simple-view}@<Pattern>>{*this};
+    }
+    constexpr auto end() const
+      requires @\libconcept{input_range}@<const V> && @\libconcept{forward_range}@<const Pattern> &&
+               is_reference_v<range_reference_t<const V>> {
+      using InnerConstRng = range_reference_t<const V>;
+      if constexpr (@\libconcept{forward_range}@<const V> && @\libconcept{forward_range}@<InnerConstRng> &&
+                    @\libconcept{common_range}@<const V> && common_range<InnerConstRng>)
+        return @\exposid{iterator}@<true>{*this, ranges::end(@\exposid{base_}@)};
+      else
+        return @\exposid{sentinel}@<true>{*this};
+    }
+  };
+
+  template<class R, class P>
+    join_with_view(R&&, P&&) -> join_with_view<views::all_t<R>, views::all_t<P>>;
+
+  template<@\libconcept{input_range}@ R>
+    join_with_view(R&&, range_value_t<range_reference_t<R>>)
+      -> join_with_view<views::all_t<R>, single_view<range_value_t<range_reference_t<R>>>>;
+}
+\end{codeblock}
+
+\begin{itemdecl}
+constexpr join_with_view(V base, Pattern pattern);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{base_} with \tcode{std::move(base)} and
+\exposid{pattern_} with \tcode{std::move(pattern)}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<@\libconcept{input_range}@ R>
+  requires @\libconcept{constructible_from}@<V, views::all_t<R>> &&
+           @\libconcept{constructible_from}@<Pattern, single_view<range_value_t<@\exposid{InnerRng}@>>>
+constexpr join_with_view(R&& r, range_value_t<@\exposid{InnerRng}@> e);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{base_} with \tcode{views::all(std::forward<R>(r))} and
+\exposid{pattern_} with \tcode{views::sin\-gle(std::move(e))}.
+\end{itemdescr}
+
+\rSec3[range.join.with.iterator]{Class template \tcode{join_with_view::\exposid{iterator}}}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<@\libconcept{input_range}@ V, @\libconcept{forward_range}@ Pattern>
+    requires @\libconcept{view}@<V> && @\libconcept{input_range}@<range_reference_t<V>>
+          && @\libconcept{view}@<Pattern> && @\exposconcept{compatible-joinable-ranges}@<range_reference_t<V>, Pattern>
+  template<bool Const>
+  class join_with_view<V, Pattern>::@\exposid{iterator}@ {
+    using @\exposid{Parent}@ = @\exposid{maybe-const}@<Const, join_with_view>;                  // \expos
+    using @\exposid{Base}@ = @\exposid{maybe-const}@<Const, V>;                                 // \expos
+    using @\exposid{InnerBase}@ = range_reference_t<Base>;                          // \expos
+    using @\exposid{PatternBase}@ = @\exposid{maybe-const}@<Const, Pattern>;                    // \expos
+
+    using @\exposid{OuterIter}@ = iterator_t<@\exposid{Base}@>;                                 // \expos
+    using @\exposid{InnerIter}@ = iterator_t<@\exposid{InnerBase}@>;                            // \expos
+    using @\exposid{PatternIter}@ = iterator_t<@\exposid{PatternBase}@>;                        // \expos
+
+    static constexpr bool @\exposid{ref-is-glvalue}@ = is_reference_v<@\exposid{InnerBase}@>;   // \expos
+
+    @\exposid{Parent}@* @\exposid{parent_}@ = nullptr;                                          // \expos
+    @\exposid{OuterIter}@ @\exposid{outer_it_}@ = @\exposid{OuterIter}@();                                  // \expos
+    variant<@\exposid{PatternIter}@, @\exposid{InnerIter}@> @\exposid{inner_it_}@;                          // \expos
+
+    constexpr @\exposid{iterator}@(@\exposid{Parent}@& parent, iterator_t<@\exposid{Base}@> outer);         // \expos
+    constexpr auto&& @\exposid{update-inner}@(const @\exposid{OuterIter}@&);                    // \expos
+    constexpr auto&& @\exposid{get-inner}@(const @\exposid{OuterIter}@&);                       // \expos
+    constexpr void @\exposid{satisfy}@();                                           // \expos
+
+  public:
+    using iterator_concept = @\seebelow@;
+    using iterator_category = @\seebelow@;                                // not always present
+    using value_type = @\seebelow@;
+    using difference_type = @\seebelow@;
+
+    @\exposid{iterator}@() requires @\libconcept{default_initializable}@<@\exposid{OuterIter}@> = default;
+    constexpr @\exposid{iterator}@(@\exposid{iterator}@<!Const> i)
+        requires Const && @\libconcept{convertible_to}@<iterator_t<V>, @\exposid{OuterIter}@> &&
+                 @\libconcept{convertible_to}@<iterator_t<@\exposid{InnerRng}@>, @\exposid{InnerIter}@> &&
+                 @\libconcept{convertible_to}@<iterator_t<Pattern>, @\exposid{PatternIter}@>;
+
+    constexpr decltype(auto) operator*() const;
+
+    constexpr @\exposid{iterator}@& operator++();
+    constexpr void operator++(int);
+    constexpr @\exposid{iterator}@ operator++(int)
+        requires @\exposid{ref-is-glvalue}@ && @\libconcept{forward_iterator}@<@\exposid{OuterIter}@> &&
+                 @\libconcept{forward_iterator}@<@\exposid{InnerIter}@>;
+
+    constexpr @\exposid{iterator}@& operator--()
+        requires @\exposid{ref-is-glvalue}@ && @\libconcept{bidirectional_range}@<@\exposid{Base}@> &&
+                 @\exposconcept{bidirectional-common}@<@\exposid{InnerBase}@> && @\exposconcept{bidirectional-common}@<@\exposid{PatternBase}@>;
+    constexpr @\exposid{iterator}@ operator--(int)
+        requires @\exposid{ref-is-glvalue}@ && @\libconcept{bidirectional_range}@<@\exposid{Base}@> &&
+                 @\exposconcept{bidirectional-common}@<@\exposid{InnerBase}@> && @\exposconcept{bidirectional-common}@<@\exposid{PatternBase}@>;
+
+    friend constexpr bool operator==(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+        requires @\exposid{ref-is-glvalue}@ && @\libconcept{equality_comparable}@<@\exposid{OuterIter}@> &&
+                 @\libconcept{equality_comparable}@<@\exposid{InnerIter}@>;
+
+    friend constexpr decltype(auto) iter_move(const @\exposid{iterator}@& x) {
+      using rvalue_reference = common_reference_t<
+        iter_rvalue_reference_t<@\exposid{InnerIter}@>,
+        iter_rvalue_reference_t<@\exposid{PatternIter}@>>;
+      return visit<rvalue_reference>(ranges::iter_move, x.@\exposid{inner_it_}@);
+    }
+
+    friend constexpr void iter_swap(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+        requires @\libconcept{indirectly_swappable}@<@\exposid{InnerIter}@, @\exposid{PatternIter}@> {
+      visit(ranges::iter_swap, x.@\exposid{inner_it_}@, y.@\exposid{inner_it_}@);
+    }
+  };
+}
+\end{codeblock}
+
+\pnum
+\tcode{\exposid{iterator}::iterator_concept} is defined as follows:
+\begin{itemize}
+\item
+If \exposid{ref-is-glvalue} is \tcode{true},
+\exposid{Base} models \libconcept{bidirectional_range}, and
+\exposid{InnerBase} and \exposid{PatternBase}
+each model \exposconcept{bidirectional-common},
+then \tcode{iterator_concept} denotes \tcode{bidirectional_iterator_tag}.
+\item
+Otherwise, if \exposid{ref-is-glvalue} is \tcode{true} and
+\exposid{Base} and \exposid{InnerBase} each model \libconcept{forward_range},
+then \tcode{iterator_concept} denotes \tcode{forward_iterator_tag}.
+\item
+Otherwise, \tcode{iterator_concept} denotes \tcode{input_iterator_tag}.
+\end{itemize}
+
+\pnum
+The member \grammarterm{typedef-name} \tcode{iterator_category} is defined
+if and only if \exposid{ref-is-glvalue} is \tcode{true}, and
+\exposid{Base} and \exposid{InnerBase} each model \libconcept{forward_range}.
+In that case,
+\tcode{\exposid{iterator}::iterator_category} is defined as follows:
+
+\begin{itemize}
+\item
+Let \placeholder{OUTERC} denote
+\tcode{iterator_traits<\exposid{OuterIter}>::iterator_category},
+let \placeholder{INNERC} denote
+\tcode{iterator_traits<\exposid{InnerIter}>::iterator_category}, and
+let \placeholder{PATTERNC} denote
+\tcode{iterator_-\linebreak traits<\exposid{PatternIter}>::iterator_category}.
+\item
+If
+\begin{codeblock}
+is_lvalue_reference_v<common_reference_t<iter_reference_t<@\exposid{InnerIter}@>,
+                                         iter_reference_t<@\exposid{PatternIter}@>>>
+\end{codeblock}
+is \tcode{false},
+\tcode{iterator_category} denotes \tcode{input_iterator_tag}.
+\item
+Otherwise,
+if \placeholder{OUTERC}, \placeholder{INNERC}, and \placeholder{PATTERNC}
+each model \tcode{\libconcept{derived_from}<bidirectional_iterator_category>}
+and \exposid{InnerBase} and \exposid{PatternBase}
+each model \libconcept{common_range},
+\tcode{iterator_cate\-gory} denotes \tcode{bidirectional_iterator_tag}.
+\item
+Otherwise,
+if \placeholder{OUTERC}, \placeholder{INNERC}, and \placeholder{PATTERNC}
+each model \tcode{\libconcept{derived_from}<forward_iterator_tag>},
+\tcode{iterator_category} denotes \tcode{forward_iterator_tag}.
+\item
+Otherwise, \tcode{iterator_category} denotes \tcode{input_iterator_tag}.
+\end{itemize}
+
+\pnum
+\tcode{\exposid{iterator}::value_type} denotes the type:
+\begin{codeblock}
+common_type_t<iter_value_t<@\exposid{InnerIter}@>, iter_value_t<@\exposid{PatternIter}@>>
+\end{codeblock}
+
+\pnum
+\tcode{\exposid{iterator}::difference_type} denotes the type:
+\begin{codeblock}
+common_type_t<
+    iter_difference_t<@\exposid{OuterIter}@>,
+    iter_difference_t<@\exposid{InnerIter}@>,
+    iter_difference_t<@\exposid{PatternIter}@>>
+\end{codeblock}
+
+\begin{itemdecl}
+constexpr auto&& @\exposid{update-inner}@(const @\exposid{OuterIter}@& x);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if constexpr (@\exposid{ref-is-glvalue}@)
+  return *x;
+else
+  return @\exposid{parent_}@->@\exposid{inner_}@.@\exposid{emplace-deref}@(x);
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr auto&& @\exposid{get-inner}@(const @\exposid{OuterIter}@& x);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if constexpr (@\exposid{ref-is-glvalue}@)
+  return *x;
+else
+  return *@\exposid{parent_}@->@\exposid{inner_}@;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr void @\exposid{satisfy}@();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+while (true) {
+  if (@\exposid{inner_it_}@.index() == 0) {
+    if (std::get<0>(@\exposid{inner_it_}@) != ranges::end(@\exposid{parent_}@->@\exposid{pattern_}@))
+      break;
+    auto&& inner = @\exposid{update-inner}@(@\exposid{outer_it_}@);
+    @\exposid{inner_it_}@.emplace<1>(ranges::begin(inner));
+  } else {
+    auto&& inner = @\exposid{get-inner}@(@\exposid{outer_it_}@);
+    if (std::get<1>(@\exposid{inner_it_}@) != ranges::end(inner))
+      break;
+    if (++@\exposid{outer_it_}@ == ranges::end(@\exposid{parent_}@->@\exposid{base_}@)) {
+      if constexpr (@\exposid{ref-is-glvalue}@)
+        @\exposid{inner_it_}@.emplace<0>();
+      break;
+    }
+    @\exposid{inner_it_}@.emplace<0>(ranges::begin(@\exposid{parent_}@->@\exposid{pattern_}@));
+  }
+}
+\end{codeblock}
+
+\begin{note}
+\tcode{join_with_view} iterators use the \exposid{satisfy} function
+to skip over empty inner ranges.
+\end{note}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr iterator(@\exposid{Parent}@& parent, iterator_t<@\exposid{Base}@> outer);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{parent_} with \tcode{addressof(parent)} and
+\exposid{outer_it_} with \tcode{std::move(outer)}.
+Then, equivalent to:
+\begin{codeblock}
+if (@\exposid{outer_it_}@ != ranges::end(@\exposid{parent_}@->@\exposid{base_}@)) {
+  auto&& inner = @\exposid{update-inner}@(@\exposid{outer_it_}@);
+  @\exposid{inner_it_}@.emplace<1>(ranges::begin(inner));
+  @\exposidnc{satisfy}@();
+}
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@(@\exposid{iterator}@<!Const> i)
+    requires Const && convertible_to<iterator_t<V>, @\exposid{OuterIter}@> &&
+             convertible_to<iterator_t<@\exposid{InnerRng}@>, @\exposid{InnerIter}@> &&
+             convertible_to<iterator_t<Pattern>, @\exposid{PatternIter}@>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{outer_it_} with
+\tcode{std::move(i.\exposid{outer_it_})} and
+\exposid{parent_} with \tcode{i.\exposid{parent_}}.
+Then, equivalent to:
+\begin{codeblock}
+if (i.@\exposid{inner_it_}@.index() == 0)
+  @\exposid{inner_it_}@.emplace<0>(std::get<0>(std::move(i.@\exposid{inner_it_}@)));
+else
+  @\exposid{inner_it_}@.emplace<1>(std::get<1>(std::move(i.@\exposid{inner_it_}@)));
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr decltype(auto) operator*() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+using reference =
+  common_reference_t<iter_reference_t<@\exposid{InnerIter}@>, iter_reference_t<@\exposid{PatternIter}@>>;
+return visit([](auto& it) -> reference { return *it; }, @\exposid{inner_it_}@);
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@& operator++();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+visit([](auto& it){ ++it; }, @\exposid{inner_it_}@);
+@\exposidnc{satisfy}@();
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr void operator++(int);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{++*this}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@ operator++(int)
+  requires @\exposid{ref-is-glvalue}@ && @\libconcept{forward_iterator}@<@\exposid{OuterIter}@> && @\libconcept{forward_iterator}@<@\exposid{InnerIter}@>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+@\exposid{iterator}@ tmp = *this;
+++*this;
+return tmp;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@& operator--()
+  requires @\exposid{ref-is-glvalue}@ && @\libconcept{bidirectional_range}@<@\exposid{Base}@> &&
+           @\exposconcept{bidirectional-common}@<@\exposid{InnerBase}@> && @\exposconcept{bidirectional-common}@<@\exposid{PatternBase}@>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if (@\exposid{outer_it_}@ == ranges::end(@\exposid{parent_}@->@\exposid{base_}@)) {
+  auto&& inner = *--@\exposid{outer_it_}@;
+  @\exposid{inner_it_}@.emplace<1>(ranges::end(inner));
+}
+
+while (true) {
+  if (@\exposid{inner_it_}@.index() == 0) {
+    auto& it = std::get<0>(@\exposid{inner_it_}@);
+    if (it == ranges::begin(@\exposid{parent_}@->@\exposid{pattern_}@)) {
+      auto&& inner = *--@\exposid{outer_it_}@;
+      @\exposid{inner_it_}@.emplace<1>(ranges::end(inner));
+    } else {
+      break;
+    }
+  } else {
+    auto& it = std::get<1>(@\exposid{inner_it_}@);
+    auto&& inner = *@\exposid{outer_it_}@;
+    if (it == ranges::begin(inner)) {
+      @\exposid{inner_it_}@.emplace<0>(ranges::end(@\exposid{parent_}@->@\exposid{pattern_}@));
+    } else {
+      break;
+    }
+  }
+}
+visit([](auto& it){ --it; }, @\exposid{inner_it_}@);
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@ operator--(int)
+  requires @\exposid{ref-is-glvalue}@ && @\libconcept{bidirectional_range}@<@\exposid{Base}@> &&
+           @\exposconcept{bidirectional-common}@<@\exposid{InnerBase}@> && @\exposconcept{bidirectional-common}@<@\exposid{PatternBase}@>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+@\exposid{iterator}@ tmp = *this;
+--*this;
+return tmp;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr bool operator==(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+  requires @\exposid{ref-is-glvalue}@ && @\libconcept{equality_comparable}@<@\exposid{OuterIter}@> &&
+           @\libconcept{equality_comparable}@<@\exposid{InnerIter}@>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return x.@\exposid{outer_it_}@ == y.@\exposid{outer_it_}@ && x.@\exposid{inner_it_}@ == y.@\exposid{inner_it_}@;
+\end{codeblock}
+\end{itemdescr}
+
+\rSec3[range.join.with.sentinel]{Class template \tcode{join_with_view::\exposid{sentinel}}}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<@\libconcept{input_range}@ V, @\libconcept{forward_range}@ Pattern>
+    requires @\libconcept{view}@<V> && @\libconcept{input_range}@<range_reference_t<V>>
+          && @\libconcept{view}@<Pattern> && @\exposconcept{compatible-joinable-ranges}@<range_reference_t<V>, Pattern>
+  template<bool Const>
+  class join_with_view<V, Pattern>::@\exposid{sentinel}@ {
+    using @\exposid{Parent}@ = @\exposid{maybe-const}@<Const, join_with_view>;  // \expos
+    using @\exposid{Base}@ = @\exposid{maybe-const}@<Const, V>;                 // \expos
+    sentinel_t<@\exposid{Base}@> @\exposid{end_}@ = sentinel_t<@\exposid{Base}@>();         // \expos
+
+    constexpr explicit @\exposid{sentinel}@(@\exposid{Parent}@& parent);        // \expos
+
+  public:
+    @\exposid{sentinel}@() = default;
+    constexpr @\exposid{sentinel}@(@\exposid{sentinel}@<!Const> s)
+      requires Const && @\libconcept{convertible_to}@<sentinel_t<V>, sentinel_t<@\exposid{Base}@>>;
+
+    template <bool OtherConst>
+      requires @\libconcept{sentinel_for}@<sentinel_t<@\exposid{Base}@>, iterator_t<@\exposid{maybe-const}@<OtherConst, V>>>
+    friend constexpr bool operator==(const @\exposid{iterator}@<OtherConst>& x, const @\exposid{sentinel}@& y);
+};
+\end{codeblock}
+
+\begin{itemdecl}
+constexpr explicit @\exposid{sentinel}@(@\exposid{Parent}@& parent);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{end_} with \tcode{ranges::end(parent.\exposid{base_})}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{sentinel}@(@\exposid{sentinel}@<!Const> s)
+  requires Const && @\libconcept{convertible_to}@<sentinel_t<V>, sentinel_t<@\exposid{Base}@>>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{end_} with \tcode{std::move(s.\exposid{end_})}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template <bool OtherConst>
+  requires @\libconcept{sentinel_for}@<sentinel_t<@\exposid{Base}@>, iterator_t<@\exposid{maybe-const}@<OtherConst, V>>>
+friend constexpr bool operator==(const @\exposid{iterator}@<OtherConst>& x, const @\exposid{sentinel}@& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return x.\exposid{outer_it_} == y.\exposid{end_};}
 \end{itemdescr}
 
 \rSec2[range.lazy.split]{Lazy split view}
