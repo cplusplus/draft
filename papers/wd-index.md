@@ -39,3 +39,4 @@
  * [N4878](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2020/n4878.pdf) 2020-12 C++ Working Draft
  * [N4885](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2021/n4885.pdf) 2021-03 C++ Working Draft
  * [N4892](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2021/n4892.pdf) 2021-03 C++ Working Draft
+ * [N4901](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2021/n4901.pdf) 2021-03 C++ Working Draft
