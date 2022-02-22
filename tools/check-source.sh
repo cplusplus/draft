@@ -120,6 +120,10 @@ for f in $texlib; do
 done |
     fail 'No namespace around class definition' || failed=1
 
+# ref-qualifier on member functions with no space, e.g. "const&"
+fgrep -ne ') const&' $texlib |
+    fail 'no space between cv-qualifier and ref-qualifier' || failed=1
+
 # \begin{example/note} with non-whitespace in front on the same line.
 grep -ne '^.*[^ ]\s*\\\(begin\|end\){\(example\|note\)}' $texfiles |
     fail "non-whitespace before note/example begins" || failed=1
