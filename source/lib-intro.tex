@@ -29,6 +29,8 @@ Detailed specifications for each of the components in the library are in
 \ref{support}           & Language support library    \\
 \ref{concepts}          & Concepts library            \\
 \ref{diagnostics}       & Diagnostics library         \\
+\ref{mem}               & Memory management library   \\
+\ref{meta}              & Metaprogramming library     \\
 \ref{utilities}         & General utilities library   \\
 \ref{strings}           & Strings library             \\
 \ref{containers}        & Containers library          \\
@@ -40,14 +42,14 @@ Detailed specifications for each of the components in the library are in
 \ref{localization}      & Localization library        \\
 \ref{input.output}      & Input/output library        \\
 \ref{re}                & Regular expressions library \\
-\ref{atomics}           & Atomic operations library   \\
-\ref{thread}            & Thread support library      \\
+\ref{thread}            & Concurrency support library \\
 \end{floattable}
 
 \pnum
 The language support library\iref{support} provides components that are
-required by certain parts of the \Cpp{} language, such as memory allocation~(\ref{expr.new},
-\ref{expr.delete}) and exception processing\iref{except}.
+required by certain parts of the \Cpp{} language,
+such as memory allocation\iref{expr.new,expr.delete} and
+exception processing\iref{except}.
 
 \pnum
 The concepts library\iref{concepts} describes library components that \Cpp{}
@@ -57,6 +59,15 @@ perform function dispatch based on properties of types.
 \pnum
 The diagnostics library\iref{diagnostics} provides a consistent framework for
 reporting errors in a \Cpp{} program, including predefined exception classes.
+
+\pnum
+The memory management library\iref{mem} provides components for
+memory management, including smart pointers and scoped allocators.
+
+\pnum
+The metaprogramming library\iref{meta} describes facilities
+for use in templates and during constant evaluation,
+including type traits, integer sequences, and rational arithmetic.
 
 \pnum
 The general utilities library\iref{utilities} includes components used
@@ -110,12 +121,9 @@ strings, locales, and iterators.
 The regular expressions library\iref{re} provides regular expression matching and searching.
 
 \pnum
-The atomic operations library\iref{atomics} allows more fine-grained
-concurrent access to shared data than is possible with locks.
-
-\pnum
 The thread support library\iref{thread} provides components to create
-and manage threads, including mutual exclusion and interthread communication.
+and manage threads,
+including atomic operations, mutual exclusion, and interthread communication.
 
 \rSec1[library.c]{The C standard library}
 
@@ -135,6 +143,30 @@ but the behavior and the preconditions
 (including any preconditions implied by the use of an
 ISO C \tcode{restrict} qualifier)
 are the same unless otherwise stated.
+
+\pnum
+A call to a C standard library function is
+a non-constant library call\iref{defns.nonconst.libcall}
+if it raises a floating-point exception other than \tcode{FE_INEXACT}.
+The semantics of a call to a C standard library function
+evaluated as a core constant expression
+are those specified in Annex F of the C standard
+\begin{footnote}
+See also ISO/IEC 9899:2018 section 7.6.
+\end{footnote}
+to the extent applicable to the floating-point types\iref{basic.fundamental}
+that are parameter types of the called function.
+\begin{note}
+Annex F specifies
+the conditions under which floating-point exceptions are raised and
+the behavior when NaNs and/or infinities are passed as arguments.
+\end{note}
+\begin{note}
+Equivalently, a call to a C standard library function is
+a non-constant library call
+if \tcode{errno} is set
+when \tcode{math_errhandling \& MATH_ERRNO} is \tcode{true}.
+\end{note}
 
 \rSec1[description]{Method of description}
 
@@ -348,6 +380,15 @@ the synchronization operations\iref{intro.multithread} applicable to the functio
 \ensures
 the conditions (sometimes termed observable results)
 established by the function.
+
+\item
+\result
+for a \grammarterm{typename-specifier}, a description of the named type;
+for an \grammarterm{expression},
+a description of the type of the expression;
+the expression is an lvalue if the type is an lvalue reference type,
+an xvalue if the type is an rvalue reference type, and
+a prvalue otherwise.
 
 \item
 \returns
@@ -646,14 +687,30 @@ of characters and character sequences that follow a few uniform conventions:
 
 \begin{itemize}
 \item
+Properties specified as \defn{locale-specific}
+may change during program execution
+by a call to \tcode{setlocale(int, const char*)}\iref{clocale.syn}, or
+by a change to a \tcode{locale} object,
+as described in \ref{locales} and \ref{input.output}.
+\item
+The \defnadj{execution}{character set} and
+the \defnadj{execution}{wide-character set}
+are supersets of the basic literal character set\iref{lex.charset}.
+The encodings of the execution character sets and
+the sets of additional elements (if any) are locale-specific.
+\begin{note}
+The encodings of the execution character sets can be unrelated
+to any literal encoding.
+\end{note}
+\item
 A \defn{letter} is any of the 26 lowercase or 26
 \indextext{lowercase}%
 \indextext{uppercase}%
-uppercase letters in the basic execution character set.
+uppercase letters in the basic character set.
 \item
 The
 \defnx{decimal-point character}{character!decimal-point}
-is the
+is the locale-specific
 (single-byte) character used by functions that convert between a (single-byte)
 character sequence and a value of one of the floating-point types.
 It is used
@@ -665,17 +722,7 @@ and \ref{depr} by a period,
 \tcode{'.'},
 which is
 also its value in the \tcode{"C"}
-locale, but may change during program
-execution by a call to
-\tcode{setlocale(int, const char*)},
-\begin{footnote}
-declared in
-\libheaderref{clocale}.
-\indexlibraryglobal{setlocale}%
-\end{footnote}
-or by a change to a
-\tcode{locale}
-object, as described in \ref{locales} and \ref{input.output}.
+locale.
 \item
 A
 \defn{character sequence}
@@ -748,7 +795,7 @@ sequence of valid multibyte characters, beginning and ending in the initial
 shift state.
 \begin{footnote}
 An \ntbs{} that contains characters only from the
-basic execution character set is also an \ntmbs{}.
+basic literal character set is also an \ntmbs{}.
 Each multibyte character then
 consists of a single byte.
 \end{footnote}
@@ -813,7 +860,7 @@ call to unconstrained functions with the same name in namespace \tcode{std},
 customization point objects specify that lookup for these expressions is
 performed in a context that includes deleted overloads matching the signatures
 of overloads defined in namespace \tcode{std}. When the deleted overloads are
-viable, program-defined overloads need be more specialized\iref{temp.func.order}
+viable, program-defined overloads need to be more specialized\iref{temp.func.order}
 or more constrained\iref{temp.constr.order} to be used by a customization point
 object.
 \end{note}
@@ -825,7 +872,7 @@ For the sake of exposition, \ref{\firstlibchapter} through \ref{\lastlibchapter}
 and \ref{depr} do not describe copy/move constructors, assignment
 operators, or (non-virtual) destructors with the same apparent
 semantics as those that can be generated
-by default~(\ref{class.copy.ctor}, \ref{class.copy.assign}, \ref{class.dtor}).
+by default\iref{class.copy.ctor,class.copy.assign,class.dtor}.
 \indextext{constructor!copy}%
 \indextext{operator!assignment}%
 \indextext{destructor}%
@@ -907,7 +954,7 @@ are defined within the namespace
 or namespaces nested within namespace
 \tcode{std}.
 \begin{footnote}
-The C standard library headers\iref{depr.c.headers} also define
+The C standard library headers\iref{support.c.headers} also define
 names within the global namespace, while the \Cpp{} headers for C library
 facilities\iref{headers} can also define names within the global namespace.
 \end{footnote}
@@ -921,7 +968,7 @@ support multiple configurations of the library.
 \end{footnote}
 
 \pnum
-Whenever an unqualified name is used
+Whenever an unqualified name other than \tcode{swap} is used
 in the specification of a declaration \tcode{D}
 in \ref{\firstlibchapter} through \ref{\lastlibchapter} or \ref{depr},
 its meaning is established
@@ -940,6 +987,9 @@ The reference to \tcode{is_array_v} in the specification of \tcode{std::to_array
 Operators in expressions\iref{over.match.oper} are not so constrained;
 see \ref{global.functions}.
 \end{note}
+The meaning of the unqualified name \tcode{swap} is established
+in an overload resolution context
+for swappable values\iref{swappable.requirements}.
 
 \rSec3[headers]{Headers}
 
@@ -977,9 +1027,10 @@ shown in \tref{headers.cpp}.
 \tcode{<deque>} \\
 \tcode{<exception>} \\
 \tcode{<execution>} \\
+\tcode{<expected>} \\
 \tcode{<filesystem>} \\
-\tcode{<format>} \\
 \columnbreak
+\tcode{<format>} \\
 \tcode{<forward_list>} \\
 \tcode{<fstream>} \\
 \tcode{<functional>} \\
@@ -999,8 +1050,8 @@ shown in \tref{headers.cpp}.
 \tcode{<memory>} \\
 \tcode{<memory_resource>} \\
 \tcode{<mutex>} \\
-\tcode{<new>} \\
 \columnbreak
+\tcode{<new>} \\
 \tcode{<numbers>} \\
 \tcode{<numeric>} \\
 \tcode{<optional>} \\
@@ -1020,8 +1071,8 @@ shown in \tref{headers.cpp}.
 \tcode{<sstream>} \\
 \tcode{<stack>} \\
 \tcode{<stacktrace>} \\
-\tcode{<stdexcept>} \\
 \columnbreak
+\tcode{<stdexcept>} \\
 \tcode{<stop_token>} \\
 \tcode{<streambuf>} \\
 \tcode{<string>} \\
@@ -1093,7 +1144,7 @@ are collectively known as
 the \defnadj{importable}{\Cpp{} library headers}.
 \begin{note}
 Importable \Cpp{} library headers can be
-imported as module units\iref{module.import}.
+imported\iref{module.import}.
 \end{note}
 \begin{example}
 \begin{codeblock}
@@ -1144,7 +1195,7 @@ standard header \libheader{iso646.h} has no effect.
 \end{footnote}
 
 \pnum
-\ref{depr.c.headers}, C standard library headers, describes the effects of using
+\ref{support.c.headers}, C standard library headers, describes the effects of using
 the \tcode{\placeholder{name}.h} (C header) form in a \Cpp{} program.
 \begin{footnote}
  The
@@ -1289,7 +1340,7 @@ include at least the headers shown in \tref{headers.cpp.fs}.
 \ref{support.coroutine}  & Coroutines support        & \tcode{<coroutine>}        \\ \rowsep
 \ref{support.runtime}    & Other runtime support     & \tcode{<cstdarg>}          \\ \rowsep
 \ref{concepts}           & Concepts library          & \tcode{<concepts>}         \\ \rowsep
-\ref{meta}               & Type traits               & \tcode{<type_traits>}      \\ \rowsep
+\ref{type.traits}        & Type traits               & \tcode{<type_traits>}      \\ \rowsep
 \ref{bit}                & Bit manipulation          & \tcode{<bit>}              \\ \rowsep
 \ref{atomics}            & Atomics                   & \tcode{<atomic>}           \\
 \end{libsumtab}
@@ -1352,7 +1403,7 @@ A translation unit may include library headers in any order\iref{lex.separate}.
 \indextext{unit!translation}%
 Each may be included more than once, with no effect different from
 being included exactly once, except that the effect of including either
-\libheaderref{cassert} or \libheaderrefx{assert.h}{depr.c.headers}
+\libheaderref{cassert} or \libheaderrefx{assert.h}{support.c.headers}
 depends each time on the lexically current definition of
 \indextext{\idxcode{NDEBUG}}%
 \indexlibraryglobal{NDEBUG}%
@@ -1612,21 +1663,22 @@ for any dereferenceable object
 User code can ensure that the evaluation of \tcode{swap} calls
 is performed in an appropriate context under the various conditions as follows:
 \begin{codeblock}
+#include <cassert>
 #include <utility>
 
-// Requires: \tcode{std::forward<T>(t)} shall be swappable with \tcode{std::forward<U>(u)}.
+// Preconditions: \tcode{std::forward<T>(t)} is swappable with \tcode{std::forward<U>(u)}.
 template<class T, class U>
 void value_swap(T&& t, U&& u) {
   using std::swap;
-  swap(std::forward<T>(t), std::forward<U>(u)); // OK: uses ``swappable with'' conditions
+  swap(std::forward<T>(t), std::forward<U>(u)); // OK, uses ``swappable with'' conditions
                                                 // for rvalues and lvalues
 }
 
-// Requires: lvalues of \tcode{T} shall be swappable.
+// Preconditions: lvalues of \tcode{T} are swappable.
 template<class T>
 void lv_swap(T& t1, T& t2) {
   using std::swap;
-  swap(t1, t2);                                 // OK: uses swappable conditions for lvalues of type \tcode{T}
+  swap(t1, t2);                                 // OK, uses swappable conditions for lvalues of type \tcode{T}
 }
 
 namespace N {
@@ -1635,7 +1687,7 @@ namespace N {
   Proxy proxy(A& a) { return Proxy{ &a }; }
 
   void swap(A& x, Proxy p) {
-    std::swap(x.m, p.a->m);                     // OK: uses context equivalent to swappable
+    std::swap(x.m, p.a->m);                     // OK, uses context equivalent to swappable
                                                 // conditions for fundamental types
   }
   void swap(Proxy p, A& x) { swap(x, p); }      // satisfy symmetry constraint
@@ -1788,137 +1840,323 @@ string buffers and string streams\iref{input.output}, and
 \tcode{match_results}\iref{re} are parameterized in terms of
 allocators.
 
-\begin{shortlibreqtab2}
-{Descriptive variable definitions}
-{allocator.req.var}
-\topline
-\lhdr{Variable} &   \rhdr{Definition}   \\  \capsep
-\tcode{T, U, C}    &   any \cv-unqualified object type\iref{basic.types}       \\ \rowsep
-\tcode{X}       &   an allocator class for type \tcode{T}   \\ \rowsep
-\tcode{Y}       &   the corresponding allocator class for type \tcode{U}    \\ \rowsep
-\tcode{XX}      &   the type \tcode{allocator_traits<X>}    \\ \rowsep
-\tcode{YY}      &   the type \tcode{allocator_traits<Y>}    \\ \rowsep
-\tcode{a, a1, a2}   &   lvalues of type \tcode{X}      \\ \rowsep
-\tcode{u}       &   the name of a variable being declared      \\ \rowsep
-\tcode{b}       &   a value of type \tcode{Y}           \\ \rowsep
-\tcode{c}       &   a pointer of type \tcode{C*} through which indirection is valid \\ \rowsep
-\tcode{p}       &   a value of type \tcode{XX::pointer}, obtained
-by calling \tcode{a1.allocate}, where \tcode{a1 == a}   \\ \rowsep
-\tcode{q}       &   a value of type \tcode{XX::const_pointer}
-obtained by conversion from a value \tcode{p}           \\ \rowsep
-\tcode{r}       &   a value of type \tcode{T\&}
-obtained by the expression \tcode{*p}                   \\ \rowsep
-\tcode{w}       &   a value of type \tcode{XX::void_pointer} obtained by
-  conversion from a value \tcode{p}  \\ \rowsep
-\tcode{x}       &   a value of type \tcode{XX::const_void_pointer} obtained by
-  conversion from a value \tcode{q} or a value \tcode{w}  \\ \rowsep
-\tcode{y}       &   a value of type \tcode{XX::const_void_pointer} obtained by
-conversion from a result value of \tcode{YY::allocate}, or else a value of
-type (possibly \keyword{const}) \tcode{std::nullptr_t}  \\ \rowsep
-\tcode{n}       &   a value of type \tcode{XX::size_type}    \\ \rowsep
-\tcode{Args}    &   a template parameter pack               \\ \rowsep
-\tcode{args}    &   a function parameter pack with the pattern \tcode{Args\&\&} \\
-\end{shortlibreqtab2}
+\pnum
+In subclause \ref{allocator.requirements},
+\begin{itemize}
+\item
+\tcode{T}, \tcode{U}, \tcode{C} denote
+any \cv-unqualified object type\iref{term.object.type},
+\item
+\tcode{X} denotes an allocator class for type \tcode{T},
+\item
+\tcode{Y} denotes the corresponding allocator class for type \tcode{U},
+\item
+\tcode{XX} denotes the type \tcode{allocator_traits<X>},
+\item
+\tcode{YY} denotes the type \tcode{allocator_traits<Y>},
+\item
+\tcode{a}, \tcode{a1}, \tcode{a2} denote lvalues of type \tcode{X},
+\item
+\tcode{u} denotes the name of a variable being declared,
+\item
+\tcode{b} denotes a value of type \tcode{Y},
+\item
+\tcode{c} denotes a pointer of type \tcode{C*}
+through which indirection is valid,
+\item
+\tcode{p} denotes a value of type \tcode{XX::pointer}
+obtained by calling \tcode{a1.allocate}, where \tcode{a1 == a},
+\item
+\tcode{q} denotes a value of type \tcode{XX::const_pointer}
+obtained by conversion from a value \tcode{p},
+\item
+\tcode{r} denotes a value of type \tcode{T\&}
+obtained by the expression \tcode{*p},
+\item
+\tcode{w} denotes a value of type \tcode{XX::void_pointer}
+obtained by conversion from a value \tcode{p},
+\item
+\tcode{x} denotes a value of type \tcode{XX::const_void_pointer}
+obtained by conversion from a value \tcode{q} or a value \tcode{w},
+\item
+\tcode{y} denotes a value of type \tcode{XX::const_void_pointer}
+obtained by conversion from a result value of \tcode{YY::allocate}, or else
+a value of type (possibly \tcode{const}) \tcode{std::nullptr_t},
+\item
+\tcode{n} denotes a value of type \tcode{XX::size_type},
+\item
+\tcode{Args} denotes a template parameter pack, and
+\item
+\tcode{args} denotes
+a function parameter pack with the pattern \tcode{Args\&\&}.
+\end{itemize}
 
 \pnum
 The class template \tcode{allocator_traits}\iref{allocator.traits} supplies
 a uniform interface to all allocator types.
-\tref{allocator.req.var} describes the types manipulated
-through allocators. \tref{cpp17.allocator}
+This subclause
 describes the requirements on allocator types
-and thus on types used to instantiate \tcode{allocator_traits}. A requirement
-is optional if the last column of
-\tref{cpp17.allocator} specifies a default for a
-given expression. Within the standard library \tcode{allocator_traits}
+and thus on types used to instantiate \tcode{allocator_traits}.
+A requirement is optional if a default for a
+given type or expression is specified.
+Within the standard library \tcode{allocator_traits}
 template, an optional requirement that is not supplied by an allocator is
-replaced by the specified default expression. A user specialization of
+replaced by the specified default type or expression. A user specialization of
 \tcode{allocator_traits} may provide different defaults and may provide
-defaults for different requirements than the primary template. Within
-Tables~\ref{tab:allocator.req.var} and~\ref{tab:cpp17.allocator},
-the use of \tcode{move} and \tcode{forward} always refers to \tcode{std::move}
-and \tcode{std::forward}, respectively.
+defaults for different requirements than the primary template.
 
-\begin{libreqtab4d}
-{\oldconcept{Allocator} requirements}
-{cpp17.allocator}
-\\ \topline
-\lhdr{Expression}   &   \chdr{Return type}  &   \chdr{Assertion/note} & \rhdr{Default}       \\
-                    &                       &   \chdr{pre-/post-condition}  &   \\ \capsep
-\endfirsthead
-\continuedcaption\\
-\hline
-\lhdr{Expression}   &   \chdr{Return type}  &   \chdr{Assertion/note} & \rhdr{Default}       \\
-                    &                       &   \chdr{pre-/post-condition}  &   \\ \capsep
-\endhead
-\tcode{X::pointer}          &          &   & \tcode{T*} \\ \rowsep
+\begin{itemdecl}
+typename X::pointer
+\end{itemdecl}
 
-\tcode{X::const_pointer}    &
-   &
-  \tcode{X::pointer} is convertible to \tcode{X::const_pointer}   &
-  \tcode{pointer_traits<X::\brk{}pointer>::\brk{}rebind<const T>}             \\ \rowsep
+\begin{itemdescr}
+\pnum
+\remarks
+Default: \tcode{T*}
+\end{itemdescr}
 
-\tcode{X::void_pointer}\br\tcode{Y::void_pointer} &
-                                                  &
-  \tcode{X::pointer} is convertible to \tcode{X::void_pointer}.
-  \tcode{X::void_pointer} and \tcode{Y::void_pointer} are the same type.  &
-  \tcode{pointer_traits<X::\brk{}pointer>::\brk{}rebind<void>} \\ \rowsep
+\begin{itemdecl}
+typename X::const_pointer
+\end{itemdecl}
 
-\tcode{X::const_void_pointer}\br\tcode{Y::const_void_pointer} &
-                                                  &
-  \tcode{X::pointer}, \tcode{X::const_pointer}, and \tcode{X::void_pointer} are convertible to \tcode{X::const_void_pointer}.
-  \tcode{X::const_void_pointer} and \tcode{Y::const_void_pointer} are the same type.  &
-  \tcode{pointer_traits<X::\brk{}pointer>::\brk{}rebind<const void>} \\ \rowsep
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{X::pointer} is convertible to \tcode{X::const_pointer}.
 
-\tcode{X::value_type}       &
-  Identical to \tcode{T}    &   & \\ \rowsep
+\pnum
+\remarks
+Default: \tcode{pointer_traits<X::pointer>::rebind<const T>}
+\end{itemdescr}
 
-\tcode{X::size_type}        &
-  unsigned integer type     &
-  a type that can represent the size of the largest object in the allocation model &
-  \tcode{make_unsigned_t<X::\brk{}difference_type>} \\ \rowsep
+\begin{itemdecl}
+typename X::void_pointer
+typename Y::void_pointer
+\end{itemdecl}
 
-\tcode{X::difference_type}  &
-  signed integer type       &
-  a type that can represent the difference between any two pointers
-    in the allocation model &
-  \tcode{pointer_traits<X::\brk{}pointer>::\brk{}difference_type} \\ \rowsep
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{X::pointer} is convertible to \tcode{X::void_pointer}.
+\tcode{X::void_pointer} and \tcode{Y::void_pointer} are the same type.
 
-\tcode{typename X::template rebind<U>::other}   &
-  \tcode{Y}                 &
-  For all \tcode{U} (including \tcode{T}), \tcode{Y::template rebind<T>::other}
-    is \tcode{X}.           &
-  See Note A, below.        \\ \rowsep
+\pnum
+\remarks
+Default:
+\tcode{pointer_traits<X::pointer>::rebind<void>}
+\end{itemdescr}
 
-\tcode{*p}                  &
-  \tcode{T\&}               && \\ \rowsep
+\begin{itemdecl}
+typename X::const_void_pointer
+typename Y::const_void_pointer
+\end{itemdecl}
 
-\tcode{*q}                  &
-  \tcode{const T\&}         &
-  \tcode{*q} refers to the same object as \tcode{*p}. & \\ \rowsep
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{X::pointer}, \tcode{X::const_pointer}, and \tcode{X::void_pointer}
+are convertible to \tcode{X::const_void_pointer}.
+\tcode{X::const_void_pointer} and \tcode{Y::const_void_pointer}
+are the same type.
 
-\tcode{p->m}                &
-  type of \tcode{T::m}      &
-  \expects \tcode{(*p).m} is well-defined.\br
-  equivalent to \tcode{(*p).m}  & \\ \rowsep
+\pnum
+\remarks
+Default:
+\tcode{pointer_traits<X::pointer>::rebind<const void>}
+\end{itemdescr}
 
-\tcode{q->m}                &
-  type of \tcode{T::m}      &
-  \expects \tcode{(*q).m} is well-defined.\br
-  equivalent to \tcode{(*q).m}  & \\ \rowsep
+\begin{itemdecl}
+typename X::value_type
+\end{itemdecl}
 
-\tcode{static_cast<\brk{}X::pointer\brk{}>(w)}  &
-  \tcode{X::pointer}                &
-  \tcode{static_cast<X::pointer>(w) == p} & \\ \rowsep
+\begin{itemdescr}
+\pnum
+\result
+Identical to \tcode{T}.
+\end{itemdescr}
 
-\tcode{static_cast<\brk{}X::const_pointer\brk{}>(x)}  &
-  \tcode{X::const_pointer}                &
-  \tcode{static_cast<} \tcode{X::const_pointer\brk{}>(x) == q} & \\ \rowsep
+\begin{itemdecl}
+typename X::size_type
+\end{itemdecl}
 
-\tcode{pointer_traits<\brk{}X::pointer\brk{}>::pointer_to(r)}  &
-  \tcode{X::pointer}        &
-  same as \tcode{p}         & \\ \rowsep
+\begin{itemdescr}
+\pnum
+\result
+An unsigned integer type
+that can represent the size of the largest object in the allocation model.
 
-\tcode{a.allocate(n)}   &   \tcode{X::pointer}  &
+\pnum
+\remarks
+Default:
+\tcode{make_unsigned_t<X::difference_type>}
+\end{itemdescr}
+
+\begin{itemdecl}
+typename X::difference_type
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+A signed integer type that can represent
+the difference between any two pointers in the allocation model.
+
+\pnum
+\remarks
+Default:
+\tcode{pointer_traits<X::pointer>::difference_type}
+\end{itemdescr}
+
+\begin{itemdecl}
+typename X::template rebind<U>::other
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+\tcode{Y}
+
+\pnum
+\ensures
+For all \tcode{U} (including \tcode{T}),
+\tcode{Y::template rebind<T>::other} is \tcode{X}.
+
+\pnum
+\remarks
+If \tcode{Allocator} is a class template instantiation of the form
+\tcode{SomeAllocator<T, Args>}, where \tcode{Args} is zero or more type
+arguments, and \tcode{Allocator} does not supply a \tcode{rebind} member
+template, the standard \tcode{allocator_traits} template uses
+\tcode{SomeAllocator<U, Args>} in place of \tcode{Allocator::re\-bind<U>::other}
+by default. For allocator types that are not template instantiations of the
+above form, no default is provided.
+
+\pnum
+\begin{note}
+The member class template \tcode{rebind} of \tcode{X} is
+effectively a typedef template.
+In general, if
+the name \tcode{Allocator} is bound to \tcode{SomeAllocator<T>}, then
+\tcode{Allocator::rebind<U>::other} is the same type as
+\tcode{SomeAllocator<U>}, where
+\tcode{SomeAllocator<T>::value_type} is \tcode{T} and
+\tcode{SomeAllocator<U>::value_type} is \tcode{U}.
+\end{note}
+\end{itemdescr}
+
+\begin{itemdecl}
+*p
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+\tcode{T\&}
+\end{itemdescr}
+
+\begin{itemdecl}
+*q
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+\tcode{const T\&}
+
+\pnum
+\ensures
+\tcode{*q} refers to the same object as \tcode{*p}.
+\end{itemdescr}
+
+\begin{itemdecl}
+p->m
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+Type of \tcode{T::m}.
+
+\pnum
+\expects
+\tcode{(*p).m} is well-defined.
+
+\pnum
+\effects
+Equivalent to \tcode{(*p).m}.
+\end{itemdescr}
+
+\begin{itemdecl}
+q->m
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+Type of \tcode{T::m}.
+
+\pnum
+\expects
+\tcode{(*q).m} is well-defined.
+
+\pnum
+\effects
+Equivalent to \tcode{(*q).m}.
+\end{itemdescr}
+
+\begin{itemdecl}
+static_cast<X::pointer>(w)
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+\tcode{X::pointer}
+
+\pnum
+\ensures
+\tcode{static_cast<X::pointer>(w) == p}.
+\end{itemdescr}
+
+\begin{itemdecl}
+static_cast<X::const_pointer>(x)
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+\tcode{X::const_pointer}
+
+\pnum
+\ensures
+\tcode{static_cast<X::const_pointer>(x) == q}.
+\end{itemdescr}
+
+\begin{itemdecl}
+pointer_traits<X::pointer>::pointer_to(r)
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+\tcode{X::pointer}
+
+\pnum
+\ensures
+Same as \tcode{p}.
+\end{itemdescr}
+
+\begin{itemdecl}
+a.allocate(n)
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+\tcode{X::pointer}
+
+\pnum
+\effects
 Memory is allocated for an array of \tcode{n} \tcode{T}
 and such an object is created
 but array elements are not constructed.
@@ -1928,189 +2166,388 @@ When reusing storage denoted by some pointer value \tcode{p},
 can be used to implicitly create a suitable array object
 and obtain a pointer to it.
 \end{example}
+
+\pnum
+\throws
 \tcode{allocate} may throw an appropriate exception.
-\begin{footnote}
+
+\pnum
+\begin{note}
 It is intended that \tcode{a.allocate} be an efficient means
 of allocating a single object of type \tcode{T}, even when \tcode{sizeof(T)}
 is small. That is, there is no need for a container to maintain its own
 free list.
-\end{footnote}
-See Note C, below.
-&  \\ \rowsep
-
-\tcode{a.allocate(n, y)}    &
-  \tcode{X::pointer}        &
-  Same as \tcode{a.allocate(n)}. The use of \tcode{y} is unspecified, but
-    it is intended as an aid to locality. &
-  \tcode{a.allocate(n)}     \\ \rowsep
-
-\tcode{a.allocate_at_least(n)} &
-  \tcode{allocation_result<X::pointer>} &
-  \returns
-  \tcode{allocation_result<X::pointer>\{ptr, count\}}
-  where \tcode{ptr} is memory allocated for an array of \tcode{count} \tcode{T}
-  and such an object is created but array elements are not constructed,
-  such that $\tcode{count} \geq \tcode{n}$.
-  \tcode{allocate_at_least} may throw an appropriate exception.
-  See Note C, below. &
-  See Note D, below. \\ \rowsep
-
-\tcode{a.deallocate(p,n)}   &
-  (not used)                &
-  \expects
-  \begin{itemize}
-  \item
-  If \tcode{p} is memory
-  that was obtained by a call to \tcode{a.allocate_at_least},
-  let \tcode{ret} be the value returned and
-  \tcode{req} be the value passed as the first argument of that call.
-  \tcode{p} is equal to \tcode{ret.ptr} and
-  \tcode{n} is a value such that
-  $\tcode{req} \leq \tcode{n} \leq \tcode{ret.count}$.
-  \item
-  Otherwise, \tcode{p} is a pointer value obtained from \tcode{allocate}.
-  \tcode{n} equals the value passed as the first argument
-  to the invocation of \tcode{allocate} which returned \tcode{p}.
-  \end{itemize}
-  \tcode{p} has not been invalidated by
-  an intervening call to \tcode{deallocate}.\br
-  \throws Nothing.          &  \\ \rowsep
-
-\tcode{a.max_size()}        &
-  \tcode{X::size_type}      &
-  the largest value that can meaningfully be passed to \tcode{X::allocate()}  &
-  \tcode{numeric_limits<size_type>::max() / sizeof\brk{}(value_type)}  \\ \rowsep
-
-\tcode{a1 == a2}            &
-  \tcode{bool}              &
-  Returns \tcode{true} only if storage allocated from each can
-    be deallocated via the other. \tcode{operator==} shall be reflexive, symmetric,
-    and transitive, and shall not exit via an exception. &  \\ \rowsep
-
-\tcode{a1 != a2}            &
-  \tcode{bool}              &
-  same as \tcode{!(a1 == a2)}     & \\ \rowsep
-
-\tcode{a == b}              &
-  \tcode{bool}              &
-  same as \tcode{a ==} \tcode{Y::rebind<T>::other(b)} & \\ \rowsep
-
-\tcode{a != b}              &
-  \tcode{bool}              &
-  same as \tcode{!(a == b)} & \\ \rowsep
-
-\tcode{X u(a)};            \br
-\tcode{X u = a;}           &
-                            &
-  Shall not exit via an exception.\br
-  \ensures \tcode{u == a}     & \\ \rowsep
-
-\tcode{X u(b);}             &
-                            &
-  Shall not exit via an exception.\br
-  \ensures \tcode{Y(u) == b}, \tcode{u == X(b)} &  \\ \rowsep
-
-\tcode{X u(std::move(a));}  \br
-\tcode{X u = std::move(a);} &
-                            &
-  Shall not exit via an exception.\br
-  \ensures The value of \tcode{a} is unchanged and is equal to \tcode{u}. & \\ \rowsep
-
-\tcode{X u(std::move(b));}  &
-                            &
-  Shall not exit via an exception.\br
-  \ensures \tcode{u} is equal to the prior value of \tcode{X(b)}. & \\ \rowsep
-
-\tcode{a.construct(c, args)}&
-  (not used)                &
-  \effects Constructs an object of type \tcode{C} at
-    \tcode{c}.              &
-  \tcode{construct_at(c,~std::\brk{}forward<Args>\brk{}(args)...)}  \\ \rowsep
-
-\tcode{a.destroy(c)}        &
-  (not used)                &
-  \effects Destroys the object at \tcode{c}  &
-  \tcode{destroy_at(c)}     \\  \rowsep
-
-\tcode{a.select_on_container_copy_construction()} &
-  \tcode{X}                 &
-  Typically returns either \tcode{a} or \tcode{X()}. &
-  \tcode{return a;}         \\ \rowsep
-
-\tcode{X::propagate_on_container_copy_assignment} &
-  Identical to or derived from \tcode{true_type} or \tcode{false_type}  &
-  \tcode{true_type} only if an allocator of type \tcode{X} should be copied
-    when the client container is copy-assigned.
-    See Note B, below.   &
-  \tcode{false_type}        \\ \rowsep
-
-\tcode{X::propagate_on_container_move_assignment} &
-  Identical to or derived from \tcode{true_type} or \tcode{false_type}  &
-  \tcode{true_type} only if an allocator of type \tcode{X} should be moved
-    when the client container is move-assigned.
-    See Note B, below.   &
-  \tcode{false_type}        \\ \rowsep
-
-\tcode{X::propagate_on_-} \tcode{container_swap} &
-  Identical to or derived from \tcode{true_type} or \tcode{false_type}  &
-  \tcode{true_type} only if an allocator of type \tcode{X} should be swapped
-    when the client container is swapped.
-    See Note B, below.   &
-  \tcode{false_type}        \\ \rowsep
-
-\tcode{X::is_always_equal} &
-  Identical to or derived from \tcode{true_type} or \tcode{false_type}  &
-  \tcode{true_type} only if the expression \tcode{a1 == a2} is guaranteed
-    to be \tcode{true} for any two (possibly \keyword{const}) values
-    \tcode{a1}, \tcode{a2} of type \tcode{X}.   &
-  \tcode{is_empty<X>::\brk{}type}       \\
-
-\end{libreqtab4d}
-
-\pnum
-Note A: The member class template \tcode{rebind} in the table above is
-effectively a typedef template.
-\begin{note}
-In general, if
-the name \tcode{Allocator} is bound to \tcode{SomeAllocator<T>}, then
-\tcode{Allocator::rebind<U>::other} is the same type as
-\tcode{SomeAllocator<U>}, where
-\tcode{SomeAllocator<T>::value_type} is \tcode{T} and
-\tcode{SomeAllocator<U>::\brk{}value_type} is \tcode{U}.
 \end{note}
-If
-\tcode{Allocator} is a class template instantiation of the form
-\tcode{SomeAllocator<T, Args>}, where \tcode{Args} is zero or more type
-arguments, and \tcode{Allocator} does not supply a \tcode{rebind} member
-template, the standard \tcode{allocator_traits} template uses
-\tcode{SomeAllocator<U, Args>} in place of \tcode{Allocator::\brk{}rebind<U>::other}
-by default. For allocator types that are not template instantiations of the
-above form, no default is provided.
 
 \pnum
-Note B:
-If \tcode{X::propagate_on_container_copy_assignment::value} is \tcode{true},
-\tcode{X} shall meet the
-\oldconcept{\-Copy\-Assign\-able} requirements (\tref{cpp17.copyassignable})
-and the copy operation shall not throw exceptions.
-If \tcode{X::propagate_on_container_move_assignment::value} is \tcode{true},
-\tcode{X} shall meet the
-\oldconcept{\-Move\-Assign\-able} requirements (\tref{cpp17.moveassignable})
-and the move operation shall not throw exceptions.
-If \tcode{X::propagate_on_container_swap::value} is \tcode{true},
-lvalues of type \tcode{X} shall be swappable\iref{swappable.requirements}
-and the \tcode{swap} operation shall not throw exceptions.
+\remarks
+If \tcode{n == 0}, the return value is unspecified.
+\end{itemdescr}
+
+\begin{itemdecl}
+a.allocate(n, y)
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+\tcode{X::pointer}
 
 \pnum
-Note C:
+\effects
+Same as \tcode{a.allocate(n)}.
+The use of \tcode{y} is unspecified, but it is intended as an aid to locality.
+
+\pnum
+\remarks
+Default: \tcode{a.allocate(n)}
+\end{itemdescr}
+
+\begin{itemdecl}
+a.allocate_at_least(n)
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+\tcode{allocation_result<X::pointer>}
+
+\pnum
+\returns
+\tcode{allocation_result<X::pointer>\{ptr, count\}}
+where \tcode{ptr} is memory allocated for an array of \tcode{count} \tcode{T}
+and such an object is created but array elements are not constructed,
+such that $\tcode{count} \geq \tcode{n}$.
 If \tcode{n == 0}, the return value is unspecified.
 
 \pnum
-Note D:
+\throws
+\tcode{allocate_at_least} may throw an appropriate exception.
+
+\pnum
+\remarks
 An allocator need not support \tcode{allocate_at_least},
 but no default is provided in \tcode{allocator_traits}.
 If an allocator has an \tcode{allocate_at_least} member,
-it shall satisify the requirements.
+it shall satisfy the requirements.
+\end{itemdescr}
+
+\begin{itemdecl}
+a.deallocate(p, n)
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+(not used)
+
+\pnum
+\expects
+\begin{itemize}
+\item
+If \tcode{p} is memory
+that was obtained by a call to \tcode{a.allocate_at_least},
+let \tcode{ret} be the value returned and
+\tcode{req} be the value passed as the first argument of that call.
+\tcode{p} is equal to \tcode{ret.ptr} and
+\tcode{n} is a value such that
+$\tcode{req} \leq \tcode{n} \leq \tcode{ret.count}$.
+\item
+Otherwise, \tcode{p} is a pointer value obtained from \tcode{allocate}.
+\tcode{n} equals the value passed as the first argument
+to the invocation of \tcode{allocate} which returned \tcode{p}.
+\end{itemize}
+\tcode{p} has not been invalidated by
+an intervening call to \tcode{deallocate}.
+
+\pnum
+\throws
+Nothing.
+\end{itemdescr}
+
+\begin{itemdecl}
+a.max_size()
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+\tcode{X::size_type}
+
+\pnum
+\returns
+The largest value that can meaningfully be passed to \tcode{X::allocate()}.
+
+\pnum
+\remarks
+Default:
+\tcode{numeric_limits<size_type>::max() / sizeof(value_type)}
+\end{itemdescr}
+
+\begin{itemdecl}
+a1 == a2
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+\tcode{bool}
+
+\pnum
+\returns
+\tcode{true} only if storage allocated from each can
+be deallocated via the other.
+
+\pnum
+\throws
+Nothing.
+
+\pnum
+\remarks
+\tcode{operator==} shall be reflexive, symmetric,
+and transitive.
+\end{itemdescr}
+
+\begin{itemdecl}
+a1 != a2
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+\tcode{bool}
+
+\pnum
+\returns
+\tcode{!(a1 == a2)}.
+\end{itemdescr}
+
+\begin{itemdecl}
+a == b
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+\tcode{bool}
+
+\pnum
+\returns
+\tcode{a == Y::rebind<T>::other(b)}.
+\end{itemdescr}
+
+\begin{itemdecl}
+a != b
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+\tcode{bool}
+
+\pnum
+\returns
+\tcode{!(a == b)}.
+\end{itemdescr}
+
+\begin{itemdecl}
+X u(a);
+X u = a;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\ensures
+\tcode{u == a}
+
+\pnum
+\throws
+Nothing.
+\end{itemdescr}
+
+\begin{itemdecl}
+X u(b);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\ensures
+\tcode{Y(u) == b} and \tcode{u == X(b)}.
+
+\pnum
+\throws
+Nothing.
+\end{itemdescr}
+
+\begin{itemdecl}
+X u(std::move(a));
+X u = std::move(a);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\ensures
+The value of \tcode{a} is unchanged and is equal to \tcode{u}.
+
+\pnum
+\throws
+Nothing.
+\end{itemdescr}
+
+\begin{itemdecl}
+X u(std::move(b));
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\ensures
+\tcode{u} is equal to the prior value of \tcode{X(b)}.
+
+\pnum
+\throws
+Nothing.
+\end{itemdescr}
+
+\begin{itemdecl}
+a.construct(c, args)
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+(not used)
+
+\pnum
+\effects
+Constructs an object of type \tcode{C} at \tcode{c}.
+
+\pnum
+\remarks
+Default:
+\tcode{construct_at(c, std::forward<Args>(args)...)}
+\end{itemdescr}
+
+\begin{itemdecl}
+a.destroy(c)
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+(not used)
+
+\pnum
+\effects
+Destroys the object at \tcode{c}.
+
+\pnum
+\remarks
+Default: \tcode{destroy_at(c)}
+\end{itemdescr}
+
+\begin{itemdecl}
+a.select_on_container_copy_construction()
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+\tcode{X}
+
+\pnum
+\returns
+Typically returns either \tcode{a} or \tcode{X()}.
+
+\pnum
+\remarks
+Default: \tcode{return a;}
+\end{itemdescr}
+
+\begin{itemdecl}
+typename X::propagate_on_container_copy_assignment
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+Identical to or derived from \tcode{true_type} or \tcode{false_type}.
+
+\pnum
+\returns
+\tcode{true_type} only if an allocator of type \tcode{X} should be copied
+when the client container is copy-assigned;
+if so, \tcode{X} shall meet
+the \oldconcept{CopyAssignable} requirements (\tref{cpp17.copyassignable}) and
+the copy operation shall not throw exceptions.
+
+\pnum
+\remarks
+Default: \tcode{false_type}
+\end{itemdescr}
+
+\begin{itemdecl}
+typename X::propagate_on_container_move_assignment
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+Identical to or derived from \tcode{true_type} or \tcode{false_type}.
+
+\pnum
+\returns
+\tcode{true_type} only if an allocator of type \tcode{X} should be moved
+when the client container is move-assigned;
+if so, \tcode{X} shall meet
+the \oldconcept{MoveAssignable} requirements (\tref{cpp17.moveassignable}) and
+the move operation shall not throw exceptions.
+
+\pnum
+\remarks
+Default: \tcode{false_type}
+\end{itemdescr}
+
+\begin{itemdecl}
+typename X::propagate_on_container_swap
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+Identical to or derived from \tcode{true_type} or \tcode{false_type}.
+
+\pnum
+\returns
+\tcode{true_type} only if an allocator of type \tcode{X} should be swapped
+when the client container is swapped;
+if so,
+lvalues of type \tcode{X} shall be swappable\iref{swappable.requirements} and
+the \tcode{swap} operation shall not throw exceptions.
+
+\pnum
+\remarks
+Default: \tcode{false_type}
+\end{itemdescr}
+
+\begin{itemdecl}
+typename X::is_always_equal
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\result
+Identical to or derived from \tcode{true_type} or \tcode{false_type}.
+
+\pnum
+\returns
+\tcode{true_type} only if the expression \tcode{a1 == a2} is guaranteed
+to be \tcode{true} for any two (possibly \tcode{const}) values
+\tcode{a1}, \tcode{a2} of type \tcode{X}.
+
+\pnum
+\remarks
+Default: \tcode{is_empty<X>::type}
+\end{itemdescr}
 
 \pnum
 An allocator type \tcode{X} shall meet the
@@ -2184,8 +2621,7 @@ for that type can fail by throwing an object of type
 \pnum
 \begin{example}
 The following is an allocator class template supporting the minimal
-interface that meets the requirements of
-\tref{cpp17.allocator}:
+interface that meets the requirements of \ref{allocator.requirements.general}:
 
 \begin{codeblock}
 template<class Tp>
@@ -2461,7 +2897,6 @@ In namespace \tcode{std}, the following names are reserved for previous standard
 \item \indexlibraryzombie{uncaught_exception} \tcode{uncaught_exception},
 \item \indexlibraryzombie{undeclare_no_pointers} \tcode{undeclare_no_pointers},
 \item \indexlibraryzombie{undeclare_reachable} \tcode{undeclare_reachable},
-\item \indexlibraryzombie{unexpected} \tcode{unexpected},
 and
 \item \indexlibraryzombie{unexpected_handler} \tcode{unexpected_handler}.
 \end{itemize}
@@ -2638,7 +3073,7 @@ in the program.
 \pnum
 A \Cpp{} program may provide the definition for any of the following
 dynamic memory allocation function signatures declared in header
-\tcode{<new>}~(\ref{basic.stc.dynamic}, \ref{new.syn}):
+\tcode{<new>}\iref{basic.stc.dynamic,new.syn}:
 
 \indextext{\idxcode{new}!\idxcode{operator}!replaceable}%
 \indexlibrarymember{new}{operator}%
@@ -2680,7 +3115,7 @@ operator delete[](void*, std::align_val_t, const std::nothrow_t&)
 \pnum
 The program's definitions are used instead of the default versions supplied by
 the implementation\iref{new.delete}.
-Such replacement occurs prior to program startup~(\ref{basic.def.odr}, \ref{basic.start}).
+Such replacement occurs prior to program startup\iref{basic.def.odr,basic.start}.
 \indextext{startup!program}%
 The program's declarations shall not be specified as
 \keyword{inline}.
@@ -2746,7 +3181,7 @@ implement the semantics of the applicable
 \required
 paragraph.
 \item
-For handler functions~(\ref{new.handler}, \ref{terminate.handler}),
+For handler functions\iref{new.handler,terminate.handler},
 if the installed handler function does not implement the semantics of the applicable
 \required
 paragraph.
@@ -2754,8 +3189,8 @@ paragraph.
 For types used as template arguments when instantiating a template component,
 if the operations on the type do not implement the semantics of the applicable
 \emph{Requirements}
-subclause~(\ref{allocator.requirements}, \ref{container.requirements}, \ref{iterator.requirements},
-\ref{algorithms.requirements}, \ref{numeric.requirements}).
+subclause\iref{allocator.requirements,container.requirements,iterator.requirements,
+algorithms.requirements,numeric.requirements}.
 Operations on such types can report a failure by throwing an exception
 unless otherwise specified.
 \item
@@ -2765,7 +3200,7 @@ in the applicable
 \required
 paragraph.
 \item
-If an incomplete type\iref{basic.types} is used as a template
+If an incomplete type\iref{term.incomplete.type} is used as a template
 argument when instantiating a template component or evaluating a concept, unless specifically
 allowed for that component.
 \end{itemize}
@@ -2797,7 +3232,7 @@ address computations and accesses to objects (that would be valid if the
 pointer did point to the first element of such an array) are in fact valid.
 
 \item
-If a function argument binds to an rvalue reference parameter, the implementation may
+If a function argument is bound to an rvalue reference parameter, the implementation may
 assume that this parameter is a unique reference to this argument,
 except that the argument passed to a move-assignment operator may be
 a reference to \tcode{*this}\iref{lib.types.movedfrom}.
@@ -2891,7 +3326,7 @@ Every such entity shall be defined such that any header that defines it may be
 included after any other header that also defines it\iref{basic.def.odr}.
 
 \pnum
-The C standard library headers\iref{depr.c.headers}
+The C standard library headers\iref{support.c.headers}
 shall include only their corresponding \Cpp{} standard library header,
 as described in~\ref{headers}.
 
@@ -3133,12 +3568,12 @@ Every base class not specified as
 \item
 Unless explicitly stated otherwise, types with distinct names shall be distinct
 types.
-\begin{footnote}
+\begin{note}
 There is an implicit exception to this rule for types that are
-described as synonyms for basic integral types, such as
+described as synonyms\iref{dcl.typedef,namespace.udecl}, such as
 \tcode{size_t}\iref{support.types} and
 \tcode{streamoff}\iref{stream.types}.
-\end{footnote}
+\end{note}
 \end{itemize}
 
 \pnum
@@ -3199,8 +3634,8 @@ or a class derived from
 \end{footnote}
 Implementations should
 report errors by throwing exceptions of or derived
-from the standard exception classes~(\ref{bad.alloc},
-\ref{support.exception}, \ref{std.exceptions}).
+from the standard
+exception classes\iref{bad.alloc,support.exception,std.exceptions}.
 
 \pnum
 An implementation may strengthen the

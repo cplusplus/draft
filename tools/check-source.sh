@@ -6,7 +6,7 @@ failed=0
 
 # Ignore files where rules may be violated within macro definitions.
 texfiles=$(ls *.tex | grep -v macros.tex | grep -v layout.tex | grep -v tables.tex)
-texlibdesc="support.tex concepts.tex diagnostics.tex utilities.tex strings.tex containers.tex iterators.tex ranges.tex algorithms.tex numerics.tex time.tex locales.tex iostreams.tex regex.tex atomics.tex threads.tex"
+texlibdesc="support.tex concepts.tex diagnostics.tex memory.tex meta.tex utilities.tex strings.tex containers.tex iterators.tex ranges.tex algorithms.tex numerics.tex time.tex locales.tex iostreams.tex regex.tex threads.tex"
 texlib="lib-intro.tex $texlibdesc"
 
 # Filter that reformats the error message as a "workflow command",
@@ -63,9 +63,35 @@ grep -n '\\opt[^{]' $texfiles |
 grep -n 'opt{}' *.tex |
     fail '\\opt used incorrectly' || failed=1
 
+# Use \expos insted of "exposition only"
+grep -n "// exposition only" $texfiles |
+    fail 'use \\expos instead' || failed=1
+
 # Use \notdef instead of "not defined".
 grep -n "// not defined" $texfiles |
     fail "use \\notdef instead" || failed=1
+
+# Use \Cpp{} instead of C++
+grep -n '^[^%]*[^{"]C++[^"}]' $texfiles |
+    fail 'use \Cpp{} instead' || failed=1
+
+# Use \unicode instead of U+nnnn
+grep -n 'U+' $texfiles |
+    fail 'use \\unicode or \\ucode or \\uname instead' || failed=1
+
+# Hex digits inside \ucode and \unicode must be lowercase so that \textsc works
+grep -n 'ucode{[^}]*[^0-9a-f}][^}]*}' $texfiles |
+    fail 'use lowercase hex digits inside \\ucode' || failed=1
+grep -n 'unicode{[^}]*[^0-9a-f}][^}]*}' $texfiles |
+    fail 'use lowercase hex digits inside \\unicode' || failed=1
+
+# Use \iref instead of "(\ref", except for subclause ranges
+grep -n '.(\\ref' $texfiles  | grep -v -- "--" |
+    fail 'use \\iref instead of (\\ref' || failed=1
+
+# Use \xrefc instead of "ISO C x.y.z"
+grep -n "^ISO C [0-9]*\." $texfiles |
+    fail 'use \\xrefc instead' || failed=1
 
 # Library element introducer followed by stuff.
 grep -ne '^\\\(constraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|throws\|complexity\|remarks\|errors\).\+$' $texlibdesc |
@@ -85,6 +111,18 @@ grep -Hne '^\\\(change\|rationale\|effect\|difficulty\|howwide\)\s.\+$' compatib
 # "template <class" (with space) in library clause.
 grep -ne 'template\s<class' $texlib |
     fail 'space between "template" and "<class"' || failed=1
+
+# "Class" heading without namespace
+for f in $texlib; do
+    sed -n '/rSec[0-9].*{Class/,/\\end{codeblock}/{/\\begin{example}/,/\\end{example}/b;/\\begin{codeblock}/,/\(^namespace\)\|\(\\end{codeblock}\)/{s/template<[^>]*>//;/\(class\|struct\)[A-Za-z0-9_: ]*{/{=;p;};};}' $f |
+    # prefix output with filename and line
+    sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/"
+done |
+    fail 'No namespace around class definition' || failed=1
+
+# ref-qualifier on member functions with no space, e.g. "const&"
+fgrep -ne ') const&' $texlib |
+    fail 'no space between cv-qualifier and ref-qualifier' || failed=1
 
 # \begin{example/note} with non-whitespace in front on the same line.
 grep -ne '^.*[^ ]\s*\\\(begin\|end\){\(example\|note\)}' $texfiles |
@@ -123,9 +161,13 @@ grep -n "&[ 0-9a-z_]\+) = delete" $texfiles |
     fail 'named parameter in deleted special member' || failed=1
 # to fix: sed '/= delete/s/&[ 0-9a-z_]\+)/\&)/'
 
-# Bad characters in label. "-" is allowed due to a single remaining offender.
-grep -n '^\\rSec.\[[^]]*[^-a-z.0-9][^]]*\]{' $texfiles |
+# Bad characters in label.
+grep -n '^\\rSec.\[[^]]*[^a-z.0-9][^]]*\]{' $texfiles |
     fail 'bad character in label' || failed=1
+
+# Use of parenthesized \ref
+grep -n '[ ~](\\ref{[.a-z0-9]*})' $texfiles |
+    fail 'replace \\ref with \\iref' || failed=1
 
 # "shall", "may", or "should" inside a note
 for f in $texfiles; do
@@ -164,9 +206,7 @@ done | fail 'subclause without siblings' || failed=1
 
 # Library descriptive macros not immediately preceded by \pnum.
 for f in $texlibdesc; do
-    sed -n '/^\\pnum/{h;:x;n;/^\\index/b x;/^\\\(constraints\|mandates\|expects\|effects\|sync\|ensures\|returns\|throws\|complexity\|remarks\|errors\)/{x;/\n/{x;=;p;};d;};/^\\pnum/D;H;b x;}' $f |
-    # prefix output with filename and line
-    sed '/^[0-9]\+$/{N;s/\n/:/}' | sed "s/.*/$f:&/"
+    awk '/^\\pnum/ { seenpnum=1; next } /^\\index/ { next } /^\\(constraints|mandates|expects|effects|sync|ensures|returns|throws|complexity|remarks|errors)/ { if(seenpnum == 0) { print FILENAME ":" FNR ":" $0 } } { seenpnum=0 }' $f
 done |
     fail '\\pnum missing' || failed=1
 
