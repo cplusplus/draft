@@ -17,6 +17,9 @@ sed -n '/\.tex/{s/^.*\/\([-a-z0-9]\+\.tex\).*$/\1/;h};
 /Overfull [\\][hv]box\|LaTeX Warning..Reference/{x;p;x;p}' std.log |
     sed '/^.\+\.tex$/{N;s/\n/:/}' | fail || failed=1
 
+grep "Label .* multiply defined" std.log |
+    fail || failed=1
+
 # Check for dangling "see" in general index (does not work with formatting)
 grep item < std-generalindex.ind | sed 's/,.*$//;s/\\[sub]*item //' |
     awk '/^  [^ ]/ { item=$0; print $0 }  /^    [^ ]/ { subitem=$0; print item ", " $0 } /^      [^ ]/ { print item ", " subitem ", " $0 }' |
@@ -37,6 +40,7 @@ rm -f tmp.txt
 # Find bad labels
 grep newlabel `ls *.aux | grep -v std.aux` | awk -F '{' '{ print  $2 }' |
     sed 's/}//g' | sed 's/^tab://;s/fig://;s/idx.*\..//' |
+    grep -v '^term[.]' |       # term.* labels are automated
     grep -v '^[a-z.0-9]*$' |
     sed 's/^\(.*\)$/bad label \1/' |
     fail || failed=1
