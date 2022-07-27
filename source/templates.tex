@@ -8013,8 +8013,8 @@ types, templates, and non-type values:
 
 \begin{itemize}
 \item
-A function type includes the types of each of the function parameters
-and the return type.
+A function type includes the types of each of the function parameters,
+the return type, and its exception specification.
 \item
 A pointer-to-member type includes the type of the class object pointed to
 and the type of the member pointed to.
@@ -8167,6 +8167,25 @@ void r() {
 }
 \end{codeblock}
 
+Here is an example where the exception specification of a function type
+is deduced:
+
+\begin{codeblock}
+template<bool E> void f1(void (*)() noexcept(E));
+template<bool> struct A { };
+template<bool B> void f2(void (*)(A<B>) noexcept(B));
+
+void g1();
+void g2() noexcept;
+void g3(A<true>);
+
+void h() {
+  f1(g1);           // OK, \tcode{E} is \tcode{false}
+  f1(g2);           // OK, \tcode{E} is \tcode{true}
+  f2(g3);           // error: \tcode{B} deduced as both \tcode{true} and \tcode{false}
+}
+\end{codeblock}
+
 Here is an example where a qualification conversion applies between the
 argument type on the function call and the deduced template argument type:
 
@@ -8199,7 +8218,7 @@ void t() {
 A template type argument
 \tcode{T},
 a template template argument
-\tcode{TT}
+\tcode{TT},
 or a template non-type argument
 \tcode{i}
 can be deduced if
@@ -8208,44 +8227,49 @@ and
 \tcode{A}
 have one of the following forms:
 \begin{codeblock}
-T
-@\cv{}@ T
+@\opt{\cv{}}@ T
 T*
 T&
 T&&
-T[@\placeholder{integer-constant}@]
-@\grammarterm{template-name}@<T>  @\textrm{(where \tcode{\grammarterm{template-name}} refers to a class template)}@
-@\placeholder{type}@(T)
-T()
-T(T)
-T @\placeholder{type}@::*
-@\placeholder{type}@ T::*
-T T::*
-T (@\placeholder{type}@::*)()
-@\placeholder{type}@ (T::*)()
-@\placeholder{type}@ (@\placeholder{type}@::*)(T)
-@\placeholder{type}@ (T::*)(T)
-T (@\placeholder{type}@::*)(T)
-T (T::*)()
-T (T::*)(T)
-@\placeholder{type}@[i]
-@\grammarterm{template-name}@<i>  @\textrm{(where \tcode{\grammarterm{template-name}} refers to a class template)}@
-TT<T>
-TT<i>
-TT<>
+@\opt{T}@[@\opt{i}@]
+@\opt{T}@(@\opt{T}@) noexcept(@\opt{i}@)
+@\opt{T}@ @\opt{T}@::*
+@\opt{TT}@<T>
+@\opt{TT}@<i>
+@\opt{TT}@<TT>
+@\opt{TT}@<>
 \end{codeblock}
 where
-\tcode{(T)}
-represents
-a parameter-type-list\iref{dcl.fct}
-where at least one parameter type contains a
-\tcode{T},
-and
-\tcode{()}
-represents
-a parameter-type-list
-where no parameter type contains a
-\tcode{T}.
+\begin{itemize}
+\item
+\tcode{\opt{T}} represents a type or parameter-type-list that either
+satisfies these rules recursively,
+is a non-deduced context in \tcode{P} or \tcode{A}, or
+is the same non-dependent type in \tcode{P} and \tcode{A},
+
+\item
+\tcode{\opt{TT}} represents either a class template or
+a template template parameter,
+
+\item
+\tcode{\opt{i}} represents an expression that either
+is an \tcode{i},
+is value-dependent in \tcode{P} or \tcode{A}, or
+has the same constant value in \tcode{P} and \tcode{A}, and
+
+\item
+\tcode{\keyword{noexcept}(\opt{i})} represents an
+exception specification\iref{except.spec}
+in which the (possibly-implicit, see~\ref{dcl.fct})
+\grammarterm{noexcept-specifier}'s operand
+satisfies the rules for an \tcode{\opt{i}} above.
+\end{itemize}
+
+\begin{note}
+If a type matches such a form but contains no
+\tcode{T}s, \tcode{i}s, or \tcode{TT}s, deduction is not possible.
+\end{note}
+
 Similarly,
 \tcode{<T>}
 represents template argument lists where at least one argument contains a
@@ -8418,6 +8442,21 @@ using V = S<int[42]>::Q;        // OK; \tcode{T} was deduced as \tcode{std::size
 \end{example}
 
 \pnum
+The type of \tcode{B} in the \grammarterm{noexcept-specifier}
+\tcode{\keyword{noexcept}(B)} of a function type is \tcode{bool}.
+\begin{example}
+\begin{codeblock}
+template<bool> struct A { };
+template<auto> struct B;
+template<auto X, void (*F)() noexcept(X)> struct B<F> {
+  A<X> ax;
+};
+void f_nothrow() noexcept;
+B<f_nothrow> bn;                // OK, type of \tcode{X} deduced as \tcode{bool}
+\end{codeblock}
+\end{example}
+
+\pnum
 \begin{example}
 \begin{codeblock}
 template<class T, T i> void f(int (&a)[i]);
@@ -8509,6 +8548,8 @@ can be deduced from an array bound, the resulting value will always be
 \tcode{true}
 because the array bound will be nonzero.
 \end{footnote}
+If \tcode{P} has a form that includes \tcode{\keyword{noexcept}(i)} and
+the type of \tcode{i} is not \tcode{bool}, deduction fails.
 \begin{example}
 \begin{codeblock}
 template<int i> class A { @\commentellip@ };
