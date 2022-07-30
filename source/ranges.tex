@@ -10,7 +10,7 @@ This Clause describes components for dealing with ranges of elements.
 The following subclauses describe
 range and view requirements, and
 components for
-range primitives
+range primitives and range generators
 as summarized in \tref{range.summary}.
 
 \begin{libsumtab}{Ranges library summary}{range.summary}
@@ -18,7 +18,8 @@ as summarized in \tref{range.summary}.
   \ref{range.req}          & Requirements      & \\
   \ref{range.utility}      & Range utilities   & \\
   \ref{range.factories}    & Range factories   & \\
-  \ref{range.adaptors}     & Range adaptors    & \\
+  \ref{range.adaptors}     & Range adaptors    & \\ \rowsep
+  \ref{coro.generator}     & Range generators  & \libheader{generator} \\
 \end{libsumtab}
 
 \rSec1[ranges.syn]{Header \tcode{<ranges>} synopsis}
@@ -139,6 +140,10 @@ namespace std::ranges {
 
   // \ref{range.dangling}, dangling iterator handling
   struct dangling;                                                                  // freestanding
+
+  // \ref{ranges.elementsof}, class template \tcode{elements_of}
+  template<@\libconcept{range}@ R, class Allocator = allocator<byte>>
+    struct elements_of;
 
   template<@\libconcept{range}@ R>
     using borrowed_iterator_t = @\seebelow@;                                          // freestanding
@@ -2182,6 +2187,38 @@ otherwise,
 both \tcode{borrowed_iterator_t<R>} and \tcode{borrowed_subrange_t<R>}
 denote \tcode{dangling}.
 \end{itemize}
+
+\rSec2[ranges.elementsof]{Class template \tcode{elements_of}}
+
+Specializations of \tcode{elements_of} encapsulate a range and
+act as a tag in overload sets to disambiguate
+when a range should be treated as a sequence
+rather than a single value.
+
+\begin{example}
+\begin{codeblock}
+template <bool YieldElements>
+std::generator<any> f(std::ranges::input_range auto&& rng) {
+  if constexpr (YieldElements)
+    co_yield std::ranges::elements_of(rng);     // yield each element of \tcode{rng}
+  else
+    co_yield rng;                               // yield \tcode{rng} as a single value
+}
+\end{codeblock}
+\end{example}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<@\libconcept{range}@ R, class Allocator = allocator<byte>>
+  struct elements_of {
+    [[no_unique_address]] R range;
+    [[no_unique_address]] Allocator allocator = Allocator();
+  };
+
+  template<class R, class Allocator = allocator<byte>>
+    elements_of(R&&, Allocator = Allocator()) -> elements_of<R&&, Allocator>;
+}
+\end{codeblock}
 
 \rSec2[range.utility.conv]{Range conversions}
 
@@ -14960,4 +14997,652 @@ The exception specification is equivalent to the logical AND of the following ex
 \tcode{noexcept(ranges::iter_swap(std::get<$i$>(l.\exposid{current_}), std::get<$i$>(r.\exposid{current_})))}
 for\newline every integer $0 \le i \le \tcode{sizeof...(Vs)}$.
 \end{itemize}
+\end{itemdescr}
+
+\rSec1[coro.generator]{Range generators}
+
+\rSec2[coroutine.generator.overview]{Overview}
+
+\pnum
+Class template \tcode{generator} presents
+a \libconcept{view} of the elements yielded by the evaluation of a coroutine.
+
+\pnum
+A \tcode{generator} generates a sequence of elements by
+repeatedly resuming the coroutine from which it was returned.
+Elements of the sequence are produced by the coroutine
+each time a \tcode{co_yield} statement is evaluated.
+When the \tcode{co_yield} statement is of the form
+\tcode{co_yield elements_of(rng)},
+each element of the range \tcode{rng}
+is successively produced as an element of the sequence.
+\begin{example}
+\begin{codeblock}
+std::generator<int> ints(int start = 0) {
+  while (true)
+    co_yield start++;
+}
+
+void f() {
+  for (auto i : ints() | std::views::take(3))
+    std::cout << i << ' ';      // prints 0 1 2
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[generator.syn]{Header \tcode{<generator>} synopsis}
+
+\indexheader{generator}%
+\begin{codeblock}
+namespace std {
+  // \ref{coro.generator.class}, class template \tcode{generator}
+  template<class Ref, class V = void, class Allocator = void>
+    class generator;
+}
+\end{codeblock}
+
+\rSec2[coro.generator.class]{Class template \tcode{generator}}
+
+\begin{codeblock}
+namespace std {
+  template<class Ref, class V = void, class Allocator = void>
+  class @\libglobal{generator}@ : public ranges::view_interface<generator<Ref, V, Allocator>> {
+  private:
+    using @\exposid{value}@ = conditional_t<is_void_v<V>, remove_cvref_t<Ref>, V>;  // \expos
+    using @\exposid{reference}@ = conditional_t<is_void_v<V>, Ref&&, Ref>;          // \expos
+
+    // \ref{coro.generator.iterator}, class \tcode{generator::\exposid{iterator}}
+    class @\exposidnc{iterator}@;                                                     // \expos
+
+  public:
+    using yielded =
+      conditional_t<is_reference_v<@\exposid{reference}@>, @\exposid{reference}@, const @\exposid{reference}@&>;
+
+    // \ref{coro.generator.promise}, class \tcode{generator::promise_type}
+    class promise_type;
+
+    generator(const generator&) = delete;
+    generator(generator&& other) noexcept;
+
+    ~generator();
+
+    generator& operator=(generator other) noexcept;
+
+    @\exposid{iterator}@ begin();
+    default_sentinel_t end() const noexcept;
+
+  private:
+    coroutine_handle<promise_type> @\exposid{coroutine_}@ = nullptr;  // \expos
+    unique_ptr<stack<coroutine_handle<>>> @\exposid{active_}@;        // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+\mandates
+\begin{itemize}
+\item
+If \tcode{Allocator} is not \tcode{void},
+\tcode{allocator_traits<Allocator>::pointer} is a pointer type.
+\item
+\exposid{value} is a cv-unqualified object type.
+\item
+\exposid{reference} is either a reference type, or
+a cv-unqualified object type that models \libconcept{copy_constructible}.
+\item
+Let \tcode{RRef} denote \tcode{remove_reference_t<\exposid{reference}>\&\&}
+if \exposid{reference} is a reference type,
+and \exposid{reference} otherwise.
+Each of:
+\begin{itemize}
+\item \tcode{\libconcept{common_reference_with}<\exposid{reference}\&\&, \exposid{value}\&>},
+\item \tcode{\libconcept{common_reference_with}<\exposid{reference}\&\&, RRef\&\&>}, and
+\item \tcode{\libconcept{common_reference_with}<RRef\&\&, const \exposid{value}\&>}
+\end{itemize}
+is modeled.
+\begin{note}
+These requirements ensure the exposition-only \exposid{iterator} type
+can model \libconcept{indirectly_readable} and thus \libconcept{input_iterator}.
+\end{note}
+\end{itemize}
+
+\pnum
+If \tcode{Allocator} is not \tcode{void},
+it shall meet the \oldconcept{Allocator} requirements.
+
+\pnum
+Specializations of \tcode{generator} model
+\libconcept{view} and \libconcept{input_range}.
+
+\pnum
+The behavior of a program that adds a specialization
+for \tcode{generator} is undefined.
+
+\rSec2[coro.generator.members]{Members}
+
+\indexlibraryctor{generator}%
+\begin{itemdecl}
+generator(generator&& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{coroutine_} with
+\tcode{exchange(other.\exposid{coroutine_}, \{\})} and
+\exposid{active_} with
+\tcode{exchange(\brk{}other.active_, nullptr)}.
+
+\pnum
+\begin{note}
+Iterators previously obtained from \tcode{other} are not invalidated;
+they become iterators into \tcode{*this}.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarydtor{generator}%
+\begin{itemdecl}
+~generator();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if (@\exposid{coroutine_}@) {
+  @\exposid{coroutine_}@.destroy();
+}
+\end{codeblock}
+
+\pnum
+\begin{note}
+Ownership of recursively yielded generators
+is held in awaitable objects
+in the coroutine frame of the yielding generator,
+so destroying the root generator
+effectively destroys the entire stack of yielded generators.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{generator}%
+\begin{itemdecl}
+generator& operator=(generator other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+swap(@\exposid{coroutine_}@, other.@\exposid{coroutine_}@);
+swap(@\exposid{active_}@, other.@\exposid{active_}@);
+\end{codeblock}
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\begin{note}
+Iterators previously obtained from \tcode{other} are not invalidated;
+they become iterators into \tcode{*this}.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarymember{begin}{generator}%
+\begin{itemdecl}
+@\exposid{iterator}@ begin();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\exposid{coroutine_} refers to a coroutine
+suspended at its initial suspend point\iref{dcl.fct.def.coroutine}.
+
+\pnum
+\effects
+Pushes \exposid{coroutine_} into \tcode{*\exposid{active_}},
+then evaluates \tcode{\exposid{coroutine_}.resume()}.
+
+\pnum
+\returns
+An \exposid{iterator} object
+whose member \exposid{coroutine_}
+refers to the same coroutine as does
+\exposid{coroutine_}.
+
+\pnum
+\begin{note}
+A program that calls \tcode{begin} more than once on the same generator
+has undefined behavior.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarymember{end}{generator}%
+\begin{itemdecl}
+default_sentinel_t end() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{default_sentinel}.
+\end{itemdescr}
+
+\rSec2[coro.generator.promise]{Class \tcode{generator::promise_type}}
+
+\begin{codeblock}
+namespace std {
+  template<class Ref, class V, class Allocator>
+  class generator<Ref, V, Allocator>::promise_type {
+  public:
+    generator get_return_object() noexcept;
+
+    suspend_always initial_suspend() const noexcept { return {}; }
+    auto final_suspend() noexcept;
+
+    suspend_always yield_value(yielded val) noexcept;
+
+    auto yield_value(const remove_reference_t<yielded>& lval)
+      requires is_rvalue_reference_v<yielded> &&
+        @\libconcept{constructible_from}@<remove_cvref_t<yielded>, const remove_reference_t<yielded>&>;
+
+    template<class R2, class V2, class Alloc2, class Unused>
+      requires @\libconcept{same_as}@<typename generator<T2, V2, Alloc2>::yielded, yielded>
+      auto yield_value(ranges::elements_of<generator<T2, V2, Alloc2>&&, Unused> g) noexcept;
+
+    template<ranges::@\libconcept{input_range}@ Rng, class Alloc>
+      requires @\libconcept{convertible_to}@<ranges::range_reference_t<Rng>, yielded>
+      auto yield_value(ranges::elements_of<Rng, Alloc> r) noexcept;
+
+    void await_transform() = delete;
+
+    void return_void() const noexcept {}
+    void unhandled_exception();
+
+    void* operator new(size_t size)
+      requires @\libconcept{same_as}@<Allocator, void> || @\libconcept{default_initializable}@<Allocator>;
+
+    template<class Alloc, class... Args>
+      requires @\libconcept{same_as}@<Allocator, void> || @\libconcept{convertible_to}@<const Alloc&, Allocator>
+      void* operator new(size_t size, allocator_arg_t, const Alloc& alloc, const Args&...);
+
+    template<class This, class Alloc, class... Args>
+      requires @\libconcept{same_as}@<Allocator, void> || @\libconcept{convertible_to}@<const Alloc&, Allocator>
+      void* operator new(size_t size, const This&, allocator_arg_t, const Alloc& alloc,
+                         const Args&...);
+
+    void operator delete(void* pointer, size_t size) noexcept;
+
+  private:
+    add_pointer_t<yielded> @\exposid{value_}@ = nullptr;    // \expos
+    exception_ptr @\exposid{except_}@;                      // \expos
+  };
+}
+\end{codeblock}
+
+\indexlibrarymember{get_return_object}{generator::promise_type}%
+\begin{itemdecl}
+generator get_return_object() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+A \tcode{generator} object whose member \exposid{coroutine_}
+is \tcode{coroutine_handle<promise_type>::\brk{}from_promise(*this)},
+and whose member \exposid{active_} points to an empty stack.
+\end{itemdescr}
+
+\indexlibrarymember{final_suspend}{generator::promise_type}%
+\begin{itemdecl}
+auto final_suspend() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+A handle referring to the coroutine
+whose promise object is \tcode{*this}
+is at the top of \tcode{*\exposid{active_}}
+of some \tcode{generator} object \tcode{x}.
+This function is called by that coroutine
+upon reaching its final suspend point\iref{dcl.fct.def.coroutine}.
+
+\pnum
+\returns
+An awaitable object of unspecified type\iref{expr.await}
+whose member functions arrange for the
+calling coroutine to be suspended,
+pop the coroutine handle
+from the top of \tcode{*x.\exposid{active_}},
+and resume execution of the coroutine referred to by
+\tcode{x.\exposid{active_}->top()}
+if \tcode{*x.\exposid{active_}} is not empty.
+If it is empty, control flow returns to the
+current coroutine caller or resumer\iref{dcl.fct.def.coroutine}.
+\end{itemdescr}
+
+\indexlibrarymember{yield_value}{generator::promise_type}%
+\begin{itemdecl}
+suspend_always yield_value(yielded val) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{\exposid{value_} = addressof(val)}.
+
+\pnum
+\returns
+\tcode{\{\}}.
+\end{itemdescr}
+
+\indexlibrarymember{yield_value}{generator::promise_type}%
+\begin{itemdecl}
+auto yield_value(const remove_reference_t<yielded>& lval)
+  requires is_rvalue_reference_v<yielded> &&
+    @\libconcept{constructible_from}@<remove_cvref_t<yielded>, const remove_reference_t<yielded>&>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+A handle referring to the coroutine
+whose promise object is \tcode{*this}
+is at the top of \tcode{*\exposid{active_}}
+of some \tcode{generator} object \tcode{x}.
+
+\pnum
+\returns
+An awaitable object of an unspecified type\iref{expr.await}
+that stores an object of type \tcode{remove_cvref_t<yielded>}
+direct-non-list-initialized with \tcode{lval},
+whose member functions arrange for
+\exposid{value_} to point to that stored object
+and then suspend the coroutine.
+
+\pnum
+\throws
+Any exception thrown by the initialization of the stored object.
+
+\pnum
+\remarks
+A \grammarterm{yield-expression} that calls this function
+has type \tcode{void}\iref{expr.yield}.
+\end{itemdescr}
+
+\indexlibrarymember{yield_value}{generator::promise_type}%
+\begin{itemdecl}
+template<class T2, class V2, class Alloc2, class Unused>
+  requires @\libconcept{same_as}@<typename generator<T2, V2, Alloc2>::yielded, yielded>
+  auto yield_value(ranges::elements_of<generator<T2, V2, Alloc2>&&, Unused> g) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+A handle referring to the coroutine
+whose promise object is \tcode{*this}
+is at the top of \tcode{*\exposid{active_}}
+of some \tcode{generator} object \tcode{x}.
+The coroutine referred to by
+\tcode{g.range.\exposid{coroutine_}}
+is suspended at its initial suspend point.
+
+\pnum
+\returns
+An awaitable object of an unspecified type\iref{expr.await}
+which takes ownership of the generator \tcode{g.range},
+whose member \tcode{await_ready} returns \tcode{false},
+whose member \tcode{await_suspend}
+pushes \tcode{g.range.\exposid{coroutine_}}
+into \tcode{*x.\exposid{active_}}
+and resumes execution of the coroutine referred to
+by \tcode{g.range.\brk{}\exposid{coroutine_}}, and
+whose member \tcode{await_resume} evaluates
+\tcode{rethrow_exception(\exposid{except_})}
+if \tcode{bool(\exposid{ex\-cept_})} is \tcode{true}.
+If \tcode{bool(\exposid{except_})} is \tcode{false},
+the \tcode{await_resume} member has no effects.
+
+\pnum
+\remarks
+A \grammarterm{yield-expression} that calls this function
+has type \tcode{void}\iref{expr.yield}.
+\end{itemdescr}
+
+\indexlibrarymember{yield_value}{generator::promise_type}%
+\begin{itemdecl}
+template<ranges::@\libconcept{input_range}@ Rng, class Alloc>
+  requires @\libconcept{convertible_to}@<ranges::range_reference_t<Rng>, yielded>
+  auto yield_value(ranges::elements_of<Rng, Alloc> r) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto nested = [](allocator_arg_t, Alloc, ranges::iterator_t<Rng> i,
+                 ranges::sentinel_t<Rng> s)
+  -> generator<yielded, ranges::range_value_t<Rng>, Alloc> {
+    for (; i != s; ++i) {
+      co_yield static_cast<yielded>(*i);
+    }
+  };
+return yield_value(ranges::elements_of(nested(
+  allocator_arg, r.allocator, ranges::begin(r.range), ranges::end(r.range))));
+\end{codeblock}
+
+\pnum
+\remarks
+A \grammarterm{yield-expression} that calls this function
+has type \tcode{void}\iref{expr.yield}.
+\end{itemdescr}
+
+\indexlibrarymember{unhandled_exception}{generator::promise_type}%
+\begin{itemdecl}
+void unhandled_exception();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+A handle referring to the coroutine whose promise object is \tcode{*this}
+is at the top of \tcode{*\exposid{active_}}
+of some \tcode{generator} object \tcode{x}.
+
+\pnum
+\effects
+If the handle referring to the coroutine
+whose promise object is \tcode{*this}
+is the sole element of \tcode{*x.\exposid{active_}},
+equivalent to: \tcode{throw;}
+Otherwise, assigns \tcode{current_exception()} to \exposid{except_}.
+\end{itemdescr}
+
+\indexlibrarymember{operator new}{generator::promise_type}%
+\begin{itemdecl}
+void* operator new(size_t size)
+  requires @\libconcept{same_as}@<Allocator, void> || @\libconcept{default_initializable}@<Allocator>;
+
+template<class Alloc, class... Args>
+  requires @\libconcept{same_as}@<Allocator, void> || @\libconcept{convertible_to}@<const Alloc&, Allocator>
+  void* operator new(size_t size, allocator_arg_t, const Alloc& alloc, const Args&...);
+
+template<class This, class Alloc, class... Args>
+  requires @\libconcept{same_as}@<Allocator, void> || @\libconcept{convertible_to}@<const Alloc&, Allocator>
+  void* operator new(size_t size, const This&, allocator_arg_t, const Alloc& alloc,
+                     const Args&...);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{A} be
+\begin{itemize}
+\item
+\tcode{Allocator}, if it is not \tcode{void},
+\item
+\tcode{Alloc} for the overloads with a template parameter \tcode{Alloc}, or
+\item
+\tcode{allocator<void>} otherwise.
+\end{itemize}
+Let \tcode{B} be \tcode{allocator_traits<A>::template rebind_alloc<U>}
+where \tcode{U} is an unspecified type whose size and alignment
+are both \mname{STDCPP_DEFAULT_NEW_ALIGNMENT}.
+
+\pnum
+\mandates
+\tcode{allocator_traits<B>::pointer} is a pointer type.
+
+\pnum
+\effects
+Initializes an allocator \tcode{b} of type \tcode{B} with \tcode{A(alloc)},
+for the overloads with a function parameter \tcode{alloc},
+and with \tcode{A()} otherwise.
+Uses \tcode{b} to allocate storage for the smallest array
+of \tcode{U} sufficient to provide storage for
+a coroutine state of size \tcode{size}, and
+unspecified additional state necessary to ensure that
+\tcode{operator delete} can later deallocate this memory block
+with an allocator equal to \tcode{b}.
+
+\pnum
+\returns
+A pointer to the allocated storage.
+\end{itemdescr}
+
+\indexlibrarymember{operator delete}{generator::promise_type}%
+\begin{itemdecl}
+void operator delete(void* pointer, size_t size) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{pointer} was returned from an invocation of
+one of the above overloads of \tcode{operator new}
+with a \tcode{size} argument equal to \tcode{size}.
+
+\pnum
+\effects
+Deallocates the storage pointed to by \tcode{pointer}
+using an allocator equivalent to that used to allocate it.
+\end{itemdescr}
+
+\rSec2[coro.generator.iterator]{Class \tcode{generator::\exposid{iterator}}}
+
+\begin{codeblock}
+namespace std {
+  template<class Ref, class V, class Allocator>
+  class generator<Ref, V, Allocator>::@\exposid{iterator}@ {
+  public:
+    using value_type = @\exposid{value}@;
+    using difference_type = ptrdiff_t;
+
+    @\exposid{iterator}@(@\exposid{iterator}@&& other) noexcept;
+    @\exposid{iterator}@& operator=(@\exposid{iterator}@&& other) noexcept;
+
+    @\exposid{reference}@ operator*() const noexcept(is_nothrow_copy_constructible_v<@\exposid{reference}@>);
+    @\exposid{iterator}@& operator++();
+    void operator++(int);
+
+    friend bool operator==(@\exposid{iterator}@ i, default_sentinel_t);
+
+  private:
+    coroutine_handle<promise_type> @\exposid{coroutine_}@; // \expos
+  };
+}
+\end{codeblock}
+
+\indexlibraryctor{generator::iterator}%
+\begin{itemdecl}
+@\exposid{iterator}@(@\exposid{iterator}@&& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{coroutine_}
+with \tcode{exchange(other.\exposid{coroutine_}, \{\})}.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{generator::iterator}%
+\begin{itemdecl}
+@\exposid{iterator}@& operator=(@\exposid{iterator}@&& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to
+\tcode{\exposid{coroutine_} = exchange(other.\exposid{coroutine_}, \{\})}.
+
+\pnum
+\returns
+\tcode{*this}.
+\end{itemdescr}
+
+\indexlibrarymember{operator*}{generator::iterator}%
+\begin{itemdecl}
+@\exposid{reference}@ operator*() const noexcept(is_nothrow_copy_constructible_v<@\exposid{reference}@>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+For some \tcode{generator} object \tcode{x},
+\exposid{coroutine_} is in \tcode{*x.\exposid{active_}} and
+\tcode{x.\exposid{active_}->top()} refers to
+a suspended coroutine with promise object \tcode{p}.
+
+\pnum
+\effects
+Equivalent to:
+\tcode{return static_cast<\exposid{reference}>(*p.\exposid{value_});}
+\end{itemdescr}
+
+\indexlibrarymember{operator++}{generator::iterator}%
+\begin{itemdecl}
+@\exposid{iterator}@& operator++();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+For some \tcode{generator} object \tcode{x},
+\exposid{coroutine_} is in \tcode{*x.\exposid{active_}}.
+
+\pnum
+\effects
+Equivalent to \tcode{x.\exposid{active_}->top().resume()}.
+
+\pnum
+\returns
+\tcode{*this}.
+\end{itemdescr}
+
+\indexlibrarymember{operator++}{generator::iterator}%
+\begin{itemdecl}
+void operator++(int);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{++*this}.
+\end{itemdescr}
+
+\indexlibrarymember{operator==}{generator::iterator}%
+\begin{itemdecl}
+friend bool operator==(@\exposid{iterator}@ i, default_sentinel_t);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return i.\exposid{coroutine_}.done();}
 \end{itemdescr}
