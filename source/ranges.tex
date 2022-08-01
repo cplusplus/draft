@@ -64,6 +64,8 @@ namespace std::ranges {
   template<@\libconcept{range}@ R>
     using sentinel_t = decltype(ranges::end(declval<R&>()));                        // freestanding
   template<@\libconcept{range}@ R>
+    using const_iterator_t = const_iterator<iterator_t<R>>;
+  template<@\libconcept{range}@ R>
     using range_difference_t = iter_difference_t<iterator_t<R>>;                    // freestanding
   template<@\libconcept{sized_range}@ R>
     using range_size_t = decltype(ranges::size(declval<R&>()));                     // freestanding
@@ -71,6 +73,8 @@ namespace std::ranges {
     using range_value_t = iter_value_t<iterator_t<R>>;                              // freestanding
   template<@\libconcept{range}@ R>
     using range_reference_t = iter_reference_t<iterator_t<R>>;                      // freestanding
+  template<@\libconcept{range}@ R>
+    using range_const_reference_t = iter_const_reference_t<iterator_t<R>>;
   template<@\libconcept{range}@ R>
     using range_rvalue_reference_t = iter_rvalue_reference_t<iterator_t<R>>;        // freestanding
 
@@ -114,6 +118,9 @@ namespace std::ranges {
 
   template<class T>
     concept viewable_range = @\seebelow@;                                             // freestanding
+
+  template<class T>
+    concept constant_range = @\seebelow@;
 
   // \ref{view.interface}, class template \tcode{view_interface}
   template<class D>
@@ -342,6 +349,25 @@ namespace std::ranges {
       enable_borrowed_range<T>;
 
   namespace views { inline constexpr @\unspecnc@ reverse = @\unspecnc@; }           // freestanding
+
+  // \ref{range.as.const}, as const view
+  template<@\libconcept{input_range}@ R>
+    constexpr auto& @\exposid{possibly-const-range}@(R& r) {          // \expos
+      if constexpr (@\libconcept{constant_range}@<const R> && !@\libconcept{constant_range}@<R>) {
+        return const_cast<const R&>(r);
+      } else {
+        return r;
+      }
+    }
+
+  template<@\libconcept{view}@ V>
+    requires @\libconcept{input_range}@<V>
+  class as_const_view;
+
+  template<class T>
+    inline constexpr bool enable_borrowed_range<as_const_view<T>> = enable_borrowed_range<T>;
+
+  namespace views { inline constexpr @\unspec@ as_const = @\unspec@; }
 
   // \ref{range.elements}, elements view
   template<@\libconcept{input_range}@ V, size_t N>
@@ -670,18 +696,26 @@ model \tcode{\libconcept{sentinel_for}<S, I>}.
 
 \pnum
 The name \tcode{ranges::cbegin} denotes a customization point
-object\iref{customization.point.object}. The expression
-\tcode{ranges::\brk{}cbegin(E)} for a subexpression \tcode{E} of type \tcode{T}
-is expression-equivalent to:
+object\iref{customization.point.object}.
+Given a subexpression \tcode{E} with type \tcode{T},
+let \tcode{t} be an lvalue that denotes the reified object for \tcode{E}.
+Then:
 \begin{itemize}
-\item \tcode{ranges::begin(static_cast<const T\&>(E))} if \tcode{E} is an lvalue.
-\item Otherwise, \tcode{ranges::begin(static_cast<const T\&\&>(E))}.
+\item
+If \tcode{E} is an rvalue and
+\tcode{enable_borrowed_range<remove_cv_t<T>>} is \tcode{false},
+\tcode{ranges::cbegin(E)} is ill-formed.
+\item
+Otherwise,
+let \tcode{U} be \tcode{ranges::begin(\exposid{possibly-const-range}(t))}.
+\tcode{ranges::cbegin(E)} is expression-equivalent to
+\tcode{const_iterator<decltype(U)>(U)}.
 \end{itemize}
 
 \pnum
 \begin{note}
 Whenever \tcode{ranges::cbegin(E)} is a valid expression, its type models
-\libconcept{input_or_output_iterator}.
+\libconcept{input_or_output_iterator} and \exposconcept{constant-iterator}.
 \end{note}
 
 \rSec2[range.access.cend]{\tcode{ranges::cend}}
@@ -689,12 +723,20 @@ Whenever \tcode{ranges::cbegin(E)} is a valid expression, its type models
 
 \pnum
 The name \tcode{ranges::cend} denotes a customization point
-object\iref{customization.point.object}. The expression
-\tcode{ranges::cend(E)} for a subexpression \tcode{E} of type \tcode{T}
-is expression-equivalent to:
+object\iref{customization.point.object}.
+Given a subexpression \tcode{E} with type \tcode{T},
+let \tcode{t} be an lvalue that denotes the reified object for \tcode{E}.
+Then:
 \begin{itemize}
-\item \tcode{ranges::end(static_cast<const T\&>(E))} if \tcode{E} is an lvalue.
-\item Otherwise, \tcode{ranges::end(static_cast<const T\&\&>(E))}.
+\item
+If \tcode{E} is an rvalue and
+\tcode{enable_borrowed_range<remove_cv_t<T>>} is \tcode{false},
+\tcode{ranges::cend(E)} is ill-formed.
+\item
+Otherwise,
+let \tcode{U} be \tcode{ranges::end(\exposid{possibly-const-range}(t))}.
+\tcode{ranges::cend(E)} is expression-equivalent to
+\tcode{const_sentinel<decltype(U)>(U)}.
 \end{itemize}
 
 \pnum
@@ -703,6 +745,8 @@ Whenever \tcode{ranges::cend(E)} is a valid expression,
 the types \tcode{S} and \tcode{I} of the expressions
 \tcode{ranges::cend(E)} and \tcode{ranges::cbegin(E)}
 model \tcode{\libconcept{sentinel_for}<S, I>}.
+If \tcode{S} models \libconcept{input_iterator},
+then \tcode{S} also models \exposconceptx{constant-itera\-tor}{constant-iterator}.
 \end{note}
 
 \rSec2[range.access.rbegin]{\tcode{ranges::rbegin}}
@@ -850,19 +894,27 @@ model \tcode{\libconcept{sentinel_for}<S, I>}.
 
 \pnum
 The name \tcode{ranges::crbegin} denotes a customization point
-object\iref{customization.point.object}. The expression
-\tcode{ranges::\brk{}crbegin(E)} for a subexpression \tcode{E} of type
-\tcode{T} is expression-equivalent to:
+object\iref{customization.point.object}.
+Given a subexpression \tcode{E} with type \tcode{T},
+let \tcode{t} be an lvalue that denotes the reified object for \tcode{E}.
+Then:
 \begin{itemize}
-\item \tcode{ranges::\brk{}rbegin(static_cast<const T\&>(E))} if \tcode{E} is
-  an lvalue.
-\item Otherwise, \tcode{ranges::rbegin(static_cast<const T\&\&>(E))}.
+\item
+If \tcode{E} is an rvalue and
+\tcode{enable_borrowed_range<remove_cv_t<T>>} is \tcode{false},
+\tcode{ranges::crbegin(E)} is ill-formed.
+\item
+Otherwise,
+let \tcode{U} be \tcode{ranges::rbegin(\exposid{possibly-const-range}(t))}.
+\tcode{ranges::crbegin(E)} is expres\-sion-equivalent to
+\tcode{const_iterator<decltype(U)>(U)}.
 \end{itemize}
 
 \pnum
 \begin{note}
 Whenever \tcode{ranges::crbegin(E)} is a valid expression, its
-type models \libconcept{input_or_output_iterator}.
+type models \libconcept{input_or_output_iterator} and
+\exposconcept{constant-iterator}.
 \end{note}
 
 \rSec2[range.access.crend]{\tcode{ranges::crend}}
@@ -870,13 +922,20 @@ type models \libconcept{input_or_output_iterator}.
 
 \pnum
 The name \tcode{ranges::crend} denotes a customization point
-object\iref{customization.point.object}. The expression
-\tcode{ranges::\brk{}crend(E)} for a subexpression \tcode{E} of type \tcode{T}
-is expression-equivalent to:
+object\iref{customization.point.object}.
+Given a subexpression \tcode{E} with type \tcode{T},
+let \tcode{t} be an lvalue that denotes the reified object for \tcode{E}.
+Then:
 \begin{itemize}
-\item \tcode{ranges::rend(static_cast<const T\&>(E))} if \tcode{E} is an lvalue.
-
-\item Otherwise, \tcode{ranges::rend(static_cast<const T\&\&>(E))}.
+\item
+If \tcode{E} is an rvalue and
+\tcode{enable_borrowed_range<remove_cv_t<T>>} is \tcode{false},
+\tcode{ranges::crend(E)} is ill-formed.
+\item
+Otherwise,
+let \tcode{U} be \tcode{ranges::rend(\exposid{possibly-const-range}(t))}.
+\tcode{ranges::crend(E)} is expression-equivalent to
+\tcode{const_sentinel<decltype(U)>(U)}.
 \end{itemize}
 
 \pnum
@@ -885,6 +944,8 @@ Whenever \tcode{ranges::crend(E)} is a valid expression,
 the types \tcode{S} and \tcode{I} of the expressions
 \tcode{ranges::crend(E)} and \tcode{ranges::crbegin(E)}
 model \tcode{\libconcept{sentinel_for}<S, I>}.
+If \tcode{S} models \libconcept{input_iterator},
+then \tcode{S} also models \exposconceptx{constant-itera\-tor}{constant-iterator}.
 \end{note}
 
 \rSec2[range.prim.size]{\tcode{ranges::size}}
@@ -1085,21 +1146,32 @@ has pointer to object type.
 \rSec2[range.prim.cdata]{\tcode{ranges::cdata}}
 \indexlibraryglobal{cdata}%
 
+\begin{codeblock}
+template<class T>
+constexpr auto @\exposid{as-const-pointer}@(const T* p) { return p; }   // \expos
+\end{codeblock}
+
 \pnum
 The name \tcode{ranges::cdata} denotes a customization point
-object\iref{customization.point.object}. The expression
-\tcode{ranges::\brk{}cdata(E)} for a subexpression \tcode{E} of type \tcode{T}
-is expression-equivalent to:
+object\iref{customization.point.object}.
+Given a subexpression \tcode{E} with type \tcode{T},
+let \tcode{t} be an lvalue that denotes the reified object for \tcode{E}.
+Then:
 \begin{itemize}
-\item \tcode{ranges::data(static_cast<const T\&>(E))} if \tcode{E} is an lvalue.
-
-\item Otherwise, \tcode{ranges::data(static_cast<const T\&\&>(E))}.
+\item
+If \tcode{E} is an rvalue and
+\tcode{enable_borrowed_range<remove_cv_t<T>>} is \tcode{false},
+\tcode{ranges::cdata(E)} is ill-formed.
+\item
+Otherwise,
+\tcode{ranges::cdata(E)} is expression-equivalent to
+\tcode{\exposid{as-const-pointer}(ranges::data(\exposid{possi\-bly-const-range}(t)))}.
 \end{itemize}
 
 \pnum
 \begin{note}
 Whenever \tcode{ranges::cdata(E)} is a valid expression, it
-has pointer to object type.
+has pointer to constant object type.
 \end{note}
 
 \rSec1[range.req]{Range requirements}
@@ -1499,6 +1571,16 @@ template<class T>
       (is_lvalue_reference_v<T> || (@\libconcept{movable}@<remove_reference_t<T>> && !@\exposid{is-initializer-list}@<T>))));
 \end{itemdecl}
 
+\pnum
+The \libconcept{constant_range} concept specifies the requirements of a
+\libconcept{range} type whose elements are not modifiable.
+
+\begin{itemdecl}
+template<class T>
+  concept @\deflibconcept{constant_range}@ =
+    @\libconcept{input_range}@<T> && @\exposconcept{constant-iterator}@<iterator_t<R>>;
+\end{itemdecl}
+
 \rSec1[range.utility]{Range utilities}
 
 \rSec2[range.utility.general]{General}
@@ -1564,6 +1646,19 @@ namespace std::ranges {
         return ranges::size(@\exposid{derived}@()) == 0;
       else
         return ranges::begin(@\exposid{derived}@()) == ranges::end(@\exposid{derived}@());
+    }
+
+    constexpr auto cbegin() {
+        return ranges::cbegin(@\exposid{derived}@());
+    }
+    constexpr auto cbegin() const requires @\libconcept{range}@<const D> {
+        return ranges::cbegin(@\exposid{derived}@());
+    }
+    constexpr auto cend() {
+        return ranges::cend(@\exposid{derived}@());
+    }
+    constexpr auto cend() const requires @\libconcept{range}@<const D> {
+        return ranges::cend(@\exposid{derived}@());
     }
 
     constexpr explicit operator bool()
@@ -7872,6 +7967,93 @@ constexpr auto end() const requires @\libconcept{common_range}@<const V>;
 \pnum
 \effects
 Equivalent to: \tcode{return make_reverse_iterator(ranges::begin(\exposid{base_}));}
+\end{itemdescr}
+
+\rSec2[range.as.const]{As const view}
+
+\rSec3[range.as.const.overview]{Overview}
+
+\pnum
+\tcode{as_const_view} presents a \libconcept{view} of an underlying sequence as constant.
+That is, the elements of an \tcode{as_const_view} cannot be modified.
+
+\pnum
+The name \tcode{views::as_const} denotes
+a range adaptor object\iref{range.adaptor.object}.
+Let \tcode{E} be an expression,
+let \tcode{T} be \tcode{decltype((E))}, and
+let \tcode{U} be \tcode{remove_cvref_t<T>}.
+The expression \tcode{views::as_const(E)} is expression-equivalent to:
+\begin{itemize}
+\item
+If \tcode{views::all_t<T>} models \libconcept{constant_range},
+then \tcode{views::all(E)}.
+\item
+Otherwise,
+if \tcode{U} denotes \tcode{span<X, Extent>}
+for some type \tcode{X} and some extent \tcode{Extent},
+then \tcode{span<const X, Extent>(E)}.
+\item
+Otherwise,
+if \tcode{E} is an lvalue,
+\tcode{const U} models \libconcept{constant_range}, and
+\tcode{U} does not model \libconcept{view},
+then \tcode{ref_view(static_cast<const U\&>(E))}.
+\item
+Otherwise, \tcode{as_const_view(E)}.
+\end{itemize}
+
+\pnum
+\begin{example}
+\begin{codeblock}
+template<ranges::@\libconcept{constant_range}@ R>
+void cant_touch_this(R&&);
+
+vector<char> hammer = {'m', 'c'};
+span<char> beat = hammer;
+cant_touch_this(views::as_const(beat));         // will not modify the elements of \tcode{hammer}
+\end{codeblock}
+\end{example}
+
+\rSec3[range.as.const.view]{Class template \tcode{as_const_view}}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<@\libconcept{input_range}@ V>
+    requires @\libconcept{view}@V>
+  class as_const_view : public view_interface<as_const_view<V>> {
+    V @\exposid{base_}@ = V();      // \expos
+
+  public:
+    as_const_view() requires @\libconcept{default_initializable}@<V> = default;
+    constexpr explicit as_const_view(V base);
+
+    constexpr V base() const & requires @\libconcept{copy_constructible}@<V> { return @\exposid{base_}@; }
+    constexpr V base() && { return std::move(@\exposid{base_}@); }
+
+    constexpr auto begin() requires (!@\exposconcept{simple-view}@<V>) { return ranges::cbegin(@\exposid{base_}@); }
+    constexpr auto begin() const requires @\libconcept{range}@<const V> { return ranges::cbegin(@\exposid{base_}@); }
+
+    constexpr auto end() requires (!@\exposconcept{simple-view}@<V>) { return ranges::cend(@\exposid{base_}@); }
+    constexpr auto end() const requires @\libconcept{range}@<const V> { return ranges::cend(@\exposid{base_}@); }
+
+    constexpr auto size() requires @\libconcept{sized_range}@<V> { return ranges::size(@\exposid{base_}@); }
+    constexpr auto size() const requires @\libconcept{sized_range}@<const V> { return ranges::size(@\exposid{base_}@); }
+  };
+
+  template<class R>
+    as_const_view(R&&) -> as_const_view<views::all_t<R>>;
+}
+\end{codeblock}
+
+\begin{itemdecl}
+constexpr explicit as_const_view(V base);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{base_} with \tcode{std::move(base)}.
 \end{itemdescr}
 
 \rSec2[range.elements]{Elements view}
