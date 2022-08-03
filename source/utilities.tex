@@ -13797,12 +13797,36 @@ namespace std {
     size_t formatted_size(const locale& loc, @\exposid{wformat-string}@<Args...> fmt, Args&&... args);
 
   // \ref{format.formatter}, formatter
+  // \ref{format.formatter.spec}, formatter specializations
   template<class T, class charT = char> struct formatter;
+
+  // \ref{format.range}, class template \tcode{range_formatter}
+  template<class T, class charT = char>
+    requires @\libconcept{same_as}@<remove_cvref_t<T>, T> && @\libconcept{formattable}@<T, charT>
+  class range_formatter;
+
+  template<ranges::@\libconcept{input_range}@ R, class charT>
+    requires (!@\libconcept{same_as}@<remove_cvref_t<ranges::range_reference_t<R>>, R>) &&
+             @\libconcept{formattable}@<ranges::range_reference_t<R>, charT>
+  struct formatter<R, charT>;
 
   // \ref{format.parse.ctx}, class template \tcode{basic_format_parse_context}
   template<class charT> class basic_format_parse_context;
   using format_parse_context = basic_format_parse_context<char>;
   using wformat_parse_context = basic_format_parse_context<wchar_t>;
+
+  // \ref{format.formattable}, concept \libconcept{formattable}
+  template<class T, class charT>
+    concept formattable = @\seebelow@;
+
+  template<class R, class charT>
+    concept @\defexposconcept{const-formattable-range}@ =                                   // \expos
+      ranges::@\libconcept{input_range}@<const R> &&
+      @\libconcept{formattable}@<ranges::range_reference_t<const R>, charT>;
+
+  template<class R, class charT>
+    using @\exposid{fmt-maybe-const}@ =                                             // \expos
+      conditional_t<@\exposconcept{const-formattable-range}@<R, charT>, const R, R>;
 
   // \ref{format.arguments}, arguments
   // \ref{format.arg}, class template \tcode{basic_format_arg}
@@ -14024,7 +14048,7 @@ The syntax of format specifications is as follows:
 
 \begin{ncbnf}
 \fmtnontermdef{type} \textnormal{one of}\br
-    \terminal{a A b B c d e E f F g G o p s x X}
+    \terminal{a A b B c d e E f F g G o p s x X ?}
 \end{ncbnf}
 
 \pnum
@@ -14300,6 +14324,10 @@ The available string presentation types are specified in \tref{format.type.strin
 \lhdr{Type} & \rhdr{Meaning} \\ \rowsep
 none, \tcode{s} &
 Copies the string to the output.
+\\ \rowsep
+%
+\tcode{?} &
+Copies the escaped string\iref{format.string.escaped} to the output.
 \\
 \end{floattable}
 
@@ -14397,6 +14425,10 @@ Copies the character to the output.
 %
 \tcode{b}, \tcode{B}, \tcode{d}, \tcode{o}, \tcode{x}, \tcode{X} &
 As specified in \tref{format.type.int}.
+\\ \rowsep
+%
+\tcode{?} &
+Copies the escaped character\iref{format.string.escaped} to the output.
 \\
 \end{floattable}
 
@@ -14954,6 +14986,35 @@ As above, but does not modify \tcode{u}.
 \\
 \end{concepttable}
 
+\rSec3[format.formattable]{Concept \cname{formattable}}
+
+\pnum
+Let \tcode{\placeholder{fmt-iter-for}<charT>} be an unspecified type
+that models
+\tcode{\libconcept{output_iterator}<const charT\&>}\iref{iterator.concept.output}.
+
+\begin{codeblock}
+template<class T, class charT>
+  concept @\deflibconcept{formattable}@ =
+    @\libconcept{semiregular}@<formatter<remove_cvref_t<T>, charT>> &&
+    requires (formatter<remove_cvref_t<T>, charT> f,
+              const formatter<remove_cvref_t<T>, charT> cf,
+              T t,
+              basic_format_context<@\placeholder{fmt-iter-for}@<charT>, charT> fc,
+              basic_format_parse_context<charT> pc) {
+        { f.parse(pc) } -> @\libconcept{same_as}@<basic_format_parse_context<charT>::iterator>;
+        { cf.format(t, fc) } -> @\libconcept{same_as}@<@\placeholder{fmt-iter-for}@<charT>>;
+    };
+\end{codeblock}
+
+\pnum
+A type \tcode{T} and a character type \tcode{charT}
+model \libconcept{formattable}
+if \tcode{formatter<remove_cvref_t<T>, charT>} meets
+the \newoldconcept{BasicFormatter} requirements\iref{formatter.requirements}
+and, if \tcode{remove_reference_t<T>} is const-qualified,
+the \newoldconcept{Formatter} requirements.
+
 \rSec3[format.formatter.spec]{Formatter specializations}
 \indexlibraryglobal{formatter}%
 
@@ -14967,12 +15028,19 @@ individual arguments.
 Let \tcode{charT} be either \tcode{char} or \keyword{wchar_t}.
 Each specialization of \tcode{formatter} is either enabled or disabled,
 as described below.
+\indextext{\idxcode{formatter}!debug-enabled specialization of}%
+A \defn{debug-enabled} specialization of \tcode{formatter}
+additionally provides
+a public, constexpr, non-static member function \tcode{set_debug_format()}
+which modifies the state of the \tcode{formatter} to be as if
+the type of the \fmtgrammarterm{std-format-spec}
+parsed by the last call to \tcode{parse} were \tcode{?}.
 Each header that declares the template \tcode{formatter}
 provides the following enabled specializations:
 \begin{itemize}
 \item
 \indexlibrary{\idxcode{formatter}!specializations!character types}%
-The specializations
+The debug-enabled specializations
 \begin{codeblock}
 template<> struct formatter<char, char>;
 template<> struct formatter<char, wchar_t>;
@@ -14982,7 +15050,7 @@ template<> struct formatter<wchar_t, wchar_t>;
 \item
 \indexlibrary{\idxcode{formatter}!specializations!string types}%
 For each \tcode{charT},
-the string type specializations
+the debug-enabled string type specializations
 \begin{codeblock}
 template<> struct formatter<charT*, charT>;
 template<> struct formatter<const charT*, charT>;
@@ -15077,6 +15145,151 @@ std::string s0 = std::format("{}", 42);         // OK, library-provided formatte
 std::string s1 = std::format("{}", L"foo");     // error: disabled formatter
 std::string s2 = std::format("{}", red);        // OK, user-provided formatter
 std::string s3 = std::format("{}", err{});      // error: disabled formatter
+\end{codeblock}
+\end{example}
+
+\rSec3[format.string.escaped]{Formatting escaped characters and strings}
+
+\pnum
+\indextext{string!formatted as escaped}%
+\indextext{character!formatted as escaped}%
+A character or string can be formatted as \defn{escaped}
+to make it more suitable for debugging or for logging.
+
+\pnum
+The escaped string \placeholder{E} representation of a string \placeholder{S}
+is constructed by encoding a sequence of characters as follows.
+The associated character encoding \placeholder{CE}
+for \tcode{charT}~(\tref{lex.string.literal})
+is used to both interpret \placeholder{S} and construct \placeholder{E}.
+
+\begin{itemize}
+\item
+\unicode{0022}{quotation mark} (\tcode{"}) is appended to \placeholder{E}.
+
+\item
+For each code unit sequence \placeholder{X} in \placeholder{S} that either
+encodes a single character,
+is a shift sequence, or
+is a sequence of ill-formed code units,
+processing is in order as follows:
+
+\begin{itemize}
+\item
+If \placeholder{X} encodes a single character \placeholder{C}, then:
+
+\begin{itemize}
+\item
+If \placeholder{C} is one of the characters in \tref{format.escape.sequences},
+then the two characters shown as the corresponding escape sequence
+are appended to \placeholder{E}.
+
+\item
+Otherwise, if \placeholder{C} is not \unicode{0020}{space} and
+
+\begin{itemize}
+\item
+\placeholder{CE} is a Unicode encoding and
+\placeholder{C} corresponds to either
+a UCS scalar value whose Unicode property \tcode{General_Category}
+has a value in the groups \tcode{Separator} (\tcode{Z}) or \tcode{Other} (\tcode{C}) or to
+a UCS scalar value which has the Unicode property \tcode{Grapheme_Extend=Yes},
+as described by table 12 of UAX \#44, or
+
+\item
+\placeholder{CE} is not a Unicode encoding and
+\placeholder{C} is one of an implementation-defined set
+of separator or non-printable characters
+\end{itemize}
+
+then the sequence \tcode{\textbackslash u\{\placeholder{hex-digit-sequence}\}}
+is appended to \placeholder{E},
+where \tcode{\placeholder{hex-digit-sequence}}
+is the shortest hexadecimal representation
+of \placeholder{C} using lower-case hexadecimal digits.
+
+\item
+Otherwise, \placeholder{C} is appended to \placeholder{E}.
+\end{itemize}
+
+\item
+Otherwise, if \placeholder{X} is a shift sequence,
+the effect on \placeholder{E} and further decoding of \placeholder{S}
+is unspecified.
+
+\recommended
+A shift sequence should be represented in \placeholder{E}
+such that the original code unit sequence of \placeholder{S}
+can be reconstructed.
+
+\item
+Otherwise (\placeholder{X} is a sequence of ill-formed code units),
+each code unit \placeholder{U} is appended to \placeholder{E} in order
+as the sequence \tcode{\textbackslash x\{\placeholder{hex-digit-sequence}\}},
+where \tcode{\placeholder{hex-digit-sequence}}
+is the shortest hexadecimal representation of \placeholder{U}
+using lower-case hexadecimal digits.
+\end{itemize}
+
+\item
+Finally, \unicode{0022}{quotation mark} (\tcode{"})
+is appended to \placeholder{E}.
+\end{itemize}
+%
+\begin{floattable}{Mapping of characters to escape sequences}{format.escape.sequences}{ll}
+\topline
+\lhdr{Character} & \rhdr{Escape sequence} \\ \rowsep
+\unicode{0009}{character tabulation} &
+\tcode{\textbackslash t}
+\\ \rowsep
+%
+\unicode{000a}{line feed} &
+\tcode{\textbackslash n}
+\\ \rowsep
+%
+\unicode{000d}{carriage return} &
+\tcode{\textbackslash r}
+\\ \rowsep
+%
+\unicode{0022}{quotation mark} &
+\tcode{\textbackslash "}
+\\ \rowsep
+%
+\unicode{005c}{reverse solidus} &
+\tcode{\textbackslash\textbackslash}
+\\
+\end{floattable}
+
+\pnum
+The escaped string representation of a character \placeholder{C}
+is equivalent to the escaped string representation
+of a string of \placeholder{C}, except that:
+
+\begin{itemize}
+\item
+the result starts and ends with \unicode{0027}{apostrope} (\tcode{'})
+instead of \unicode{0022}{quotation mark} (\tcode{"}), and
+\item
+if \placeholder{C} is \unicode{0027}{apostrope},
+the two characters \tcode{\textbackslash '} are appended to \placeholder{E}, and
+\item
+if \placeholder{C} is \unicode{0022}{quotation mark},
+then \placeholder{C} is appended unchanged.
+\end{itemize}
+
+%% FIXME: Example is incomplete; s2 and s6 are missing below;
+%% FIXME: their Unicode characters are not available in our font (Latin Modern).
+\begin{example}
+\begin{codeblock}
+string s0 = format("[{}]", "h\tllo");                   // \tcode{s0} has value: \tcode{[h    llo]}
+string s1 = format("[{:?}]", "h\tllo");                 // \tcode{s1} has value: \tcode{["h\textbackslash tllo"]}
+string s3 = format("[{:?}] [{:?}]", '\'', '"');         // \tcode{s3} has value: \tcode{['\textbackslash '', '"']}
+
+// The following examples assume use of the UTF-8 encoding
+string s4 = format("[{:?}]", string("\0 \n \t \x02 \x1b", 9));
+                                                        // \tcode{s4} has value: \tcode{[\textbackslash u\{0\} \textbackslash n \textbackslash t \textbackslash u\{2\} \textbackslash u\{1b\}]}
+string s5 = format("[{:?}]", "\xc3\x28");               // invalid UTF-8
+                                                        // \tcode{s5} has value: \tcode{["\textbackslash x\{c3\}\textbackslash x\{28\}"]}
 \end{codeblock}
 \end{example}
 
@@ -15371,6 +15584,326 @@ template<> struct std::formatter<S> {
 std::string s = std::format("{0:{1}}", S{42}, 10);  // value of \tcode{s} is \tcode{"xxxxxxxx42"}
 \end{codeblock}
 \end{example}
+
+\rSec2[format.range]{Class template \tcode{range_formatter}}
+
+\pnum
+The class template \tcode{range_formatter} is a convenient utility
+for implementing \tcode{formatter} specializations for range types.
+
+\pnum
+\tcode{range_formatter} interprets \fmtgrammarterm{format-spec}
+as a \fmtgrammarterm{range-format-spec}.
+The syntax of format specifications is as follows:
+
+\begin{ncbnf}
+\fmtnontermdef{range-format-spec}\br
+    \opt{range-fill-and-align} \opt{width} \opt{\terminal{n}} \opt{range-type} \opt{range-underlying-spec}
+\end{ncbnf}
+
+\begin{ncbnf}
+\fmtnontermdef{range-fill-and-align}\br
+    \opt{range-fill} align
+\end{ncbnf}
+
+\begin{ncbnf}
+\fmtnontermdef{range-fill}\br
+    \textnormal{any character other than} \terminal{\{} \textnormal{or} \terminal{\}} \textnormal{or} \terminal{:}
+\end{ncbnf}
+
+\begin{ncbnf}
+\fmtnontermdef{range-type}\br
+    \terminal{m}\br
+    \terminal{s}\br
+    \terminal{?s}
+\end{ncbnf}
+
+\begin{ncbnf}
+\fmtnontermdef{range-underlying-spec}\br
+    \terminal{:} format-spec
+\end{ncbnf}
+
+\pnum
+For \tcode{range_formatter<T, charT>},
+the \fmtgrammarterm{format-spec}
+in a \fmtgrammarterm{range-underlying-spec}, if any,
+is interpreted by \tcode{formatter<T, charT>}.
+
+\pnum
+The \fmtgrammarterm{range-fill-and-align} is interpreted
+the same way as a \fmtgrammarterm{fill-and-align}\iref{format.string.std}.
+The productions \fmtgrammarterm{align} and \fmtgrammarterm{width}
+are described in \ref{format.string}.
+
+\pnum
+The \tcode{n} option causes the range to be formatted
+without the opening and closing brackets.
+\begin{note}
+This is equivalent to invoking \tcode{set_brackets(\{\}, \{\})}.
+\end{note}
+
+\pnum
+The \fmtgrammarterm{range-type} specifier changes the way a range is formatted,
+with certain options only valid with certain argument types.
+The meaning of the various type options
+is as specified in \tref{formatter.range.type}.
+
+\begin{concepttable}{Meaning of \fmtgrammarterm{range-type} options}{formatter.range.type}
+{p{1in}p{1.4in}p{2.7in}}
+\topline
+\hdstyle{Option} & \hdstyle{Requirements} & \hdstyle{Meaning} \\ \capsep
+%
+\tcode{m} &
+\tcode{T} shall be
+either a specialization of \tcode{pair} or a specialization of \tcode{tuple}
+such that \tcode{tuple_size_v<T>} is \tcode{2}. &
+Indicates that
+the opening bracket should be \tcode{"\{"},
+the closing bracket should be \tcode{"\}"},
+the separator should be \tcode{", "}, and
+each range element should be formatted as if
+\tcode{m} were specified for its \fmtgrammarterm{tuple-type}.
+\begin{tailnote}
+If the \tcode{n} option is provided in addition to the \tcode{m} option,
+both the opening and closing brackets are still empty.
+\end{tailnote}
+\\ \rowsep
+%
+\tcode{s} &
+\tcode{T} shall be \tcode{charT}. &
+Indicates that the range should be formatted as a \tcode{string}.
+\\ \rowsep
+%
+\tcode{?s} &
+\tcode{T} shall be \tcode{charT}. &
+Indicates that the range should be formatted as
+an escaped string\iref{format.string.escaped}.
+\\
+\end{concepttable}
+
+If the \fmtgrammarterm{range-type} is \tcode{s} or \tcode{?s},
+then there shall be
+no \tcode{n} option and no \fmtgrammarterm{range-underlying-spec}.
+
+\indexlibraryglobal{range_formatter}%
+\begin{codeblock}
+namespace std {
+  template<class T, class charT = char>
+    requires @\libconcept{same_as}@<remove_cvref_t<T>, T> && @\libconcept{formattable}@<T, charT>
+  class range_formatter {
+    formatter<T, charT> @\exposid{underlying_}@;                                          // \expos
+    basic_string_view<charT> @\exposid{separator_}@ = @\exposid{STATICALLY-WIDEN}@<charT>(", ");      // \expos
+    basic_string_view<charT> @\exposid{opening-bracket_}@ = @\exposid{STATICALLY-WIDEN}@<charT>("["); // \expos
+    basic_string_view<charT> @\exposid{closing-bracket_}@ = @\exposid{STATICALLY-WIDEN}@<charT>("]"); // \expos
+
+  public:
+    constexpr void set_separator(basic_string_view<charT> sep);
+    constexpr void set_brackets(basic_string_view<charT> opening,
+                                basic_string_view<charT> closing);
+    constexpr formatter<T, charT>& underlying() { return @\exposid{underlying_}@; }
+    constexpr const formatter<T, charT>& underlying() const { return @\exposid{underlying_}@; }
+
+    template<class ParseContext>
+      constexpr typename ParseContext::iterator
+        parse(ParseContext& ctx);
+
+    template<ranges::@\libconcept{input_range}@ R, class FormatContext>
+        requires @\libconcept{formattable}@<ranges::range_reference_t<R>, charT> &&
+                 @\libconcept{same_as}@<remove_cvref_t<ranges::range_reference_t<R>>, T>
+      typename FormatContext::iterator
+        format(R&& r, FormatContext& ctx) const;
+  };
+}
+\end{codeblock}
+
+\indexlibrarymember{set_separator}{range_formatter}%
+\begin{itemdecl}
+constexpr void set_separator(basic_string_view<charT> sep);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{\exposid{separator_} = sep;}
+\end{itemdescr}
+
+\indexlibrarymember{set_brackets}{range_formatter}%
+\begin{itemdecl}
+constexpr void set_brackets(basic_string_view<charT> opening, basic_string_view<charT> closing);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+@\exposid{opening-bracket_}@ = opening;
+@\exposid{closing-bracket_}@ = closing;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{parse}{range_formatter}%
+\begin{itemdecl}
+template<class ParseContext>
+  constexpr typename ParseContext::iterator
+    parse(ParseContext& ctx);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Parses the format specifier as a \fmtgrammarterm{range-format-spec} and
+stores the parsed specifiers in \tcode{*this}.
+The values of
+\exposid{opening-bracket_}, \exposid{closing-bracket_}, and \exposid{separator_}
+are modified if and only if required by
+the \fmtgrammarterm{range-type} or the \tcode{n} option, if present.
+If:
+\begin{itemize}
+\item
+the \fmtgrammarterm{range-type} is neither \tcode{s} nor \tcode{?s},
+\item
+\tcode{\exposid{underlying_}.set_debug_format()} is a valid expression, and
+\item
+there is no \fmtgrammarterm{range-underlying-spec},
+\end{itemize}
+then calls \tcode{\exposid{underlying_}.set_debug_format()}.
+
+\pnum
+\returns
+An iterator past the end of the \fmtgrammarterm{range-format-spec}.
+\end{itemdescr}
+
+\indexlibrarymember{format}{range_formatter}%
+\begin{itemdecl}
+template<ranges::@\libconcept{input_range}@ R, class FormatContext>
+    requires @\libconcept{formattable}@<ranges::range_reference_t<R>, charT> &&
+             @\libconcept{same_as}@<remove_cvref_t<ranges::range_reference_t<R>>, T>
+  typename FormatContext::iterator
+    format(R&& r, FormatContext& ctx) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Writes the following into \tcode{ctx.out()},
+adjusted according to the \fmtgrammarterm{range-format-spec}:
+
+\begin{itemize}
+\item
+If the \fmtgrammarterm{range-type} was \tcode{s},
+then as if by formatting \tcode{basic_string<charT>(from_range, r)}.
+\item
+Otherwise, if the \fmtgrammarterm{range-type} was \tcode{?s},
+then as if by formatting \tcode{basic_string<charT>(from_range, r)}
+as an escaped string\iref{format.string.escaped}.
+\item
+Otherwise,
+\begin{itemize}
+\item
+\exposid{opening-bracket_},
+\item
+for each element \tcode{e} of the range \tcode{r}:
+\begin{itemize}
+\item
+the result of writing \tcode{e} via \exposid{underlying_} and
+\item
+\exposid{separator_}, unless \tcode{e} is the last element of \tcode{r}, and
+\end{itemize}
+\item
+\exposid{closing-bracket_}.
+\end{itemize}
+\end{itemize}
+
+\pnum
+\returns
+An iterator past the end of the output range.
+\end{itemdescr}
+
+\indexlibraryglobal{formatter}%
+\begin{codeblock}
+namespace std {
+  template<ranges::@\libconcept{input_range}@ R, class charT>
+    requires (!@\libconcept{same_as}@<remove_cvref_t<ranges::range_reference_t<R>>, R>) &&
+             @\libconcept{formattable}@<ranges::range_reference_t<R>, charT>
+  struct formatter<R, charT> {
+  private:
+    using @\exposid{maybe-const-r}@ = @\exposid{fmt-maybe-const}@<R, charT>;
+    range_formatter<remove_cvref_t<ranges::range_reference_t<@\exposid{maybe-const-r}@>>,
+                    charT> @\exposid{underlying_}@;       // \expos
+
+  public:
+    constexpr void set_separator(basic_string_view<charT> sep);
+    constexpr void set_brackets(basic_string_view<charT> opening,
+                                basic_string_view<charT> closing);
+
+    template<class ParseContext>
+      constexpr typename ParseContext::iterator
+        parse(ParseContext& ctx);
+
+    template<class FormatContext>
+      typename FormatContext::iterator
+        format(@\exposid{maybe-const-r}@& elems, FormatContext& ctx) const;
+  };
+}
+\end{codeblock}
+
+\pnum
+\begin{note}
+The \tcode{(!\libconcept{same_as}<remove_cvref_t<ranges::range_reference_t<R>>, R>)}
+constraint prevents constraint recursion
+for ranges whose reference type is the same range type.
+For example, \tcode{std::filesystem::path}
+is a range of \tcode{std::filesystem::path}.
+\end{note}
+
+\indexlibrarymember{set_separator}{formatter}%
+\begin{itemdecl}
+constexpr void set_separator(basic_string_view<charT> sep);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{\exposid{underlying_}.set_separator(sep);}
+\end{itemdescr}
+
+\indexlibrarymember{set_brackets}{formatter}%
+\begin{itemdecl}
+constexpr void set_brackets(basic_string_view<charT> opening, basic_string_view<charT> closing);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{\exposid{underlying_}.set_brackets(opening, closing);}
+\end{itemdescr}
+
+\indexlibrarymember{parse}{formatter}%
+\begin{itemdecl}
+template<class ParseContext>
+  constexpr typename ParseContext::iterator
+    parse(ParseContext& ctx);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return \exposid{underlying_}.parse(ctx);}
+\end{itemdescr}
+
+\indexlibrarymember{format}{formatter}%
+\begin{itemdecl}
+template<class FormatContext>
+  typename FormatContext::iterator
+    format(@\exposid{maybe-const-r}@& elems, FormatContext& ctx) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return \exposid{underlying_}.format(elems, ctx);}
+\end{itemdescr}
 
 \rSec2[format.arguments]{Arguments}
 
@@ -15788,6 +16321,200 @@ basic_format_arg<Context> get(size_t i) const noexcept;
 \pnum
 \returns
 \tcode{i < size_ ?\ data_[i] :\ basic_format_arg<Context>()}.
+\end{itemdescr}
+
+\rSec2[format.tuple]{Tuple formatter}
+
+\pnum
+For each of \tcode{pair} and \tcode{tuple},
+the library provides the following formatter specialization
+where \tcode{\placeholder{tuple-type}} is the name of the template:
+
+\indexlibraryglobal{formatter}%
+\begin{codeblock}
+namespace std {
+  template<class charT, @\libconcept{formattable}@<charT>... Ts>
+  struct formatter<@\placeholder{tuple-type}@<Ts...>, charT> {
+  private:
+    tuple<formatter<remove_cvref_t<Ts>, charT>...> @\exposid{underlying_}@;               // \expos
+    basic_string_view<charT> @\exposid{separator_}@ = @\exposid{STATICALLY-WIDEN}@<charT>(", ");      // \expos
+    basic_string_view<charT> @\exposid{opening-bracket_}@ = @\exposid{STATICALLY-WIDEN}@<charT>("("); // \expos
+    basic_string_view<charT> @\exposid{closing-bracket_}@ = @\exposid{STATICALLY-WIDEN}@<charT>(")"); // \expos
+
+  public:
+    constexpr void set_separator(basic_string_view<charT> sep);
+    constexpr void set_brackets(basic_string_view<charT> opening,
+                                basic_string_view<charT> closing);
+
+    template<class ParseContext>
+      constexpr typename ParseContext::iterator
+        parse(ParseContext& ctx);
+
+    template<class FormatContext>
+      typename FormatContext::iterator
+        format(@\seebelow@& elems, FormatContext& ctx) const;
+  };
+}
+\end{codeblock}
+
+\pnum
+The \tcode{parse} member functions of these formatters
+interpret the format specification as
+a \fmtgrammarterm{tuple-format-spec} according to the following syntax:
+
+\begin{ncbnf}
+\fmtnontermdef{tuple-format-spec}\br
+    \opt{tuple-fill-and-align} \opt{width} \opt{tuple-type}
+\end{ncbnf}
+
+\begin{ncbnf}
+\fmtnontermdef{tuple-fill-and-align}\br
+    \opt{tuple-fill} align
+\end{ncbnf}
+
+\begin{ncbnf}
+\fmtnontermdef{tuple-fill}\br
+    \textnormal{any character other than} \terminal{\{} \textnormal{or} \terminal{\}} \textnormal{or} \terminal{:}
+\end{ncbnf}
+
+\begin{ncbnf}
+\fmtnontermdef{tuple-type}\br
+    \terminal{m}\br
+    \terminal{n}
+\end{ncbnf}
+
+\pnum
+The \fmtgrammarterm{tuple-fill-and-align} is interpreted the same way as
+a \fmtgrammarterm{fill-and-align}\iref{format.string.std}.
+The productions \fmtgrammarterm{align} and \fmtgrammarterm{width}
+are described in \ref{format.string}.
+
+\pnum
+The \fmtgrammarterm{tuple-type} specifier
+changes the way a \tcode{pair} or \tcode{tuple} is formatted,
+with certain options only valid with certain argument types.
+The meaning of the various type options
+is as specified in \tref{formatter.tuple.type}.
+
+\begin{concepttable}{Meaning of \fmtgrammarterm{tuple-type} options}{formatter.tuple.type}
+{p{0.5in}p{1.4in}p{3.2in}}
+\topline
+\hdstyle{Option} & \hdstyle{Requirements} & \hdstyle{Meaning} \\ \capsep
+%
+\tcode{m} &
+\tcode{sizeof...(Ts) == 2} &
+Equivalent to:
+\begin{codeblock}
+set_separator(@\exposid{STATICALLY-WIDEN}@<charT>(": "));
+set_brackets({}, {});
+\end{codeblock}%
+\\ \rowsep
+%
+\tcode{n} &
+none &
+Equivalent to: \tcode{set_brackets(\{\}, \{\});}
+\\ \rowsep
+%
+none &
+none &
+No effects
+\\
+\end{concepttable}
+
+\indexlibrarymember{set_separator}{formatter}%
+\begin{itemdecl}
+constexpr void set_separator(basic_string_view<charT> sep);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{\exposid{separator_} = sep;}
+\end{itemdescr}
+
+\indexlibrarymember{set_brackets}{formatter}%
+\begin{itemdecl}
+constexpr void set_brackets(basic_string_view<charT> opening, basic_string_view<charT> closing);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+@\exposid{opening-bracket_}@ = opening;
+@\exposid{closing-bracket_}@ = closing;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{parse}{formatter}%
+\begin{itemdecl}
+template<class ParseContext>
+  constexpr typename ParseContext::iterator
+    parse(ParseContext& ctx);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Parses the format specifier as a \fmtgrammarterm{tuple-format-spec} and
+stores the parsed specifiers in \tcode{*this}.
+The values of
+\exposid{opening-bracket_},
+\exposid{closing-bracket_}, and
+\exposid{separator_}
+are modified if and only if
+required by the \fmtgrammarterm{tuple-type}, if present.
+For each element \tcode{\placeholder{e}} in \exposid{underlying_},
+if \tcode{\placeholder{e}.set_debug_format()} is a valid expression,
+calls \tcode{\placeholder{e}.set_debug_format()}.
+
+\pnum
+\returns
+An iterator past the end of the \fmtgrammarterm{tuple-format-spec}.
+\end{itemdescr}
+
+\indexlibrarymember{format}{formatter}%
+\begin{itemdecl}
+template<class FormatContext>
+  typename FormatContext::iterator
+    format(@\seebelow@& elems, FormatContext& ctx) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The type of \tcode{elems} is:
+\begin{itemize}
+\item
+If \tcode{(\libconcept{formattable}<const Ts, charT> \&\& ...)} is \tcode{true},
+\tcode{const \placeholder{tuple-type}<Ts...>\&}.
+\item
+Otherwise \tcode{\placeholder{tuple-type}<Ts...>\&}.
+\end{itemize}
+
+\pnum
+\effects
+Writes the following into \tcode{ctx.out()},
+adjusted according to the \fmtgrammarterm{tuple-format-spec}:
+\begin{itemize}
+\item
+\exposid{opening-bracket_},
+\item
+for each index \tcode{I} in the \range{0}{sizeof...(Ts)}:
+\begin{itemize}
+\item
+if \tcode{I != 0}, \exposid{separator_},
+\item
+the result of writing \tcode{get<I>(elems)}
+via \tcode{get<I>(\exposid{underlying_})}, and
+\end{itemize}
+\item
+\exposid{closing-bracket_}.
+\end{itemize}
+
+\pnum
+\returns
+An iterator past the end of the output range.
 \end{itemdescr}
 
 \rSec2[format.error]{Class \tcode{format_error}}
