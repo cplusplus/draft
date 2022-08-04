@@ -32,7 +32,7 @@ Getting Started on Debian-based Systems
 
 Install the following packages:
 
-   sudo apt-get install latexmk texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended lmodern
+   sudo apt-get install latexmk texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended lmodern texlive-lang-cyrillic
 
 -------------------------
 Getting Started on Fedora
@@ -40,7 +40,7 @@ Getting Started on Fedora
 
 Install the following packages:
 
-   dnf install latexmk texlive texlive-isodate texlive-relsize texlive-ulem texlive-fixme texlive-extract texlive-l3kernel texlive-l3packages texlive-splitindex texlive-imakeidx
+   dnf install latexmk texlive texlive-isodate texlive-relsize texlive-ulem texlive-fixme texlive-extract texlive-l3kernel texlive-l3packages texlive-splitindex texlive-imakeidx texlive-cyrillic
 
 -----------------------------
 Getting Started on Arch Linux
