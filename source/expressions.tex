@@ -7289,9 +7289,15 @@ unless the evaluation of $E$, following the rules of the abstract
 machine\iref{intro.execution}, would evaluate one of the following:
 \begin{itemize}
 \item
-\keyword{this}\iref{expr.prim.this}, except in a constexpr
-function\iref{dcl.constexpr} that is being evaluated as part
-of $E$;
+\keyword{this}\iref{expr.prim.this}, except
+\begin{itemize}
+\item
+in a constexpr function\iref{dcl.constexpr}
+that is being evaluated as part of $E$ or
+\item
+when appearing as the \grammarterm{postfix-expression} of
+an implicit or explicit class member access expression\iref{expr.ref};
+\end{itemize}
 
 \item
 a control flow that passes through
@@ -7316,11 +7322,7 @@ for a constexpr function;
 
 \item
 an invocation of a virtual function\iref{class.virtual}
-for an object unless
-  \begin{itemize}
-  \item the object is usable in constant expressions or
-  \item its lifetime began within the evaluation of $E$;
-  \end{itemize}
+for an object whose dynamic type is constexpr-unknown;
 
 \item
 an expression that would exceed the implementation-defined
@@ -7363,18 +7365,6 @@ an invocation of an implicitly-defined copy/move constructor or
 copy/move assignment operator
 for a union whose active member (if any) is mutable,
 unless the lifetime of the union object began within the evaluation of $E$;
-
-\item
-an \grammarterm{id-expression} that refers to a variable or
-data member of reference type
-unless the reference has a preceding initialization and either
-\begin{itemize}
-  \item
-  it is usable in constant expressions or
-
-  \item
-  its lifetime began within the evaluation of $E$;
-\end{itemize}
 
 \item
 in a \grammarterm{lambda-expression},
@@ -7467,7 +7457,10 @@ operator where the result is unspecified;
 a \grammarterm{throw-expression}\iref{expr.throw};
 
 \item
-a \keyword{dynamic_cast}\iref{expr.dynamic.cast} or \keyword{typeid}\iref{expr.typeid} expression
+a \keyword{dynamic_cast}\iref{expr.dynamic.cast} or
+\keyword{typeid}\iref{expr.typeid} expression
+on a glvalue that refers to an object
+whose dynamic type is constexpr-unknown or
 that would throw an exception;
 
 \item
@@ -7548,6 +7541,71 @@ to storage allocated with \tcode{std::allocator<T>} or
 to an object whose lifetime began within the evaluation of $E$, or
 the evaluation of the underlying constructor call
 disqualifies $E$ from being a core constant expression.
+
+\pnum
+During the evaluation of an expression $E$ as a core constant expression,
+all \grammarterm{id-expression}s and uses of \tcode{*\keyword{this}}
+that refer to an object or reference
+whose lifetime did not begin with the evaluation of $E$
+are treated as referring to a specific instance of that object or reference
+whose lifetime and that of all subobjects (including all union members)
+includes the entire constant evaluation.
+For such an object that is not usable in constant expressions,
+the dynamic type of the object is \defn{constexpr-unknown}.
+For such a reference that is not usable in constant expressions,
+the reference is treated as binding to
+an unspecified object of the referenced type
+whose lifetime and that of all subobjects includes
+the entire constant evaluation and whose dynamic type is constexpr-unknown.
+\begin{example}
+\begin{codeblock}
+template <typename T, size_t N>
+constexpr size_t array_size(T (&)[N]) {
+  return N;
+}
+
+void use_array(int const (&gold_medal_mel)[2]) {
+  constexpr auto gold = array_size(gold_medal_mel);     // OK
+}
+
+constexpr auto olympic_mile() {
+  const int ledecky = 1500;
+  return []{ return ledecky; };
+}
+static_assert(olympic_mile()() == 1500);                // OK
+
+struct Swim {
+  constexpr int phelps() { return 28; }
+  virtual constexpr int lochte() { return 12; }
+  int coughlin = 12;
+};
+
+constexpr int how_many(Swim& swam) {
+  Swim* p = &swam;
+  return (p + 1 - 1)->phelps();
+}
+
+void splash(Swim& swam) {
+  static_assert(swam.phelps() == 28);           // OK
+  static_assert((&swam)->phelps() == 28);       // OK
+  Swim* pswam = &swam;
+  static_assert(pswam->phelps() == 28);         // error: lvalue-to-rvalue conversion on a pointer
+                                                // not usable in constant expressions
+  static_assert(how_many(swam) == 28);          // OK
+  static_assert(Swim().lochte() == 12);         // OK
+  static_assert(swam.lochte() == 12);           // error: invoking virtual function on reference
+                                                // with constexpr-unknown dynamic type
+  static_assert(swam.coughlin == 12);           // error: lvalue-to-rvalue conversion on an object
+                                                // not usable in constant expressions
+}
+
+extern Swim dc;
+extern Swim& trident;
+
+constexpr auto& sandeno   = typeid(dc);         // OK, can only be \tcode{typeid(Swim)}
+constexpr auto& gallagher = typeid(trident);    // error: constexpr-unknown dynamic type
+\end{codeblock}
+\end{example}
 
 \pnum
 An object \tcode{a} is said to have \defnadj{constant}{destruction} if:
@@ -7662,6 +7720,11 @@ if it is an
 object with static storage duration that either is not a temporary object or is
 a temporary object whose value satisfies the above constraints, or if
 it is a non-immediate function.
+\begin{note}
+A glvalue core constant expression
+that either refers to or points to an unspecified object
+is not a constant expression.
+\end{note}
 \begin{example}
 \begin{codeblock}
 consteval int f() { return 42; }
