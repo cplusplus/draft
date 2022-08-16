@@ -1677,20 +1677,9 @@ namespace std::ranges {
       @\libconcept{convertible_to}@<From, To> &&
       !@\exposconcept{uses-nonqualification-pointer-conversion}@<decay_t<From>, decay_t<To>>;
 
-  template<class T>
-    concept @\defexposconceptnc{pair-like}@ =                                     // \expos
-      !is_reference_v<T> && requires(T t) {
-        typename tuple_size<T>::type;                       // ensures \tcode{tuple_size<T>} is complete
-        requires @\libconcept{derived_from}@<tuple_size<T>, integral_constant<size_t, 2>>;
-        typename tuple_element_t<0, remove_const_t<T>>;
-        typename tuple_element_t<1, remove_const_t<T>>;
-        { std::get<0>(t) } -> @\libconcept{convertible_to}@<const tuple_element_t<0, T>&>;
-        { std::get<1>(t) } -> @\libconcept{convertible_to}@<const tuple_element_t<1, T>&>;
-      };
-
   template<class T, class U, class V>
     concept @\defexposconceptnc{pair-like-convertible-from}@ =                    // \expos
-      !@\libconcept{range}@<T> && @\exposconcept{pair-like}@<T> &&
+      !@\libconcept{range}@<T> && !is_reference_v<T> && @\exposconcept{pair-like}@<T> &&
       @\libconcept{constructible_from}@<T, U, V> &&
       @\exposconcept{convertible-to-non-slicing}@<U, tuple_element_t<0, T>> &&
       @\libconcept{convertible_to}@<V, tuple_element_t<1, T>>;
@@ -7959,12 +7948,7 @@ cout << ranges::count_if(historical_figures | views::values, is_even);  // print
 namespace std::ranges {
   template<class T, size_t N>
   concept @\defexposconcept{has-tuple-element}@ =                   // \expos
-    requires(T t) {
-      typename tuple_size<T>::type;
-      requires N < tuple_size_v<T>;
-      typename tuple_element_t<N, T>;
-      { std::get<N>(t) } -> @\libconcept{convertible_to}@<const tuple_element_t<N, T>&>;
-    };
+    @\exposconcept{tuple-like}@<T> && N < tuple_size_v<T>;
 
   template<class T, size_t N>
   concept @\defexposconcept{returnable-element}@ =                  // \expos
@@ -8594,13 +8578,10 @@ namespace std::ranges {
     (!(@\libconcept{bidirectional_range}@<Rs> && ...) && (@\libconcept{common_range}@<Rs> && ...)) ||
     ((@\libconcept{random_access_range}@<Rs> && ...) && (@\libconcept{sized_range}@<Rs> && ...));
 
-  template<class... Ts>
-    using @\exposid{tuple-or-pair}@ = @\seebelow@;                 // \expos
-
   template<class F, class Tuple>
   constexpr auto @\exposid{tuple-transform}@(F&& f, Tuple&& tuple) { // \expos
     return apply([&]<class... Ts>(Ts&&... elements) {
-      return @\exposid{tuple-or-pair}@<invoke_result_t<F&, Ts>...>(
+      return tuple<invoke_result_t<F&, Ts>...>(
         invoke(f, std::forward<Ts>(elements))...
       );
     }, std::forward<Tuple>(tuple));
@@ -8665,17 +8646,6 @@ namespace std::ranges {
 \end{codeblock}
 
 \pnum
-Given some pack of types \tcode{Ts},
-the alias template \exposid{tuple-or-pair} is defined as follows:
-\begin{itemize}
-\item
-If \tcode{sizeof...(Ts)} is 2,
-\tcode{\exposid{tuple-or-pair}<Ts...>} denotes \tcode{pair<Ts...>}.
-\item
-Otherwise, \tcode{\exposid{tuple-or-pair}<Ts...>} denotes \tcode{tuple<Ts...>}.
-\end{itemize}
-
-\pnum
 Two \tcode{zip_view} objects have the same underlying sequence if and only if
 the corresponding elements of \exposid{views_} are equal\iref{concepts.equality}
 and have the same underlying sequence.
@@ -8731,13 +8701,13 @@ namespace std::ranges {
     requires (@\libconcept{view}@<Views> && ...) && (sizeof...(Views) > 0)
   template<bool Const>
   class zip_view<Views...>::@\exposid{iterator}@ {
-    @\exposid{tuple-or-pair}@<iterator_t<@\exposidnc{maybe-const}@<Const, Views>>...> @\exposid{current_}@;@\itcorr[-1]@       // \expos
-    constexpr explicit @\exposidnc{iterator}@(@\exposid{tuple-or-pair}@<iterator_t<@\exposidnc{maybe-const}@<Const, Views>>...>);
+    tuple<iterator_t<@\exposidnc{maybe-const}@<Const, Views>>...> @\exposid{current_}@;@\itcorr[-1]@       // \expos
+    constexpr explicit @\exposidnc{iterator}@(tuple<iterator_t<@\exposidnc{maybe-const}@<Const, Views>>...>);
                                                                             // \expos
   public:
     using iterator_category = input_iterator_tag;                           // not always present
     using iterator_concept  = @\seebelow@;
-    using value_type = @\exposid{tuple-or-pair}@<range_value_t<@\exposid{maybe-const}@<Const, Views>>...>;
+    using value_type = tuple<range_value_t<@\exposid{maybe-const}@<Const, Views>>...>;
     using difference_type = common_type_t<range_difference_t<@\exposid{maybe-const}@<Const, Views>>...>;
 
     @\exposid{iterator}@() = default;
@@ -8813,7 +8783,7 @@ exits via an exception,
 the iterator acquires a singular value.
 
 \begin{itemdecl}
-constexpr explicit @\exposid{iterator}@(@\exposid{tuple-or-pair}@<iterator_t<@\exposid{maybe-const}@<Const, Views>>...> current);
+constexpr explicit @\exposid{iterator}@(tuple<iterator_t<@\exposid{maybe-const}@<Const, Views>>...> current);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9104,8 +9074,8 @@ namespace std::ranges {
     requires (@\libconcept{view}@<Views> && ...) && (sizeof...(Views) > 0)
   template<bool Const>
   class zip_view<Views...>::@\exposid{sentinel}@ {
-    @\exposid{tuple-or-pair}@<sentinel_t<@\exposidnc{maybe-const}@<Const, Views>>...> @\exposid{end_}@;@\itcorr[-1]@               // \expos
-    constexpr explicit @\exposidnc{sentinel}@(@\exposid{tuple-or-pair}@<sentinel_t<@\exposidnc{maybe-const}@<Const, Views>>...> end);
+    tuple<sentinel_t<@\exposidnc{maybe-const}@<Const, Views>>...> @\exposid{end_}@;@\itcorr[-1]@               // \expos
+    constexpr explicit @\exposidnc{sentinel}@(tuple<sentinel_t<@\exposidnc{maybe-const}@<Const, Views>>...> end);
                                                                                 // \expos
   public:
     @\exposid{sentinel}@() = default;
@@ -9134,7 +9104,7 @@ namespace std::ranges {
 \end{codeblock}
 
 \begin{itemdecl}
-constexpr explicit @\exposid{sentinel}@(@\exposid{tuple-or-pair}@<sentinel_t<@\exposid{maybe-const}@<Const, Views>>...> end);
+constexpr explicit @\exposid{sentinel}@(tuple<sentinel_t<@\exposid{maybe-const}@<Const, Views>>...> end);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9879,7 +9849,7 @@ namespace std::ranges {
   public:
     using iterator_category = input_iterator_tag;
     using iterator_concept  = @\seebelow@;
-    using value_type = @\exposid{tuple-or-pair}@<@\exposid{REPEAT}@(range_value_t<@\exposid{Base}@>, N)...>;
+    using value_type = tuple<@\exposid{REPEAT}@(range_value_t<@\exposid{Base}@>, N)...>;
     using difference_type = range_difference_t<@\exposid{Base}@>;
 
     @\exposid{iterator}@() = default;
