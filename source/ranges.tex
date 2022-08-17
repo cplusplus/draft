@@ -478,7 +478,14 @@ namespace std::ranges {
   template<class V>
     inline constexpr bool enable_borrowed_range<stride_view<V>> = enable_borrowed_range<V>;
 
-  namespace views { inline constexpr @\unspecnc@ stride = @\unspecnc@; }            // freestanding
+  namespace views { inline constexpr @\unspecnc@ stride = @\unspecnc@; }
+
+  // \ref{range.cartesian}, cartesian product view
+  template<@\libconcept{input_range}@ First, @\libconcept{forward_range}@... Vs>
+    requires (@\libconcept{view}@<First> && ... && @\libconcept{view}@<Vs>)
+  class cartesian_product_view;
+
+  namespace views { inline constexpr @\unspecnc@ cartesian_product = @\unspecnc@; }
 }
 
 namespace std {
@@ -3763,6 +3770,41 @@ the previous value (if any) has been destroyed.
 \exposid{non-propagating-cache} enables an input view
 to temporarily cache values as it is iterated over.
 \end{note}
+
+\rSec2[range.adaptor.tuple]{Range adaptor helpers}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<class... Ts>
+    using @\exposid{tuple-or-pair}@ = @\seebelow@;                 // \expos
+
+  template<class F, class Tuple>
+  constexpr auto @\exposid{tuple-transform}@(F&& f, Tuple&& tuple) { // \expos
+    return apply([&]<class... Ts>(Ts&&... elements) {
+      return @\exposid{tuple-or-pair}@<invoke_result_t<F&, Ts>...>(
+        invoke(f, std::forward<Ts>(elements))...
+      );
+    }, std::forward<Tuple>(tuple));
+  }
+
+  template<class F, class Tuple>
+  constexpr void @\exposid{tuple-for-each}@(F&& f, Tuple&& tuple) { // \expos
+    apply([&]<class... Ts>(Ts&&... elements) {
+      (invoke(f, std::forward<Ts>(elements)), ...);
+    }, std::forward<Tuple>(tuple));
+  }
+\end{codeblock}
+
+\pnum
+Given some pack of types \tcode{Ts},
+the alias template \exposid{tuple-or-pair} is defined as follows:
+\begin{itemize}
+\item
+If \tcode{sizeof...(Ts)} is 2,
+\tcode{\exposid{tuple-or-pair}<Ts...>} denotes \tcode{pair<Ts...>}.
+\item
+Otherwise, \tcode{\exposid{tuple-or-pair}<Ts...>} denotes \tcode{tuple<Ts...>}.
+\end{itemize}
 
 \rSec2[range.all]{All view}
 
@@ -8761,22 +8803,6 @@ namespace std::ranges {
     (!(@\libconcept{bidirectional_range}@<Rs> && ...) && (@\libconcept{common_range}@<Rs> && ...)) ||
     ((@\libconcept{random_access_range}@<Rs> && ...) && (@\libconcept{sized_range}@<Rs> && ...));
 
-  template<class F, class Tuple>
-  constexpr auto @\exposid{tuple-transform}@(F&& f, Tuple&& tuple) { // \expos
-    return apply([&]<class... Ts>(Ts&&... elements) {
-      return tuple<invoke_result_t<F&, Ts>...>(
-        invoke(f, std::forward<Ts>(elements))...
-      );
-    }, std::forward<Tuple>(tuple));
-  }
-
-  template<class F, class Tuple>
-  constexpr void @\exposid{tuple-for-each}@(F&& f, Tuple&& tuple) { // \expos
-    apply([&]<class... Ts>(Ts&&... elements) {
-      (invoke(f, std::forward<Ts>(elements)), ...);
-    }, std::forward<Tuple>(tuple));
-  }
-
   template<@\libconcept{input_range}@... Views>
     requires (@\libconcept{view}@<Views> && ...) && (sizeof...(Views) > 0)
   class zip_view : public view_interface<zip_view<Views...>> {
@@ -13602,4 +13628,763 @@ friend constexpr void iter_swap(const @\exposid{iterator}@& x, const @\exposid{i
 \effects
 Equivalent to:
 \tcode{ranges::iter_swap(x.\exposid{current_}, y.\exposid{current_});}
+\end{itemdescr}
+
+\rSec2[range.cartesian]{Cartesian product view}
+
+\rSec3[range.cartesian.overview]{Overview}
+
+\indexlibraryglobal{cartesian_product_view}%
+\pnum
+\tcode{cartesian_product_view} takes any non-zero number of ranges $n$ and
+produces a view of tuples calculated by
+the $n$-ary cartesian product of the provided ranges.
+
+\pnum
+The name \tcode{views::cartesian_product} denotes a customization point object\iref{customization.point.object}.
+Given a pack of subexpressions \tcode{Es},
+the expression \tcode{views::cartesian_product(Es...)}
+is expression-equivalent to
+\begin{itemize}
+\item
+\tcode{\exposid{decay-copy}(views::empty<tuple<>>)}
+if \tcode{Es} is an empty pack,
+\item
+otherwise,
+\tcode{cartesian_product_view<views::all_t<decltype((Es))>...>(Es...)}.
+\end{itemize}
+
+\pnum
+\begin{example}
+\begin{codeblock}
+std::vector<int> v { 0, 1, 2 };
+for (auto&& [a,b,c] : std::views::cartesian_product(v, v, v)) {
+  std::cout << a << ' ' << b << ' ' << c << '\n';
+  // 0 0 0
+  // 0 0 1
+  // 0 0 2
+  // 0 1 0
+  // 0 1 1
+  // ...
+}
+\end{codeblock}
+\end{example}
+
+\rSec3[range.cartesian.view]{Class template \tcode{cartesian_product_view}}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<bool Const, class First, class... Vs>
+  concept @\defexposconcept{cartesian-product-is-random-access}@ =          // \expos
+    (@\libconcept{random_access_range}@<@\exposid{maybe-const}@<Const, First>> && ... &&
+      (@\libconcept{random_access_range}@<@\exposid{maybe-const}@<Const, Vs>>
+        && @\libconcept{sized_range}@<@\exposid{maybe-const}@<Const, Vs>>));
+
+  template<class R>
+  concept @\defexposconcept{cartesian-product-common-arg}@ =                // \expos
+    @\libconcept{common_range}@<R> || (@\libconcept{sized_range}@<R> && @\libconcept{random_access_range}@<R>);
+
+  template<bool Const, class First, class... Vs>
+  concept @\defexposconcept{cartesian-product-is-bidirectional}@ =          // \expos
+    (@\libconcept{bidirectional_range}@<@\exposid{maybe-const}@<Const, First>> && ... &&
+      (@\libconcept{bidirectional_range}@<@\exposid{maybe-const}@<Const, Vs>>
+        && @\exposconcept{cartesian-product-common-arg}@<@\exposid{maybe-const}@<Const, Vs>>));
+
+  template<class First, class... Vs>
+  concept @\defexposconcept{cartesian-product-is-common}@ =                 // \expos
+    @\exposconcept{cartesian-product-common-arg}@<Const, First>>;
+
+  template<class... Vs>
+  concept @\defexposconcept{cartesian-product-is-sized}@ =                  // \expos
+    (@\libconcept{sized_range}@<Vs> && ...);
+
+  template<bool Const, template<class> class FirstSent, class First, class... Vs>
+    concept @\defexposconcept{cartesian-is-sized-sentinel}@ =               // \expos
+      (@\libconcept{sized_sentinel_for}@<FirstSent<@\exposid{maybe-const}@<Const, First>,
+          iterator_t<@\exposid{maybe-const}@<Const, First>> && ...
+        && (@\libconcept{sized_range}@<@\exposid{maybe-const}@<Const, Vs>>
+          && @\libconcept{sized_sentinel_for}@<iterator_t<@\exposid{maybe-const}@<Const, Vs>>,
+              iterator_t<@\exposid{maybe-const}@<Const, Vs>>>));
+
+  template<@\exposconcept{cartesian-product-common-arg}@ R>
+  constexpr auto @\exposid{cartesian-common-arg-end}@(R& r) {       // \expos
+    if constexpr (@\libconcept{common_range}@<R>) {
+      return ranges::end(r);
+    } else {
+      return ranges::begin(r) + ranges::distance(r);
+    }
+  }
+
+  template<@\libconcept{input_range}@ First, @\libconcept{forward_range}@... Vs>
+    requires (@\libconcept{view}@<First> && ... && @\libconcept{view}@<Vs>)
+  class cartesian_product_view : public view_interface<cartesian_product_view<First, Vs...>> {
+  private:
+    tuple<First, Vs...> @\exposid{bases_}@;                 // \expos
+    // \ref{ranges.cartesian.iterator}, class template \tcode{cartesian_product_view::\exposid{iterator}}
+    template<bool Const> class @\exposid{iterator}@;       // \expos
+  public:
+    constexpr cartesian_product_view() = default;
+    constexpr explicit cartesian_product_view(First first_base, Vs... bases);
+
+    constexpr @\exposid{iterator}@<false> begin()
+      requires (!@\exposconcept{simple-view}@<First> || ... || !@\exposconcept{simple-view}@<Vs>);
+    constexpr @\exposid{iterator}@<true> begin() const
+      requires (@\libconcept{range}@<const First> && ... && @\libconcept{range}@<const Vs>);
+
+    constexpr @\exposid{iterator}@<false> end()
+      requires ((!@\exposconcept{simple-view}@<First> || ... || !@\exposconcept{simple-view}@<Vs>) &&
+        @\exposconcept{cartesian-product-is-common}@<First, Vs...>);
+    constexpr @\exposid{iterator}@<true> end() const
+      requires @\exposconcept{cartesian-product-is-common}@<const First, const Vs...>;
+    constexpr default_sentinel_t end() const noexcept;
+
+    constexpr @\seebelow@ size()
+      requires @\exposconcept{cartesian-product-is-sized}@<First, Vs...>;
+    constexpr @\seebelow@ size() const
+      requires @\exposconcept{cartesian-product-is-sized}@<const First, const Vs...>;
+  };
+
+  template<class... Vs>
+    cartesian_product_view(Vs&&...) -> cartesian_product_view<all_t<Vs>...>;
+}
+\end{codeblock}
+
+\begin{itemdecl}
+constexpr explicit cartesian_product_view(First first_base, Vs... bases);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{bases_}
+with \tcode{std::move(first_base), std::move(bases)...}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@<false> begin()
+  requires (!@\exposconcept{simple-view}@<First> || ... || !@\exposconcept{simple-view}@<Vs>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\tcode{return \exposid{iterator}<false>(\exposid{tuple-transform}(ranges::begin, \exposid{bases_}));}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@<true> begin() const
+  requires (@\libconcept{range}@<const First> && ... && @\libconcept{range}@<const Vs>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\tcode{return \exposid{iterator}<true>(\exposid{tuple-transform}(ranges::begin, \exposid{bases_}));}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@<false> end()
+  requires ((!@\exposconcept{simple-view}@<First> || ... || !@\exposconcept{simple-view}@<Vs>)
+    && @\exposconcept{cartesian-product-is-common}@<First, Vs...>);
+constexpr @\exposid{iterator}@<true> end() const
+  requires @\exposconcept{cartesian-product-is-common}@<const First, const Vs...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let:
+\begin{itemize}
+\item
+\exposid{is-const} be \tcode{true} for the const-qualified overload, and
+\tcode{false} otherwise;
+\item
+\exposid{is-empty} be \tcode{true}
+if the expression \tcode{ranges::empty(rng)} is \tcode{true}
+for any \tcode{rng} among the underlying ranges except the first one and
+\tcode{false} otherwise; and
+\item
+\tcode{\exposid{begin-or-first-end}(rng)} be expression-equivalent to
+\tcode{\exposid{is-empty} ? ranges::begin(rng) : \exposid{cartesian-common-arg-end}(rng)}
+if \tcode{rng} is the first underlying range and
+\tcode{ranges::begin(rng)} otherwise.
+\end{itemize}
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+@\exposid{iterator}@<is-const> it(@\exposid{tuple-transform}@(
+  [](auto& rng){ return @\exposid{begin-or-first-end}@(rng); }, @\exposid{bases_}@));
+return it;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr default_sentinel_t end() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{default_sentinel}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\seebelow@ size()
+  requires @\exposconcept{cartesian-product-is-sized}@<First, Vs...>;
+constexpr @\seebelow@ size() const
+  requires @\exposconcept{cartesian-product-is-sized}@<const First, const Vs...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The return type is an \impldef{return type of \tcode{cartesian_product_view::size}} unsigned-integer-like type.
+
+\pnum
+\recommended
+The return type should be the smallest unsigned-integer-like type
+that is sufficiently wide to store the product of the maximum sizes of
+all the underlying ranges, if such a type exists.
+
+\pnum
+Let $p$ be the product of the sizes of all the ranges in \tcode{bases_}.
+
+\pnum
+\expects
+$p$ can be represented by the return type.
+
+\pnum
+\returns
+$p$.
+\end{itemdescr}
+
+\rSec3[ranges.cartesian.iterator]{Class template \tcode{cartesian_product_view::\exposid{iterator}}}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<@\libconcept{input_range}@ First, @\libconcept{forward_range}@... Vs>
+    requires (@\libconcept{view}@<First> && ... && @\libconcept{view}@<Vs>)
+  template<bool Const>
+  class cartesian_product_view<First, Vs...>::@\exposid{iterator}@ {
+  public:
+    using iterator_category = input_iterator_tag;
+    using iterator_concept  = @\seebelow@;
+    using value_type = tuple<range_value_t<@\exposid{maybe-const}@<Const, First>>,
+      range_value_t<@\exposid{maybe-const}@<Const, Vs>>...>;
+    using reference = tuple<reference_t<@\exposid{maybe-const}@<Const, First>>,
+      reference_t<@\exposid{maybe-const}@<Const, Vs>>...>;
+    using difference_type = @\seebelow@;
+
+    @\exposid{iterator}@() requires @\libconcept{forward_range}@<@\exposid{maybe-const}@<Const, First>> = default;
+
+    constexpr @\exposid{iterator}@(@\exposid{iterator}@<!Const> i) requires Const &&
+      (@\libconcept{convertible_to}@<iterator_t<First>, iterator_t<@\exposid{maybe-const}@<Const, First>>> &&
+        ... && @\libconcept{convertible_to}@<iterator_t<Vs>, iterator_t<@\exposid{maybe-const}@<Const, Vs>>>);
+
+    constexpr auto operator*() const;
+    constexpr @\exposid{iterator}@& operator++();
+    constexpr void operator++(int);
+    constexpr @\exposid{iterator}@ operator++(int) requires @\libconcept{forward_range}@<@\exposid{maybe-const}@<Const, First>>;
+
+    constexpr @\exposid{iterator}@& operator--()
+      requires @\exposconcept{cartesian-product-is-bidirectional}@<Const, First, Vs...>;
+    constexpr @\exposid{iterator}@ operator--(int)
+      requires @\exposconcept{cartesian-product-is-bidirectional}@<Const, First, Vs...>;
+
+    constexpr @\exposid{iterator}@& operator+=(difference_type x)
+      requires @\exposconcept{cartesian-product-is-random-access}@<Const, First, Vs...>;
+    constexpr @\exposid{iterator}@& operator-=(difference_type x)
+      requires @\exposconcept{cartesian-product-is-random-access}@<Const, First, Vs...>;
+
+    constexpr reference operator[](difference_type n) const
+      requires @\exposconcept{cartesian-product-is-random-access}@<Const, First, Vs...>;
+
+    friend constexpr bool operator==(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+      requires @\libconcept{equality_comparable}@<iterator_t<@\exposid{maybe-const}@<Const, First>>>;
+
+    friend constexpr bool operator==(const @\exposid{iterator}@& x, default_sentinel_t);
+
+    friend constexpr auto operator<=>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+      requires @\exposconcept{all-random-access}@<Const, First, Vs...>;
+
+    friend constexpr @\exposid{iterator}@ operator+(const @\exposid{iterator}@& x, difference_type y)
+      requires @\exposconcept{cartesian-product-is-random-access}@<Const, First, Vs...>;
+    friend constexpr @\exposid{iterator}@ operator+(difference_type x, const @\exposid{iterator}@& y)
+      requires @\exposconcept{cartesian-product-is-random-access}@<Const, First, Vs...>;
+    friend constexpr @\exposid{iterator}@ operator-(const @\exposid{iterator}@& x, difference_type y)
+      requires @\exposconcept{cartesian-product-is-random-access}@<Const, First, Vs...>;
+    friend constexpr difference_type operator-(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+      requires @\exposconcept{cartesian-is-sized-sentinel}@<Const, iterator_t, First, Vs...>;
+
+    friend constexpr difference_type operator-(@\exposid{iterator}@ i, default_sentinel_t)
+      requires @\exposconcept{cartesian-is-sized-sentinel}@<Const, sentinel_t, First, Vs...>;
+    friend constexpr difference_type operator-(default_sentinel_t, @\exposid{iterator}@ i)
+      requires @\exposconcept{cartesian-is-sized-sentinel}@<Const, sentinel_t, First, Vs...>;
+
+    friend constexpr auto iter_move(const @\exposid{iterator}@& i) noexcept(@\seebelow@);
+
+    friend constexpr void iter_swap(const @\exposid{iterator}@& l, const @\exposid{iterator}@& r) noexcept(@\seebelow@)
+      requires (@\libconcept{indirectly_swappable}@<iterator_t<@\exposid{maybe-const}@<Const, First>>> && ... &&
+        @\libconcept{indirectly_swappable}@<iterator_t<@\exposid{maybe-const}@<Const, Vs>>>);
+
+  private:
+    @\exposid{maybe-const}@<Const, cartesian_product_view>* @\exposid{parent_}@ = nullptr;      // \expos
+    tuple<iterator_t<@\exposid{maybe-const}@<Const, First>>,
+      iterator_t<@\exposid{maybe-const}@<Const, Vs>>...> @\exposid{current_}@;                  // \expos
+
+    template<size_t N = sizeof...(Vs)>
+      constexpr void @\exposid{next}@();                                            // \expos
+
+    template<size_t N = sizeof...(Vs)>
+      constexpr void @\exposid{prev}@();                                            // \expos
+
+    template<class Tuple>
+      constexpr difference_type @\exposid{distance-from}@(Tuple t);                 // \expos
+
+    constexpr explicit @\exposid{iterator}@(tuple<iterator_t<@\exposid{maybe-const}@<Const, First>>,
+      iterator_t<@\exposid{maybe-const}@<Const, Vs>>...> current);                  // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+\tcode{\exposid{iterator}::iterator_concept} is defined as follows:
+\begin{itemize}
+\item
+If \tcode{\exposconcept{cartesian-product-is-random-access}<Const, First, Vs...>}
+is modeled,
+then \tcode{iterator_con\-cept} denotes \tcode{random_access_iterator_tag}.
+\item
+Otherwise,
+if \tcode{\exposconcept{cartesian-product-is-bidirectional}<Const, First, Vs...>}
+is modeled,
+then \tcode{it\-erator_concept} denotes \tcode{bidirectional_iterator_tag}.
+\item
+Otherwise,
+if \tcode{\exposid{maybe-const}<Const, First>} models \libconcept{forward_range},
+then \tcode{iterator_concept} denotes \tcode{forward_iterator_tag}.
+\item
+Otherwise, \tcode{iterator_concept} denotes \tcode{input_iterator_tag}.
+\end{itemize}
+
+\pnum
+\tcode{\exposid{iterator}::difference_type} is
+an \impldef{type of \tcode{ranges::cartesian_product_view::\exposid{iterator}::difference_type}}
+signed-integer-like type.
+
+\pnum
+\recommended
+\tcode{\exposid{iterator}::difference_type} should be
+the smallest signed-integer-like type
+that is sufficiently wide to store
+the product of the maximum sizes of all underlying ranges
+if such a type exists.
+
+\pnum
+\begin{itemdecl}
+template<size_t N = sizeof...(Vs)>
+  constexpr void @\exposid{next}@();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto& it = std::get<N>(@\exposid{current_}@);
+++it;
+if constexpr (N > 0) {
+  if (it == ranges::end(std::get<N>(@\exposid{parent_}@->@\exposid{bases_}@))) {
+    it = ranges::begin(std::get<N>(@\exposid{parent_}@->@\exposid{bases_}@));
+    @\exposid{next}@<N - 1>();
+  }
+}
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+template<size_t N = sizeof...(Vs)>
+  constexpr void @\exposid{prev}@();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto& it = std::get<N>(@\exposid{current_}@);
+if (it == ranges::begin(std::get<N>(@\exposid{parent_}@->@\exposid{bases_}@))) {
+  it = @\exposid{cartesian-common-arg-end}@(std::get<N>(@\exposid{parent_}@->@\exposid{bases_}@));
+  if constexpr (N > 0) {
+    @\exposid{prev}@<N - 1>();
+  }
+}
+--it;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class Tuple>
+  constexpr difference_type @\exposid{distance-from}@(Tuple t);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let:
+\begin{itemize}
+\item
+$\exposid{scaled-size}(N)$ be the product of
+\tcode{static_cast<difference_type>(ranges::size(std::get<\brk{}$N$>(\exposid{parent_}->\exposid{bases_})))} and
+$\exposid{scaled-size}(N+1)$
+if $N < \tcode{sizeof...(Vs)}$, otherwise \tcode{static_cast<difference_type>(1)};
+\item
+$\exposid{scaled-distance}(N)$ be the product of
+\tcode{static_cast<difference_type>(std::get<$N$>(\exposid{cur\-rent_}) - std::get<$N$>(t))} and $\exposid{scaled-size}(N+1)$; and
+\item
+\exposid{scaled-sum} be the sum of $\exposid{scaled-distance}(N)$
+for every integer $0 \le N \le \tcode{sizeof...(Vs)}$.
+\end{itemize}
+
+\pnum
+\expects
+\exposid{scaled-sum} can be represented by \tcode{difference_type}.
+
+\pnum
+\returns
+\exposid{scaled-sum}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr explicit @\exposid{iterator}@(tuple<iterator_t<maybe-const<Const, First>>,
+  iterator_t<maybe-const<Const, Vs>>...> current);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{current_} with \tcode{std::move(current)}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@(@\exposid{iterator}@<!Const> i) requires Const &&
+  (@\libconcept{convertible_to}@<iterator_t<First>, iterator_t<@\exposid{maybe-const}@<Const, First>>> &&
+    ... && @\libconcept{convertible_to}@<iterator_t<Vs>, iterator_t<@\exposid{maybe-const}@<Const, Vs>>>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{current_} with \tcode{std::move(i.\exposid{current_})}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr auto operator*() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return @\exposid{tuple-transform}@([](auto& i) -> decltype(auto) { return *i; }, @\exposid{current_}@);
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@& operator++();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+@\exposid{next}@();
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr void operator++(int);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{++*this}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@ operator++(int) requires @\libconcept{forward_range}@<@\exposid{maybe-const}@<Const, First>>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto tmp = *this;
+++*this;
+return tmp;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@& operator--()
+  requires @\exposconcept{cartesian-product-is-bidirectional}@<Const, First, Vs...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+@\exposid{prev}@();
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@ operator--(int)
+  requires @\exposconcept{cartesian-product-is-bidirectional}@<Const, First, Vs...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto tmp = *this;
+--*this;
+return tmp;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@& operator+=(difference_type x)
+  requires @\exposconcept{cartesian-product-is-random-access}@<Const, First, Vs...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{orig} be the value of \tcode{*this} before the call.
+
+Let \tcode{ret} be:
+\begin{itemize}
+\item
+If \tcode{x > 0},
+the value of \tcode{*this} had \exposid{next} been called \tcode{x} times.
+\item
+Otherwise, if \tcode{x < 0},
+the value of \tcode{*this} had \exposid{prev} been called \tcode{-x} times.
+\item
+Otherwise, \tcode{orig}.
+\end{itemize}
+
+\pnum
+\expects
+\tcode{x} is in the range
+$[\tcode{ranges::distance(*this, ranges::begin(*\exposid{parent_}))},$\newline
+$\tcode{ranges::distance(*this, ranges::end(*\exposid{parent_}))}]$.
+
+\pnum
+\effects
+Sets the value of \tcode{*this} to \tcode{ret}.
+
+\pnum
+\returns
+\tcode{*this}.
+
+\pnum
+\complexity
+Constant.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr @\exposid{iterator}@& operator-=(difference_type x)
+  requires @\exposconcept{cartesian-product-is-random-access}@<Const, First, Vs...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+*this += -x;
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr reference operator[](difference_type n) const
+  requires @\exposconcept{cartesian-product-is-random-access}@<Const, First, Vs...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return *((*this) + n);}
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr bool operator==(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+  requires \libconcept{equality_comparable}<iterator_t<@\exposid{maybe-const}@<Const, First>>>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return x.\exposid{current_} == y.\exposid{current_};}
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr bool operator==(const @\exposid{iterator}@& x, default_sentinel_t);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if \tcode{std::get<$i$>(x.\exposid{current_}) == ranges::end(std::get<$i$>(x.\exposid{parent_}->\exposid{bases_}))}
+is \tcode{true}
+for any integer $0 \le i \le \tcode{sizeof...(Vs)}$;
+otherwise, \tcode{false}.
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr auto operator<=>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+  requires @\exposconcept{all-random-access}@<Const, First, Vs...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return x.\exposid{current_} <=> y.\exposid{current_};}
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr @\exposid{iterator}@ operator+(const @\exposid{iterator}@& x, difference_type y)
+  requires @\exposconcept{cartesian-product-is-random-access}@<Const, First, Vs...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return \exposid{iterator}(x) += y;}
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr @\exposid{iterator}@ operator+(difference_type x, const @\exposid{iterator}@& y)
+  requires @\exposconcept{cartesian-product-is-random-access}@<Const, First, Vs...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return y + x;}
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr @\exposid{iterator}@ operator-(const @\exposid{iterator}@& x, difference_type y)
+  requires @\exposconcept{cartesian-product-is-random-access}@<Const, First, Vs...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return \exposid{iterator}(x) -= y;}
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr difference_type operator-(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+  requires @\exposconcept{cartesian-is-sized-sentinel}@<Const, iterator_t, First, Vs...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return x.\exposid{distance-from}(y.\exposid{current_});}
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr difference_type operator-(@\exposid{iterator}@ i, default_sentinel_t)
+  requires @\exposconcept{cartesian-is-sized-sentinel}@<Const, sentinel_t, First, Vs...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \exposid{end-tuple} be an object of a type
+that is a specialization of \tcode{tuple}, such that:
+\begin{itemize}
+\item
+\tcode{std::get<0>(\exposid{end-tuple})} has the same value as
+\tcode{ranges::end(std::get<0>(i.\exposid{parent_}->\exposid{ba\-ses_}))};
+\item
+\tcode{std::get<$N$>(\exposid{end-tuple})} has the same value as
+\tcode{ranges::begin(std::get<$N$>(i.\exposid{parent_}->\exposid{bases_}))}
+for every integer $1 \le N \le \tcode{sizeof...(Vs)}$.
+\end{itemize}
+
+\pnum
+\effects
+Equivalent to: \tcode{return i.\exposid{distance-from}(\exposid{end-tuple});}
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr difference_type operator-(default_sentinel_t s, @\exposid{iterator}@ i)
+  requires @\exposconcept{cartesian-is-sized-sentinel}@<Const, sentinel_t, First, Vs...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return -(i - s);}
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr auto iter_move(const @\exposid{iterator}@& i) noexcept(@\seebelow@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return \exposid{tuple-transform}(ranges::iter_move, i.\exposid{current_});}
+
+\pnum
+\remarks
+The exception specification is equivalent to
+the logical AND of the following expressions:
+\begin{itemize}
+\item
+\tcode{noexcept(ranges::iter_move(std::get<$N$>(i.\exposid{current_}))}
+for every integer\newline $0 \le N \le \tcode{sizeof...(Vs)}$,
+\item
+\tcode{is_nothrow_move_constructible_v<range_rvalue_reference_t<\exposid{maybe-const}<Const, T>>>}\newline
+for every type \tcode{T} in \tcode{F, Vs...}.
+\end{itemize}
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr void iter_swap(const @\exposid{iterator}@& l, const @\exposid{iterator}@& r) noexcept(@\seebelow@)
+  requires (@\libconcept{indirectly_swappable}@<iterator_t<@\exposid{maybe-const}@<Const, First>>> && ... &&
+        @\libconcept{indirectly_swappable}@<iterator_t<@\exposid{maybe-const}@<Const, Vs>>>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+For every integer $0 \le i \le \tcode{sizeof...(Vs)}$, performs:
+\begin{codeblock}
+ranges::iter_swap(std::get<@$i$@>(l.@\exposid{current_}@), std::get<@$i$@>(r.@\exposid{current_}@))
+\end{codeblock}
+
+\pnum
+\remarks
+The exception specification is equivalent to the logical AND of the following expressions:
+\begin{itemize}
+\item
+\tcode{noexcept(ranges::iter_swap(std::get<$i$>(l.\exposid{current_}), std::get<$i$>(r.\exposid{current_})))}
+for\newline every integer $0 \le i \le \tcode{sizeof...(Vs)}$.
+\end{itemize}
 \end{itemdescr}
