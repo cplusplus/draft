@@ -13859,7 +13859,26 @@ namespace std {
   // \ref{format.formatter}, formatter
   template<class T, class charT = char> struct formatter;
 
-  // \ref{format.range.formatter}, class template \tcode{range_formatter}
+  // \ref{format.formattable}, concept \libconcept{formattable}
+  template<class T, class charT>
+    concept formattable = @\seebelow@;
+
+  template<class R, class charT>
+    concept @\defexposconcept{const-formattable-range}@ =                                   // \expos
+      ranges::@\libconcept{input_range}@<const R> &&
+      @\libconcept{formattable}@<ranges::range_reference_t<const R>, charT>;
+
+  template<class R, class charT>
+    using @\exposid{fmt-maybe-const}@ =                                             // \expos
+      conditional_t<@\exposconcept{const-formattable-range}@<R, charT>, const R, R>;
+
+  // \ref{format.parse.ctx}, class template \tcode{basic_format_parse_context}
+  template<class charT> class basic_format_parse_context;
+  using format_parse_context = basic_format_parse_context<char>;
+  using wformat_parse_context = basic_format_parse_context<wchar_t>;
+
+  // \ref{format.range}, formatting of ranges
+  // \ref{format.range.fmtkind}, variable template \tcode{format_kind}
   enum class range_format {
     disabled,
     map,
@@ -13876,36 +13895,20 @@ namespace std {
       requires @\libconcept{same_as}@<R, remove_cvref_t<R>>
     constexpr range_format format_kind<R> = @\seebelow@;
 
+  // \ref{format.range.formatter}, class template \tcode{range_formatter}
   template<class T, class charT = char>
     requires @\libconcept{same_as}@<remove_cvref_t<T>, T> && @\libconcept{formattable}@<T, charT>
   class range_formatter;
 
+  // \ref{format.range.fmtdef}, class template \tcode{\exposid{range-default-formatter}}
   template<range_format K, ranges::@\libconcept{input_range}@ R, class charT>
     struct @\exposid{range-default-formatter}@;                                     // \expos
 
-  // \ref{format.formatter.spec}, formatter specializations
+  // \ref{format.range.fmtmap}, \ref{format.range.fmtset}, \ref{format.range.fmtstr}, specializations for maps, sets, and strings
   template<ranges::@\libconcept{input_range}@ R, class charT>
     requires (format_kind<R> != range_format::disabled) &&
              @\libconcept{formattable}@<ranges::range_reference_t<R>, charT>
   struct formatter<R, charT> : @\exposid{range-default-formatter}@<format_kind<R>, R, charT> { };
-
-  // \ref{format.parse.ctx}, class template \tcode{basic_format_parse_context}
-  template<class charT> class basic_format_parse_context;
-  using format_parse_context = basic_format_parse_context<char>;
-  using wformat_parse_context = basic_format_parse_context<wchar_t>;
-
-  // \ref{format.formattable}, concept \libconcept{formattable}
-  template<class T, class charT>
-    concept formattable = @\seebelow@;
-
-  template<class R, class charT>
-    concept @\defexposconcept{const-formattable-range}@ =                                   // \expos
-      ranges::@\libconcept{input_range}@<const R> &&
-      @\libconcept{formattable}@<ranges::range_reference_t<const R>, charT>;
-
-  template<class R, class charT>
-    using @\exposid{fmt-maybe-const}@ =                                             // \expos
-      conditional_t<@\exposconcept{const-formattable-range}@<R, charT>, const R, R>;
 
   // \ref{format.arguments}, arguments
   // \ref{format.arg}, class template \tcode{basic_format_arg}
@@ -15668,7 +15671,97 @@ std::string s = std::format("{0:{1}}", S{42}, 10);  // value of \tcode{s} is \tc
 \end{codeblock}
 \end{example}
 
-\rSec2[format.range.formatter]{Class template \tcode{range_formatter}}
+\rSec2[format.range]{Formatting of ranges}
+
+\rSec3[format.range.fmtkind]{Variable template \tcode{format_kind}}
+
+\indexlibraryglobal{format_kind}
+\begin{itemdecl}
+template<ranges::@\libconcept{input_range}@ R>
+    requires @\libconcept{same_as}@<R, remove_cvref_t<R>>
+  constexpr range_format format_kind<R> = @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+A program that instantiates the primary template of \tcode{format_kind}
+is ill-formed.
+
+\pnum
+For a type \tcode{R}, \tcode{format_kind<R>} is defined as follows:
+\begin{itemize}
+\item
+If \tcode{\libconcept{same_as}<remove_cvref_t<ranges::range_reference_t<R>>, R>}
+is \tcode{true},
+\tcode{format_kind<R>} is \tcode{range_format::disabled}.
+\begin{note}
+This prevents constraint recursion for ranges whose
+reference type is the same range type.
+For example,
+\tcode{std::filesystem::path} is a range of \tcode{std::filesystem::path}.
+\end{note}
+
+\item
+Otherwise, if the \grammarterm{qualified-id} \tcode{R::key_type}
+is valid and denotes a type:
+\begin{itemize}
+\item
+If the \grammarterm{qualified-id} \tcode{R::mapped_type}
+is valid and denotes a type,
+let \tcode{U} be \tcode{remove_cvref_t<ranges::range_reference_t<R>>}.
+If either \tcode{U} is a specialization of \tcode{pair} or
+\tcode{U} is a specialization of \tcode{tuple} and
+\tcode{tuple_size_v<U> == 2},
+\tcode{format_kind<R>} is \tcode{range_format::map}.
+\item
+Otherwise, \tcode{format_kind<R>} is \tcode{range_format::set}.
+\end{itemize}
+
+\item
+Otherwise, \tcode{format_kind<R>} is \tcode{range_format::sequence}.
+\end{itemize}
+
+\pnum
+\remarks
+Pursuant to \ref{namespace.std}, users may specialize \tcode{format_kind}
+for cv-unqualified program-defined types
+that model \tcode{ranges::\libconcept{input_range}}.
+Such specializations shall be usable in constant expressions\iref{expr.const}
+and have type \tcode{const range_format}.
+\end{itemdescr}
+
+\rSec3[format.range.formatter]{Class template \tcode{range_formatter}}
+
+\indexlibraryglobal{range_formatter}%
+\begin{codeblock}
+namespace std {
+  template<class T, class charT = char>
+    requires @\libconcept{same_as}@<remove_cvref_t<T>, T> && @\libconcept{formattable}@<T, charT>
+  class range_formatter {
+    formatter<T, charT> @\exposid{underlying_}@;                                          // \expos
+    basic_string_view<charT> @\exposid{separator_}@ = @\exposid{STATICALLY-WIDEN}@<charT>(", ");      // \expos
+    basic_string_view<charT> @\exposid{opening-bracket_}@ = @\exposid{STATICALLY-WIDEN}@<charT>("["); // \expos
+    basic_string_view<charT> @\exposid{closing-bracket_}@ = @\exposid{STATICALLY-WIDEN}@<charT>("]"); // \expos
+
+  public:
+    constexpr void set_separator(basic_string_view<charT> sep);
+    constexpr void set_brackets(basic_string_view<charT> opening,
+                                basic_string_view<charT> closing);
+    constexpr formatter<T, charT>& underlying() { return @\exposid{underlying_}@; }
+    constexpr const formatter<T, charT>& underlying() const { return @\exposid{underlying_}@; }
+
+    template<class ParseContext>
+      constexpr typename ParseContext::iterator
+        parse(ParseContext& ctx);
+
+    template<ranges::@\libconcept{input_range}@ R, class FormatContext>
+        requires @\libconcept{formattable}@<ranges::range_reference_t<R>, charT> &&
+                 @\libconcept{same_as}@<remove_cvref_t<ranges::range_reference_t<R>>, T>
+      typename FormatContext::iterator
+        format(R&& r, FormatContext& ctx) const;
+  };
+}
+\end{codeblock}
 
 \pnum
 The class template \tcode{range_formatter} is a utility
@@ -15767,92 +15860,6 @@ an escaped string\iref{format.string.escaped}.
 If the \fmtgrammarterm{range-type} is \tcode{s} or \tcode{?s},
 then there shall be
 no \tcode{n} option and no \fmtgrammarterm{range-underlying-spec}.
-
-\indexlibraryglobal{format_kind}
-\begin{itemdecl}
-template<ranges::@\libconcept{input_range}@ R>
-    requires @\libconcept{same_as}@<R, remove_cvref_t<R>>
-  constexpr range_format format_kind<R> = @\seebelow@;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-A program that instantiates the primary template of \tcode{format_kind}
-is ill-formed.
-
-\pnum
-For a type \tcode{R}, \tcode{format_kind<R>} is defined as follows:
-\begin{itemize}
-\item
-If \tcode{\libconcept{same_as}<remove_cvref_t<ranges::range_reference_t<R>>, R>}
-is \tcode{true},
-\tcode{format_kind<R>} is \tcode{range_format::disabled}.
-\begin{note}
-This prevents constraint recursion for ranges whose
-reference type is the same range type.
-For example,
-\tcode{std::filesystem::path} is a range of \tcode{std::filesystem::path}.
-\end{note}
-
-\item
-Otherwise, if the \grammarterm{qualified-id} \tcode{R::key_type}
-is valid and denotes a type:
-\begin{itemize}
-\item
-If the \grammarterm{qualified-id} \tcode{R::mapped_type}
-is valid and denotes a type,
-let \tcode{U} be \tcode{remove_cvref_t<ranges::range_reference_t<R>>}.
-If either \tcode{U} is a specialization of \tcode{pair} or
-\tcode{U} is a specialization of \tcode{tuple} and
-\tcode{tuple_size_v<U> == 2},
-\tcode{format_kind<R>} is \tcode{range_format::map}.
-\item
-Otherwise, \tcode{format_kind<R>} is \tcode{range_format::set}.
-\end{itemize}
-
-\item
-Otherwise, \tcode{format_kind<R>} is \tcode{range_format::sequence}.
-\end{itemize}
-
-\pnum
-\remarks
-Pursuant to \ref{namespace.std}, users may specialize \tcode{format_kind}
-for cv-unqualified program-defined types
-that model \tcode{ranges::\libconcept{input_range}}.
-Such specializations shall be usable in constant expressions\iref{expr.const}
-and have type \tcode{const range_format}.
-\end{itemdescr}
-
-\indexlibraryglobal{range_formatter}%
-\begin{codeblock}
-namespace std {
-  template<class T, class charT = char>
-    requires @\libconcept{same_as}@<remove_cvref_t<T>, T> && @\libconcept{formattable}@<T, charT>
-  class range_formatter {
-    formatter<T, charT> @\exposid{underlying_}@;                                          // \expos
-    basic_string_view<charT> @\exposid{separator_}@ = @\exposid{STATICALLY-WIDEN}@<charT>(", ");      // \expos
-    basic_string_view<charT> @\exposid{opening-bracket_}@ = @\exposid{STATICALLY-WIDEN}@<charT>("["); // \expos
-    basic_string_view<charT> @\exposid{closing-bracket_}@ = @\exposid{STATICALLY-WIDEN}@<charT>("]"); // \expos
-
-  public:
-    constexpr void set_separator(basic_string_view<charT> sep);
-    constexpr void set_brackets(basic_string_view<charT> opening,
-                                basic_string_view<charT> closing);
-    constexpr formatter<T, charT>& underlying() { return @\exposid{underlying_}@; }
-    constexpr const formatter<T, charT>& underlying() const { return @\exposid{underlying_}@; }
-
-    template<class ParseContext>
-      constexpr typename ParseContext::iterator
-        parse(ParseContext& ctx);
-
-    template<ranges::@\libconcept{input_range}@ R, class FormatContext>
-        requires @\libconcept{formattable}@<ranges::range_reference_t<R>, charT> &&
-                 @\libconcept{same_as}@<remove_cvref_t<ranges::range_reference_t<R>>, T>
-      typename FormatContext::iterator
-        format(R&& r, FormatContext& ctx) const;
-  };
-}
-\end{codeblock}
 
 \indexlibrarymember{set_separator}{range_formatter}%
 \begin{itemdecl}
@@ -15958,6 +15965,8 @@ the result of writing \tcode{e} via \exposid{underlying_} and
 An iterator past the end of the output range.
 \end{itemdescr}
 
+\rSec3[format.range.fmtdef]{Class template \tcode{\exposid{range-default-formatter}}}
+
 \indexlibraryglobal{\exposid{range-default-formatter}}%
 \begin{codeblock}
 namespace std {
@@ -16031,6 +16040,8 @@ template<class FormatContext>
 \effects
 Equivalent to: \tcode{return \exposid{underlying_}.format(elems, ctx);}
 \end{itemdescr}
+
+\rSec3[format.range.fmtmap]{Specialization of \tcode{\exposid{range-default-formatter}} for maps}
 
 \indexlibraryglobal{\exposid{range-default-formatter}}%
 \begin{codeblock}
@@ -16109,6 +16120,8 @@ template<class FormatContext>
 Equivalent to: \tcode{return \exposid{underlying_}.format(r, ctx);}
 \end{itemdescr}
 
+\rSec3[format.range.fmtset]{Specialization of \tcode{\exposid{range-default-formatter}} for sets}
+
 \indexlibraryglobal{\exposid{range-default-formatter}}%
 \begin{codeblock}
 namespace std {
@@ -16173,12 +16186,13 @@ template<class FormatContext>
 Equivalent to: \tcode{return \exposid{underlying_}.format(r, ctx);}
 \end{itemdescr}
 
+\rSec3[format.range.fmtstr]{Specialization of \tcode{\exposid{range-default-formatter}} for strings}
+
 \indexlibraryglobal{\exposid{range-default-formatter}}%
 \begin{codeblock}
 namespace std {
   template<range_format K, ranges::@\libconcept{input_range}@ R, class charT>
-    requires (K == range_format::string ||
-              K == range_format::debug_string)
+    requires (K == range_format::string || K == range_format::debug_string)
   struct @\exposid{range-default-formatter}@<K, R, charT> {
   private:
     formatter<basic_string<charT>, charT> @\exposid{underlying_}@;                // \expos
