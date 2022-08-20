@@ -778,6 +778,7 @@ namespace std {
     static constexpr openmode ate = @\unspec@;
     static constexpr openmode binary = @\unspec@;
     static constexpr openmode in = @\unspec@;
+    static constexpr openmode noreplace = @\unspec@;
     static constexpr openmode out = @\unspec@;
     static constexpr openmode trunc = @\unspec@;
 
@@ -1070,6 +1071,8 @@ It contains the elements indicated in \tref{ios.openmode}.
  perform input and output in binary mode (as opposed to text mode)  \\
 \tcode{in}      &
  open for input \\
+\tcode{noreplace} &
+ open in exclusive mode \\
 \tcode{out}     &
  open for output  \\
 \tcode{trunc}   &
@@ -4162,6 +4165,15 @@ namespace std {
 
   template<class Ostream, class T>
     Ostream&& operator<<(Ostream&& os, const T& x);
+
+  // \ref{ostream.formatted.print}, print functions
+  template<class... Args>
+    void print(ostream& os, format_string<Args...> fmt, Args&&... args);
+  template<class... Args>
+    void println(ostream& os, format_string<Args...> fmt, Args&&... args);
+
+  void vprint_unicode(ostream& os, string_view fmt, format_args args);
+  void vprint_nonunicode(ostream& os, string_view fmt, format_args args);
 }
 \end{codeblock}
 
@@ -4203,6 +4215,30 @@ namespace std {
 }
 \end{codeblock}
 
+\rSec2[print.syn]{Header \tcode{<print>} synopsis}
+
+\indexheader{print}%
+\begin{codeblock}
+namespace std {
+  // \ref{print.fun}, print functions
+  template<class... Args>
+    void print(format_string<Args...> fmt, Args&&... args);
+  template<class... Args>
+    void print(FILE* stream, format_string<Args...> fmt, Args&&... args);
+
+  template<class... Args>
+    void println(format_string<Args...> fmt, Args&&... args);
+  template<class... Args>
+    void println(FILE* stream, format_string<Args...> fmt, Args&&... args);
+
+  void vprint_unicode(string_view fmt, format_args args);
+  void vprint_unicode(FILE* stream, string_view fmt, format_args args);
+
+  void vprint_nonunicode(string_view fmt, format_args args);
+  void vprint_nonunicode(FILE* stream, string_view fmt, format_args args);
+}
+\end{codeblock}
+
 \rSec2[input.streams]{Input streams}
 
 \rSec3[input.streams.general]{General}
@@ -4215,6 +4251,13 @@ along with a function template that extracts from stream rvalues.
 \rSec3[istream]{Class template \tcode{basic_istream}}
 
 \rSec4[istream.general]{General}
+
+\pnum
+When a function is specified
+with a type placeholder of \tcode{\placeholder{extended-floating-point-type}},
+the implementation provides overloads
+for all cv-unqualified extended floating-point types\iref{basic.fundamental}
+in lieu of \tcode{\placeholder{extended-floating-\brk{}point-type}}.
 
 \indexlibraryglobal{basic_istream}%
 \begin{codeblock}
@@ -4253,6 +4296,7 @@ namespace std {
     basic_istream& operator>>(float& f);
     basic_istream& operator>>(double& f);
     basic_istream& operator>>(long double& f);
+    basic_istream& operator>>(@\placeholder{extended-floating-point-type}@& f);
 
     basic_istream& operator>>(void*& p);
     basic_istream& operator>>(basic_streambuf<char_type, traits>* sb);
@@ -4727,6 +4771,64 @@ if (lval < numeric_limits<int>::min()) {
   val = static_cast<int>(lval);
 setstate(err);
 \end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+basic_istream& operator>>(@\placeholder{extended-floating-point-type}@& val);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+If
+the floating-point conversion rank of \tcode{\placeholder{extended-floating-point-type}}
+is not less than or equal to that of \tcode{long double},
+then an invocation of the operator function is conditionally supported
+with \impldef{\tcode{operator>>} for large extended floating-point types}
+semantics.
+
+\pnum
+Otherwise, let \tcode{FP} be a standard floating-point type:
+\begin{itemize}
+\item
+if the floating-point conversion rank of \tcode{\placeholder{extended-floating-point-type}}
+is less than or equal to that of \tcode{float},
+then \tcode{FP} is \tcode{float},
+\item
+otherwise,
+if the floating-point conversion rank of \tcode{\placeholder{extended-floating-point-type}}
+is less than or equal to that of \tcode{double},
+then \tcode{FP} is \tcode{double},
+\item
+otherwise, \tcode{FP} is \tcode{long double}.
+\end{itemize}
+
+\pnum
+The conversion occurs as if performed by the following code fragment
+(using the same notation as for the preceding code fragment):
+\begin{codeblock}
+using numget = num_get<charT, istreambuf_iterator<charT, traits>>;
+iostate err = ios_base::goodbit;
+FP fval;
+use_facet<numget>(loc).get(*this, 0, *this, err, fval);
+if (fval < -numeric_limits<@\placeholder{extended-floating-point-type}@>::max()) {
+  err |= ios_base::failbit;
+  val = -numeric_limits<@\placeholder{extended-floating-point-type}@>::max();
+} else if (numeric_limits<@\placeholder{extended-floating-point-type}@>::max() < fval) {
+  err |= ios_base::failbit;
+  val = numeric_limits<@\placeholder{extended-floating-point-type}@>::max();
+} else {
+  val = static_cast<@\placeholder{extended-floating-point-type}@>(fval);
+}
+setstate(err);
+\end{codeblock}
+\begin{note}
+When the extended floating-point type has
+a floating-point conversion rank
+that is not equal to the rank of any standard floating-point type,
+then double rounding during the conversion can result in inaccurate results.
+\tcode{from_chars} can be used in situations
+where maximum accuracy is important.
+\end{note}
 \end{itemdescr}
 
 \rSec4[istream.extractors]{\tcode{basic_istream::operator>>}}
@@ -5811,6 +5913,12 @@ along with a function template that inserts into stream rvalues.
 
 \rSec4[ostream.general]{General}
 
+\pnum
+When a function has
+a parameter type \tcode{\placeholder{extended-floating-point-type}},
+the implementation provides overloads
+for all cv-unqualified extended floating-point types\iref{basic.fundamental}.
+
 \indexlibraryglobal{basic_ostream}%
 \begin{codeblock}
 namespace std {
@@ -5848,6 +5956,7 @@ namespace std {
     basic_ostream& operator<<(float f);
     basic_ostream& operator<<(double f);
     basic_ostream& operator<<(long double f);
+    basic_ostream& operator<<(@\placeholder{extended-floating-point-type}@ f);
 
     basic_ostream& operator<<(const void* p);
     basic_ostream& operator<<(const volatile void* p);
@@ -6427,6 +6536,44 @@ basic_ostream& operator<<(const volatile void* p);
 Equivalent to: \tcode{return operator<<(const_cast<const void*>(p));}
 \end{itemdescr}
 
+\begin{itemdecl}
+basic_ostream& operator<<(@\placeholder{extended-floating-point-type}@ val);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If the floating-point conversion rank of \tcode{\placeholder{extended-floating-point-type}}
+is less than or equal to that of \tcode{double},
+the formatting conversion occurs as if it performed the following code fragment:
+\begin{codeblock}
+bool failed = use_facet<
+  num_put<charT, ostreambuf_iterator<charT, traits>>
+    >(getloc()).put(*this, *this, fill(),
+      static_cast<double>(val)).failed();
+\end{codeblock}
+Otherwise,
+if the floating-point conversion rank of \tcode{\placeholder{extended-floating-point-type}}
+is less than or equal to that of \tcode{long double},
+the formatting conversion occurs as if it performed the following code fragment:
+\begin{codeblock}
+bool failed = use_facet<
+  num_put<charT, ostreambuf_iterator<charT, traits>>
+    >(getloc()).put(*this, *this, fill(),
+      static_cast<long double>(val)).failed();
+\end{codeblock}
+Otherwise, an invocation of the operator function is conditionally supported
+with \impldef{\tcode{operator<<} for large extended floating-point types}
+semantics.
+
+If \tcode{failed} is \tcode{true} then does \tcode{setstate(badbit)},
+which may throw an exception, and returns.
+
+\pnum
+\returns
+\tcode{*this}.
+\end{itemdescr}
+
 \rSec4[ostream.inserters]{\tcode{basic_ostream::operator<<}}
 
 \indexlibrarymember{operator<<}{basic_ostream}%
@@ -6654,6 +6801,92 @@ in~\ref{ostream.formatted.reqmts}. Inserts \tcode{seq} into
 \pnum
 \returns
 \tcode{out}.
+\end{itemdescr}
+
+\rSec4[ostream.formatted.print]{Print}
+
+\indexlibraryglobal{print}%
+\begin{itemdecl}
+template<class... Args>
+  void print(ostream& os, format_string<Args...> fmt, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If the ordinary literal encoding\iref{lex.charset} is UTF-8, equivalent to:
+\begin{codeblock}
+vprint_unicode(os, fmt.@\exposid{str}@, make_format_args(std::forward<Args>(args)...));
+\end{codeblock}
+Otherwise, equivalent to:
+\begin{codeblock}
+vprint_nonunicode(os, fmt.@\exposid{str}@, make_format_args(std::forward<Args>(args)...));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryglobal{println}%
+\begin{itemdecl}
+template<class... Args>
+  void println(ostream& os, format_string<Args...> fmt, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+print(os, "{}\n", format(fmt, std::forward<Args>(args)...));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryglobal{vprint_unicode}%
+\indexlibraryglobal{vprint_nonunicode}%
+\begin{itemdecl}
+void vprint_unicode(ostream& os, string_view fmt, format_args args);
+void vprint_nonunicode(ostream& os, string_view fmt, format_args args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Behaves as a formatted output function\iref{ostream.formatted.reqmts}
+of \tcode{os}, except that:
+\begin{itemize}
+\item
+failure to generate output is reported as specified below, and
+\item
+any exception thrown by the call to \tcode{vformat} is propagated
+without regard to the value of \tcode{os.exceptions()} and
+without turning on \tcode{ios_base::badbit} in the error state of \tcode{os}.
+\end{itemize}
+After constructing a \tcode{sentry} object,
+the function initializes an automatic variable via
+\begin{codeblock}
+string out = vformat(os.getloc(), fmt, args);
+\end{codeblock}
+If the function is \tcode{vprint_unicode} and
+\tcode{os} is a stream that refers to a terminal capable of displaying Unicode
+which is determined in an implementation-defined manner,
+writes \tcode{out} to the terminal using the native Unicode API;
+if \tcode{out} contains invalid code units,
+\indextext{undefined}%
+the behavior is undefined and
+implementations are encouraged to diagnose it.
+Otherwise (if \tcode{os} is not such a stream or
+the function is \tcode{vprint_nonunicode}),
+inserts the character sequence
+\range{out.begin()}{out.end()} into \tcode{os}.
+If writing to the terminal or inserting into \tcode{os} fails,
+calls \tcode{os.setstate(ios_base::badbit)}
+(which may throw \tcode{ios_base::failure}).
+
+\pnum
+\recommended
+For \tcode{vprint_unicode},
+if invoking the native Unicode API requires transcoding,
+implementations should substitute invalid code units
+with \unicode{fffd}{replacement character} per
+The Unicode Standard Version 14.0 - Core Specification, Chapter 3.9.
 \end{itemdescr}
 
 \rSec3[ostream.unformatted]{Unformatted output functions}
@@ -7460,6 +7693,169 @@ The expression \tcode{in >> quoted(s, delim, escape)} has type
 The expression \tcode{out << quoted(s, delim, escape)} has type
 \tcode{basic_ostream\brk{}<charT, traits>\&} and value \tcode{out}.
 \end{itemize}
+\end{itemdescr}
+
+\rSec2[print.fun]{Print functions}
+
+\indexlibraryglobal{print}%
+\begin{itemdecl}
+template<class... Args>
+  void print(format_string<Args...> fmt, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+print(stdout, fmt, std::forward<Args>(args)...);
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryglobal{print}%
+\begin{itemdecl}
+template<class... Args>
+  void print(FILE* stream, format_string<Args...> fmt, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If the ordinary literal encoding\iref{lex.charset} is UTF-8, equivalent to:
+\begin{codeblock}
+vprint_unicode(stream, fmt.@\exposid{str}@, make_format_args(std::forward<Args>(args)...));
+\end{codeblock}
+Otherwise, equivalent to:
+\begin{codeblock}
+vprint_nonunicode(stream, fmt.@\exposid{str}@, make_format_args(std::forward<Args>(args)...));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryglobal{println}%
+\begin{itemdecl}
+template<class... Args>
+  void println(format_string<Args...> fmt, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+println(stdout, fmt, std::forward<Args>(args)...);
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryglobal{println}%
+\begin{itemdecl}
+template<class... Args>
+  void println(FILE* stream, format_string<Args...> fmt, Args&&... args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+print(stream, "{}\n", format(fmt, std::forward<Args>(args)...));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryglobal{vprint_unicode}%
+\begin{itemdecl}
+void vprint_unicode(string_view fmt, format_args args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+vprint_unicode(stdout, fmt, args);
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryglobal{vprint_unicode}%
+\begin{itemdecl}
+void vprint_unicode(FILE* stream, string_view fmt, format_args args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{stream} is a valid pointer to an output C stream.
+
+\pnum
+\effects
+The function initializes an automatic variable via
+\begin{codeblock}
+string out = vformat(fmt, args);
+\end{codeblock}
+If \tcode{stream} refers to a terminal capable of displaying Unicode,
+writes \tcode{out} to the terminal using the native Unicode API;
+if \tcode{out} contains invalid code units,
+\indextext{undefined}%
+the behavior is undefined and
+implementations are encouraged to diagnose it.
+Otherwise writes \tcode{out} to \tcode{stream} unchanged.
+\begin{note}
+On POSIX and Windows, \tcode{stream} referring to a terminal means that,
+respectively,
+\tcode{isatty(fileno(\linebreak{}stream))} and
+\tcode{GetConsoleMode(_get_osfhandle(_fileno(stream)), ...)}
+return nonzero.
+\end{note}
+\begin{note}
+On Windows, the native Unicode API is \tcode{WriteConsoleW}.
+\end{note}
+
+\pnum
+\throws
+Any exception thrown by the call to \tcode{vformat}\iref{format.err.report}.
+\tcode{system_error} if writing to the terminal or \tcode{stream} fails.
+May throw \tcode{bad_alloc}.
+
+\pnum
+\recommended
+If invoking the native Unicode API requires transcoding,
+implementations should substitute invalid code units
+with \unicode{fffd}{replacement character} per
+The Unicode Standard Version 14.0 - Core Specification, Chapter 3.9.
+\end{itemdescr}
+
+\indexlibraryglobal{vprint_nonunicode}%
+\begin{itemdecl}
+void vprint_nonunicode(string_view fmt, format_args args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+vprint_nonunicode(stdout, fmt, args);
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryglobal{vprint_nonunicode}%
+\begin{itemdecl}
+void vprint_nonunicode(FILE* stream, string_view fmt, format_args args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{stream} is a valid pointer to an output C stream.
+
+\pnum
+\effects
+Writes the result of \tcode{vformat(fmt, args)} to \tcode{stream}.
+
+\pnum
+\throws
+Any exception thrown by the call to \tcode{vformat}\iref{format.err.report}.
+\tcode{system_error} if writing to \tcode{stream} fails.
+May throw \tcode{bad_alloc}.
 \end{itemdescr}
 
 \rSec1[string.streams]{String-based streams}
@@ -10507,28 +10903,34 @@ If \tcode{mode} is not some combination of flags shown in the table then
 the open fails.
 
 \begin{floattable}{File open modes}{filebuf.open.modes}
-{cccccl}
+{ccccccl}
 \topline
-\multicolumn{5}{|c}{\tcode{ios_base} flag combination} & \tcode{stdio} equivalent \\
-\tcode{binary}  & \tcode{in}  & \tcode{out} & \tcode{trunc} & \tcode{app} &     \\ \capsep
-    &   & + &   &   & \tcode{"w"}   \\ \rowsep
-    &   & + & + &   & \tcode{"w"}   \\ \rowsep
-    &   & + &   & + & \tcode{"a"}   \\ \rowsep
-    &   &   &   & + & \tcode{"a"}   \\ \rowsep
-    & + &   &   &   & \tcode{"r"}   \\ \rowsep
-    & + & + &   &   & \tcode{"r+"}  \\ \rowsep
-    & + & + & + &   & \tcode{"w+"}  \\ \rowsep
-    & + & + &   & + & \tcode{"a+"}  \\ \rowsep
-    & + &   &   & + & \tcode{"a+"}  \\ \rowsep
-  + &   & + &   &   & \tcode{"wb"}  \\ \rowsep
-  + &   & + & + &   & \tcode{"wb"}  \\ \rowsep
-  + &   & + &   & + & \tcode{"ab"}  \\ \rowsep
-  + &   &   &   & + & \tcode{"ab"}  \\ \rowsep
-  + & + &   &   &   & \tcode{"rb"}  \\ \rowsep
-  + & + & + &   &   & \tcode{"r+b"} \\ \rowsep
-  + & + & + & + &   & \tcode{"w+b"} \\ \rowsep
-  + & + & + &   & + & \tcode{"a+b"} \\ \rowsep
-  + & + &   &   & + & \tcode{"a+b"} \\
+\multicolumn{6}{|c}{\tcode{ios_base} flag combination} & \tcode{stdio} equivalent \\
+\tcode{binary}  & \tcode{in}  & \tcode{out} & \tcode{trunc} & \tcode{app} & \tcode{noreplace}     \\ \capsep
+    &   & + &   &   &   & \tcode{"w"}     \\ \rowsep
+    &   & + &   &   & + & \tcode{"wx"}    \\ \rowsep
+    &   & + & + &   &   & \tcode{"w"}     \\ \rowsep
+    &   & + & + &   & + & \tcode{"wx"}    \\ \rowsep
+    &   & + &   & + &   & \tcode{"a"}     \\ \rowsep
+    &   &   &   & + &   & \tcode{"a"}     \\ \rowsep
+    & + &   &   &   &   & \tcode{"r"}     \\ \rowsep
+    & + & + &   &   &   & \tcode{"r+"}    \\ \rowsep
+    & + & + & + &   &   & \tcode{"w+"}    \\ \rowsep
+    & + & + & + &   & + & \tcode{"w+x"}   \\ \rowsep
+    & + & + &   & + &   & \tcode{"a+"}    \\ \rowsep
+    & + &   &   & + &   & \tcode{"a+"}    \\ \rowsep
+  + &   & + &   &   &   & \tcode{"wb"}    \\ \rowsep
+  + &   & + &   &   & + & \tcode{"wbx"}   \\ \rowsep
+  + &   & + & + &   &   & \tcode{"wb"}    \\ \rowsep
+  + &   & + & + &   & + & \tcode{"wbx"}   \\ \rowsep
+  + &   & + &   & + &   & \tcode{"ab"}    \\ \rowsep
+  + &   &   &   & + &   & \tcode{"ab"}    \\ \rowsep
+  + & + &   &   &   &   & \tcode{"rb"}    \\ \rowsep
+  + & + & + &   &   &   & \tcode{"r+b"}   \\ \rowsep
+  + & + & + & + &   &   & \tcode{"w+b"}   \\ \rowsep
+  + & + & + & + &   & + & \tcode{"w+bx"}  \\ \rowsep
+  + & + & + &   & + &   & \tcode{"a+b"}   \\ \rowsep
+  + & + &   &   & + &   & \tcode{"a+b"}   \\
 \end{floattable}
 
 \pnum
@@ -13077,7 +13479,7 @@ as a \grammarterm{root-name} that identifies
 network or other resource locations.
 Some operating systems
 define a single letter followed by a colon
-as a drive specifier -- a \grammarterm{root-name}
+as a drive specifier --- a \grammarterm{root-name}
 identifying a specific device such as a disk drive.
 \end{note}
 
@@ -15646,6 +16048,10 @@ namespace std::filesystem {
     directory_iterator&    operator++();
     directory_iterator&    increment(error_code& ec);
 
+    bool operator==(default_sentinel_t) const noexcept {
+      return *this == directory_iterator();
+    }
+
     // other members as required by \ref{input.iterators}, input iterators
   };
 }
@@ -15891,6 +16297,10 @@ namespace std::filesystem {
     void pop();
     void pop(error_code& ec);
     void disable_recursion_pending();
+
+    bool operator==(default_sentinel_t) const noexcept {
+      return *this == recursive_directory_iterator();
+    }
 
     // other members as required by \ref{input.iterators}, input iterators
   };

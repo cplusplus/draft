@@ -771,12 +771,6 @@ The definition of a constexpr function shall satisfy the following
 requirements:
 \begin{itemize}
 \item
-its return type (if any) shall be a literal type;
-
-\item
-each of its parameter types shall be a literal type;
-
-\item
 it shall not be a coroutine\iref{dcl.fct.def.coroutine};
 
 \item
@@ -817,78 +811,6 @@ constexpr int g(int x, int n) { // OK
 \end{example}
 
 \pnum
-\indextext{specifier!\idxcode{constexpr}!constructor}%
-The definition of a constexpr constructor
-whose \grammarterm{function-body} is not \tcode{= delete}
-shall additionally satisfy the following requirements:
-\begin{itemize}
-
-\item
-for a non-delegating constructor, every constructor selected to initialize non-static
-data members and base class subobjects shall be a constexpr constructor;
-
-\item
-for a delegating constructor, the target constructor shall be a constexpr
-constructor.
-\end{itemize}
-
-\begin{example}
-\begin{codeblock}
-struct Length {
-  constexpr explicit Length(int i = 0) : val(i) { }
-private:
-  int val;
-};
-\end{codeblock}
-\end{example}
-
-\pnum
-The definition of a constexpr destructor
-whose \grammarterm{function-body} is not \tcode{= delete}
-shall additionally satisfy the following requirement:
-\begin{itemize}
-\item
-  for every subobject of class type or
-  (possibly multi-dimensional) array thereof,
-  that class type shall have a constexpr destructor.
-\end{itemize}
-
-\pnum
-For a constexpr function or constexpr constructor
-that is neither defaulted nor a template,
-if no argument values exist such that
-an invocation of the function or constructor could be an evaluated subexpression of a core
-constant expression\iref{expr.const}, or,
-for a constructor, an evaluated subexpression of
-the initialization full-expression of some constant-initialized object\iref{basic.start.static},
-the program is ill-formed, no diagnostic required.
-\begin{example}
-\begin{codeblock}
-constexpr int f(bool b)
-  { return b ? throw 0 : 0; }           // OK
-constexpr int f() { return f(true); }   // ill-formed, no diagnostic required
-
-struct B {
-  constexpr B(int x) : i(0) { }         // \tcode{x} is unused
-  int i;
-};
-
-int global;
-
-struct D : B {
-  constexpr D() : B(global) { }         // ill-formed, no diagnostic required
-                                        // lvalue-to-rvalue conversion on non-constant \tcode{global}
-};
-
-constexpr int f(int x) {
-  static int n = x;
-  return n + x;                         // ill-formed, no diagnostic required
-                                        // all calls reach the static variable declaration
-}
-\end{codeblock}
-\end{example}
-
-\pnum
 If the instantiated template specialization of a constexpr function
 template
 or member function of a class template
@@ -896,10 +818,7 @@ would fail to satisfy the requirements for a constexpr
 function,
 that specialization is still a constexpr function,
 even though a call to such a function cannot appear in a constant
-expression. If no specialization of the template would satisfy the
-requirements for a constexpr function
-when considered as a non-template function, the template is
-ill-formed, no diagnostic required.
+expression.
 
 \pnum
 An invocation of a constexpr function in a given context
@@ -918,6 +837,10 @@ Declaring a function constexpr can change whether an expression
 is a constant expression.
 This can indirectly cause calls to \tcode{std::is_constant_evaluated}
 within an invocation of the function to produce a different value.
+\end{note}
+\begin{note}
+It is possible to write a constexpr function for which
+no invocation satisfies the requirements of a core constant expression.
 \end{note}
 
 \pnum
@@ -1978,6 +1901,10 @@ If the \grammarterm{placeholder-type-specifier} is of the form
 the deduced type
 $\mathtt{T}'$ replacing \tcode{T}
 is determined using the rules for template argument deduction.
+If the initialization is copy-list-initialization,
+a declaration of \tcode{std::initializer_list}
+shall precede\iref{basic.lookup.general}
+the \grammarterm{placeholder-type-specifier}.
 Obtain \tcode{P} from
 \tcode{T} by replacing the occurrences of
 \opt{\grammarterm{type-constraint}} \keyword{auto} either with
@@ -2036,6 +1963,8 @@ auto           x6a = { 1, 2 };  // \tcode{decltype(x6a)} is \tcode{std::initiali
 decltype(auto) x6d = { 1, 2 };  // error: \tcode{\{ 1, 2 \}} is not an expression
 auto          *x7a = &i;        // \tcode{decltype(x7a)} is \tcode{int*}
 decltype(auto)*x7d = &i;        // error: declared type is not plain \tcode{decltype(auto)}
+auto f1(int x) -> decltype((x)) { return (x); }         // return type is \tcode{int\&}
+auto f2(int x) -> decltype(auto) { return (x); }        // return type is \tcode{int\&\&}
 \end{codeblock}
 \end{example}
 
@@ -5361,7 +5290,7 @@ An array of ordinary character type\iref{basic.fundamental},
 \keyword{char16_t} array,
 \keyword{char32_t} array,
 or \keyword{wchar_t} array
-can be initialized by
+may be initialized by
 an ordinary string literal,
 UTF-8 string literal,
 UTF-16 string literal,
@@ -5369,11 +5298,18 @@ UTF-32 string literal, or
 wide string literal,
 respectively, or by an appropriately-typed \grammarterm{string-literal} enclosed in
 braces\iref{lex.string}.
+Additionally, an array of \keyword{char} or
+\tcode{\keyword{unsigned} \keyword{char}}
+may be initialized by
+a UTF-8 string literal, or by
+such a string literal enclosed in braces.
 \indextext{initialization!character array}%
 Successive
 characters of the
 value of the \grammarterm{string-literal}
-initialize the elements of the array.
+initialize the elements of the array,
+with an integral conversion\iref{conv.integral}
+if necessary for the source and destination value.
 \begin{example}
 \begin{codeblock}
 char msg[] = "Syntax error on line %s\n";
@@ -5615,6 +5551,10 @@ shall be the same cv-qualification as, or greater cv-qualification than,
 \item
 if the reference is an rvalue reference,
 the initializer expression shall not be an lvalue.
+\begin{note}
+This can be affected by
+whether the initializer expression is move-eligible\iref{expr.prim.id.unqual}.
+\end{note}
 \end{itemize}
 
 \begin{example}
@@ -5717,10 +5657,12 @@ create an initializer-list constructor, because an initializer list argument cau
 corresponding parameter to be a non-deduced context\iref{temp.deduct.call}.
 \end{note}
 The template
-\tcode{std::initializer_list} is not predefined; if the header
-\tcode{<initializer_list>} is not imported or included prior to a use of
-\tcode{std::initializer_list} --- even an implicit use in which the type is not
-named\iref{dcl.spec.auto} --- the program is ill-formed.
+\tcode{std::initializer_list} is not predefined;
+if a standard library declaration\iref{initializer.list.syn,std.modules}
+of \tcode{std::initializer_list} is not reachable from\iref{module.reach}
+a use of \tcode{std::initializer_list} ---
+even an implicit use in which the type is not named\iref{dcl.spec.auto} ---
+the program is ill-formed.
 
 \pnum
 List-initialization of an object or reference of type \tcode{T} is defined as follows:
@@ -6019,8 +5961,10 @@ A \defnadj{narrowing}{conversion} is an implicit conversion
 \begin{itemize}
 \item from a floating-point type to an integer type, or
 
-\item from \tcode{long double} to \tcode{double} or \tcode{float}, or from
-\tcode{double} to \tcode{float}, except where the source is a constant expression and
+\item from a floating-point type \tcode{T} to another floating-point type
+whose floating-point conversion rank is neither greater than nor equal to
+that of \tcode{T},
+except where the source is a constant expression and
 the actual value after conversion
 is within the range of values that can be represented (even if it cannot be represented exactly),
 or
@@ -6211,46 +6155,55 @@ a comparison operator function\iref{over.binary}, and
 \end{itemize}
 
 \pnum
-The type \tcode{T}$_1$ of an explicitly defaulted special member function \tcode{F}
-is allowed to differ from the type \tcode{T}$_2$ it would have had
-if it were implicitly declared, as follows:
+An explicitly defaulted special member function $\tcode{F}_1$
+with type $\tcode{T}_1$
+is allowed to differ from
+the corresponding special member function $\tcode{F}_2$
+with type $\tcode{T}_2$
+that would have been implicitly declared, as follows:
 \begin{itemize}
 \item
-  \tcode{T}$_1$ and \tcode{T}$_2$ may have differing \grammarterm{ref-qualifier}{s};
+  $\tcode{T}_1$ and $\tcode{T}_2$ may have differing \grammarterm{ref-qualifier}{s};
 \item
-  \tcode{T}$_1$ and \tcode{T}$_2$ may have differing exception specifications; and
+  if $\tcode{F}_2$ has an implicit object parameter of
+  type ``reference to \tcode{C}'',
+  $\tcode{F}_1$ may be an explicit object member function whose
+  explicit object parameter is of type ``reference to \tcode{C}'',
+  in which case $\tcode{T}_1$ would differ from $\tcode{T}_2$
+  in that $\tcode{T}_1$ has an additional parameter;
 \item
-  if \tcode{T}$_2$ has a parameter of type \tcode{const C\&},
-  the corresponding parameter of \tcode{T}$_1$ may be of type \tcode{C\&}.
+  $\tcode{T}_1$ and $\tcode{T}_2$ may have differing exception specifications; and
+\item
+  if $\tcode{F}_2$ has a non-object parameter of type \tcode{const C\&},
+  the corresponding non-object parameter of $\tcode{F}_1$ may be of
+  type \tcode{C\&}.
 \end{itemize}
-If \tcode{T}$_1$ differs from \tcode{T}$_2$ in any other way, then:
+If $\tcode{T}_1$ differs from $\tcode{T}_2$ in a way
+other than as allowed by the preceding rules, then:
 \begin{itemize}
 \item
-  if \tcode{F} is an assignment operator, and
-  the return type of \tcode{T}$_1$ differs from
-  the return type of \tcode{T}$_2$ or
-  \tcode{T}$_1${'s} parameter type is not a reference,
+  if $\tcode{F}_1$ is an assignment operator, and
+  the return type of $\tcode{T}_1$ differs from
+  the return type of $\tcode{T}_2$ or
+  $\tcode{F}_1${'s} non-object parameter type is not a reference,
   the program is ill-formed;
 \item
-  otherwise, if \tcode{F} is explicitly defaulted on its first declaration,
+  otherwise, if $\tcode{F}_1$ is explicitly defaulted on its first declaration,
   it is defined as deleted;
 \item
   otherwise, the program is ill-formed.
 \end{itemize}
 
 \pnum
-An explicitly-defaulted function that is not defined as deleted may be declared
-\keyword{constexpr} or \keyword{consteval} only
-if it is constexpr-compatible\iref{special,class.compare.default}.
 A function explicitly defaulted on its first declaration
 is implicitly inline\iref{dcl.inline},
-and is implicitly constexpr\iref{dcl.constexpr} if it is constexpr-compatible.
+and is implicitly constexpr\iref{dcl.constexpr}
+if it satisfies the requirements for a constexpr function.
 
 \pnum
 \begin{example}
 \begin{codeblock}
 struct S {
-  constexpr S() = default;              // error: implicit \tcode{S()} is not \keyword{constexpr}
   S(int a = 0) = default;               // error: default argument
   void operator=(const S&) = default;   // error: non-matching return type
   ~S() noexcept(false) = default;       // OK, despite mismatched exception specification
@@ -6563,18 +6516,20 @@ a non-array allocation function\iref{basic.stc.dynamic.allocation}.
 The allocation function's name is looked up by searching for it in the scope of the promise type.
 \begin{itemize}
 \item
-If any declarations are found,
+If the search finds any declarations,
 overload resolution is performed on a function call created by assembling an
-argument list. The first argument is the amount of space requested, and has
-type \tcode{std::size_t}.
-The lvalues $\tcode{p}_1 \dotsc \tcode{p}_n$ are the succeeding arguments.
-\item
-Otherwise, a search is performed in the global scope.
-\end{itemize}
+argument list. The first argument is the amount of space requested, and
+is a prvalue of type \tcode{std::size_t}.
+The lvalues $\tcode{p}_1 \dotsc \tcode{p}_n$ are the successive arguments.
 If no viable function is found\iref{over.match.viable},
 overload resolution is performed again
 on a function call created by passing just
-the amount of space required as an argument of type \tcode{std::size_t}.
+the amount of space required as a prvalue of type \tcode{std::size_t}.
+\item
+If the search finds no declarations, a search is performed in the global scope.
+Overload resolution is performed on a function call created by
+passing the amount of space required as a prvalue of type \tcode{std::size_t}.
+\end{itemize}
 
 \pnum
 If a search for the name \tcode{get_return_object_on_allocation_failure}
@@ -8586,6 +8541,43 @@ alignas(double) unsigned char c[sizeof(double)];    // array of characters, suit
 extern unsigned char c[sizeof(double)];             // no \tcode{alignas} necessary
 alignas(float)
   extern unsigned char c[sizeof(double)];           // error: different alignment in declaration
+\end{codeblock}
+\end{example}
+
+\rSec2[dcl.attr.assume]{Assumption attribute}
+
+The \grammarterm{attribute-token} \tcode{assume} may be applied to a null statement;
+such a statement is an \defn{assumption}.
+An \grammarterm{attribute-argument-clause} shall be present and
+shall have the form:
+\begin{ncsimplebnf}
+\terminal{(} conditional-expression \terminal{)}
+\end{ncsimplebnf}
+The expression is contextually converted to \tcode{bool}\iref{conv.general}.
+The expression is not evaluated.
+If the converted expression would evaluate to \tcode{true}
+at the point where the assumption appears,
+the assumption has no effect.
+Otherwise, the behavior is undefined.
+\begin{note}
+The expression is potentially evaluated\iref{basic.def.odr}.
+The use of assumptions is intended to allow implementations
+to analyze the form of the expression and
+deduce information used to optimize the program.
+Implementations are not required to deduce
+any information from any particular assumption.
+\end{note}
+\begin{example}
+\begin{codeblock}
+int divide_by_32(int x) {
+  [[assume(x >= 0)]];
+  return x/32;                  // The instructions produced for the division
+                                // may omit handling of negative values.
+}
+int f(int y) {
+  [[assume(++y == 43)]];        // \tcode{y} is not incremented
+  return y;                     // statement may be replaced with \tcode{return 42;}
+}
 \end{codeblock}
 \end{example}
 
