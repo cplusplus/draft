@@ -35,6 +35,7 @@ contains some basic function and class templates that are used
 throughout the rest of the library.
 
 \begin{codeblock}
+// all freestanding
 #include <compare>              // see \ref{compare.syn}
 #include <initializer_list>     // see \ref{initializer.list.syn}
 
@@ -54,6 +55,8 @@ namespace std {
     constexpr T&& forward(remove_reference_t<T>& t) noexcept;
   template<class T>
     constexpr T&& forward(remove_reference_t<T>&& t) noexcept;
+  template<class T, class U>
+    [[nodiscard]] constexpr auto forward_like(U&& x) noexcept -> @\seebelow@;
   template<class T>
     constexpr remove_reference_t<T>&& move(T&&) noexcept;
   template<class T>
@@ -354,6 +357,57 @@ In the second call to \tcode{factory},
 to \tcode{A}'s constructor as an lvalue. In
 both cases, \tcode{A2} is deduced as \tcode{double}, so
 1.414 is forwarded to \tcode{A}'s constructor as an rvalue.
+\end{example}
+\end{itemdescr}
+
+\indexlibraryglobal{forward_like}%
+\begin{itemdecl}
+template<class T, class U>
+  [[nodiscard]] constexpr auto forward_like(U&& x) noexcept -> @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\begin{itemize}
+\item
+Let \tcode{\exposid{COPY_CONST}(A, B)} be \tcode{const B}
+if \tcode{A} is a const type, otherwise \tcode{B}.
+\item
+Let \tcode{\exposid{OVERRIDE_REF}(A, B)} be \tcode{remove_reference_t<B>\&\&}
+if \tcode{A} is an rvalue reference type, otherwise \tcode{B\&}.
+\item
+Let \tcode{V} be
+\begin{codeblock}
+@\exposid{OVERRIDE_REF}@(T&&, @\exposid{COPY_CONST}@(remove_reference_t<T>, remove_reference_t<U>))
+\end{codeblock}
+\end{itemize}
+
+\pnum
+\returns
+\tcode{static_cast<V>(x)}.
+
+\pnum
+\remarks
+The return type is \tcode{V}.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct accessor {
+  vector<string>* container;
+  decltype(auto) operator[](this auto&& self, size_t i) {
+    return std::forward_like<decltype(self)>((*container)[i]);
+  }
+};
+void g() {
+  vector v{"a"s, "b"s};
+  accessor a{&v};
+  string& x = a[0];                             // OK, binds to lvalue reference
+  string&& y = std::move(a)[0];                 // OK, is rvalue reference
+  string const&& z = std::move(as_const(a))[1]; // OK, is \tcode{const\&\&}
+  string& w = as_const(a)[1];                   // error: will not bind to non-const
+}
+\end{codeblock}
 \end{example}
 \end{itemdescr}
 
@@ -683,6 +737,8 @@ namespace std {
       constexpr explicit(@\seebelow@) pair(pair<U1, U2>&& p);
     template<class U1, class U2>
       constexpr explicit(@\seebelow@) pair(const pair<U1, U2>&& p);
+    template<@\exposconcept{pair-like}@ P>
+      constexpr explicit(@\seebelow@) pair(P&& p);
     template<class... Args1, class... Args2>
       constexpr pair(piecewise_construct_t,
                      tuple<Args1...> first_args, tuple<Args2...> second_args);
@@ -699,6 +755,10 @@ namespace std {
       constexpr pair& operator=(pair<U1, U2>&& p);
     template<class U1, class U2>
       constexpr const pair& operator=(pair<U1, U2>&& p) const;
+    template<@\exposconcept{pair-like}@ P>
+      constexpr pair& operator=(P&& p);
+    template<@\exposconcept{pair-like}@ P>
+      constexpr const pair& operator=(P&& p) const;
 
     constexpr void swap(pair& p) noexcept(@\seebelow@);
     constexpr void swap(const pair& p) const noexcept(@\seebelow@);
@@ -824,6 +884,7 @@ template<class U1, class U2> constexpr explicit(@\seebelow@) pair(pair<U1, U2>& 
 template<class U1, class U2> constexpr explicit(@\seebelow@) pair(const pair<U1, U2>& p);
 template<class U1, class U2> constexpr explicit(@\seebelow@) pair(pair<U1, U2>&& p);
 template<class U1, class U2> constexpr explicit(@\seebelow@) pair(const pair<U1, U2>&& p);
+template<@\exposconcept{pair-like}@ P> constexpr explicit(@\seebelow@) pair(P&& p);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -1056,6 +1117,70 @@ template<class U1, class U2> constexpr pair& operator=(pair<U1, U2>&& p);
 \effects
 Assigns to \tcode{first} with \tcode{std::forward<U1>(p.first)}
 and to \tcode{second} with\\ \tcode{std::forward<U2>(p.second)}.
+
+\pnum
+\returns
+\tcode{*this}.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{pair}%
+\begin{itemdecl}
+template<@\exposconcept{pair-like}@ P> constexpr pair& operator=(P&& p);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{\exposconcept{different-from}<P, pair>}\iref{range.utility.helpers}
+is \tcode{true},
+\item
+\tcode{remove_cvref_t<P>} is not a specialization of \tcode{ranges::subrange},
+\item
+\tcode{is_assignable_v<T1\&, decltype(get<0>(std::forward<P>(p)))>}
+is \tcode{true}, and
+\item
+\tcode{is_assignable_v<T2\&, decltype(get<1>(std::forward<P>(p)))>}
+is \tcode{true}.
+\end{itemize}
+
+\pnum
+\effects
+Assigns \tcode{get<0>(std::forward<P>(p))} to \tcode{first} and
+\tcode{get<1>(std::forward<P>(p))} to \tcode{sec\-ond}.
+
+\pnum
+\returns
+\tcode{*this}.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{pair}%
+\begin{itemdecl}
+template<@\exposconcept{pair-like}@ P> constexpr const pair& operator=(P&& p) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{\exposconcept{different-from}<P, pair>}\iref{range.utility.helpers}
+is \tcode{true},
+\item
+\tcode{remove_cvref_t<P>} is not a specialization of \tcode{ranges::subrange},
+\item
+\tcode{is_assignable_v<const T1\&, decltype(get<0>(std::forward<P>(p)))>}
+is \tcode{true}, and
+\item
+\tcode{is_assignable_v<const T2\&, decltype(get<1>(std::forward<P>(p)))>}
+is \tcode{true}.
+\end{itemize}
+
+\pnum
+\effects
+Assigns \tcode{get<0>(std::forward<P>(p))} to \tcode{first} and
+\tcode{get<1>(std::forward<P>(p))} to \tcode{sec\-ond}.
 
 \pnum
 \returns
@@ -1350,6 +1475,7 @@ See~\ref{pairs}.
 
 \indexheader{tuple}%
 \begin{codeblock}
+// all freestanding
 #include <compare>              // see \ref{compare.syn}
 
 namespace std {
@@ -1357,18 +1483,19 @@ namespace std {
   template<class... Types>
     class tuple;
 
-  template<class... TTypes, class... UTypes, template<class> class TQual,
-           template<class> class UQual>
-    requires requires { typename tuple<common_reference_t<TQual<TTypes>, UQual<UTypes>>...>; }
-  struct basic_common_reference<tuple<TTypes...>, tuple<UTypes...>, TQual, UQual> {
-    using type = tuple<common_reference_t<TQual<TTypes>, UQual<UTypes>>...>;
-  };
+  // \ref{tuple.like}, concept \exposconcept{tuple-like}
+  template <typename T>
+    concept @\exposconcept{tuple-like}@ = @\seebelownc@;         // \expos
+  template <typename T>
+    concept @\defexposconcept{pair-like}@ =                     // \expos
+      @\exposconcept{tuple-like}@<T> && tuple_size_v<remove_cvref_t<T>> == 2;
 
-  template<class... TTypes, class... UTypes>
-    requires requires { typename tuple<common_type_t<TTypes, UTypes>...>; }
-  struct common_type<tuple<TTypes...>, tuple<UTypes...>> {
-    using type = tuple<common_type_t<TTypes, UTypes>...>;
-  };
+  // \ref{tuple.common.ref}, \tcode{common_reference} related specializations
+  template<@\exposconceptnc{tuple-like}@ TTuple, @\exposconceptnc{tuple-like}@ UTuple,
+           template<class> class TQual, template<class> class UQual>
+    struct basic_common_reference<TTuple, UTuple, TQual, UQual>;
+  template<@\exposconceptnc{tuple-like}@ TTuple, @\exposconceptnc{tuple-like}@ UTuple>
+    struct common_type<TTuple, UTuple>;
 
   // \ref{tuple.creation}, tuple creation functions
   inline constexpr @\unspec@ ignore;
@@ -1382,14 +1509,14 @@ namespace std {
   template<class... TTypes>
     constexpr tuple<TTypes&...> tie(TTypes&...) noexcept;
 
-  template<class... Tuples>
+  template<@\exposconceptnc{tuple-like}@... Tuples>
     constexpr tuple<CTypes...> tuple_cat(Tuples&&...);
 
   // \ref{tuple.apply}, calling a function with a tuple of arguments
-  template<class F, class Tuple>
-    constexpr decltype(auto) apply(F&& f, Tuple&& t);
+  template<class F, @\exposconceptnc{tuple-like}@ Tuple>
+    constexpr decltype(auto) apply(F&& f, Tuple&& t) noexcept(@\seebelow@);
 
-  template<class T, class Tuple>
+  template<class T, @\exposconceptnc{tuple-like}@ Tuple>
     constexpr T make_from_tuple(Tuple&& t);
 
   // \ref{tuple.helper}, tuple helper classes
@@ -1428,9 +1555,13 @@ namespace std {
   // \ref{tuple.rel}, relational operators
   template<class... TTypes, class... UTypes>
     constexpr bool operator==(const tuple<TTypes...>&, const tuple<UTypes...>&);
+  template<class... TTypes, @\exposconceptnc{tuple-like}@ UTuple>
+    constexpr bool operator==(const tuple<TTypes...>&, const UTuple&);
   template<class... TTypes, class... UTypes>
-    constexpr common_comparison_category_t<@\placeholder{synth-three-way-result}@<TTypes, UTypes>...>
+    constexpr common_comparison_category_t<@\placeholdernc{synth-three-way-result}@<TTypes, UTypes>...>
       operator<=>(const tuple<TTypes...>&, const tuple<UTypes...>&);
+  template<class... TTypes, @\exposconceptnc{tuple-like}@ UTuple>
+    constexpr @\seebelownc@ operator<=>(const tuple<TTypes...>&, const UTuple&);
 
   // \ref{tuple.traits}, allocator-related traits
   template<class... Types, class Alloc>
@@ -1447,6 +1578,21 @@ namespace std {
     inline constexpr size_t @\libglobal{tuple_size_v}@ = tuple_size<T>::value;
 }
 \end{codeblock}
+
+\rSec2[tuple.like]{Concept \ecname{tuple-like}}
+
+\begin{itemdecl}
+template <typename T>
+  concept @\defexposconcept{tuple-like}@ = @\seebelownc@;           // \expos
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+A type \tcode{T} models and satisfies
+the exposition-only concept \exposconcept{tuple-like}
+if \tcode{std::remove_cvref_t<T>} is a specialization of
+\tcode{array}, \tcode{pair}, \tcode{tuple}, or \tcode{ranges::subrange}.
+\end{itemdescr}
 
 \rSec2[tuple.tuple]{Class template \tcode{tuple}}
 \indexlibraryglobal{tuple}%
@@ -1482,6 +1628,9 @@ namespace std {
       constexpr explicit(@\seebelow@) tuple(pair<U1, U2>&&);        // only if \tcode{sizeof...(Types) == 2}
     template<class U1, class U2>
       constexpr explicit(@\seebelow@) tuple(const pair<U1, U2>&&);  // only if \tcode{sizeof...(Types) == 2}
+
+    template<@\exposconcept{tuple-like}@ UTuple>
+      constexpr explicit(@\seebelow@) tuple(UTuple&&);
 
     // allocator-extended constructors
     template<class Alloc>
@@ -1522,6 +1671,9 @@ namespace std {
       constexpr explicit(@\seebelow@)
         tuple(allocator_arg_t, const Alloc& a, const pair<U1, U2>&&);
 
+    template<class Alloc, @\exposconceptnc{tuple-like}@ UTuple>
+      constexpr explicit(@\seebelow@) tuple(allocator_arg_t, const Alloc& a, UTuple&&);
+
     // \ref{tuple.assign}, \tcode{tuple} assignment
     constexpr tuple& operator=(const tuple&);
     constexpr const tuple& operator=(const tuple&) const;
@@ -1546,6 +1698,11 @@ namespace std {
       constexpr tuple& operator=(pair<U1, U2>&&);               // only if \tcode{sizeof...(Types) == 2}
     template<class U1, class U2>
       constexpr const tuple& operator=(pair<U1, U2>&&) const;   // only if \tcode{sizeof...(Types) == 2}
+
+    template<@\exposconceptnc{tuple-like}@ UTuple>
+      constexpr tuple& operator=(UTuple&&);
+    template<@\exposconceptnc{tuple-like}@ UTuple>
+      constexpr const tuple& operator=(UTuple&&) const;
 
     // \ref{tuple.swap}, \tcode{tuple} swap
     constexpr void swap(tuple&) noexcept(@\seebelow@);
@@ -1819,6 +1976,56 @@ is \tcode{true}.
 
 \indexlibraryctor{tuple}%
 \begin{itemdecl}
+template<@\exposconcept{tuple-like}@ UTuple>
+  constexpr explicit(@\seebelow@) tuple(UTuple&& u);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{I} be the pack \tcode{0, 1, \ldots, (sizeof...(Types) - 1)}.
+
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{\exposconcept{different-from}<UTuple, tuple>}\iref{range.utility.helpers}
+is \tcode{true},
+
+\item
+\tcode{remove_cvref_t<UTuple>}
+is not a specialization of \tcode{ranges::subrange},
+
+\item
+\tcode{sizeof...(Types)}
+equals \tcode{tuple_size_v<remove_cvref_t<UTuple>>},
+
+\item
+\tcode{(is_constructible_v<Types, decltype(get<I>(std::forward<UTuple>(u)))> \&\& ...)}
+is\linebreak{} % Overfull
+\tcode{true}, and
+
+\item
+either \tcode{sizeof...(Types)} is not \tcode{1}, or
+(when \tcode{Types...} expands to \tcode{T})
+\tcode{is_convertible_v<UTuple, T>} and
+\tcode{is_constructible_v<T, UTuple>} are both \tcode{false}.
+\end{itemize}
+
+\pnum
+\effects
+For all $i$, initializes the $i^\text{th}$ element of \tcode{*this} with
+\tcode{get<$i$>(std::forward<UTuple>(u))}.
+
+\pnum
+\remarks
+The expression inside \tcode{explicit} is equivalent to:
+\begin{codeblock}
+!(is_convertible_v<decltype(get<I>(std::forward<UTuple>(u))), Types> && ...)
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryctor{tuple}%
+\begin{itemdecl}
 template<class Alloc>
   constexpr explicit(@\seebelow@)
     tuple(allocator_arg_t, const Alloc& a);
@@ -1856,6 +2063,9 @@ template<class Alloc, class U1, class U2>
 template<class Alloc, class U1, class U2>
   constexpr explicit(@\seebelow@)
     tuple(allocator_arg_t, const Alloc& a, const pair<U1, U2>&&);
+template<class Alloc, @\exposconcept{tuple-like}@ UTuple>
+  constexpr explicit(@\seebelow@)
+    tuple(allocator_arg_t, const Alloc& a, UTuple&&);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -2170,6 +2380,80 @@ Assigns \tcode{std::forward<U1>(u.first)} to the first element and\\
 \tcode{*this}.
 \end{itemdescr}
 
+\indexlibrarymember{operator=}{tuple}%
+\begin{itemdecl}
+template<@\exposconcept{tuple-like}@ UTuple>
+  constexpr tuple& operator=(UTuple&& u);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{\exposconcept{different-from}<UTuple, tuple>}\iref{range.utility.helpers}
+is \tcode{true},
+
+\item
+\tcode{remove_cvref_t<UTuple>}
+is not a specialization of \tcode{ranges::subrange},
+
+\item
+\tcode{sizeof...(Types)}
+equals \tcode{tuple_size_v<remove_cvref_t<UTuple>>}, and,
+
+\item
+\tcode{is_assignable_v<$\tcode{T}_i$\&, decltype(get<$i$>(std::forward<UTuple>(u)))>}
+is \tcode{true} for all $i$.
+\end{itemize}
+
+\pnum
+\effects
+For all $i$, assigns \tcode{get<$i$>(std::forward<UTuple>(u))}
+to \tcode{get<$i$>(*this)}.
+
+\pnum
+\returns
+\tcode{*this}.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{tuple}%
+\begin{itemdecl}
+template<@\exposconcept{tuple-like}@ UTuple>
+  constexpr const tuple& operator=(UTuple&& u) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{\exposconcept{different-from}<UTuple, tuple>}\iref{range.utility.helpers}
+is \tcode{true},
+
+\item
+\tcode{remove_cvref_t<UTuple>}
+is not a specialization of \tcode{ranges::subrange},
+
+\item
+\tcode{sizeof...(Types)}
+equals \tcode{tuple_size_v<remove_cvref_t<UTuple>>}, and,
+
+\item
+\tcode{is_assignable_v<const $\tcode{T}_i$\&, decltype(get<$i$>(std::forward<UTuple>(u)))>}
+is \tcode{true} for all $i$.
+\end{itemize}
+
+\pnum
+\effects
+For all $i$, assigns
+\tcode{get<$i$>(std::forward<UTuple>(u))} to \tcode{get<$i$>(*this)}.
+
+\pnum
+\returns
+\tcode{*this}.
+\end{itemdescr}
+
 \rSec3[tuple.swap]{\tcode{swap}}
 
 \indexlibrarymember{swap}{tuple}%
@@ -2290,63 +2574,55 @@ tie(i, ignore, s) = make_tuple(42, 3.14, "C++");
 
 \indexlibraryglobal{tuple_cat}
 \begin{itemdecl}
-template<class... Tuples>
+template<@\exposconcept{tuple-like}@... Tuples>
   constexpr tuple<CTypes...> tuple_cat(Tuples&&... tpls);
 \end{itemdecl}
 
-\begin{itemdescr}  % NOCHECK: order
+\begin{itemdescr}
 \pnum
-In the following paragraphs, let $\tcode{T}_i$ be the $i^\text{th}$ type in \tcode{Tuples},
-$\tcode{U}_i$ be \tcode{remove_reference_t<T$_i$>}, and $\tcode{tp}_i$ be the $i^\text{th}$
-parameter in the function parameter pack \tcode{tpls}, where all indexing is
-zero-based.
-
-\pnum
-\expects
-For all $i$, $\tcode{U}_i$ is the type
-$\cv_i$ \tcode{tuple<$\tcode{Args}_i$...>}, where $\cv_i$ is the (possibly empty) $i^\text{th}$
-\grammarterm{cv-qualifier-seq} and $\tcode{Args}_i$ is the template parameter pack representing the element
-types in $\tcode{U}_i$. Let $\tcode{A}_{ik}$ be the ${k}^\text{th}$ type in $\tcode{Args}_i$. For all
-$\tcode{A}_{ik}$ the following requirements are met:
+Let $n$ be \tcode{sizeof...(Tuples)}.
+For every integer $0 \leq i < n$:
 \begin{itemize}
-\item If $\tcode{T}_i$ is deduced as an lvalue reference type, then
-      \tcode{is_constructible_v<$\tcode{A}_{ik}$, $\cv{}_i\;\tcode{A}_{ik}$\&> == true}, otherwise
-\item \tcode{is_constructible_v<$\tcode{A}_{ik}$, $\cv{}_i\;\tcode{A}_{ik}$\&\&> == true}.
+\item
+Let $\tcode{T}_i$ be the $i^\text{th}$ type in \tcode{Tuples}.
+\item
+Let $\tcode{U}_i$ be \tcode{remove_cvref_t<$\tcode{T}_i$>}.
+\item
+Let $\tcode{tp}_i$ be the $i^\text{th}$ element
+in the function parameter pack \tcode{tpls}.
+\item
+Let $S_i$ be \tcode{tuple_size_v<$\tcode{U}_i$>}.
+\item
+Let $E_i^k$ be \tcode{tuple_element_t<$k$, $\tcode{U}_i$>}.
+\item
+Let $e_i^k$ be \tcode{get<$k$>(std::forward<$\tcode{T}_i$>($\tcode{tp}_i$))}.
+\item
+Let $Elems_i$ be a pack of the types $E_i^0, \dotsc, E_i^{S_{i-1}}$.
+\item
+Let $elems_i$ be a pack of the expressions $e_i^0, \dotsc, e_i^{S_{i-1}}$.
 \end{itemize}
+The types in \tcode{CTypes} are equal to the ordered sequence of
+the expanded packs of types
+\tcode{$Elems_0$...}, \tcode{$Elems_1$...}, \ldots, \tcode{$Elems_{n-1}$...}.
+Let \tcode{celems} be the ordered sequence of
+the expanded packs of expressions
+\tcode{$elems_0$...}, \ldots, \tcode{$elems_{n-1}$...}.
 
 \pnum
-\remarks
-The types in \tcode{CTypes} are equal to the ordered
-sequence of the extended types
-\tcode{$\tcode{Args}_0$..., $\tcode{Args}_1$..., $\dotsc$, $\tcode{Args}_{n-1}$...},
-where $n$ is
-equal to \tcode{sizeof...(Tuples)}. Let \tcode{$\tcode{e}_i$...} be the $i^\text{th}$
-ordered sequence of tuple elements of the resulting \tcode{tuple} object
-corresponding to the type sequence $\tcode{Args}_i$.
+\mandates
+\tcode{(is_constructible_v<CTypes, decltype(celems)> \&\& ...)} is \tcode{true}.
 
 \pnum
 \returns
-A \tcode{tuple} object constructed by initializing the ${k_i}^\text{th}$
-type element $\tcode{e}_{ik}$ in \tcode{$\tcode{e}_i$...} with
-\begin{codeblock}
-get<@$k_i$@>(std::forward<@$\tcode{T}_i$@>(@$\tcode{tp}_i$@))
-\end{codeblock}
-for each valid $k_i$ and each group $\tcode{e}_i$ in order.
-
-\pnum
-\begin{note}
-An implementation can support additional types in the template parameter
-pack \tcode{Tuples} that support the \tcode{tuple}-like protocol, such as
-\tcode{pair} and \tcode{array}.
-\end{note}
+\tcode{tuple<CTypes...>(celems...)}.
 \end{itemdescr}
 
 \rSec2[tuple.apply]{Calling a function with a \tcode{tuple} of arguments}
 
 \indexlibraryglobal{apply}%
 \begin{itemdecl}
-template<class F, class Tuple>
-  constexpr decltype(auto) apply(F&& f, Tuple&& t);
+template<class F, @\exposconcept{tuple-like}@ Tuple>
+  constexpr decltype(auto) apply(F&& f, Tuple&& t) noexcept(@\seebelow@);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -2355,7 +2631,7 @@ template<class F, class Tuple>
 Given the exposition-only function:
 \begin{codeblock}
 namespace std {
-  template<class F, class Tuple, size_t... I>
+  template<class F, @\exposconcept{tuple-like}@ Tuple, size_t... I>
   constexpr decltype(auto) @\placeholdernc{apply-impl}@(F&& f, Tuple&& t, index_sequence<I...>) {
                                                                         // \expos
     return @\placeholdernc{INVOKE}@(std::forward<F>(f), get<I>(std::forward<Tuple>(t))...);     // see \ref{func.require}
@@ -2367,11 +2643,20 @@ Equivalent to:
 return @\placeholdernc{apply-impl}@(std::forward<F>(f), std::forward<Tuple>(t),
                   make_index_sequence<tuple_size_v<remove_reference_t<Tuple>>>{});
 \end{codeblock}
+
+\pnum
+\remarks
+Let \tcode{I} be the pack
+\tcode{0, 1, ..., (tuple_size_v<remove_reference_t<Tuple>> - 1)}.
+The exception specification is equivalent to:
+\begin{codeblock}
+noexcept(invoke(std::forward<F>(f), get<I>(std::forward<Tuple>(t))...))
+\end{codeblock}
 \end{itemdescr}
 
 \indexlibraryglobal{make_from_tuple}%
 \begin{itemdecl}
-template<class T, class Tuple>
+template<class T, @\exposconcept{tuple-like}@ Tuple>
   constexpr T make_from_tuple(Tuple&& t);
 \end{itemdecl}
 
@@ -2388,7 +2673,7 @@ is \tcode{false}.
 Given the exposition-only function:
 \begin{codeblock}
 namespace std {
-  template<class T, class Tuple, size_t... I>
+  template<class T, @\exposconcept{tuple-like}@ Tuple, size_t... I>
     requires is_constructible_v<T, decltype(get<I>(declval<Tuple>()))...>
   constexpr T @\placeholdernc{make-from-tuple-impl}@(Tuple&& t, index_sequence<I...>) {   // \expos
     return T(get<I>(std::forward<Tuple>(t))...);
@@ -2606,9 +2891,14 @@ the \keyword{template} keyword.
 \begin{itemdecl}
 template<class... TTypes, class... UTypes>
   constexpr bool operator==(const tuple<TTypes...>& t, const tuple<UTypes...>& u);
+template<class... TTypes, @\exposconcept{tuple-like}@ UTuple>
+  constexpr bool operator==(const tuple<TTypes...>& t, const UTuple& u);
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+For the first overload let \tcode{UTuple} be \tcode{tuple<UTypes...>}.
+
 \pnum
 \mandates
 For all \tcode{i},
@@ -2616,20 +2906,27 @@ where $0 \leq \tcode{i} < \tcode{sizeof...(TTypes)}$,
 \tcode{get<i>(t) == get<i>(u)} is a valid expression
 returning a type that is convertible to \tcode{bool}.
 \tcode{sizeof...(TTypes)} equals
-\tcode{sizeof...(UTypes)}.
+\tcode{tuple_size_v<UTuple>}.
 
 \pnum
 \returns
 \tcode{true} if \tcode{get<i>(t) == get<i>(u)} for all
 \tcode{i}, otherwise \tcode{false}.
-For any two zero-length tuples \tcode{e} and \tcode{f}, \tcode{e == f} returns \tcode{true}.
+\begin{note}
+If \tcode{sizeof...(TTypes)} equals zero, returns \tcode{true}.
+\end{note}
 
 \pnum
 \remarks
+\begin{itemize}
+\item
 The elementary comparisons are performed in order from the
 zeroth index upwards.  No comparisons or element accesses are
 performed after the first equality comparison that evaluates to
 \tcode{false}.
+\item
+The second overload is to be found via argument-dependent lookup\iref{basic.lookup.argdep} only.
+\end{itemize}
 \end{itemdescr}
 
 \indexlibrarymember{operator<=>}{tuple}%
@@ -2637,21 +2934,34 @@ performed after the first equality comparison that evaluates to
 template<class... TTypes, class... UTypes>
   constexpr common_comparison_category_t<@\placeholder{synth-three-way-result}@<TTypes, UTypes>...>
     operator<=>(const tuple<TTypes...>& t, const tuple<UTypes...>& u);
+template<class... TTypes, @\exposconcept{tuple-like}@ UTuple>
+  constexpr common_comparison_category_t<@\placeholder{synth-three-way-result}@<TTypes, Elems>...>
+    operator<=>(const tuple<TTypes...>& t, const UTuple& u);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
+For the second overload, \tcode{Elems} denotes the pack of types
+\tcode{tuple_element_t<0, UTuple>},
+\tcode{tuple_element_t<1, UTuple>}, \ldots,
+\tcode{tuple_element_t<tuple_size_v<UTuple> - 1, UTuple>}.
+
+\pnum
 \effects
 Performs a lexicographical comparison between \tcode{t} and \tcode{u}.
-For any two zero-length tuples \tcode{t} and \tcode{u},
-\tcode{t <=> u} returns \tcode{strong_ordering::equal}.
+If \tcode{sizeof...(TTypes)} equals zero,
+returns \tcode{strong_ordering::equal}.
 Otherwise, equivalent to:
 \begin{codeblock}
 if (auto c = @\placeholder{synth-three-way}@(get<0>(t), get<0>(u)); c != 0) return c;
 return @$\tcode{t}_\mathrm{tail}$@ <=> @$\tcode{u}_\mathrm{tail}$@;
 \end{codeblock}
-where $\tcode{r}_\mathrm{tail}$ for some tuple \tcode{r}
+where $\tcode{r}_\mathrm{tail}$ for some \tcode{r}
 is a tuple containing all but the first element of \tcode{r}.
+
+\pnum
+\remarks
+The second overload is to be found via argument-dependent lookup\iref{basic.lookup.argdep} only.
 \end{itemdescr}
 
 \pnum
@@ -2663,6 +2973,80 @@ constructible. Also, all comparison operator functions are short circuited;
 they do not perform element accesses beyond what is required to determine the
 result of the comparison.
 \end{note}
+
+\rSec2[tuple.common.ref]{\tcode{common_reference} related specializations}
+
+\pnum
+In the descriptions that follow:
+\begin{itemize}
+\item
+Let \tcode{TTypes} be a pack formed by
+the sequence of \tcode{tuple_element_t<$i$, TTuple>}
+for every integer $0 \leq i < \tcode{tuple_size_v<TTuple>}$.
+
+\item
+Let \tcode{UTypes} be a pack formed by
+the sequence of \tcode{tuple_element_t<$i$, UTuple>}
+for every integer $0 \leq i < \tcode{tuple_size_v<UTuple>}$.
+\end{itemize}
+
+\indexlibrarymember{basic_common_reference}{tuple}%
+\begin{itemdecl}
+template<@\exposconcept{tuple-like}@ TTuple, @\exposconcept{tuple-like}@ UTuple,
+         template<class> class TQual, template<class> class UQual>
+struct basic_common_reference<TTuple, UTuple, TQual, UQual> {
+  using type = @\seebelow@;
+};
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{TTuple} is a specialization of \tcode{tuple} or
+\tcode{UTuple} is a specialization of \tcode{tuple}.
+\item
+\tcode{is_same_v<TTuple, decay_t<TTuple>>} is \tcode{true}.
+\item
+\tcode{is_same_v<UTuple, decay_t<UTuple>>} is \tcode{true}.
+\item
+\tcode{tuple_size_v<TTuple>} equals \tcode{tuple_size_v<UTuple>}.
+\item
+\tcode{tuple<common_reference_t<TQual<TTypes>, UQual<UTypes>>...>}
+denotes a type.
+\end{itemize}
+The member \grammarterm{typedef-name} \tcode{type} denotes the type
+\tcode{tuple<common_reference_t<TQual<TTypes>, \linebreak{}UQual<UTypes>>...>}.
+\end{itemdescr}
+
+\indexlibrarymember{common_type}{tuple}%
+\begin{itemdecl}
+template<@\exposconcept{tuple-like}@ TTuple, @\exposconcept{tuple-like}@ UTuple>
+struct common_type<TTuple, UTuple> {
+  using type = @\seebelow@;
+};
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{TTuple} is a specialization of \tcode{tuple} or
+\tcode{UTuple} is a specialization of \tcode{tuple}.
+\item
+\tcode{is_same_v<TTuple, decay_t<TTuple>>} is \tcode{true}.
+\item
+\tcode{is_same_v<UTuple, decay_t<UTuple>>} is \tcode{true}.
+\item
+\tcode{tuple_size_v<TTuple>} equals \tcode{tuple_size_v<UTuple>}.
+\item
+\tcode{tuple<common_type_t<TTypes, UTypes>...>} denotes a type.
+\end{itemize}
+The member \grammarterm{typedef-name} \tcode{type} denotes the type
+\tcode{tuple<common_type_t<TTypes, UTypes>...>}.
+\end{itemdescr}
 
 \rSec2[tuple.traits]{Tuple traits}
 
@@ -2905,13 +3289,13 @@ When an instance of \tcode{optional<T>} \defnx{contains a value}{contains a valu
 it means that an object of type \tcode{T}, referred to as the optional object's \defnx{contained value}{contained value!\idxcode{optional}},
 is allocated within the storage of the optional object.
 Implementations are not permitted to use additional storage, such as dynamic memory, to allocate its contained value.
-The contained value shall be allocated in a region of the \tcode{optional<T>} storage suitably aligned for the type \tcode{T}.
 When an object of type \tcode{optional<T>} is contextually converted to \tcode{bool},
 the conversion returns \tcode{true} if the object contains a value;
 otherwise the conversion returns \tcode{false}.
 
 \pnum
-Member \tcode{val} is provided for exposition only. When an \tcode{optional<T>} object contains a value, \tcode{val} points to the contained value.
+When an \tcode{optional<T>} object contains a value,
+member \tcode{val} points to the contained value.
 
 \pnum
 \tcode{T} shall be a type
@@ -4635,8 +5019,6 @@ object's \defnx{contained value}{contained value!\idxcode{variant}}, is allocate
 \tcode{variant} object.
 Implementations are not permitted to use additional storage, such as dynamic
 memory, to allocate the contained value.
-The contained value shall be allocated in a region of the \tcode{variant}
-storage suitably aligned for all types in \tcode{Types}.
 
 \pnum
 All types in \tcode{Types} shall meet
@@ -6547,10 +6929,10 @@ namespace std {
     constexpr unexpected& operator=(const unexpected&) = default;
     constexpr unexpected& operator=(unexpected&&) = default;
 
-    constexpr const E& value() const & noexcept;
-    constexpr E& value() & noexcept;
-    constexpr const E&& value() const && noexcept;
-    constexpr E&& value() && noexcept;
+    constexpr const E& error() const & noexcept;
+    constexpr E& error() & noexcept;
+    constexpr const E&& error() const && noexcept;
+    constexpr E&& error() && noexcept;
 
     constexpr void swap(unexpected& other) noexcept(@\seebelow@);
 
@@ -6560,7 +6942,7 @@ namespace std {
     friend constexpr void swap(unexpected& x, unexpected& y) noexcept(noexcept(x.swap(y)));
 
   private:
-    E @\exposid{val}@;               // \expos
+    E @\exposidnc{unex}@;             // \expos
   };
 
   template<class E> unexpected(E) -> unexpected<E>;
@@ -6597,11 +6979,11 @@ template<class Err = E>
 
 \pnum
 \effects
-Direct-non-list-initializes \exposid{val} with \tcode{std::forward<Err>(e)}.
+Direct-non-list-initializes \exposid{unex} with \tcode{std::forward<Err>(e)}.
 
 \pnum
 \throws
-Any exception thrown by the initialization of \exposid{val}.
+Any exception thrown by the initialization of \exposid{unex}.
 \end{itemdescr}
 
 \indexlibraryctor{unexpected}%
@@ -6618,11 +7000,11 @@ template<class... Args>
 \pnum
 \effects
 Direct-non-list-initializes
-\exposid{val} with \tcode{std::forward<Args>(args)...}.
+\exposid{unex} with \tcode{std::forward<Args>(args)...}.
 
 \pnum
 \throws
-Any exception thrown by the initialization of \exposid{val}.
+Any exception thrown by the initialization of \exposid{unex}.
 \end{itemdescr}
 
 \indexlibraryctor{unexpected}%
@@ -6639,37 +7021,37 @@ template<class U, class... Args>
 \pnum
 \effects
 Direct-non-list-initializes
-\exposid{val} with \tcode{il, std::forward<Args>(args)...}.
+\exposid{unex} with \tcode{il, std::forward<Args>(args)...}.
 
 \pnum
 \throws
-Any exception thrown by the initialization of \exposid{val}.
+Any exception thrown by the initialization of \exposid{unex}.
 \end{itemdescr}
 
 \rSec3[expected.un.obs]{Observers}
 
-\indexlibrarymember{value}{unexpected}%
+\indexlibrarymember{error}{unexpected}%
 \begin{itemdecl}
-constexpr const E& value() const & noexcept;
-constexpr E& value() & noexcept;
+constexpr const E& error() const & noexcept;
+constexpr E& error() & noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \returns
-\exposid{val}.
+\exposid{unex}.
 \end{itemdescr}
 
-\indexlibrarymember{value}{unexpected}%
+\indexlibrarymember{error}{unexpected}%
 \begin{itemdecl}
-constexpr E&& value() && noexcept;
-constexpr const E&& value() const && noexcept;
+constexpr E&& error() && noexcept;
+constexpr const E&& error() const && noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \returns
-\tcode{std::move(\exposid{val})}.
+\tcode{std::move(\exposid{unex})}.
 \end{itemdescr}
 
 \rSec3[expected.un.swap]{Swap}
@@ -6687,7 +7069,7 @@ constexpr void swap(unexpected& other) noexcept(is_nothrow_swappable_v<E>);
 \pnum
 \effects
 Equivalent to:
-\tcode{using std::swap; swap(\exposid{val}, other.\exposid{val});}
+\tcode{using std::swap; swap(\exposid{unex}, other.\exposid{unex});}
 \end{itemdescr}
 
 \begin{itemdecl}
@@ -6715,12 +7097,12 @@ template<class E2>
 \begin{itemdescr}
 \pnum
 \mandates
-The expression \tcode{x.value() == y.value()} is well-formed and
+The expression \tcode{x.error() == y.error()} is well-formed and
 its result is convertible to \tcode{bool}.
 
 \pnum
 \returns
-\tcode{x.value() == y.value()}.
+\tcode{x.error() == y.error()}.
 \end{itemdescr}
 
 \rSec2[expected.bad]{Class template \tcode{bad_expected_access}}
@@ -6738,7 +7120,7 @@ namespace std {
     E&& error() && noexcept;
     const E&& error() const && noexcept;
   private:
-    E @\exposid{val}@;              // \expos
+    E @\exposidnc{unex}@;             // \expos
   };
 }
 \end{codeblock}
@@ -6757,7 +7139,7 @@ explicit bad_expected_access(E e);
 \begin{itemdescr}
 \pnum
 \effects
-Initializes \exposid{val} with \tcode{std::move(e)}.
+Initializes \exposid{unex} with \tcode{std::move(e)}.
 \end{itemdescr}
 
 \indexlibrarymember{error}{bad_expected_access}%
@@ -6769,7 +7151,7 @@ E& error() & noexcept;
 \begin{itemdescr}
 \pnum
 \returns
-\exposid{val}.
+\exposid{unex}.
 \end{itemdescr}
 
 \indexlibrarymember{error}{bad_expected_access}%
@@ -6781,7 +7163,7 @@ const E&& error() const && noexcept;
 \begin{itemdescr}
 \pnum
 \returns
-\tcode{std::move(\exposid{val})}.
+\tcode{std::move(\exposid{unex})}.
 \end{itemdescr}
 
 \indexlibrarymember{what}{bad_expected_access}%
@@ -6933,11 +7315,7 @@ a value of type \tcode{E} within its own storage.
 Implementations are not permitted to use additional storage,
 such as dynamic memory,
 to allocate the object of type \tcode{T} or the object of type \tcode{E}.
-These objects are allocated in a region of the \tcode{expected<T, E>} storage
-suitably aligned for the types \tcode{T} and \tcode{E}.
-Members \exposid{has_val}, \exposid{val}, and \exposid{unex}
-are provided for exposition only.
-\exposid{has_val} indicates whether the \tcode{expected<T, E>} object
+Member \exposid{has_val} indicates whether the \tcode{expected<T, E>} object
 contains an object of type \tcode{T}.
 
 \pnum
@@ -7197,7 +7575,7 @@ Let \tcode{GF} be \tcode{const G\&} for the first overload and
 
 \pnum
 \effects
-Direct-non-list-initializes \exposid{unex} with \tcode{std::forward<GF>(e.value())}.
+Direct-non-list-initializes \exposid{unex} with \tcode{std::forward<GF>(e.error())}.
 
 \pnum
 \ensures
@@ -7527,12 +7905,12 @@ is_nothrow_move_constructible_v<E>} is \tcode{true}.
 \item
 If \tcode{has_value()} is \tcode{true}, equivalent to:
 \begin{codeblock}
-@\exposid{reinit-expected}@(@\exposid{unex}@, @\exposid{val}@, std::forward<GF>(e.value()));
+@\exposid{reinit-expected}@(@\exposid{unex}@, @\exposid{val}@, std::forward<GF>(e.error()));
 @\exposid{has_val}@ = false;
 \end{codeblock}
 \item
 Otherwise, equivalent to:
-\tcode{\exposid{unex} = std::forward<GF>(e.value());}
+\tcode{\exposid{unex} = std::forward<GF>(e.error());}
 \end{itemize}
 
 \pnum
@@ -7892,12 +8270,12 @@ template<class E2> friend constexpr bool operator==(const expected& x, const une
 \begin{itemdescr}
 \pnum
 \mandates
-The expression \tcode{x.error() == e.value()} is well-formed and
+The expression \tcode{x.error() == e.error()} is well-formed and
 its result is convertible to \tcode{bool}.
 
 \pnum
 \returns
-\tcode{!x.has_value() \&\& static_cast<bool>(x.error() == e.value())}.
+\tcode{!x.has_value() \&\& static_cast<bool>(x.error() == e.error())}.
 \end{itemdescr}
 
 \rSec2[expected.void]{Partial specialization of \tcode{expected} for \tcode{void} types}
@@ -7976,6 +8354,21 @@ private:
   };
 };
 \end{codeblock}
+
+\pnum
+Any object of type \tcode{expected<T, E>} either
+represents a value of type \tcode{T}, or
+contains a value of type \tcode{E} within its own storage.
+Implementations are not permitted to use additional storage,
+such as dynamic memory, to allocate the object of type \tcode{E}.
+Member \exposid{has_val} indicates whether the \tcode{expected<T, E>} object
+represents a value of type \tcode{T}.
+
+\pnum
+A program that instantiates
+the definition of the template \tcode{expected<T, E>} with
+a type for the \tcode{E} parameter that
+is not a valid template argument for \tcode{unexpected} is ill-formed.
 
 \pnum
 \tcode{E} shall meet the requirements of
@@ -8123,7 +8516,7 @@ Let \tcode{GF} be \tcode{const G\&} for the first overload and
 \pnum
 \effects
 Direct-non-list-initializes \exposid{unex}
-with \tcode{std::forward<GF>(e.value())}.
+with \tcode{std::forward<GF>(e.error())}.
 
 \pnum
 \ensures
@@ -8268,7 +8661,7 @@ construct_at(addressof(@\exposid{unex}@), std::move(rhs.@\exposid{unex}@));
 Otherwise, if \tcode{rhs.has_value()} is \tcode{true},
 destroys \exposid{unex} and sets \exposid{has_val} to \tcode{true}.
 \item
-Otherwise, equivalent to \tcode{\exposid{unex} = rhs.error()}.
+Otherwise, equivalent to \tcode{\exposid{unex} = std::move(rhs.error())}.
 \end{itemize}
 
 \pnum
@@ -8310,12 +8703,12 @@ Let \tcode{GF} be \tcode{const G\&} for the first overload and
 \item
 If \tcode{has_value()} is \tcode{true}, equivalent to:
 \begin{codeblock}
-construct_at(addressof(@\exposid{unex}@), std::forward<GF>(e.value()));
+construct_at(addressof(@\exposid{unex}@), std::forward<GF>(e.error()));
 @\exposid{has_val}@ = false;
 \end{codeblock}
 \item
 Otherwise, equivalent to:
-\tcode{\exposid{unex} = std::forward<GF>(e.value());}
+\tcode{\exposid{unex} = std::forward<GF>(e.error());}
 \end{itemize}
 
 \pnum
@@ -8504,12 +8897,12 @@ template<class E2>
 \begin{itemdescr}
 \pnum
 \mandates
-The expression \tcode{x.error() == e.value()} is well-formed and
+The expression \tcode{x.error() == e.error()} is well-formed and
 its result is convertible to \tcode{bool}.
 
 \pnum
 \returns
-\tcode{!x.has_value() \&\& static_cast<bool>(x.error() == e.value())}.
+\tcode{!x.has_value() \&\& static_cast<bool>(x.error() == e.error())}.
 \end{itemdescr}
 
 \rSec1[bitset]{Bitsets}
@@ -8523,7 +8916,7 @@ and several related functions for representing
 and manipulating fixed-size sequences of bits.
 
 \begin{codeblock}
-#include <string>
+#include <string>   // see \ref{string.syn}
 #include <iosfwd>   // for \tcode{istream}\iref{istream.syn}, \tcode{ostream}\iref{ostream.syn}, see \ref{iosfwd.syn}
 
 namespace std {
@@ -8531,11 +8924,11 @@ namespace std {
 
   // \ref{bitset.operators}, bitset operators
   template<size_t N>
-    bitset<N> operator&(const bitset<N>&, const bitset<N>&) noexcept;
+    constexpr bitset<N> operator&(const bitset<N>&, const bitset<N>&) noexcept;
   template<size_t N>
-    bitset<N> operator|(const bitset<N>&, const bitset<N>&) noexcept;
+    constexpr bitset<N> operator|(const bitset<N>&, const bitset<N>&) noexcept;
   template<size_t N>
-    bitset<N> operator^(const bitset<N>&, const bitset<N>&) noexcept;
+    constexpr bitset<N> operator^(const bitset<N>&, const bitset<N>&) noexcept;
   template<class charT, class traits, size_t N>
     basic_istream<charT, traits>&
       operator>>(basic_istream<charT, traits>& is, bitset<N>& x);
@@ -8556,23 +8949,23 @@ namespace std {
     // bit reference
     class reference {
       friend class bitset;
-      reference() noexcept;
+      constexpr reference() noexcept;
 
     public:
-      reference(const reference&) = default;
-      ~reference();
-      reference& operator=(bool x) noexcept;            // for \tcode{b[i] = x;}
-      reference& operator=(const reference&) noexcept;  // for \tcode{b[i] = b[j];}
-      bool operator~() const noexcept;                  // flips the bit
-      operator bool() const noexcept;                   // for \tcode{x = b[i];}
-      reference& flip() noexcept;                       // for \tcode{b[i].flip();}
+      constexpr reference(const reference&) = default;
+      constexpr ~reference();
+      constexpr reference& operator=(bool x) noexcept;              // for \tcode{b[i] = x;}
+      constexpr reference& operator=(const reference&) noexcept;    // for \tcode{b[i] = b[j];}
+      constexpr bool operator~() const noexcept;                    // flips the bit
+      constexpr operator bool() const noexcept;                     // for \tcode{x = b[i];}
+      constexpr reference& flip() noexcept;                         // for \tcode{b[i].flip();}
     };
 
     // \ref{bitset.cons}, constructors
     constexpr bitset() noexcept;
     constexpr bitset(unsigned long long val) noexcept;
     template<class charT, class traits, class Allocator>
-      explicit bitset(
+      constexpr explicit bitset(
         const basic_string<charT, traits, Allocator>& str,
         typename basic_string<charT, traits, Allocator>::size_type pos = 0,
         typename basic_string<charT, traits, Allocator>::size_type n
@@ -8580,47 +8973,47 @@ namespace std {
         charT zero = charT('0'),
         charT one = charT('1'));
     template<class charT>
-      explicit bitset(
+      constexpr explicit bitset(
         const charT* str,
         typename basic_string<charT>::size_type n = basic_string<charT>::npos,
         charT zero = charT('0'),
         charT one = charT('1'));
 
     // \ref{bitset.members}, bitset operations
-    bitset& operator&=(const bitset& rhs) noexcept;
-    bitset& operator|=(const bitset& rhs) noexcept;
-    bitset& operator^=(const bitset& rhs) noexcept;
-    bitset& operator<<=(size_t pos) noexcept;
-    bitset& operator>>=(size_t pos) noexcept;
-    bitset& set() noexcept;
-    bitset& set(size_t pos, bool val = true);
-    bitset& reset() noexcept;
-    bitset& reset(size_t pos);
-    bitset  operator~() const noexcept;
-    bitset& flip() noexcept;
-    bitset& flip(size_t pos);
+    constexpr bitset& operator&=(const bitset& rhs) noexcept;
+    constexpr bitset& operator|=(const bitset& rhs) noexcept;
+    constexpr bitset& operator^=(const bitset& rhs) noexcept;
+    constexpr bitset& operator<<=(size_t pos) noexcept;
+    constexpr bitset& operator>>=(size_t pos) noexcept;
+    constexpr bitset& set() noexcept;
+    constexpr bitset& set(size_t pos, bool val = true);
+    constexpr bitset& reset() noexcept;
+    constexpr bitset& reset(size_t pos);
+    constexpr bitset  operator~() const noexcept;
+    constexpr bitset& flip() noexcept;
+    constexpr bitset& flip(size_t pos);
 
     // element access
     constexpr bool operator[](size_t pos) const;        // for \tcode{b[i];}
-    reference operator[](size_t pos);                   // for \tcode{b[i];}
+    constexpr reference operator[](size_t pos);         // for \tcode{b[i];}
 
-    unsigned long to_ulong() const;
-    unsigned long long to_ullong() const;
+    constexpr unsigned long to_ulong() const;
+    constexpr unsigned long long to_ullong() const;
     template<class charT = char,
              class traits = char_traits<charT>,
              class Allocator = allocator<charT>>
-      basic_string<charT, traits, Allocator>
+      constexpr basic_string<charT, traits, Allocator>
         to_string(charT zero = charT('0'), charT one = charT('1')) const;
 
-    size_t count() const noexcept;
+    constexpr size_t count() const noexcept;
     constexpr size_t size() const noexcept;
-    bool operator==(const bitset& rhs) const noexcept;
-    bool test(size_t pos) const;
-    bool all() const noexcept;
-    bool any() const noexcept;
-    bool none() const noexcept;
-    bitset operator<<(size_t pos) const noexcept;
-    bitset operator>>(size_t pos) const noexcept;
+    constexpr bool operator==(const bitset& rhs) const noexcept;
+    constexpr bool test(size_t pos) const;
+    constexpr bool all() const noexcept;
+    constexpr bool any() const noexcept;
+    constexpr bool none() const noexcept;
+    constexpr bitset operator<<(size_t pos) const noexcept;
+    constexpr bitset operator>>(size_t pos) const noexcept;
   };
 
   // \ref{bitset.hash}, hash support
@@ -8707,7 +9100,7 @@ If \tcode{M < N}, the remaining bit positions are initialized to zero.
 \indexlibraryctor{bitset}%
 \begin{itemdecl}
 template<class charT, class traits, class Allocator>
-  explicit bitset(
+  constexpr explicit bitset(
     const basic_string<charT, traits, Allocator>& str,
     typename basic_string<charT, traits, Allocator>::size_type pos = 0,
     typename basic_string<charT, traits, Allocator>::size_type n
@@ -8758,7 +9151,7 @@ is other than \tcode{zero} or \tcode{one}.
 \indexlibraryctor{bitset}%
 \begin{itemdecl}
 template<class charT>
-  explicit bitset(
+  constexpr explicit bitset(
     const charT* str,
     typename basic_string<charT>::size_type n = basic_string<charT>::npos,
     charT zero = charT('0'),
@@ -8782,7 +9175,7 @@ bitset(n == basic_string<charT>::npos
 
 \indexlibrarymember{operator\&=}{bitset}%
 \begin{itemdecl}
-bitset& operator&=(const bitset& rhs) noexcept;
+constexpr bitset& operator&=(const bitset& rhs) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -8799,7 +9192,7 @@ for which the corresponding bit in \tcode{rhs} is clear, and leaves all other bi
 
 \indexlibrarymember{operator"|=}{bitset}%
 \begin{itemdecl}
-bitset& operator|=(const bitset& rhs) noexcept;
+constexpr bitset& operator|=(const bitset& rhs) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -8816,7 +9209,7 @@ for which the corresponding bit in \tcode{rhs} is set, and leaves all other bits
 
 \indexlibrarymember{operator\caret=}{bitset}%
 \begin{itemdecl}
-bitset& operator^=(const bitset& rhs) noexcept;
+constexpr bitset& operator^=(const bitset& rhs) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -8833,7 +9226,7 @@ for which the corresponding bit in \tcode{rhs} is set, and leaves all other bits
 
 \indexlibrarymember{operator<<=}{bitset}%
 \begin{itemdecl}
-bitset& operator<<=(size_t pos) noexcept;
+constexpr bitset& operator<<=(size_t pos) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -8858,7 +9251,7 @@ value of the bit at position \tcode{I - pos}.
 
 \indexlibrarymember{operator>>=}{bitset}%
 \begin{itemdecl}
-bitset& operator>>=(size_t pos) noexcept;
+constexpr bitset& operator>>=(size_t pos) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -8884,7 +9277,7 @@ If \tcode{pos < N - I}, the new value is the previous value of the bit at positi
 \indexlibrary{\idxcode{set} (member)!\idxcode{bitset}}%
 \indexlibrary{\idxcode{bitset}!\idxcode{set}}%
 \begin{itemdecl}
-bitset& set() noexcept;
+constexpr bitset& set() noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -8902,7 +9295,7 @@ Sets all bits in
 \indexlibrary{\idxcode{set} (member)!\idxcode{bitset}}%
 \indexlibrary{\idxcode{bitset}!\idxcode{set}}%
 \begin{itemdecl}
-bitset& set(size_t pos, bool val = true);
+constexpr bitset& set(size_t pos, bool val = true);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -8924,7 +9317,7 @@ If \tcode{val} is \tcode{true}, the stored value is one, otherwise it is zero.
 
 \indexlibrarymember{reset}{bitset}%
 \begin{itemdecl}
-bitset& reset() noexcept;
+constexpr bitset& reset() noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -8940,7 +9333,7 @@ Resets all bits in
 
 \indexlibrarymember{reset}{bitset}%
 \begin{itemdecl}
-bitset& reset(size_t pos);
+constexpr bitset& reset(size_t pos);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -8961,7 +9354,7 @@ Resets the bit at position \tcode{pos} in
 
 \indexlibrarymember{operator\~{}}{bitset}%
 \begin{itemdecl}
-bitset operator~() const noexcept;
+constexpr bitset operator~() const noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -8979,7 +9372,7 @@ and initializes it with
 
 \indexlibrarymember{flip}{bitset}%
 \begin{itemdecl}
-bitset& flip() noexcept;
+constexpr bitset& flip() noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -8995,7 +9388,7 @@ Toggles all bits in
 
 \indexlibrarymember{flip}{bitset}%
 \begin{itemdecl}
-bitset& flip(size_t pos);
+constexpr bitset& flip(size_t pos);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9016,7 +9409,7 @@ Toggles the bit at position \tcode{pos} in
 
 \indexlibrarymember{to_ulong}{bitset}%
 \begin{itemdecl}
-unsigned long to_ulong() const;
+constexpr unsigned long to_ulong() const;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9034,7 +9427,7 @@ cannot be represented as type \tcode{unsigned long}.
 
 \indexlibrarymember{to_ullong}{bitset}%
 \begin{itemdecl}
-unsigned long long to_ullong() const;
+constexpr unsigned long long to_ullong() const;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9055,7 +9448,7 @@ cannot be represented as type \tcode{unsigned long long}.
 template<class charT = char,
          class traits = char_traits<charT>,
          class Allocator = allocator<charT>>
-  basic_string<charT, traits, Allocator>
+  constexpr basic_string<charT, traits, Allocator>
     to_string(charT zero = charT('0'), charT one = charT('1')) const;
 \end{itemdecl}
 
@@ -9080,7 +9473,7 @@ The created object.
 
 \indexlibrarymember{count}{bitset}%
 \begin{itemdecl}
-size_t count() const noexcept;
+constexpr size_t count() const noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9103,7 +9496,7 @@ constexpr size_t size() const noexcept;
 
 \indexlibrarymember{operator==}{bitset}%
 \begin{itemdecl}
-bool operator==(const bitset& rhs) const noexcept;
+constexpr bool operator==(const bitset& rhs) const noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9116,7 +9509,7 @@ equals the value of the corresponding bit in \tcode{rhs}.
 
 \indexlibrarymember{test}{bitset}%
 \begin{itemdecl}
-bool test(size_t pos) const;
+constexpr bool test(size_t pos) const;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9136,7 +9529,7 @@ has the value one.
 
 \indexlibrarymember{all}{bitset}%
 \begin{itemdecl}
-bool all() const noexcept;
+constexpr bool all() const noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9149,7 +9542,7 @@ bool all() const noexcept;
 \indexlibrary{\idxcode{any} (member)!\idxcode{bitset}}%
 \indexlibrary{\idxcode{bitset}!\idxcode{any}}%
 \begin{itemdecl}
-bool any() const noexcept;
+constexpr bool any() const noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9160,7 +9553,7 @@ bool any() const noexcept;
 
 \indexlibrarymember{none}{bitset}%
 \begin{itemdecl}
-bool none() const noexcept;
+constexpr bool none() const noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9171,7 +9564,7 @@ bool none() const noexcept;
 
 \indexlibrarymember{operator<<}{bitset}%
 \begin{itemdecl}
-bitset operator<<(size_t pos) const noexcept;
+constexpr bitset operator<<(size_t pos) const noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9182,7 +9575,7 @@ bitset operator<<(size_t pos) const noexcept;
 
 \indexlibrarymember{operator>>}{bitset}%
 \begin{itemdecl}
-bitset operator>>(size_t pos) const noexcept;
+constexpr bitset operator>>(size_t pos) const noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9213,7 +9606,7 @@ Nothing.
 
 \indexlibrarymember{operator[]}{bitset}%
 \begin{itemdecl}
-bitset::reference operator[](size_t pos);
+constexpr bitset::reference operator[](size_t pos);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9262,7 +9655,7 @@ The specialization is enabled\iref{unord.hash}.
 \indexlibrarymember{operator\&}{bitset}%
 \begin{itemdecl}
 template<size_t N>
-  bitset<N> operator&(const bitset<N>& lhs, const bitset<N>& rhs) noexcept;
+  constexpr bitset<N> operator&(const bitset<N>& lhs, const bitset<N>& rhs) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9274,7 +9667,7 @@ template<size_t N>
 \indexlibrarymember{operator"|}{bitset}%
 \begin{itemdecl}
 template<size_t N>
-  bitset<N> operator|(const bitset<N>& lhs, const bitset<N>& rhs) noexcept;
+  constexpr bitset<N> operator|(const bitset<N>& lhs, const bitset<N>& rhs) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9286,7 +9679,7 @@ template<size_t N>
 \indexlibrarymember{operator\caret}{bitset}%
 \begin{itemdecl}
 template<size_t N>
-  bitset<N> operator^(const bitset<N>& lhs, const bitset<N>& rhs) noexcept;
+  constexpr bitset<N> operator^(const bitset<N>& lhs, const bitset<N>& rhs) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9387,109 +9780,115 @@ work with arbitrary function objects.
 namespace std {
   // \ref{func.invoke}, invoke
   template<class F, class... Args>
-    constexpr invoke_result_t<F, Args...> invoke(F&& f, Args&&... args)
+    constexpr invoke_result_t<F, Args...> invoke(F&& f, Args&&... args)             // freestanding
       noexcept(is_nothrow_invocable_v<F, Args...>);
 
   template<class R, class F, class... Args>
-    constexpr R invoke_r(F&& f, Args&&... args)
+    constexpr R invoke_r(F&& f, Args&&... args)                                     // freestanding
       noexcept(is_nothrow_invocable_r_v<R, F, Args...>);
 
   // \ref{refwrap}, \tcode{reference_wrapper}
-  template<class T> class reference_wrapper;
+  template<class T> class reference_wrapper;                                        // freestanding
 
-  template<class T> constexpr reference_wrapper<T> ref(T&) noexcept;
-  template<class T> constexpr reference_wrapper<const T> cref(const T&) noexcept;
-  template<class T> void ref(const T&&) = delete;
-  template<class T> void cref(const T&&) = delete;
+  template<class T> constexpr reference_wrapper<T> ref(T&) noexcept;                // freestanding
+  template<class T> constexpr reference_wrapper<const T> cref(const T&) noexcept;   // freestanding
+  template<class T> void ref(const T&&) = delete;                                   // freestanding
+  template<class T> void cref(const T&&) = delete;                                  // freestanding
 
-  template<class T> constexpr reference_wrapper<T> ref(reference_wrapper<T>) noexcept;
-  template<class T> constexpr reference_wrapper<const T> cref(reference_wrapper<T>) noexcept;
+  template<class T>
+    constexpr reference_wrapper<T> ref(reference_wrapper<T>) noexcept;              // freestanding
+  template<class T>
+    constexpr reference_wrapper<const T> cref(reference_wrapper<T>) noexcept;       // freestanding
 
   // \ref{arithmetic.operations}, arithmetic operations
-  template<class T = void> struct plus;
-  template<class T = void> struct minus;
-  template<class T = void> struct multiplies;
-  template<class T = void> struct divides;
-  template<class T = void> struct modulus;
-  template<class T = void> struct negate;
-  template<> struct plus<void>;
-  template<> struct minus<void>;
-  template<> struct multiplies<void>;
-  template<> struct divides<void>;
-  template<> struct modulus<void>;
-  template<> struct negate<void>;
+  template<class T = void> struct plus;                                             // freestanding
+  template<class T = void> struct minus;                                            // freestanding
+  template<class T = void> struct multiplies;                                       // freestanding
+  template<class T = void> struct divides;                                          // freestanding
+  template<class T = void> struct modulus;                                          // freestanding
+  template<class T = void> struct negate;                                           // freestanding
+  template<> struct plus<void>;                                                     // freestanding
+  template<> struct minus<void>;                                                    // freestanding
+  template<> struct multiplies<void>;                                               // freestanding
+  template<> struct divides<void>;                                                  // freestanding
+  template<> struct modulus<void>;                                                  // freestanding
+  template<> struct negate<void>;                                                   // freestanding
 
   // \ref{comparisons}, comparisons
-  template<class T = void> struct equal_to;
-  template<class T = void> struct not_equal_to;
-  template<class T = void> struct greater;
-  template<class T = void> struct less;
-  template<class T = void> struct greater_equal;
-  template<class T = void> struct less_equal;
-  template<> struct equal_to<void>;
-  template<> struct not_equal_to<void>;
-  template<> struct greater<void>;
-  template<> struct less<void>;
-  template<> struct greater_equal<void>;
-  template<> struct less_equal<void>;
+  template<class T = void> struct equal_to;                                         // freestanding
+  template<class T = void> struct not_equal_to;                                     // freestanding
+  template<class T = void> struct greater;                                          // freestanding
+  template<class T = void> struct less;                                             // freestanding
+  template<class T = void> struct greater_equal;                                    // freestanding
+  template<class T = void> struct less_equal;                                       // freestanding
+  template<> struct equal_to<void>;                                                 // freestanding
+  template<> struct not_equal_to<void>;                                             // freestanding
+  template<> struct greater<void>;                                                  // freestanding
+  template<> struct less<void>;                                                     // freestanding
+  template<> struct greater_equal<void>;                                            // freestanding
+  template<> struct less_equal<void>;                                               // freestanding
 
   // \ref{comparisons.three.way}, class \tcode{compare_three_way}
-  struct compare_three_way;
+  struct compare_three_way;                                                         // freestanding
 
   // \ref{logical.operations}, logical operations
-  template<class T = void> struct logical_and;
-  template<class T = void> struct logical_or;
-  template<class T = void> struct logical_not;
-  template<> struct logical_and<void>;
-  template<> struct logical_or<void>;
-  template<> struct logical_not<void>;
+  template<class T = void> struct logical_and;                                      // freestanding
+  template<class T = void> struct logical_or;                                       // freestanding
+  template<class T = void> struct logical_not;                                      // freestanding
+  template<> struct logical_and<void>;                                              // freestanding
+  template<> struct logical_or<void>;                                               // freestanding
+  template<> struct logical_not<void>;                                              // freestanding
 
   // \ref{bitwise.operations}, bitwise operations
-  template<class T = void> struct bit_and;
-  template<class T = void> struct bit_or;
-  template<class T = void> struct bit_xor;
-  template<class T = void> struct bit_not;
-  template<> struct bit_and<void>;
-  template<> struct bit_or<void>;
-  template<> struct bit_xor<void>;
-  template<> struct bit_not<void>;
+  template<class T = void> struct bit_and;                                          // freestanding
+  template<class T = void> struct bit_or;                                           // freestanding
+  template<class T = void> struct bit_xor;                                          // freestanding
+  template<class T = void> struct bit_not;                                          // freestanding
+  template<> struct bit_and<void>;                                                  // freestanding
+  template<> struct bit_or<void>;                                                   // freestanding
+  template<> struct bit_xor<void>;                                                  // freestanding
+  template<> struct bit_not<void>;                                                  // freestanding
 
   // \ref{func.identity}, identity
-  struct identity;
+  struct identity;                                                                  // freestanding
 
   // \ref{func.not.fn}, function template \tcode{not_fn}
-  template<class F> constexpr @\unspec@ not_fn(F&& f);
+  template<class F> constexpr @\unspec@ not_fn(F&& f);                            // freestanding
 
   // \ref{func.bind.partial}, function templates \tcode{bind_front} and \tcode{bind_back}
-  template<class F, class... Args> constexpr @\unspec@ bind_front(F&&, Args&&...);
-  template<class F, class... Args> constexpr @\unspec@ bind_back(F&&, Args&&...);
+  template<class F, class... Args>
+    constexpr @\unspec@ bind_front(F&&, Args&&...);                               // freestanding
+  template<class F, class... Args>
+    constexpr @\unspec@ bind_back(F&&, Args&&...);                                // freestanding
 
   // \ref{func.bind}, bind
-  template<class T> struct is_bind_expression;
+  template<class T> struct is_bind_expression;                                      // freestanding
   template<class T>
-    inline constexpr bool @\libglobal{is_bind_expression_v}@ = is_bind_expression<T>::value;
-  template<class T> struct is_placeholder;
+    inline constexpr bool @\libglobal{is_bind_expression_v}@ =                                    // freestanding
+      is_bind_expression<T>::value;
+  template<class T> struct is_placeholder;                                          // freestanding
   template<class T>
-    inline constexpr int @\libglobal{is_placeholder_v}@ = is_placeholder<T>::value;
+    inline constexpr int @\libglobal{is_placeholder_v}@ =                                         // freestanding
+      is_placeholder<T>::value;
 
   template<class F, class... BoundArgs>
-    constexpr @\unspec@ bind(F&&, BoundArgs&&...);
+    constexpr @\unspec@ bind(F&&, BoundArgs&&...);                                // freestanding
   template<class R, class F, class... BoundArgs>
-    constexpr @\unspec@ bind(F&&, BoundArgs&&...);
+    constexpr @\unspec@ bind(F&&, BoundArgs&&...);                                // freestanding
 
   namespace placeholders {
     // \tcode{\placeholder{M}} is the \impldef{number of placeholders for bind expressions} number of placeholders
-    @\seebelownc@ _1;
-    @\seebelownc@ _2;
+    @\seebelownc@ _1;                                                                   // freestanding
+    @\seebelownc@ _2;                                                                   // freestanding
                .
                .
                .
-    @\seebelownc@ _@\placeholdernc{M}@;
+    @\seebelownc@ _@\placeholdernc{M}@;                                                                   // freestanding
   }
 
   // \ref{func.memfn}, member function adaptors
   template<class R, class T>
-    constexpr @\unspec@ mem_fn(R T::*) noexcept;
+    constexpr @\unspec@ mem_fn(R T::*) noexcept;                                  // freestanding
 
   // \ref{func.wrap}, polymorphic function wrappers
   class bad_function_call;
@@ -9511,8 +9910,8 @@ namespace std {
     class move_only_function<R(ArgTypes...) @\cv{}@ @\placeholder{ref}@ noexcept(@\placeholder{noex}@)>; // \seebelow
 
   // \ref{func.search}, searchers
-  template<class ForwardIterator, class BinaryPredicate = equal_to<>>
-    class default_searcher;
+  template<class ForwardIterator1, class BinaryPredicate = equal_to<>>
+    class default_searcher;                                                         // freestanding
 
   template<class RandomAccessIterator,
            class Hash = hash<typename iterator_traits<RandomAccessIterator>::value_type>,
@@ -9526,16 +9925,16 @@ namespace std {
 
   // \ref{unord.hash}, class template hash
   template<class T>
-    struct hash;
+    struct hash;                                                                    // freestanding
 
   namespace ranges {
     // \ref{range.cmp}, concept-constrained comparisons
-    struct equal_to;
-    struct not_equal_to;
-    struct greater;
-    struct less;
-    struct greater_equal;
-    struct less_equal;
+    struct equal_to;                                                                // freestanding
+    struct not_equal_to;                                                            // freestanding
+    struct greater;                                                                 // freestanding
+    struct less;                                                                    // freestanding
+    struct greater_equal;                                                           // freestanding
+    struct less_equal;                                                              // freestanding
   }
 }
 \end{codeblock}
@@ -9932,7 +10331,7 @@ template<class T> constexpr reference_wrapper<const T> cref(const T& t) noexcept
 \begin{itemdescr}
 \pnum
 \returns
-\tcode{reference_wrapper <const T>(t)}.
+\tcode{reference_wrapper<const T>(t)}.
 \end{itemdescr}
 
 \indexlibrarymember{cref}{reference_wrapper}%
@@ -11394,6 +11793,9 @@ extern @\unspec@ _1;
 \end{codeblock}%
 \indextext{function object!binders|)}
 
+\pnum
+Placeholders are freestanding entities\iref{freestanding.entity}.
+
 \rSec2[func.memfn]{Function template \tcode{mem_fn}}%
 \indextext{function object!\idxcode{mem_fn}|(}
 
@@ -11675,10 +12077,20 @@ template<class F> function(F) -> function<@\seebelow@>;
 \begin{itemdescr}
 \pnum
 \constraints
-\tcode{\&F::operator()} is well-formed when treated as an unevaluated operand and
-\tcode{decltype(\brk{}\&F::operator())} is of the form
+\tcode{\&F::operator()} is well-formed when treated as an unevaluated operand and either
+\begin{itemize}
+\item
+\tcode{F::operator()} is a non-static member function and
+\tcode{decltype(\brk{}\&F::operator())} is either of the form
 \tcode{R(G::*)(A...)}~\cv{}~\tcode{\opt{\&}~\opt{noexcept}}
-for a class type \tcode{G}.
+or of the form
+\tcode{R(*)(G, A...)~\opt{noexcept}}
+for a type \tcode{G}, or
+\item
+\tcode{F::operator()} is a static member function and
+\tcode{decltype(\&F::operator())} is of the form
+\tcode{R(*)(A...) \opt{noexcept}}.
+\end{itemize}
 
 \pnum
 \remarks
@@ -12134,7 +12546,7 @@ Let \tcode{VT} be \tcode{decay_t<T>}.
 \constraints
 \begin{itemize}
 \item
-\tcode{is_constructible_v<VT, initializer_list<U>\&, ArgTypes...>} is
+\tcode{is_constructible_v<VT, initializer_list<U>\&, Args...>} is
 \tcode{true}, and
 \item
 \tcode{\exposid{is-callable-from}<VT>} is \tcode{true}.
@@ -12154,7 +12566,7 @@ if \tcode{is_move_constructible_v<VT>} is \tcode{true},
 \ensures
 \tcode{*this} has a target object of type \tcode{VT}
 direct-non-list-initialized with
-\tcode{ilist, std::for\-ward<ArgTypes>(args)...}.
+\tcode{ilist, std::for\-ward<Args>(args)...}.
 
 \pnum
 \throws
@@ -12349,7 +12761,7 @@ namespace std {
 
 \indexlibraryctor{default_searcher}%
 \begin{itemdecl}
-constexpr default_searcher(ForwardIterator pat_first, ForwardIterator pat_last,
+constexpr default_searcher(ForwardIterator1 pat_first, ForwardIterator1 pat_last,
                            BinaryPredicate pred = BinaryPredicate());
 \end{itemdecl}
 
@@ -12440,7 +12852,8 @@ Initializes
 \tcode{pat_first_} with \tcode{pat_first},
 \tcode{pat_last_} with \tcode{pat_last},
 \tcode{hash_} with \tcode{hf}, and
-\tcode{pred_} with \tcode{pred}.
+% FIXME: The mbox prevents TeX from adding a bizarre hyphen after pred_.
+\mbox{\tcode{pred_}} with \tcode{pred}.
 
 \pnum
 \throws
@@ -12539,7 +12952,8 @@ Initializes
 \tcode{pat_first_} with \tcode{pat_first},
 \tcode{pat_last_} with \tcode{pat_last},
 \tcode{hash_} with \tcode{hf}, and
-\tcode{pred_} with \tcode{pred}.
+% FIXME: The mbox prevents TeX from adding a bizarre hyphen after pred_.
+\mbox{\tcode{pred_}} with \tcode{pred}.
 
 \pnum
 \throws
@@ -13009,6 +13423,18 @@ The header \libheader{execution} declares global objects associated with each ty
 
 \rSec2[charconv.syn]{Header \tcode{<charconv>} synopsis}
 
+\pnum
+When a function is specified
+with a type placeholder of \tcode{\placeholder{integer-type}},
+the implementation provides overloads
+for all cv-unqualified signed and unsigned integer types and \tcode{char}
+in lieu of \tcode{\placeholder{integer-type}}.
+When a function is specified
+with a type placeholder of \tcode{\placeholder{floating-point-type}},
+the implementation provides overloads
+for all cv-unqualified floating-point types\iref{basic.fundamental}
+in lieu of \tcode{\placeholder{floating-point-type}}.
+
 \indexheader{charconv}%
 \begin{codeblock}
 @%
@@ -13037,22 +13463,12 @@ The header \libheader{execution} declares global objects associated with each ty
     friend bool operator==(const to_chars_result&, const to_chars_result&) = default;
   };
 
-  to_chars_result to_chars(char* first, char* last, @\seebelow@ value, int base = 10);
+  constexpr to_chars_result to_chars(char* first, char* last, @\placeholder{integer-type}@ value, int base = 10);
   to_chars_result to_chars(char* first, char* last, bool value, int base = 10) = delete;
 
-  to_chars_result to_chars(char* first, char* last, float value);
-  to_chars_result to_chars(char* first, char* last, double value);
-  to_chars_result to_chars(char* first, char* last, long double value);
-
-  to_chars_result to_chars(char* first, char* last, float value, chars_format fmt);
-  to_chars_result to_chars(char* first, char* last, double value, chars_format fmt);
-  to_chars_result to_chars(char* first, char* last, long double value, chars_format fmt);
-
-  to_chars_result to_chars(char* first, char* last, float value,
-                           chars_format fmt, int precision);
-  to_chars_result to_chars(char* first, char* last, double value,
-                           chars_format fmt, int precision);
-  to_chars_result to_chars(char* first, char* last, long double value,
+  to_chars_result to_chars(char* first, char* last, @\placeholder{floating-point-type}@ value);
+  to_chars_result to_chars(char* first, char* last, @\placeholder{floating-point-type}@ value, chars_format fmt);
+  to_chars_result to_chars(char* first, char* last, @\placeholder{floating-point-type}@ value,
                            chars_format fmt, int precision);
 @%
 \indexlibraryglobal{from_chars_result}%
@@ -13066,14 +13482,10 @@ The header \libheader{execution} declares global objects associated with each ty
     friend bool operator==(const from_chars_result&, const from_chars_result&) = default;
   };
 
-  from_chars_result from_chars(const char* first, const char* last,
-                               @\seebelow@& value, int base = 10);
+  constexpr from_chars_result from_chars(const char* first, const char* last,
+                                         @\placeholder{integer-type}@& value, int base = 10);
 
-  from_chars_result from_chars(const char* first, const char* last, float& value,
-                               chars_format fmt = chars_format::general);
-  from_chars_result from_chars(const char* first, const char* last, double& value,
-                               chars_format fmt = chars_format::general);
-  from_chars_result from_chars(const char* first, const char* last, long double& value,
+  from_chars_result from_chars(const char* first, const char* last, @\placeholder{floating-point-type}@& value,
                                chars_format fmt = chars_format::general);
 }
 \end{codeblock}
@@ -13140,7 +13552,7 @@ and
 
 \indexlibraryglobal{to_chars}%
 \begin{itemdecl}
-to_chars_result to_chars(char* first, char* last, @\seebelow@ value, int base = 10);
+constexpr to_chars_result to_chars(char* first, char* last, @\placeholder{integer-type}@ value, int base = 10);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -13161,20 +13573,11 @@ the representation starts with \tcode{'-'}.
 \pnum
 \throws
 Nothing.
-
-\pnum
-\remarks
-The implementation shall provide overloads
-for all signed and unsigned integer types
-and \tcode{char}
-as the type of the parameter \tcode{value}.
 \end{itemdescr}
 
 \indexlibraryglobal{to_chars}%
 \begin{itemdecl}
-to_chars_result to_chars(char* first, char* last, float value);
-to_chars_result to_chars(char* first, char* last, double value);
-to_chars_result to_chars(char* first, char* last, long double value);
+to_chars_result to_chars(char* first, char* last, @\placeholder{floating-point-type}@ value);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -13195,9 +13598,7 @@ Nothing.
 
 \indexlibraryglobal{to_chars}%
 \begin{itemdecl}
-to_chars_result to_chars(char* first, char* last, float value, chars_format fmt);
-to_chars_result to_chars(char* first, char* last, double value, chars_format fmt);
-to_chars_result to_chars(char* first, char* last, long double value, chars_format fmt);
+to_chars_result to_chars(char* first, char* last, @\placeholder{floating-point-type}@ value, chars_format fmt);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -13219,11 +13620,7 @@ Nothing.
 
 \indexlibraryglobal{to_chars}%
 \begin{itemdecl}
-to_chars_result to_chars(char* first, char* last, float value,
-                         chars_format fmt, int precision);
-to_chars_result to_chars(char* first, char* last, double value,
-                         chars_format fmt, int precision);
-to_chars_result to_chars(char* first, char* last, long double value,
+to_chars_result to_chars(char* first, char* last, @\placeholder{floating-point-type}@ value,
                          chars_format fmt, int precision);
 \end{itemdecl}
 
@@ -13286,8 +13683,8 @@ the member \tcode{ec} is value-initialized.
 
 \indexlibraryglobal{from_chars}%
 \begin{itemdecl}
-from_chars_result from_chars(const char* first, const char* last,
-                             @\seebelow@&@\itcorr[-1]@ value, int base = 10);
+constexpr from_chars_result from_chars(const char* first, const char* last,
+                                       @\placeholder{integer-type}@&@\itcorr[-1]@ value, int base = 10);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -13310,22 +13707,11 @@ and only if \tcode{value} has a signed type.
 \pnum
 \throws
 Nothing.
-
-\pnum
-\remarks
-The implementation shall provide overloads
-for all signed and unsigned integer types
-and \tcode{char}
-as the referenced type of the parameter \tcode{value}.
 \end{itemdescr}
 
 \indexlibraryglobal{from_chars}%
 \begin{itemdecl}
-from_chars_result from_chars(const char* first, const char* last, float& value,
-                             chars_format fmt = chars_format::general);
-from_chars_result from_chars(const char* first, const char* last, double& value,
-                             chars_format fmt = chars_format::general);
-from_chars_result from_chars(const char* first, const char* last, long double& value,
+from_chars_result from_chars(const char* first, const char* last, @\placeholder{floating-point-type}@& value,
                              chars_format fmt = chars_format::general);
 \end{itemdecl}
 
@@ -13400,26 +13786,24 @@ namespace std {
   using format_args = basic_format_args<format_context>;
   using wformat_args = basic_format_args<wformat_context>;
 
-  // \ref{format.fmt.string}, class template \exposid{basic-format-string}
+  // \ref{format.fmt.string}, class template \tcode{basic_format_string}
   template<class charT, class... Args>
-    struct @\exposid{basic-format-string}@;                       // \expos
+    struct basic_format_string;
 
   template<class... Args>
-    using @\exposid{format-string}@ =                             // \expos
-      @\exposid{basic-format-string}@<char, type_identity_t<Args>...>;
+    using @\libglobal{format_string}@ = basic_format_string<char, type_identity_t<Args>...>;
   template<class... Args>
-    using @\exposid{wformat-string}@ =                            // \expos
-      @\exposid{basic-format-string}@<wchar_t, type_identity_t<Args>...>;
+    using @\libglobal{wformat_string}@ = basic_format_string<wchar_t, type_identity_t<Args>...>;
 
   // \ref{format.functions}, formatting functions
   template<class... Args>
-    string format(@\exposid{format-string}@<Args...> fmt, Args&&... args);
+    string format(format_string<Args...> fmt, Args&&... args);
   template<class... Args>
-    wstring format(@\exposid{wformat-string}@<Args...> fmt, Args&&... args);
+    wstring format(wformat_string<Args...> fmt, Args&&... args);
   template<class... Args>
-    string format(const locale& loc, @\exposid{format-string}@<Args...> fmt, Args&&... args);
+    string format(const locale& loc, format_string<Args...> fmt, Args&&... args);
   template<class... Args>
-    wstring format(const locale& loc, @\exposid{wformat-string}@<Args...> fmt, Args&&... args);
+    wstring format(const locale& loc, wformat_string<Args...> fmt, Args&&... args);
 
   string vformat(string_view fmt, format_args args);
   wstring vformat(wstring_view fmt, wformat_args args);
@@ -13427,13 +13811,13 @@ namespace std {
   wstring vformat(const locale& loc, wstring_view fmt, wformat_args args);
 
   template<class Out, class... Args>
-    Out format_to(Out out, @\exposid{format-string}@<Args...> fmt, Args&&... args);
+    Out format_to(Out out, format_string<Args...> fmt, Args&&... args);
   template<class Out, class... Args>
-    Out format_to(Out out, @\exposid{wformat-string}@<Args...> fmt, Args&&... args);
+    Out format_to(Out out, wformat_string<Args...> fmt, Args&&... args);
   template<class Out, class... Args>
-    Out format_to(Out out, const locale& loc, @\exposid{format-string}@<Args...> fmt, Args&&... args);
+    Out format_to(Out out, const locale& loc, format_string<Args...> fmt, Args&&... args);
   template<class Out, class... Args>
-    Out format_to(Out out, const locale& loc, @\exposid{wformat-string}@<Args...> fmt, Args&&... args);
+    Out format_to(Out out, const locale& loc, wformat_string<Args...> fmt, Args&&... args);
 
   template<class Out>
     Out vformat_to(Out out, string_view fmt, format_args args);
@@ -13450,35 +13834,81 @@ namespace std {
   };
   template<class Out, class... Args>
     format_to_n_result<Out> format_to_n(Out out, iter_difference_t<Out> n,
-                                        @\exposid{format-string}@<Args...> fmt, Args&&... args);
+                                        format_string<Args...> fmt, Args&&... args);
   template<class Out, class... Args>
     format_to_n_result<Out> format_to_n(Out out, iter_difference_t<Out> n,
-                                        @\exposid{wformat-string}@<Args...> fmt, Args&&... args);
+                                        wformat_string<Args...> fmt, Args&&... args);
   template<class Out, class... Args>
     format_to_n_result<Out> format_to_n(Out out, iter_difference_t<Out> n,
-                                        const locale& loc, @\exposid{format-string}@<Args...> fmt,
+                                        const locale& loc, format_string<Args...> fmt,
                                         Args&&... args);
   template<class Out, class... Args>
     format_to_n_result<Out> format_to_n(Out out, iter_difference_t<Out> n,
-                                        const locale& loc, @\exposid{wformat-string}@<Args...> fmt,
+                                        const locale& loc, wformat_string<Args...> fmt,
                                         Args&&... args);
 
   template<class... Args>
-    size_t formatted_size(@\exposid{format-string}@<Args...> fmt, Args&&... args);
+    size_t formatted_size(format_string<Args...> fmt, Args&&... args);
   template<class... Args>
-    size_t formatted_size(@\exposid{wformat-string}@<Args...> fmt, Args&&... args);
+    size_t formatted_size(wformat_string<Args...> fmt, Args&&... args);
   template<class... Args>
-    size_t formatted_size(const locale& loc, @\exposid{format-string}@<Args...> fmt, Args&&... args);
+    size_t formatted_size(const locale& loc, format_string<Args...> fmt, Args&&... args);
   template<class... Args>
-    size_t formatted_size(const locale& loc, @\exposid{wformat-string}@<Args...> fmt, Args&&... args);
+    size_t formatted_size(const locale& loc, wformat_string<Args...> fmt, Args&&... args);
 
   // \ref{format.formatter}, formatter
   template<class T, class charT = char> struct formatter;
+
+  // \ref{format.formattable}, concept \libconcept{formattable}
+  template<class T, class charT>
+    concept formattable = @\seebelow@;
+
+  template<class R, class charT>
+    concept @\defexposconcept{const-formattable-range}@ =                                   // \expos
+      ranges::@\libconcept{input_range}@<const R> &&
+      @\libconcept{formattable}@<ranges::range_reference_t<const R>, charT>;
+
+  template<class R, class charT>
+    using @\exposid{fmt-maybe-const}@ =                                             // \expos
+      conditional_t<@\exposconcept{const-formattable-range}@<R, charT>, const R, R>;
 
   // \ref{format.parse.ctx}, class template \tcode{basic_format_parse_context}
   template<class charT> class basic_format_parse_context;
   using format_parse_context = basic_format_parse_context<char>;
   using wformat_parse_context = basic_format_parse_context<wchar_t>;
+
+  // \ref{format.range}, formatting of ranges
+  // \ref{format.range.fmtkind}, variable template \tcode{format_kind}
+  enum class range_format {
+    disabled,
+    map,
+    set,
+    sequence,
+    string,
+    debug_string
+  };
+
+  template<class R>
+    constexpr @\unspec@ format_kind = @\unspec@;
+
+  template<ranges::@\libconcept{input_range}@ R>
+      requires @\libconcept{same_as}@<R, remove_cvref_t<R>>
+    constexpr range_format format_kind<R> = @\seebelow@;
+
+  // \ref{format.range.formatter}, class template \tcode{range_formatter}
+  template<class T, class charT = char>
+    requires @\libconcept{same_as}@<remove_cvref_t<T>, T> && @\libconcept{formattable}@<T, charT>
+  class range_formatter;
+
+  // \ref{format.range.fmtdef}, class template \exposid{range-default-formatter}
+  template<range_format K, ranges::@\libconcept{input_range}@ R, class charT>
+    struct @\exposid{range-default-formatter}@;                                     // \expos
+
+  // \ref{format.range.fmtmap}, \ref{format.range.fmtset}, \ref{format.range.fmtstr}, specializations for maps, sets, and strings
+  template<ranges::@\libconcept{input_range}@ R, class charT>
+    requires (format_kind<R> != range_format::disabled) &&
+             @\libconcept{formattable}@<ranges::range_reference_t<R>, charT>
+  struct formatter<R, charT> : @\exposid{range-default-formatter}@<format_kind<R>, R, charT> { };
 
   // \ref{format.arguments}, arguments
   // \ref{format.arg}, class template \tcode{basic_format_arg}
@@ -13700,7 +14130,7 @@ The syntax of format specifications is as follows:
 
 \begin{ncbnf}
 \fmtnontermdef{type} \textnormal{one of}\br
-    \terminal{a A b B c d e E f F g G o p s x X}
+    \terminal{a A b B c d e E f F g G o p s x X ?}
 \end{ncbnf}
 
 \pnum
@@ -13840,9 +14270,7 @@ If \tcode{\{ \opt{\fmtgrammarterm{arg-id}} \}} is used in
 a \fmtgrammarterm{width} or \fmtgrammarterm{precision},
 the value of the corresponding formatting argument is used in its place.
 If the corresponding formatting argument is not of integral type, or
-its value is
-negative for \fmtgrammarterm{precision} or
-non-positive for \fmtgrammarterm{width},
+its value is negative,
 an exception of type \tcode{format_error} is thrown.
 
 \pnum
@@ -13978,6 +14406,10 @@ The available string presentation types are specified in \tref{format.type.strin
 \lhdr{Type} & \rhdr{Meaning} \\ \rowsep
 none, \tcode{s} &
 Copies the string to the output.
+\\ \rowsep
+%
+\tcode{?} &
+Copies the escaped string\iref{format.string.escaped} to the output.
 \\
 \end{floattable}
 
@@ -14075,6 +14507,10 @@ Copies the character to the output.
 %
 \tcode{b}, \tcode{B}, \tcode{d}, \tcode{o}, \tcode{x}, \tcode{X} &
 As specified in \tref{format.type.int}.
+\\ \rowsep
+%
+\tcode{?} &
+Copies the escaped character\iref{format.string.escaped} to the output.
 \\
 \end{floattable}
 
@@ -14211,21 +14647,25 @@ They propagate exceptions thrown by operations of
 Failure to allocate storage is reported by
 throwing an exception as described in~\ref{res.on.exception.handling}.
 
-\rSec2[format.fmt.string]{Class template \exposid{basic-format-string}}
+\rSec2[format.fmt.string]{Class template \tcode{basic_format_string}}
 
 \begin{codeblock}
-template<class charT, class... Args>
-struct @\exposid{basic-format-string}@ {            // \expos
-private:
-  basic_string_view<charT> @\exposid{str}@;         // \expos
+namespace std {
+  template<class charT, class... Args>
+  struct @\libglobal{basic_format_string}@ {
+  private:
+    basic_string_view<charT> @\exposidnc{str}@;         // \expos
 
-public:
-  template<class T> consteval @\exposid{basic-format-string}@(const T& s);
-};
+  public:
+    template<class T> consteval basic_format_string(const T& s);
+
+    constexpr basic_string_view<charT> get() const noexcept { return @\exposid{str}@; }
+  };
+}
 \end{codeblock}
 
 \begin{itemdecl}
-template<class T> consteval @\exposid{basic-format-string}@(const T& s);
+template<class T> consteval basic_format_string(const T& s);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -14255,7 +14695,7 @@ the same as in \ref{algorithms.requirements}.
 \indexlibraryglobal{format}%
 \begin{itemdecl}
 template<class... Args>
-  string format(@\exposid{format-string}@<Args...> fmt, Args&&... args);
+  string format(format_string<Args...> fmt, Args&&... args);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -14270,7 +14710,7 @@ return vformat(fmt.@\exposid{str}@, make_format_args(args...));
 \indexlibraryglobal{format}%
 \begin{itemdecl}
 template<class... Args>
-  wstring format(@\exposid{wformat-string}@<Args...> fmt, Args&&... args);
+  wstring format(wformat_string<Args...> fmt, Args&&... args);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -14285,7 +14725,7 @@ return vformat(fmt.@\exposid{str}@, make_wformat_args(args...));
 \indexlibraryglobal{format}%
 \begin{itemdecl}
 template<class... Args>
-  string format(const locale& loc, @\exposid{format-string}@<Args...> fmt, Args&&... args);
+  string format(const locale& loc, format_string<Args...> fmt, Args&&... args);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -14300,7 +14740,7 @@ return vformat(loc, fmt.@\exposid{str}@, make_format_args(args...));
 \indexlibraryglobal{format}%
 \begin{itemdecl}
 template<class... Args>
-  wstring format(const locale& loc, @\exposid{wformat-string}@<Args...> fmt, Args&&... args);
+  wstring format(const locale& loc, wformat_string<Args...> fmt, Args&&... args);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -14336,7 +14776,7 @@ As specified in~\ref{format.err.report}.
 \indexlibraryglobal{format_to}%
 \begin{itemdecl}
 template<class Out, class... Args>
-  Out format_to(Out out, @\exposid{format-string}@<Args...> fmt, Args&&... args);
+  Out format_to(Out out, format_string<Args...> fmt, Args&&... args);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -14351,7 +14791,7 @@ return vformat_to(std::move(out), fmt.@\exposid{str}@, make_format_args(args...)
 \indexlibraryglobal{format_to}%
 \begin{itemdecl}
 template<class Out, class... Args>
-  Out format_to(Out out, @\exposid{wformat-string}@<Args...> fmt, Args&&... args);
+  Out format_to(Out out, wformat_string<Args...> fmt, Args&&... args);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -14366,7 +14806,7 @@ return vformat_to(std::move(out), fmt.@\exposid{str}@, make_wformat_args(args...
 \indexlibraryglobal{format_to}%
 \begin{itemdecl}
 template<class Out, class... Args>
-  Out format_to(Out out, const locale& loc, @\exposid{format-string}@<Args...>  fmt, Args&&... args);
+  Out format_to(Out out, const locale& loc, format_string<Args...>  fmt, Args&&... args);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -14381,7 +14821,7 @@ return vformat_to(std::move(out), loc, fmt.@\exposid{str}@, make_format_args(arg
 \indexlibraryglobal{format_to}%
 \begin{itemdecl}
 template<class Out, class... Args>
-  Out format_to(Out out, const locale& loc, @\exposid{wformat-string}@<Args...> fmt, Args&&... args);
+  Out format_to(Out out, const locale& loc, wformat_string<Args...> fmt, Args&&... args);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -14439,17 +14879,17 @@ As specified in~\ref{format.err.report}.
 \begin{itemdecl}
 template<class Out, class... Args>
   format_to_n_result<Out> format_to_n(Out out, iter_difference_t<Out> n,
-                                      @\exposid{format-string}@<Args...> fmt, Args&&... args);
+                                      format_string<Args...> fmt, Args&&... args);
 template<class Out, class... Args>
   format_to_n_result<Out> format_to_n(Out out, iter_difference_t<Out> n,
-                                      @\exposid{wformat-string}@<Args...> fmt, Args&&... args);
+                                      wformat_string<Args...> fmt, Args&&... args);
 template<class Out, class... Args>
   format_to_n_result<Out> format_to_n(Out out, iter_difference_t<Out> n,
-                                      const locale& loc, @\exposid{format-string}@<Args...> fmt,
+                                      const locale& loc, format_string<Args...> fmt,
                                       Args&&... args);
 template<class Out, class... Args>
   format_to_n_result<Out> format_to_n(Out out, iter_difference_t<Out> n,
-                                      const locale& loc, @\exposid{wformat-string}@<Args...> fmt,
+                                      const locale& loc, wformat_string<Args...> fmt,
                                       Args&&... args);
 \end{itemdecl}
 
@@ -14495,13 +14935,13 @@ As specified in~\ref{format.err.report}.
 \indexlibraryglobal{formatted_size}%
 \begin{itemdecl}
 template<class... Args>
-  size_t formatted_size(@\exposid{format-string}@<Args...> fmt, Args&&... args);
+  size_t formatted_size(format_string<Args...> fmt, Args&&... args);
 template<class... Args>
-  size_t formatted_size(@\exposid{wformat-string}@<Args...> fmt, Args&&... args);
+  size_t formatted_size(wformat_string<Args...> fmt, Args&&... args);
 template<class... Args>
-  size_t formatted_size(const locale& loc, @\exposid{format-string}@<Args...> fmt, Args&&... args);
+  size_t formatted_size(const locale& loc, format_string<Args...> fmt, Args&&... args);
 template<class... Args>
-  size_t formatted_size(const locale& loc, @\exposid{wformat-string}@<Args...> fmt, Args&&... args);
+  size_t formatted_size(const locale& loc, wformat_string<Args...> fmt, Args&&... args);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -14632,6 +15072,35 @@ As above, but does not modify \tcode{u}.
 \\
 \end{concepttable}
 
+\rSec3[format.formattable]{Concept \cname{formattable}}
+
+\pnum
+Let \tcode{\placeholder{fmt-iter-for}<charT>} be an unspecified type
+that models
+\tcode{\libconcept{output_iterator}<const charT\&>}\iref{iterator.concept.output}.
+
+\begin{codeblock}
+template<class T, class charT>
+  concept @\deflibconcept{formattable}@ =
+    @\libconcept{semiregular}@<formatter<remove_cvref_t<T>, charT>> &&
+    requires(formatter<remove_cvref_t<T>, charT> f,
+             const formatter<remove_cvref_t<T>, charT> cf,
+             T t,
+             basic_format_context<@\placeholder{fmt-iter-for}@<charT>, charT> fc,
+             basic_format_parse_context<charT> pc) {
+        { f.parse(pc) } -> @\libconcept{same_as}@<basic_format_parse_context<charT>::iterator>;
+        { cf.format(t, fc) } -> @\libconcept{same_as}@<@\placeholder{fmt-iter-for}@<charT>>;
+    };
+\end{codeblock}
+
+\pnum
+A type \tcode{T} and a character type \tcode{charT}
+model \libconcept{formattable}
+if \tcode{formatter<remove_cvref_t<T>, charT>} meets
+the \newoldconcept{BasicFormatter} requirements\iref{formatter.requirements}
+and, if \tcode{remove_reference_t<T>} is const-qualified,
+the \newoldconcept{Formatter} requirements.
+
 \rSec3[format.formatter.spec]{Formatter specializations}
 \indexlibraryglobal{formatter}%
 
@@ -14645,12 +15114,19 @@ individual arguments.
 Let \tcode{charT} be either \tcode{char} or \keyword{wchar_t}.
 Each specialization of \tcode{formatter} is either enabled or disabled,
 as described below.
+\indextext{\idxcode{formatter}!debug-enabled specialization of}%
+A \defn{debug-enabled} specialization of \tcode{formatter}
+additionally provides
+a public, constexpr, non-static member function \tcode{set_debug_format()}
+which modifies the state of the \tcode{formatter} to be as if
+the type of the \fmtgrammarterm{std-format-spec}
+parsed by the last call to \tcode{parse} were \tcode{?}.
 Each header that declares the template \tcode{formatter}
 provides the following enabled specializations:
 \begin{itemize}
 \item
 \indexlibrary{\idxcode{formatter}!specializations!character types}%
-The specializations
+The debug-enabled specializations
 \begin{codeblock}
 template<> struct formatter<char, char>;
 template<> struct formatter<char, wchar_t>;
@@ -14660,10 +15136,11 @@ template<> struct formatter<wchar_t, wchar_t>;
 \item
 \indexlibrary{\idxcode{formatter}!specializations!string types}%
 For each \tcode{charT},
-the string type specializations
+the debug-enabled string type specializations
 \begin{codeblock}
 template<> struct formatter<charT*, charT>;
 template<> struct formatter<const charT*, charT>;
+template<size_t N> struct formatter<charT[N], charT>;
 template<size_t N> struct formatter<const charT[N], charT>;
 template<class traits, class Allocator>
   struct formatter<basic_string<charT, traits, Allocator>, charT>;
@@ -14754,6 +15231,151 @@ std::string s0 = std::format("{}", 42);         // OK, library-provided formatte
 std::string s1 = std::format("{}", L"foo");     // error: disabled formatter
 std::string s2 = std::format("{}", red);        // OK, user-provided formatter
 std::string s3 = std::format("{}", err{});      // error: disabled formatter
+\end{codeblock}
+\end{example}
+
+\rSec3[format.string.escaped]{Formatting escaped characters and strings}
+
+\pnum
+\indextext{string!formatted as escaped}%
+\indextext{character!formatted as escaped}%
+A character or string can be formatted as \defn{escaped}
+to make it more suitable for debugging or for logging.
+
+\pnum
+The escaped string \placeholder{E} representation of a string \placeholder{S}
+is constructed by encoding a sequence of characters as follows.
+The associated character encoding \placeholder{CE}
+for \tcode{charT}~(\tref{lex.string.literal})
+is used to both interpret \placeholder{S} and construct \placeholder{E}.
+
+\begin{itemize}
+\item
+\unicode{0022}{quotation mark} (\tcode{"}) is appended to \placeholder{E}.
+
+\item
+For each code unit sequence \placeholder{X} in \placeholder{S} that either
+encodes a single character,
+is a shift sequence, or
+is a sequence of ill-formed code units,
+processing is in order as follows:
+
+\begin{itemize}
+\item
+If \placeholder{X} encodes a single character \placeholder{C}, then:
+
+\begin{itemize}
+\item
+If \placeholder{C} is one of the characters in \tref{format.escape.sequences},
+then the two characters shown as the corresponding escape sequence
+are appended to \placeholder{E}.
+
+\item
+Otherwise, if \placeholder{C} is not \unicode{0020}{space} and
+
+\begin{itemize}
+\item
+\placeholder{CE} is a Unicode encoding and
+\placeholder{C} corresponds to either
+a UCS scalar value whose Unicode property \tcode{General_Category}
+has a value in the groups \tcode{Separator} (\tcode{Z}) or \tcode{Other} (\tcode{C}) or to
+a UCS scalar value which has the Unicode property \tcode{Grapheme_Extend=Yes},
+as described by table 12 of UAX \#44, or
+
+\item
+\placeholder{CE} is not a Unicode encoding and
+\placeholder{C} is one of an implementation-defined set
+of separator or non-printable characters
+\end{itemize}
+
+then the sequence \tcode{\textbackslash u\{\placeholder{hex-digit-sequence}\}}
+is appended to \placeholder{E},
+where \tcode{\placeholder{hex-digit-sequence}}
+is the shortest hexadecimal representation
+of \placeholder{C} using lower-case hexadecimal digits.
+
+\item
+Otherwise, \placeholder{C} is appended to \placeholder{E}.
+\end{itemize}
+
+\item
+Otherwise, if \placeholder{X} is a shift sequence,
+the effect on \placeholder{E} and further decoding of \placeholder{S}
+is unspecified.
+
+\recommended
+A shift sequence should be represented in \placeholder{E}
+such that the original code unit sequence of \placeholder{S}
+can be reconstructed.
+
+\item
+Otherwise (\placeholder{X} is a sequence of ill-formed code units),
+each code unit \placeholder{U} is appended to \placeholder{E} in order
+as the sequence \tcode{\textbackslash x\{\placeholder{hex-digit-sequence}\}},
+where \tcode{\placeholder{hex-digit-sequence}}
+is the shortest hexadecimal representation of \placeholder{U}
+using lower-case hexadecimal digits.
+\end{itemize}
+
+\item
+Finally, \unicode{0022}{quotation mark} (\tcode{"})
+is appended to \placeholder{E}.
+\end{itemize}
+%
+\begin{floattable}{Mapping of characters to escape sequences}{format.escape.sequences}{ll}
+\topline
+\lhdr{Character} & \rhdr{Escape sequence} \\ \rowsep
+\unicode{0009}{character tabulation} &
+\tcode{\textbackslash t}
+\\ \rowsep
+%
+\unicode{000a}{line feed} &
+\tcode{\textbackslash n}
+\\ \rowsep
+%
+\unicode{000d}{carriage return} &
+\tcode{\textbackslash r}
+\\ \rowsep
+%
+\unicode{0022}{quotation mark} &
+\tcode{\textbackslash "}
+\\ \rowsep
+%
+\unicode{005c}{reverse solidus} &
+\tcode{\textbackslash\textbackslash}
+\\
+\end{floattable}
+
+\pnum
+The escaped string representation of a character \placeholder{C}
+is equivalent to the escaped string representation
+of a string of \placeholder{C}, except that:
+
+\begin{itemize}
+\item
+the result starts and ends with \unicode{0027}{apostrope} (\tcode{'})
+instead of \unicode{0022}{quotation mark} (\tcode{"}), and
+\item
+if \placeholder{C} is \unicode{0027}{apostrope},
+the two characters \tcode{\textbackslash '} are appended to \placeholder{E}, and
+\item
+if \placeholder{C} is \unicode{0022}{quotation mark},
+then \placeholder{C} is appended unchanged.
+\end{itemize}
+
+%% FIXME: Example is incomplete; s2 and s6 are missing below;
+%% FIXME: their Unicode characters are not available in our font (Latin Modern).
+\begin{example}
+\begin{codeblock}
+string s0 = format("[{}]", "h\tllo");               // \tcode{s0} has value: \tcode{[h    llo]}
+string s1 = format("[{:?}]", "h\tllo");             // \tcode{s1} has value: \tcode{["h\textbackslash tllo"]}
+string s3 = format("[{:?}, {:?}]", '\'', '"');      // \tcode{s3} has value: \tcode{['\textbackslash '', '"']}
+
+// The following examples assume use of the UTF-8 encoding
+string s4 = format("[{:?}]", string("\0 \n \t \x02 \x1b", 9));
+                                                    // \tcode{s4} has value: \tcode{["\textbackslash u\{0\} \textbackslash n \textbackslash t \textbackslash u\{2\} \textbackslash u\{1b\}"]}
+string s5 = format("[{:?}]", "\xc3\x28");           // invalid UTF-8
+                                                    // \tcode{s5} has value: \tcode{["\textbackslash x\{c3\}\textbackslash x\{28\}"]}
 \end{codeblock}
 \end{example}
 
@@ -15048,6 +15670,589 @@ template<> struct std::formatter<S> {
 std::string s = std::format("{0:{1}}", S{42}, 10);  // value of \tcode{s} is \tcode{"xxxxxxxx42"}
 \end{codeblock}
 \end{example}
+
+\rSec2[format.range]{Formatting of ranges}
+
+\rSec3[format.range.fmtkind]{Variable template \tcode{format_kind}}
+
+\indexlibraryglobal{format_kind}
+\begin{itemdecl}
+template<ranges::@\libconcept{input_range}@ R>
+    requires @\libconcept{same_as}@<R, remove_cvref_t<R>>
+  constexpr range_format format_kind<R> = @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+A program that instantiates the primary template of \tcode{format_kind}
+is ill-formed.
+
+\pnum
+For a type \tcode{R}, \tcode{format_kind<R>} is defined as follows:
+\begin{itemize}
+\item
+If \tcode{\libconcept{same_as}<remove_cvref_t<ranges::range_reference_t<R>>, R>}
+is \tcode{true},
+\tcode{format_kind<R>} is \tcode{range_format::disabled}.
+\begin{note}
+This prevents constraint recursion for ranges whose
+reference type is the same range type.
+For example,
+\tcode{std::filesystem::path} is a range of \tcode{std::filesystem::path}.
+\end{note}
+
+\item
+Otherwise, if the \grammarterm{qualified-id} \tcode{R::key_type}
+is valid and denotes a type:
+\begin{itemize}
+\item
+If the \grammarterm{qualified-id} \tcode{R::mapped_type}
+is valid and denotes a type,
+let \tcode{U} be \tcode{remove_cvref_t<ranges::range_reference_t<R>>}.
+If either \tcode{U} is a specialization of \tcode{pair} or
+\tcode{U} is a specialization of \tcode{tuple} and
+\tcode{tuple_size_v<U> == 2},
+\tcode{format_kind<R>} is \tcode{range_format::map}.
+\item
+Otherwise, \tcode{format_kind<R>} is \tcode{range_format::set}.
+\end{itemize}
+
+\item
+Otherwise, \tcode{format_kind<R>} is \tcode{range_format::sequence}.
+\end{itemize}
+
+\pnum
+\remarks
+Pursuant to \ref{namespace.std}, users may specialize \tcode{format_kind}
+for cv-unqualified program-defined types
+that model \tcode{ranges::\libconcept{input_range}}.
+Such specializations shall be usable in constant expressions\iref{expr.const}
+and have type \tcode{const range_format}.
+\end{itemdescr}
+
+\rSec3[format.range.formatter]{Class template \tcode{range_formatter}}
+
+\indexlibraryglobal{range_formatter}%
+\begin{codeblock}
+namespace std {
+  template<class T, class charT = char>
+    requires @\libconcept{same_as}@<remove_cvref_t<T>, T> && @\libconcept{formattable}@<T, charT>
+  class range_formatter {
+    formatter<T, charT> @\exposid{underlying_}@;                                          // \expos
+    basic_string_view<charT> @\exposid{separator_}@ = @\exposid{STATICALLY-WIDEN}@<charT>(", ");      // \expos
+    basic_string_view<charT> @\exposid{opening-bracket_}@ = @\exposid{STATICALLY-WIDEN}@<charT>("["); // \expos
+    basic_string_view<charT> @\exposid{closing-bracket_}@ = @\exposid{STATICALLY-WIDEN}@<charT>("]"); // \expos
+
+  public:
+    constexpr void set_separator(basic_string_view<charT> sep);
+    constexpr void set_brackets(basic_string_view<charT> opening,
+                                basic_string_view<charT> closing);
+    constexpr formatter<T, charT>& underlying() { return @\exposid{underlying_}@; }
+    constexpr const formatter<T, charT>& underlying() const { return @\exposid{underlying_}@; }
+
+    template<class ParseContext>
+      constexpr typename ParseContext::iterator
+        parse(ParseContext& ctx);
+
+    template<ranges::@\libconcept{input_range}@ R, class FormatContext>
+        requires @\libconcept{formattable}@<ranges::range_reference_t<R>, charT> &&
+                 @\libconcept{same_as}@<remove_cvref_t<ranges::range_reference_t<R>>, T>
+      typename FormatContext::iterator
+        format(R&& r, FormatContext& ctx) const;
+  };
+}
+\end{codeblock}
+
+\pnum
+The class template \tcode{range_formatter} is a utility
+for implementing \tcode{formatter} specializations for range types.
+
+\pnum
+\tcode{range_formatter} interprets \fmtgrammarterm{format-spec}
+as a \fmtgrammarterm{range-format-spec}.
+The syntax of format specifications is as follows:
+
+\begin{ncbnf}
+\fmtnontermdef{range-format-spec}\br
+    \opt{range-fill-and-align} \opt{width} \opt{\terminal{n}} \opt{range-type} \opt{range-underlying-spec}
+\end{ncbnf}
+
+\begin{ncbnf}
+\fmtnontermdef{range-fill-and-align}\br
+    \opt{range-fill} align
+\end{ncbnf}
+
+\begin{ncbnf}
+\fmtnontermdef{range-fill}\br
+    \textnormal{any character other than} \terminal{\{} \textnormal{or} \terminal{\}} \textnormal{or} \terminal{:}
+\end{ncbnf}
+
+\begin{ncbnf}
+\fmtnontermdef{range-type}\br
+    \terminal{m}\br
+    \terminal{s}\br
+    \terminal{?s}
+\end{ncbnf}
+
+\begin{ncbnf}
+\fmtnontermdef{range-underlying-spec}\br
+    \terminal{:} format-spec
+\end{ncbnf}
+
+\pnum
+For \tcode{range_formatter<T, charT>},
+the \fmtgrammarterm{format-spec}
+in a \fmtgrammarterm{range-underlying-spec}, if any,
+is interpreted by \tcode{formatter<T, charT>}.
+
+\pnum
+The \fmtgrammarterm{range-fill-and-align} is interpreted
+the same way as a \fmtgrammarterm{fill-and-align}\iref{format.string.std}.
+The productions \fmtgrammarterm{align} and \fmtgrammarterm{width}
+are described in \ref{format.string}.
+
+\pnum
+The \tcode{n} option causes the range to be formatted
+without the opening and closing brackets.
+\begin{note}
+This is equivalent to invoking \tcode{set_brackets(\{\}, \{\})}.
+\end{note}
+
+\pnum
+The \fmtgrammarterm{range-type} specifier changes the way a range is formatted,
+with certain options only valid with certain argument types.
+The meaning of the various type options
+is as specified in \tref{formatter.range.type}.
+
+\begin{concepttable}{Meaning of \fmtgrammarterm{range-type} options}{formatter.range.type}
+{p{1in}p{1.4in}p{2.7in}}
+\topline
+\hdstyle{Option} & \hdstyle{Requirements} & \hdstyle{Meaning} \\ \capsep
+%
+\tcode{m} &
+\tcode{T} shall be
+either a specialization of \tcode{pair} or a specialization of \tcode{tuple}
+such that \tcode{tuple_size_v<T>} is \tcode{2}. &
+Indicates that
+the opening bracket should be \tcode{"\{"},
+the closing bracket should be \tcode{"\}"},
+the separator should be \tcode{", "}, and
+each range element should be formatted as if
+\tcode{m} were specified for its \fmtgrammarterm{tuple-type}.
+\begin{tailnote}
+If the \tcode{n} option is provided in addition to the \tcode{m} option,
+both the opening and closing brackets are still empty.
+\end{tailnote}
+\\ \rowsep
+%
+\tcode{s} &
+\tcode{T} shall be \tcode{charT}. &
+Indicates that the range should be formatted as a \tcode{string}.
+\\ \rowsep
+%
+\tcode{?s} &
+\tcode{T} shall be \tcode{charT}. &
+Indicates that the range should be formatted as
+an escaped string\iref{format.string.escaped}.
+\\
+\end{concepttable}
+
+If the \fmtgrammarterm{range-type} is \tcode{s} or \tcode{?s},
+then there shall be
+no \tcode{n} option and no \fmtgrammarterm{range-underlying-spec}.
+
+\indexlibrarymember{set_separator}{range_formatter}%
+\begin{itemdecl}
+constexpr void set_separator(basic_string_view<charT> sep);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{\exposid{separator_} = sep;}
+\end{itemdescr}
+
+\indexlibrarymember{set_brackets}{range_formatter}%
+\begin{itemdecl}
+constexpr void set_brackets(basic_string_view<charT> opening, basic_string_view<charT> closing);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+@\exposid{opening-bracket_}@ = opening;
+@\exposid{closing-bracket_}@ = closing;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{parse}{range_formatter}%
+\begin{itemdecl}
+template<class ParseContext>
+  constexpr typename ParseContext::iterator
+    parse(ParseContext& ctx);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Parses the format specifier as a \fmtgrammarterm{range-format-spec} and
+stores the parsed specifiers in \tcode{*this}.
+The values of
+\exposid{opening-bracket_}, \exposid{closing-bracket_}, and \exposid{separator_}
+are modified if and only if required by
+the \fmtgrammarterm{range-type} or the \tcode{n} option, if present.
+If:
+\begin{itemize}
+\item
+the \fmtgrammarterm{range-type} is neither \tcode{s} nor \tcode{?s},
+\item
+\tcode{\exposid{underlying_}.set_debug_format()} is a valid expression, and
+\item
+there is no \fmtgrammarterm{range-underlying-spec},
+\end{itemize}
+then calls \tcode{\exposid{underlying_}.set_debug_format()}.
+
+\pnum
+\returns
+An iterator past the end of the \fmtgrammarterm{range-format-spec}.
+\end{itemdescr}
+
+\indexlibrarymember{format}{range_formatter}%
+\begin{itemdecl}
+template<ranges::@\libconcept{input_range}@ R, class FormatContext>
+    requires @\libconcept{formattable}@<ranges::range_reference_t<R>, charT> &&
+             @\libconcept{same_as}@<remove_cvref_t<ranges::range_reference_t<R>>, T>
+  typename FormatContext::iterator
+    format(R&& r, FormatContext& ctx) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Writes the following into \tcode{ctx.out()},
+adjusted according to the \fmtgrammarterm{range-format-spec}:
+
+\begin{itemize}
+\item
+If the \fmtgrammarterm{range-type} was \tcode{s},
+then as if by formatting \tcode{basic_string<charT>(from_range, r)}.
+\item
+Otherwise, if the \fmtgrammarterm{range-type} was \tcode{?s},
+then as if by formatting \tcode{basic_string<charT>(from_range, r)}
+as an escaped string\iref{format.string.escaped}.
+\item
+Otherwise,
+\begin{itemize}
+\item
+\exposid{opening-bracket_},
+\item
+for each element \tcode{e} of the range \tcode{r}:
+\begin{itemize}
+\item
+the result of writing \tcode{e} via \exposid{underlying_} and
+\item
+\exposid{separator_}, unless \tcode{e} is the last element of \tcode{r}, and
+\end{itemize}
+\item
+\exposid{closing-bracket_}.
+\end{itemize}
+\end{itemize}
+
+\pnum
+\returns
+An iterator past the end of the output range.
+\end{itemdescr}
+
+\rSec3[format.range.fmtdef]{Class template \exposid{range-default-formatter}}
+
+\indexlibraryglobal{\exposid{range-default-formatter}}%
+\begin{codeblock}
+namespace std {
+  template<ranges::@\libconcept{input_range}@ R, class charT>
+  struct @\exposid{range-default-formatter}@<range_format::sequence, R, charT> {
+  private:
+    using @\exposid{maybe-const-r}@ = @\exposid{fmt-maybe-const}@<R, charT>;
+    range_formatter<remove_cvref_t<ranges::range_reference_t<@\exposid{maybe-const-r}@>>,
+                    charT> @\exposid{underlying_}@;       // \expos
+
+  public:
+    constexpr void set_separator(basic_string_view<charT> sep);
+    constexpr void set_brackets(basic_string_view<charT> opening,
+                                basic_string_view<charT> closing);
+
+    template<class ParseContext>
+      constexpr typename ParseContext::iterator
+        parse(ParseContext& ctx);
+
+    template<class FormatContext>
+      typename FormatContext::iterator
+        format(@\exposid{maybe-const-r}@& elems, FormatContext& ctx) const;
+  };
+}
+\end{codeblock}
+
+\indexlibrarymember{set_separator}{\exposid{range-default-formatter}}%
+\begin{itemdecl}
+constexpr void set_separator(basic_string_view<charT> sep);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{\exposid{underlying_}.set_separator(sep);}
+\end{itemdescr}
+
+\indexlibrarymember{set_brackets}{\exposid{range-default-formatter}}%
+\begin{itemdecl}
+constexpr void set_brackets(basic_string_view<charT> opening, basic_string_view<charT> closing);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{\exposid{underlying_}.set_brackets(opening, closing);}
+\end{itemdescr}
+
+\indexlibrarymember{parse}{\exposid{range-default-formatter}}%
+\begin{itemdecl}
+template<class ParseContext>
+  constexpr typename ParseContext::iterator
+    parse(ParseContext& ctx);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return \exposid{underlying_}.parse(ctx);}
+\end{itemdescr}
+
+\indexlibrarymember{format}{\exposid{range-default-formatter}}%
+\begin{itemdecl}
+template<class FormatContext>
+  typename FormatContext::iterator
+    format(@\exposid{maybe-const-r}@& elems, FormatContext& ctx) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return \exposid{underlying_}.format(elems, ctx);}
+\end{itemdescr}
+
+\rSec3[format.range.fmtmap]{Specialization of \exposid{range-default-formatter} for maps}
+
+\indexlibraryglobal{\exposid{range-default-formatter}}%
+\begin{codeblock}
+namespace std {
+  template<ranges::@\libconcept{input_range}@ R, class charT>
+  struct @\exposid{range-default-formatter}@<range_format::map, R, charT> {
+  private:
+    using @\exposid{maybe-const-map}@ = @\exposid{fmt-maybe-const}@<R, charT>;                        // \expos
+    using @\exposid{element-type}@ =                                                      // \expos
+      remove_cvref_t<ranges::range_reference_t<@\exposid{maybe-const-map}@>>;
+    range_formatter<@\exposid{element-type}@, charT> @\exposid{underlying_}@;                         // \expos
+  public:
+    constexpr @\exposid{range-default-formatter}@();
+
+    template<class ParseContext>
+      constexpr typename ParseContext::iterator
+        parse(ParseContext& ctx);
+
+    template<class FormatContext>
+      typename FormatContext::iterator
+        format(@\exposid{maybe-const-map}@& r, FormatContext& ctx) const;
+  };
+}
+\end{codeblock}
+
+\indexlibraryctor{\exposid{range-default-formatter}}%
+\begin{itemdecl}
+constexpr @\exposid{range-default-formatter}@();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+Either:
+\begin{itemize}
+\item
+\exposid{element-type} is a specialization of \tcode{pair}, or
+\item
+\exposid{element-type} is a specialization of \tcode{tuple} and
+\tcode{tuple_size_v<T> == 2}.
+\end{itemize}
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+@\exposid{underlying_}@.set_brackets(@\exposid{STATICALLY-WIDEN}@<charT>("{"), @\exposid{STATICALLY-WIDEN}@<charT>("}"));
+@\exposid{underlying_}@.underlying().set_brackets({}, {});
+@\exposid{underlying_}@.underlying().set_separator(@\exposid{STATICALLY-WIDEN}@<charT>(": "));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{parse}{\exposid{range-default-formatter}}%
+\begin{itemdecl}
+template<class ParseContext>
+  constexpr typename ParseContext::iterator
+    parse(ParseContext& ctx);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return \exposid{underlying_}.parse(ctx);}
+\end{itemdescr}
+
+\indexlibrarymember{format}{\exposid{range-default-formatter}}%
+\begin{itemdecl}
+template<class FormatContext>
+  typename FormatContext::iterator
+    format(@\exposid{maybe-const-map}@& r, FormatContext& ctx) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return \exposid{underlying_}.format(r, ctx);}
+\end{itemdescr}
+
+\rSec3[format.range.fmtset]{Specialization of \exposid{range-default-formatter} for sets}
+
+\indexlibraryglobal{\exposid{range-default-formatter}}%
+\begin{codeblock}
+namespace std {
+  template<ranges::@\libconcept{input_range}@ R, class charT>
+  struct @\exposid{range-default-formatter}@<range_format::set, R, charT> {
+  private:
+    using @\exposid{maybe-const-set}@ = @\exposid{fmt-maybe-const}@<R, charT>;                          // \expos
+    range_formatter<remove_cvref_t<ranges::range_reference_t<maybe-const-set>>,
+                    charT> @\exposid{underlying_}@;                                         // \expos
+
+  public:
+    constexpr @\exposid{range-default-formatter}@();
+
+    template<class ParseContext>
+      constexpr typename ParseContext::iterator
+        parse(ParseContext& ctx);
+
+    template<class FormatContext>
+      typename FormatContext::iterator
+        format(@\exposid{maybe-const-set}@& r, FormatContext& ctx) const;
+  };
+}
+\end{codeblock}
+
+\indexlibraryctor{\exposid{range-default-formatter}}%
+\begin{itemdecl}
+constexpr @\exposid{range-default-formatter}@();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+@\exposid{underlying_}@.set_brackets(@\exposid{STATICALLY-WIDEN}@<charT>("{"), @\exposid{STATICALLY-WIDEN}@<charT>("}"));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{parse}{\exposid{range-default-formatter}}%
+\begin{itemdecl}
+template<class ParseContext>
+  constexpr typename ParseContext::iterator
+    parse(ParseContext& ctx);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return \exposid{underlying_}.parse(ctx);}
+\end{itemdescr}
+
+\indexlibrarymember{format}{\exposid{range-default-formatter}}%
+\begin{itemdecl}
+template<class FormatContext>
+  typename FormatContext::iterator
+    format(@\exposid{maybe-const-set}@& r, FormatContext& ctx) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return \exposid{underlying_}.format(r, ctx);}
+\end{itemdescr}
+
+\rSec3[format.range.fmtstr]{Specialization of \exposid{range-default-formatter} for strings}
+
+\indexlibraryglobal{\exposid{range-default-formatter}}%
+\begin{codeblock}
+namespace std {
+  template<range_format K, ranges::@\libconcept{input_range}@ R, class charT>
+    requires (K == range_format::string || K == range_format::debug_string)
+  struct @\exposid{range-default-formatter}@<K, R, charT> {
+  private:
+    formatter<basic_string<charT>, charT> @\exposid{underlying_}@;                // \expos
+
+  public:
+    template<class ParseContext>
+      constexpr typename ParseContext::iterator
+        parse(ParseContext& ctx);
+
+    template<class FormatContext>
+      typename FormatContext::iterator
+        format(@\seebelow@& str, FormatContext& ctx) const;
+  };
+}
+\end{codeblock}
+
+\pnum
+\mandates
+\tcode{\libconcept{same_as}<remove_cvref_t<range_reference_t<R>>, charT>}
+is \tcode{true}.
+
+\indexlibrarymember{parse}{\exposid{range-default-formatter}}%
+\begin{itemdecl}
+template<class ParseContext>
+  constexpr typename ParseContext::iterator
+    parse(ParseContext& ctx);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto i = @\exposid{underlying_}@.parse(ctx);
+if constexpr (K == range_format::debug_string) {
+  @\exposid{underlying_}@.set_debug_format();
+}
+return i;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{format}{\exposid{range-default-formatter}}%
+\begin{itemdecl}
+template<class FormatContext>
+  typename FormatContext::iterator
+    format(@\seebelow@& r, FormatContext& ctx) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The type of \tcode{r} is \tcode{const R\&}
+if \tcode{\libconcept{input_range}<const R>} is \tcode{true} and
+\tcode{R\&} otherwise.
+
+\pnum
+\effects
+Let \tcode{\placeholder{s}} be a \tcode{basic_string<charT>} such that
+\tcode{ranges::equal(\placeholder{s}, r)} is \tcode{true}.
+Equivalent to: \tcode{return \exposid{underlying_}.format(\placeholder{s}, ctx);}
+\end{itemdescr}
 
 \rSec2[format.arguments]{Arguments}
 
@@ -15467,6 +16672,200 @@ basic_format_arg<Context> get(size_t i) const noexcept;
 \tcode{i < size_ ?\ data_[i] :\ basic_format_arg<Context>()}.
 \end{itemdescr}
 
+\rSec2[format.tuple]{Tuple formatter}
+
+\pnum
+For each of \tcode{pair} and \tcode{tuple},
+the library provides the following formatter specialization
+where \tcode{\placeholder{pair-or-tuple}} is the name of the template:
+
+\indexlibraryglobal{formatter}%
+\begin{codeblock}
+namespace std {
+  template<class charT, @\libconcept{formattable}@<charT>... Ts>
+  struct formatter<@\placeholder{pair-or-tuple}@<Ts...>, charT> {
+  private:
+    tuple<formatter<remove_cvref_t<Ts>, charT>...> @\exposid{underlying_}@;               // \expos
+    basic_string_view<charT> @\exposid{separator_}@ = @\exposid{STATICALLY-WIDEN}@<charT>(", ");      // \expos
+    basic_string_view<charT> @\exposid{opening-bracket_}@ = @\exposid{STATICALLY-WIDEN}@<charT>("("); // \expos
+    basic_string_view<charT> @\exposid{closing-bracket_}@ = @\exposid{STATICALLY-WIDEN}@<charT>(")"); // \expos
+
+  public:
+    constexpr void set_separator(basic_string_view<charT> sep);
+    constexpr void set_brackets(basic_string_view<charT> opening,
+                                basic_string_view<charT> closing);
+
+    template<class ParseContext>
+      constexpr typename ParseContext::iterator
+        parse(ParseContext& ctx);
+
+    template<class FormatContext>
+      typename FormatContext::iterator
+        format(@\seebelow@& elems, FormatContext& ctx) const;
+  };
+}
+\end{codeblock}
+
+\pnum
+The \tcode{parse} member functions of these formatters
+interpret the format specification as
+a \fmtgrammarterm{tuple-format-spec} according to the following syntax:
+
+\begin{ncbnf}
+\fmtnontermdef{tuple-format-spec}\br
+    \opt{tuple-fill-and-align} \opt{width} \opt{tuple-type}
+\end{ncbnf}
+
+\begin{ncbnf}
+\fmtnontermdef{tuple-fill-and-align}\br
+    \opt{tuple-fill} align
+\end{ncbnf}
+
+\begin{ncbnf}
+\fmtnontermdef{tuple-fill}\br
+    \textnormal{any character other than} \terminal{\{} \textnormal{or} \terminal{\}} \textnormal{or} \terminal{:}
+\end{ncbnf}
+
+\begin{ncbnf}
+\fmtnontermdef{tuple-type}\br
+    \terminal{m}\br
+    \terminal{n}
+\end{ncbnf}
+
+\pnum
+The \fmtgrammarterm{tuple-fill-and-align} is interpreted the same way as
+a \fmtgrammarterm{fill-and-align}\iref{format.string.std}.
+The productions \fmtgrammarterm{align} and \fmtgrammarterm{width}
+are described in \ref{format.string}.
+
+\pnum
+The \fmtgrammarterm{tuple-type} specifier
+changes the way a \tcode{pair} or \tcode{tuple} is formatted,
+with certain options only valid with certain argument types.
+The meaning of the various type options
+is as specified in \tref{formatter.tuple.type}.
+
+\begin{concepttable}{Meaning of \fmtgrammarterm{tuple-type} options}{formatter.tuple.type}
+{p{0.5in}p{1.4in}p{3.2in}}
+\topline
+\hdstyle{Option} & \hdstyle{Requirements} & \hdstyle{Meaning} \\ \capsep
+%
+\tcode{m} &
+\tcode{sizeof...(Ts) == 2} &
+Equivalent to:
+\begin{codeblock}
+set_separator(@\exposid{STATICALLY-WIDEN}@<charT>(": "));
+set_brackets({}, {});
+\end{codeblock}%
+\\ \rowsep
+%
+\tcode{n} &
+none &
+Equivalent to: \tcode{set_brackets(\{\}, \{\});}
+\\ \rowsep
+%
+none &
+none &
+No effects
+\\
+\end{concepttable}
+
+\indexlibrarymember{set_separator}{formatter}%
+\begin{itemdecl}
+constexpr void set_separator(basic_string_view<charT> sep);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{\exposid{separator_} = sep;}
+\end{itemdescr}
+
+\indexlibrarymember{set_brackets}{formatter}%
+\begin{itemdecl}
+constexpr void set_brackets(basic_string_view<charT> opening, basic_string_view<charT> closing);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+@\exposid{opening-bracket_}@ = opening;
+@\exposid{closing-bracket_}@ = closing;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{parse}{formatter}%
+\begin{itemdecl}
+template<class ParseContext>
+  constexpr typename ParseContext::iterator
+    parse(ParseContext& ctx);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Parses the format specifier as a \fmtgrammarterm{tuple-format-spec} and
+stores the parsed specifiers in \tcode{*this}.
+The values of
+\exposid{opening-bracket_},
+\exposid{closing-bracket_}, and
+\exposid{separator_}
+are modified if and only if
+required by the \fmtgrammarterm{tuple-type}, if present.
+For each element \tcode{\placeholder{e}} in \exposid{underlying_},
+if \tcode{\placeholder{e}.set_debug_format()} is a valid expression,
+calls \tcode{\placeholder{e}.set_debug_format()}.
+
+\pnum
+\returns
+An iterator past the end of the \fmtgrammarterm{tuple-format-spec}.
+\end{itemdescr}
+
+\indexlibrarymember{format}{formatter}%
+\begin{itemdecl}
+template<class FormatContext>
+  typename FormatContext::iterator
+    format(@\seebelow@& elems, FormatContext& ctx) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The type of \tcode{elems} is:
+\begin{itemize}
+\item
+If \tcode{(\libconcept{formattable}<const Ts, charT> \&\& ...)} is \tcode{true},
+\tcode{const \placeholder{pair-or-tuple}<Ts...>\&}.
+\item
+Otherwise \tcode{\placeholder{pair-or-tuple}<Ts...>\&}.
+\end{itemize}
+
+\pnum
+\effects
+Writes the following into \tcode{ctx.out()},
+adjusted according to the \fmtgrammarterm{tuple-format-spec}:
+\begin{itemize}
+\item
+\exposid{opening-bracket_},
+\item
+for each index \tcode{I} in the \range{0}{sizeof...(Ts)}:
+\begin{itemize}
+\item
+if \tcode{I != 0}, \exposid{separator_},
+\item
+the result of writing \tcode{get<I>(elems)}
+via \tcode{get<I>(\exposid{underlying_})}, and
+\end{itemize}
+\item
+\exposid{closing-bracket_}.
+\end{itemize}
+
+\pnum
+\returns
+An iterator past the end of the output range.
+\end{itemdescr}
+
 \rSec2[format.error]{Class \tcode{format_error}}
 
 \indexlibraryglobal{format_error}%
@@ -15517,6 +16916,7 @@ manipulate and process both individual bits and bit sequences.
 \rSec2[bit.syn]{Header \tcode{<bit>} synopsis}
 
 \begin{codeblock}
+// all freestanding
 namespace std {
   // \ref{bit.cast}, \tcode{bit_cast}
   template<class To, class From>
@@ -15534,7 +16934,7 @@ namespace std {
   template<class T>
     constexpr T bit_floor(T x) noexcept;
   template<class T>
-    constexpr T bit_width(T x) noexcept;
+    constexpr int bit_width(T x) noexcept;
 
   // \ref{bit.rotate}, rotating
   template<class T>
@@ -15718,7 +17118,7 @@ such that \tcode{has_single_bit(y)} is \tcode{true} and \tcode{y <= x}.
 \indexlibraryglobal{bit_width}%
 \begin{itemdecl}
 template<class T>
-  constexpr T bit_width(T x) noexcept;
+  constexpr int bit_width(T x) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
