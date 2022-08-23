@@ -108,9 +108,9 @@ grep -Hne '^\\\(change\|rationale\|effect\|difficulty\|howwide\)\s.\+$' compatib
     fail "change marker in [diff] followed by stuff" || failed=1
 # Fixup: sed 's/^\\\(change\|rationale\|effect\|difficulty\|howwide\)\s\(.\)/\\\1\n\2/'q
 
-# "template <class" (with space) in library clause.
-grep -ne 'template\s<class' $texlib |
-    fail 'space between "template" and "<class"' || failed=1
+# "template <" (with space) in library clause.
+grep -ne 'template\s\+<' $texlib |
+    fail 'space between "template" and "<"' || failed=1
 
 # "Class" heading without namespace
 for f in $texlib; do
