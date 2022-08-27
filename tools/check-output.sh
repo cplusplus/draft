@@ -50,10 +50,27 @@ cat std-grammarindex.ind |
 
 # Find concept index entries missing a definition
 cat std-conceptindex.ind |
-    sed 's/.hyperindexformat/\nhyperindexformat/' |
+    sed 's/.hyperindexformat/\nhyperindexformat/;s/.hyperpage/hyperpage/' |
     awk 'BEGIN { def=1 } /^  .item/ { if (def==0) { gsub("[{},]", "", item); print item } item=$NF; def=0; next } /hyperindexformat/ { def=1 }' |
     sed 's/^\(.*\)$/concept \1 has no definition/' |
     fail || failed=1
+
+# Find undecorated concept names in code blocks
+patt="`cat std-conceptindex.ind |
+       sed 's/.hyperindexformat/\nhyperindexformat/;s/.hyperpage/\nhyperpage/' |
+       sed -n 's/^  .item.*{\([-a-z_]*\)}.*$/\1/p'`"
+
+patt="`echo $patt | sed 's/ /\\\\|/g'`"
+# $patt contains all concept names, separated by \| to use as a sed regex
+
+for f in *.tex; do
+    sed -n 's,//.*$,,;s/%.*$//;s/"[^"]*"/""/;/begin{codeblock\(tu\)\?}/,/end{codeblock\(tu\)\?}/{/[^-_{a-z\]\('"$patt"'\)[^-_}a-z();]/{=;p;};}' $f |
+	# prefix output with filename and line
+	sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/" |
+	grep -v "@.seebelow" |
+	sed "s/\$/ -- concept name without markup/" |
+	    fail || failed=1
+done
 
 # Cross references since the previous standard.
 function indexentries() { sed 's,\\glossaryentry{\(.*\)@.*,\1,' "$1" | LANG=C sort; }
