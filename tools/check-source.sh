@@ -177,6 +177,10 @@ for f in $texfiles; do
 done |
     fail '"shall", "should", or "may" inside a note' || failed=1
 
+# \logop should use lowercase arguments
+grep -n '\\logop{[^}]*[^andor}][^}]*}' $texfiles |
+    fail 'bad argument for \\logop' || failed=1
+
 # Hanging paragraphs
 for f in $texfiles; do
     sed -n '/^\\rSec/{=;p;};/^\\pnum/{s/^.*$/x/;=;p;}' $f |
