@@ -73,7 +73,11 @@ grep -n "// not defined" $texfiles |
 
 # Use \Cpp{} instead of C++
 grep -n '^[^%]*[^{"]C++[^"}]' $texfiles |
-    fail 'use \Cpp{} instead' || failed=1
+    fail 'use \\Cpp{} instead' || failed=1
+
+# Use \caret instead of \^
+fgrep -n '\^' $texfiles |
+    fail 'use \\caret instead' || failed=1
 
 # Use \unicode instead of U+nnnn
 grep -n 'U+' $texfiles |
