@@ -185,6 +185,16 @@ done |
 grep -n '\\logop{[^}]*[^andor}][^}]*}' $texfiles |
     fail 'bad argument for \\logop' || failed=1
 
+# Bad indexing for ::iterator and ::sentinel exposition-only classes
+grep -Hn '\\indexlibrary\(ctor\|member\).*::\(iterator\|sentinel\)}.*' ranges.tex |
+    fail 'use \\exposid for iterator/sentinel member indexing' || failed=1
+# Fixup: sed -i '/indexlibrary\(member\|ctor\)/s/::\(iterator\|sentinel\)/::\\exposid{\1}/' ranges.tex
+
+# Do not index the exposition-only ::iterator and ::sentinel class names
+grep -Hn '\\indexlibraryglobal.*::\(iterator\|sentinel\)}.*' ranges.tex |
+    fail 'do not index exposition-only ::iterator and ::sentinel class names' ranges.tex || failed=1
+# Fixup: sed -i '/indexlibraryglobal.*::\(iterator\|sentinel\)}.*/d' ranges.tex
+
 # Hanging paragraphs
 for f in $texfiles; do
     sed -n '/^\\rSec/{=;p;};/^\\pnum/{s/^.*$/x/;=;p;}' $f |
