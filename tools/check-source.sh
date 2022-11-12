@@ -116,6 +116,14 @@ grep -Hne '^\\\(change\|rationale\|effect\|difficulty\|howwide\)\s.\+$' compatib
 grep -ne 'template\s\+<' $texlib |
     fail 'space between "template" and "<"' || failed=1
 
+# In library declarations, constexpr should not follow explicit
+grep -ne '\bexplicit\b.*\bconstexpr\b' $texlib |
+    fail 'explicit constexpr' || failed=1
+
+# In library declarations, static should not follow constexpr
+grep -ne '\bconstexpr\b.*\bstatic\b' $texlib | grep -ve '\bconstexpr\b.*\bnon-static\b' |
+    fail 'constexpr static' || failed=1
+
 # "Class" heading without namespace
 for f in $texlib; do
     sed -n '/rSec[0-9].*{Class/,/\\end{codeblock}/{/\\begin{example}/,/\\end{example}/b;/\\begin{codeblock}/,/\(^namespace\)\|\(\\end{codeblock}\)/{s/template<[^>]*>//;/\(class\|struct\)[A-Za-z0-9_: ]*{/{=;p;};};}' $f |
