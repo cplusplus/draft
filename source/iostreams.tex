@@ -4391,32 +4391,6 @@ or
 They may use other public members of
 \tcode{istream}.
 
-\pnum
-If
-\tcode{rdbuf()->sbumpc()}
-or
-\tcode{rdbuf()->sgetc()}
-returns
-\tcode{traits::eof()},
-then the input function, except as explicitly noted otherwise, completes its actions and does
-\tcode{setstate(eofbit)},
-which may throw
-\tcode{ios_base::failure}\iref{iostate.flags}, before returning.
-
-\pnum
-If one of these called functions throws an exception, then unless explicitly noted otherwise,
-the input function sets
-\tcode{badbit}
-in the error state.
-If
-\tcode{badbit}
-is set in
-\tcode{exceptions()},
-the input function
-rethrows the exception without completing its actions, otherwise
-it does not throw anything and proceeds as if the called function had returned
-a failure indication.
-
 \rSec4[istream.cons]{Constructors}
 
 \indexlibraryctor{basic_istream}%
@@ -4647,7 +4621,10 @@ explicit operator bool() const;
 \rSec4[istream.formatted.reqmts]{Common requirements}
 
 \pnum
-Each formatted input function begins execution by constructing an object of class
+Each formatted input function begins execution by constructing
+an object of type \tcode{ios_base::iostate}, termed the local error state, and
+initializing it to \tcode{ios_base::goodbit}.
+It then creates an object of class
 \tcode{sentry}
 with the
 \tcode{noskipws}
@@ -4661,20 +4638,22 @@ when converted to a value of type
 \tcode{bool},
 the function endeavors
 to obtain the requested input.
+Otherwise,
+if the \tcode{sentry} constructor exits by throwing an exception or
+if the \tcode{sentry} object produces \tcode{false}
+when converted to a value of type \tcode{bool},
+the function returns without attempting to obtain any input.
+If \tcode{rdbuf()->sbumpc()} or \tcode{rdbuf()->sgetc()}
+returns \tcode{traits::eof()}, then
+\tcode{ios_base::eofbit} is set in the local error state and
+the input function stops trying to obtain the requested input.
 If an exception is thrown during input then
-\tcode{ios_base::badbit}
-is turned on
-\begin{footnote}
-This is done without causing an
-\tcode{ios_base::failure}
-to be thrown.
-\end{footnote}
-in
-\tcode{*this}'s
-error state.
-If
-\tcode{(exceptions()\&badbit) != 0}
-then the exception is rethrown.
+\tcode{ios_base::badbit} is set in the local error state,
+\tcode{*this}'s error state is set to the local error state, and
+the exception is rethrown if \tcode{(exceptions() \& badbit) != 0}.
+After extraction is done, the input function calls \tcode{setstate}, which
+sets \tcode{*this}'s error state to the local error state, and
+may throw an exception.
 In any case, the formatted input function destroys the
 \tcode{sentry}
 object.
@@ -4705,12 +4684,11 @@ locale's
 \tcode{num_get<>}\iref{locale.num.get} object to perform parsing the input
 stream data.
 These extractors behave as formatted input functions (as described in~\ref{istream.formatted.reqmts}).  After a \tcode{sentry} object is constructed, the
-conversion occurs as if performed by the following code fragment:
+conversion occurs as if performed by the following code fragment,
+where \tcode{state} represents the input function's local error state:
 \begin{codeblock}
 using numget = num_get<charT, istreambuf_iterator<charT, traits>>;
-iostate err = iostate::goodbit;
-use_facet<numget>(loc).get(*this, 0, *this, err, val);
-setstate(err);
+use_facet<numget>(loc).get(*this, 0, *this, state, val);
 \end{codeblock}
 In the above fragment,
 \tcode{loc}
@@ -4743,18 +4721,16 @@ The conversion occurs as if performed by the following code fragment
 (using the same notation as for the preceding code fragment):
 \begin{codeblock}
 using numget = num_get<charT, istreambuf_iterator<charT, traits>>;
-iostate err = ios_base::goodbit;
 long lval;
-use_facet<numget>(loc).get(*this, 0, *this, err, lval);
+use_facet<numget>(loc).get(*this, 0, *this, state, lval);
 if (lval < numeric_limits<short>::min()) {
-  err |= ios_base::failbit;
+  state |= ios_base::failbit;
   val = numeric_limits<short>::min();
 } else if (numeric_limits<short>::max() < lval) {
-  err |= ios_base::failbit;
+  state |= ios_base::failbit;
   val = numeric_limits<short>::max();
 }  else
   val = static_cast<short>(lval);
-setstate(err);
 \end{codeblock}
 \end{itemdescr}
 
@@ -4769,18 +4745,16 @@ The conversion occurs as if performed by the following code fragment
 (using the same notation as for the preceding code fragment):
 \begin{codeblock}
 using numget = num_get<charT, istreambuf_iterator<charT, traits>>;
-iostate err = ios_base::goodbit;
 long lval;
-use_facet<numget>(loc).get(*this, 0, *this, err, lval);
+use_facet<numget>(loc).get(*this, 0, *this, state, lval);
 if (lval < numeric_limits<int>::min()) {
-  err |= ios_base::failbit;
+  state |= ios_base::failbit;
   val = numeric_limits<int>::min();
 } else if (numeric_limits<int>::max() < lval) {
-  err |= ios_base::failbit;
+  state |= ios_base::failbit;
   val = numeric_limits<int>::max();
 }  else
   val = static_cast<int>(lval);
-setstate(err);
 \end{codeblock}
 \end{itemdescr}
 
@@ -4818,19 +4792,17 @@ The conversion occurs as if performed by the following code fragment
 (using the same notation as for the preceding code fragment):
 \begin{codeblock}
 using numget = num_get<charT, istreambuf_iterator<charT, traits>>;
-iostate err = ios_base::goodbit;
 FP fval;
-use_facet<numget>(loc).get(*this, 0, *this, err, fval);
+use_facet<numget>(loc).get(*this, 0, *this, state, fval);
 if (fval < -numeric_limits<@\placeholder{extended-floating-point-type}@>::max()) {
-  err |= ios_base::failbit;
+  state |= ios_base::failbit;
   val = -numeric_limits<@\placeholder{extended-floating-point-type}@>::max();
 } else if (numeric_limits<@\placeholder{extended-floating-point-type}@>::max() < fval) {
-  err |= ios_base::failbit;
+  state |= ios_base::failbit;
   val = numeric_limits<@\placeholder{extended-floating-point-type}@>::max();
 } else {
   val = static_cast<@\placeholder{extended-floating-point-type}@>(fval);
 }
-setstate(err);
 \end{codeblock}
 \begin{note}
 When the extended floating-point type has
@@ -4954,10 +4926,9 @@ then calls
 \tcode{width(0)}.
 
 \pnum
-If the function extracted no characters, it calls
-\tcode{setstate(failbit)},
-which may throw
-\tcode{ios_base::\brk{}failure}\iref{iostate.flags}.
+If the function extracted no characters,
+\tcode{ios_base::failbit} is set in the input function's local error state
+before \tcode{setstate} is called.
 
 \pnum
 \returns
@@ -4979,12 +4950,10 @@ template<class traits>
 \effects
 Behaves like a formatted input member (as described in~\ref{istream.formatted.reqmts})
 of \tcode{in}.
-After a
-\tcode{sentry}
-object is constructed
-a character is extracted from \tcode{in}, if one is available, and stored in \tcode{c}.
-Otherwise, the function calls
-\tcode{in.setstate(fail\-bit)}.
+A character is extracted from \tcode{in}, if one is available, and stored in \tcode{c}.
+Otherwise,
+\tcode{ios_base::failbit} is set in the input function's local error state
+before \tcode{setstate} is called.
 
 \pnum
 \returns
@@ -5020,18 +4989,9 @@ an exception occurs (in which case the exception is caught).
 \end{itemize}
 
 \pnum
-If the function inserts no characters, it calls
-\tcode{setstate(failbit)},
-which may throw
-\tcode{ios_base::\brk{}failure}\iref{iostate.flags}.
-If it inserted no characters because it caught
-an exception thrown while extracting characters from
-\tcode{*this}
-and
-\tcode{failbit}
-is set in
-\tcode{exceptions()}\iref{iostate.flags},
-then the caught exception is rethrown.
+If the function inserts no characters,
+\tcode{ios_base::failbit} is set in the input function's local error state
+before \tcode{setstate} is called.
 
 \pnum
 \returns
@@ -5041,7 +5001,10 @@ then the caught exception is rethrown.
 \rSec3[istream.unformatted]{Unformatted input functions}
 
 \pnum
-Each unformatted input function begins execution by constructing an object of class
+Each unformatted input function begins execution by constructing
+an object of type \tcode{ios_base::iostate}, termed the local error state, and
+initializing it to \tcode{ios_base::goodbit}.
+It then creates an object of class
 \tcode{sentry}
 with the default argument
 \tcode{noskipws}
@@ -5056,7 +5019,7 @@ when converted to a value of type
 the function endeavors
 to obtain the requested input.
 Otherwise, if the \tcode{sentry} constructor exits by throwing an exception or if
-the \tcode{sentry} object returns \tcode{false}, when converted to a value of type
+the \tcode{sentry} object produces \tcode{false}, when converted to a value of type
 \tcode{bool},
 the function returns without attempting to obtain any input.
 In either case the number of extracted characters is set to 0;
@@ -5064,27 +5027,20 @@ unformatted input functions taking a character array of nonzero size as
 an argument shall also store a null character (using
 \tcode{charT()})
 in the first location of the array.
+If \tcode{rdbuf()->sbumpc()} or \tcode{rdbuf()->sgetc()}
+returns \tcode{traits::eof()}, then
+\tcode{ios_base::eofbit} is set in the local error state and
+the input function stops trying to obtain the requested input.
 If an exception is thrown during input then
-\tcode{ios_base::badbit}
-is turned on
-\begin{footnote}
-This is done without causing an
-\tcode{ios_base::failure}
-to be thrown.
-\end{footnote}
-in
-\tcode{*this}'s
-error state.
-(Exceptions thrown from
-\tcode{basic_ios<>::clear()}
-are not caught or rethrown.)
-If
-\tcode{(exceptions()\&badbit) != 0}
-then the exception is rethrown.
-It also counts the number of characters extracted.
-If no exception has been thrown it ends
-by storing the count in a member object
-and returning the value specified.
+\tcode{ios_base::badbit} is set in the local error state,
+\tcode{*this}'s error state is set to the local error state, and
+the exception is rethrown if \tcode{(exceptions() \& badbit) != 0}.
+If no exception has been thrown it
+stores the number of characters extracted
+in a member object.
+After extraction is done, the input function calls \tcode{setstate}, which
+sets \tcode{*this}'s error state to the local error state, and
+may throw an exception.
 In any event the
 \tcode{sentry}
 object
@@ -5122,10 +5078,9 @@ Behaves as an unformatted input function
 (as described above).
 After constructing a \tcode{sentry} object, extracts
 a character \tcode{c}, if one is available.
-Otherwise, the function calls
-\tcode{setstate(failbit)},
-which may throw
-\tcode{ios_base::failure}\iref{iostate.flags}.
+Otherwise,
+\tcode{ios_base::failbit} is set in the input function's local error state
+before \tcode{setstate} is called.
 
 \pnum
 \returns
@@ -5153,10 +5108,9 @@ that this function is not overloaded on types
 and
 \tcode{unsigned char}.
 \end{footnote}
-Otherwise, the function calls
-\tcode{setstate(failbit)}
-(which may throw
-\tcode{ios_base::failure}\iref{iostate.flags}).
+Otherwise,
+\tcode{ios_base::failbit} is set in the input function's local error state
+before \tcode{setstate} is called.
 
 \pnum
 \returns
@@ -5189,9 +5143,7 @@ Characters are extracted and stored until any of the following occurs:
 \tcode{n} is less than one or \tcode{n - 1}
 characters are stored;
 \item
-end-of-file occurs on the input sequence
-(in which case the function calls
-\tcode{setstate(eofbit)});
+end-of-file occurs on the input sequence;
 \item
 \tcode{traits::eq(c, delim)}
 for the next available input
@@ -5200,10 +5152,9 @@ character \tcode{c}
 \end{itemize}
 
 \pnum
-If the function stores no characters, it calls
-\tcode{setstate(failbit)}
-(which may throw
-\tcode{ios_base::\brk{}failure}\iref{iostate.flags}).
+If the function stores no characters,
+\tcode{ios_base::failbit} is set in the input function's local error state
+before \tcode{setstate} is called.
 In any case, if \tcode{n} is greater than zero it then stores a null character
 into the next successive location of the array.
 
@@ -5259,10 +5210,9 @@ an exception occurs
 \end{itemize}
 
 \pnum
-If the function inserts no characters, it calls
-\tcode{setstate(failbit)},
-which may throw
-\tcode{ios_base::\brk{}failure}\iref{iostate.flags}.
+If the function inserts no characters,
+\tcode{ios_base::failbit} is set in the input function's local error state
+before \tcode{setstate} is called.
 
 \pnum
 \returns
@@ -5308,9 +5258,7 @@ and
 Characters are extracted and stored until one of the following occurs:
 \begin{enumerate}
 \item
-end-of-file occurs on the input sequence
-(in which case the function calls
-\tcode{setstate(eofbit)});
+end-of-file occurs on the input sequence;
 \item
 \tcode{traits::eq(c, delim)}
 for the next available input
@@ -5340,10 +5288,9 @@ This is different behavior than the historical AT\&T implementation.
 \end{footnote}
 
 \pnum
-If the function extracts no characters, it calls
-\tcode{setstate(failbit)}
-(which may throw
-\tcode{ios_base::\brk{}failure}\iref{iostate.flags}).
+If the function extracts no characters,
+\tcode{ios_base::failbit} is set in the input function's local error state
+before \tcode{setstate} is called.
 \begin{footnote}
 This implies an
 empty input line will not cause
