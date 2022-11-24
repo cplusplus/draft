@@ -1373,15 +1373,6 @@ int j = sizeof(S::m + 42);      // OK
 \end{itemize}
 
 \pnum
-A potentially-evaluated \grammarterm{id-expression}
-that denotes an immediate function\iref{dcl.constexpr}
-shall appear only
-\begin{itemize}
-\item as a subexpression of an immediate invocation, or
-\item in an immediate function context\iref{expr.const}.
-\end{itemize}
-
-\pnum
 For an \grammarterm{id-expression} that denotes an overload set,
 overload resolution is performed
 to select a unique function\iref{over.match,over.over}.
@@ -7853,7 +7844,10 @@ if it is potentially evaluated and either:
 \begin{itemize}
 \item
 its innermost enclosing non-block scope is
-a function parameter scope of an immediate function, or
+a function parameter scope of an immediate function,
+\item
+it is a subexpression of a manifestly constant-evaluated expression
+or conversion, or
 \item
 its enclosing statement is enclosed\iref{stmt.pre} by
 the \grammarterm{compound-statement} of a consteval if statement\iref{stmt.if}.
@@ -7862,7 +7856,112 @@ An invocation is an \defn{immediate invocation}
 if it is a potentially-evaluated explicit or implicit invocation of
 an immediate function and
 is not in an immediate function context.
-An immediate invocation shall be a constant expression.
+An aggregate initialization is an immediate invocation
+if it evaluates a default member initializer
+that has a subexpression that is an immediate-escalating expression.
+
+\pnum
+\indexdefn{expression!immediate-escalating}%
+\indexdefn{conversion!immediate-escalating}%
+\indexdefn{immediate-escalating!expression|see{expression, immediate-escalating}}%
+\indexdefn{immediate-escalating!conversion|see{conversion, immediate-escalating}}%
+An expression or conversion is \defn{immediate-escalating}
+if it is not initially in an immediate function context
+and it is either
+\begin{itemize}
+\item
+a potentially-evaluated \grammarterm{id-expression}
+that denotes an immediate function
+that is not a subexpression of an immediate invocation, or
+\item
+an immediate invocation that is not a constant expression
+and is not a subexpression of an immediate invocation.
+\end{itemize}
+
+\pnum
+\indexdefn{immediate-escalating!function|see{function, immediate-escalating}}%
+An \defnx{immediate-escalating}{function!immediate-escalating} function is
+\begin{itemize}
+\item
+the call operator of a lambda that is not declared
+with the \keyword{consteval} specifier,
+\item
+a defaulted special member function
+that is not declared with the \keyword{consteval} specifier, or
+\item
+a function that results from the instantiation
+of a templated entity defined with the \keyword{constexpr} specifier.
+\end{itemize}
+An immediate-escalating expression shall appear only
+in an immediate-escalating function.
+
+\pnum
+An \defnadj{immediate}{function} is a function or constructor that is
+\begin{itemize}
+\item
+declared with the \keyword{consteval} specifier, or
+\item
+an immediate-escalating function \tcode{\placeholder{F}}
+whose function body contains an immediate-escalating expression \tcode{\placeholder{E}}
+such that \tcode{\placeholder{E}}'s innermost enclosing non-block scope
+is \tcode{\placeholder{F}}'s function parameter scope.
+\end{itemize}
+\begin{example}
+\begin{codeblock}
+consteval int id(int i) { return i; }
+constexpr char id(char c) { return c; }
+
+template<class T>
+constexpr int f(T t) {
+  return t + id(t);
+}
+
+auto a = &f<char>;              // OK, \tcode{f<char>} is not an immediate function
+auto b = &f<int>;               // error: \tcode{f<int>} is an immediate function
+
+static_assert(f(3) == 6);       // OK
+
+template<class T>
+constexpr int g(T t) {          // \tcode{g<int>} is not an immediate function
+  return t + id(42);            // because \tcode{id(42)} is already a constant
+}
+
+template<class T, class F>
+constexpr bool is_not(T t, F f) {
+  return not f(t);
+}
+
+consteval bool is_even(int i) { return i % 2 == 0; }
+
+static_assert(is_not(5, is_even));      // OK
+
+int x = 0;
+
+template<class T>
+constexpr T h(T t = id(x)) {    // \tcode{h<int>} is not an immediate function
+    return t;
+}
+
+template<class T>
+constexpr T hh() {              // \tcode{hh<int>} is an immediate function
+  return h<T>();
+}
+
+int i = hh<int>();              // error: ill-formed, \tcode{hh<int>()} is an immediate-escalating expression
+                                // outside of an immediate-escalating function
+
+struct A {
+  int x;
+  int y = id(x);
+};
+
+template<class T>
+constexpr int k(int) {          // \tcode{k<int>} is not an immediate function because \tcode{A(42)} is a
+  return A(42).y;               // constant expression and thus not immediate-escalating
+}
+\end{codeblock}
+\end{example}
+
 
 \pnum
 An expression or conversion is \defn{manifestly constant-evaluated}
