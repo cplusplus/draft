@@ -214,9 +214,9 @@ namespace std::ranges {
   template<@\libconcept{move_constructible}@ W, @\libconcept{semiregular}@ Bound = unreachable_sentinel_t>
     requires (is_object_v<W> && @\libconcept{same_as}@<W, remove_cv_t<W>>
       && (@\exposid{is-integer-like}@<Bound> || @\libconcept{same_as}@<Bound, unreachable_sentinel_t>))
-  class repeat_view;
+  class repeat_view;                                                                // freestanding
 
-  namespace views { inline constexpr @\unspec@ repeat = @\unspec@; }
+  namespace views { inline constexpr @\unspecnc@ repeat = @\unspecnc@; }            // freestanding
 
   // \ref{range.istream}, istream view
   template<@\libconcept{movable}@ Val, class CharT, class Traits = char_traits<CharT>>
@@ -513,19 +513,20 @@ namespace std::ranges {
   // \ref{range.stride}, stride view
   template<@\libconcept{input_range}@ V>
     requires @\libconcept{view}@<V>
-  class stride_view;
+  class stride_view;                                                                // freestanding
 
   template<class V>
-    inline constexpr bool enable_borrowed_range<stride_view<V>> = enable_borrowed_range<V>;
+    inline constexpr bool enable_borrowed_range<stride_view<V>> =                   // freestanding
+      enable_borrowed_range<V>;
 
-  namespace views { inline constexpr @\unspecnc@ stride = @\unspecnc@; }
+  namespace views { inline constexpr @\unspecnc@ stride = @\unspecnc@; }            // freestanding
 
   // \ref{range.cartesian}, cartesian product view
   template<@\libconcept{input_range}@ First, @\libconcept{forward_range}@... Vs>
     requires (@\libconcept{view}@<First> && ... && @\libconcept{view}@<Vs>)
-  class cartesian_product_view;
+  class cartesian_product_view;                                                     // freestanding
 
-  namespace views { inline constexpr @\unspecnc@ cartesian_product = @\unspecnc@; }
+  namespace views { inline constexpr @\unspecnc@ cartesian_product = @\unspecnc@; } // freestanding
 }
 
 namespace std {
@@ -1696,16 +1697,16 @@ namespace std::ranges {
         return ranges::begin(@\exposid{derived}@()) == ranges::end(@\exposid{derived}@());
     }
 
-    constexpr auto cbegin() {
+    constexpr auto cbegin() requires @\libconcept{input_range}@<D> {
       return ranges::cbegin(@\exposid{derived}@());
     }
-    constexpr auto cbegin() const requires @\libconcept{range}@<const D> {
+    constexpr auto cbegin() const requires @\libconcept{input_range}@<const D> {
       return ranges::cbegin(@\exposid{derived}@());
     }
-    constexpr auto cend() {
+    constexpr auto cend() requires @\libconcept{input_range}@<D> {
       return ranges::cend(@\exposid{derived}@());
     }
-    constexpr auto cend() const requires @\libconcept{range}@<const D> {
+    constexpr auto cend() const requires @\libconcept{input_range}@<const D> {
       return ranges::cend(@\exposid{derived}@());
     }
 
@@ -5746,6 +5747,10 @@ namespace std::ranges {
           auto sz = range_difference_t<V>(size());
           return counted_iterator(ranges::begin(@\exposid{base_}@), sz);
         }
+      } else if constexpr (@\libconcept{sized_sentinel_for}@<sentinel_t<V>, iterator_t<V>>) {
+        auto it = ranges::begin(@\exposid{base_}@);
+        auto sz = std::min(@\exposid{count_}@, ranges::end(@\exposid{base_}@) - it);
+        return counted_iterator(std::move(it), sz);
       } else {
         return counted_iterator(ranges::begin(@\exposid{base_}@), @\exposid{count_}@);
       }
@@ -5759,6 +5764,10 @@ namespace std::ranges {
           auto sz = range_difference_t<const V>(size());
           return counted_iterator(ranges::begin(@\exposid{base_}@), sz);
         }
+      } else if constexpr (@\libconcept{sized_sentinel_for}@<sentinel_t<const V>, iterator_t<const V>>) {
+        auto it = ranges::begin(@\exposid{base_}@);
+        auto sz = std::min(@\exposid{count_}@, ranges::end(@\exposid{base_}@) - it);
+        return counted_iterator(std::move(it), sz);
       } else {
         return counted_iterator(ranges::begin(@\exposid{base_}@), @\exposid{count_}@);
       }
@@ -5770,6 +5779,8 @@ namespace std::ranges {
           return ranges::begin(@\exposid{base_}@) + range_difference_t<V>(size());
         else
           return default_sentinel;
+      } else if constexpr (@\libconcept{sized_sentinel_for}@<sentinel_t<V>, iterator_t<V>>) {
+        return default_sentinel;
       } else {
         return @\exposid{sentinel}@<false>{ranges::end(@\exposid{base_}@)};
       }
@@ -5781,6 +5792,8 @@ namespace std::ranges {
           return ranges::begin(@\exposid{base_}@) + range_difference_t<const V>(size());
         else
           return default_sentinel;
+      } else if constexpr (@\libconcept{sized_sentinel_for}@<sentinel_t<const V>, iterator_t<const V>>) {
+        return default_sentinel;
       } else {
         return @\exposid{sentinel}@<true>{ranges::end(@\exposid{base_}@)};
       }
@@ -6497,7 +6510,7 @@ namespace std::ranges {
       is_reference_v<range_reference_t<@\exposidnc{Base}@>>;
 
     @\exposidnc{OuterIter}@ @\exposid{outer_}@ = @\exposidnc{OuterIter}@();                             // \expos
-    @\exposidnc{InnerIter}@ @\exposid{inner_}@ = @\exposidnc{InnerIter}@();                             // \expos
+    optional<@\exposidnc{InnerIter}@> @\exposid{inner_}@;                                 // \expos
     @\exposidnc{Parent}@* @\exposid{parent_}@  = nullptr;                                 // \expos
 
     constexpr void @\exposidnc{satisfy}@();                                   // \expos
@@ -6508,15 +6521,14 @@ namespace std::ranges {
     using value_type        = range_value_t<range_reference_t<@\exposid{Base}@>>;
     using difference_type   = @\seebelow@;
 
-    @\exposid{iterator}@() requires @\libconcept{default_initializable}@<@\exposid{OuterIter}@> &&
-                         @\itcorr[-2]\libconcept{default_initializable}@<@\exposid{InnerIter}@> = default;
+    @\exposid{iterator}@() requires @\libconcept{default_initializable}@<@\exposid{OuterIter}@> = default;
     constexpr @\exposid{iterator}@(@\exposid{Parent}@& parent, @\exposid{OuterIter}@ outer);
     constexpr @\exposid{iterator}@(@\exposid{iterator}@<!Const> i)
       requires Const &&
                @\libconcept{convertible_to}@<iterator_t<V>, @\exposid{OuterIter}@> &&
                @\libconcept{convertible_to}@<iterator_t<@\exposid{InnerRng}@>, @\exposid{InnerIter}@>;
 
-    constexpr decltype(auto) operator*() const { return *@\exposid{inner_}@; }
+    constexpr decltype(auto) operator*() const { return **@\exposid{inner_}@; }
 
     constexpr @\exposid{InnerIter}@ operator->() const
       requires @\exposconcept{has-arrow}@<@\exposid{InnerIter}@> && @\libconcept{copyable}@<@\exposid{InnerIter}@>;
@@ -6542,12 +6554,12 @@ namespace std::ranges {
                @\libconcept{equality_comparable}@<iterator_t<range_reference_t<@\exposid{Base}@>>>;
 
     friend constexpr decltype(auto) iter_move(const @\exposid{iterator}@& i)
-    noexcept(noexcept(ranges::iter_move(i.@\exposid{inner_}@))) {
-      return ranges::iter_move(i.@\exposid{inner_}@);
+    noexcept(noexcept(ranges::iter_move(*i.@\exposid{inner_}@))) {
+      return ranges::iter_move(*i.@\exposid{inner_}@);
     }
 
     friend constexpr void iter_swap(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
-      noexcept(noexcept(ranges::iter_swap(x.@\exposid{inner_}@, y.@\exposid{inner_}@)))
+      noexcept(noexcept(ranges::iter_swap(*x.@\exposid{inner_}@, *y.@\exposid{inner_}@)))
       requires @\libconcept{indirectly_swappable}@<@\exposid{InnerIter}@>;
   };
 }
@@ -6624,11 +6636,11 @@ auto update_inner = [this](const iterator_t<@\exposid{Base}@>& x) -> auto&& {
 for (; @\exposid{outer_}@ != ranges::end(@\exposid{parent_}@->@\exposid{base_}@); ++@\exposid{outer_}@) {
   auto&& inner = update_inner(@\exposid{outer_}@);
   @\exposid{inner_}@ = ranges::begin(inner);
-  if (@\exposid{inner_}@ != ranges::end(inner))
+  if (*@\exposid{inner_}@ != ranges::end(inner))
     return;
 }
 if constexpr (@\exposid{ref-is-glvalue}@)
-  @\exposid{inner_}@ = @\exposid{InnerIter}@();
+  @\exposid{inner_}@.reset();
 \end{codeblock}
 \end{itemdescr}
 
@@ -6669,7 +6681,7 @@ constexpr @\exposid{InnerIter}@ operator->() const
 \begin{itemdescr}
 \pnum
 \effects
-Equivalent to \tcode{return \exposid{inner_};}
+Equivalent to: \tcode{return *\exposid{inner_};}
 \end{itemdescr}
 
 \indexlibrarymember{operator++}{join_view::\exposid{iterator}}%
@@ -6690,7 +6702,7 @@ Let \tcode{\placeholder{inner-range}} be:
 Equivalent to:
 \begin{codeblock}
 auto&& inner_rng = @\placeholder{inner-range}@;
-if (++@\exposid{inner_}@ == ranges::end(inner_rng)) {
+if (++*@\exposid{inner_}@ == ranges::end(inner_rng)) {
   ++@\exposid{outer_}@;
   @\exposid{satisfy}@();
 }
@@ -6742,9 +6754,9 @@ Equivalent to:
 \begin{codeblock}
 if (@\exposid{outer_}@ == ranges::end(@\exposid{parent_}@->@\exposid{base_}@))
   @\exposid{inner_}@ = ranges::end(*--@\exposid{outer_}@);
-while (@\exposid{inner_}@ == ranges::begin(*@\exposid{outer_}@))
-  @\exposid{inner_}@ = ranges::end(*--@\exposid{outer_}@);
---@\exposid{inner_}@;
+while (*@\exposid{inner_}@ == ranges::begin(*@\exposid{outer_}@))
+  *@\exposid{inner_}@ = ranges::end(*--@\exposid{outer_}@);
+--*@\exposid{inner_}@;
 return *this;
 \end{codeblock}
 \end{itemdescr}
@@ -6785,14 +6797,14 @@ Equivalent to:
 \indexlibrarymember{iter_swap}{join_view::\exposid{iterator}}%
 \begin{itemdecl}
 friend constexpr void iter_swap(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
-  noexcept(noexcept(ranges::iter_swap(x.@\exposid{inner_}@, y.@\exposid{inner_}@)))
+  noexcept(noexcept(ranges::iter_swap(*x.@\exposid{inner_}@, *y.@\exposid{inner_}@)))
   requires @\libconcept{indirectly_swappable}@<@\exposid{InnerIter}@>;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects
-Equivalent to: \tcode{return ranges::iter_swap(x.\exposid{inner_}, y.\exposid{inner_});}
+Equivalent to: \tcode{return ranges::iter_swap(*x.\exposid{inner_}, *y.\exposid{inner_});}
 \end{itemdescr}
 
 \rSec3[range.join.sentinel]{Class template \tcode{join_view::\exposid{sentinel}}}
@@ -8428,14 +8440,14 @@ namespace std::ranges {
 
     constexpr auto end() {
       if constexpr (@\libconcept{random_access_range}@<V> && @\libconcept{sized_range}@<V>)
-        return ranges::begin(@\exposid{base_}@) + ranges::size(@\exposid{base_}@);
+        return ranges::begin(@\exposid{base_}@) + ranges::distance(@\exposid{base_}@);
       else
         return common_iterator<iterator_t<V>, sentinel_t<V>>(ranges::end(@\exposid{base_}@));
     }
 
     constexpr auto end() const requires @\libconcept{range}@<const V> {
       if constexpr (@\libconcept{random_access_range}@<const V> && @\libconcept{sized_range}@<const V>)
-        return ranges::begin(@\exposid{base_}@) + ranges::size(@\exposid{base_}@);
+        return ranges::begin(@\exposid{base_}@) + ranges::distance(@\exposid{base_}@);
       else
         return common_iterator<iterator_t<const V>, sentinel_t<const V>>(ranges::end(@\exposid{base_}@));
     }
@@ -15416,9 +15428,10 @@ return yield_value(ranges::elements_of(nested(
 \end{codeblock}
 
 \pnum
-\remarks
+\begin{note}
 A \grammarterm{yield-expression} that calls this function
 has type \tcode{void}\iref{expr.yield}.
+\end{note}
 \end{itemdescr}
 
 \indexlibrarymember{unhandled_exception}{generator::promise_type}%
