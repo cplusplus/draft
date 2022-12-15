@@ -67,6 +67,8 @@ namespace std::ranges {
   template<@\libconcept{range}@ R>
     using const_iterator_t = const_iterator<iterator_t<R>>;                         // freestanding
   template<@\libconcept{range}@ R>
+    using const_sentinel_t = const_sentinel<sentinel_t<R>>;                         // freestanding
+  template<@\libconcept{range}@ R>
     using range_difference_t = iter_difference_t<iterator_t<R>>;                    // freestanding
   template<@\libconcept{sized_range}@ R>
     using range_size_t = decltype(ranges::size(declval<R&>()));                     // freestanding
@@ -1726,11 +1728,11 @@ namespace std::ranges {
 
     constexpr auto size() requires @\libconcept{forward_range}@<D> &&
       @\libconcept{sized_sentinel_for}@<sentinel_t<D>, iterator_t<D>> {
-        return ranges::end(@\exposid{derived}@()) - ranges::begin(@\exposid{derived}@());
+        return @\exposid{to-unsigned-like}@(ranges::end(@\exposid{derived}@()) - ranges::begin(@\exposid{derived}@()));
       }
     constexpr auto size() const requires @\libconcept{forward_range}@<const D> &&
       @\libconcept{sized_sentinel_for}@<sentinel_t<const D>, iterator_t<const D>> {
-        return ranges::end(@\exposid{derived}@()) - ranges::begin(@\exposid{derived}@());
+        return @\exposid{to-unsigned-like}@(ranges::end(@\exposid{derived}@()) - ranges::begin(@\exposid{derived}@()));
       }
 
     constexpr decltype(auto) front() requires @\libconcept{forward_range}@<D>;
@@ -2298,7 +2300,8 @@ An object of type \tcode{C}
 constructed from the elements of \tcode{r} in the following manner:
 \begin{itemize}
 \item
-If \tcode{\libconcept{convertible_to}<range_reference_t<R>, range_value_t<C>>}
+If \tcode{C} does not satisfy \libconcept{input_range} or
+\tcode{\libconcept{convertible_to}<range_reference_t<R>, range_value_t<C>>}
 is \tcode{true}:
 \begin{itemize}
 \item
@@ -2338,7 +2341,7 @@ Otherwise, if
 \begin{codeblock}
 C c(std::forward<Args>(args)...);
 if constexpr (@\libconcept{sized_range}@<R> && @\exposid{reservable-container}@<C>)
-  c.reserve(ranges::size(r));
+  c.reserve(static_cast<range_size_t<C>>(ranges::size(r)));
 ranges::copy(r, @\exposid{container-inserter}@<range_reference_t<R>>(c));
 \end{codeblock}
 \end{itemize}
@@ -2800,6 +2803,8 @@ constexpr explicit iota_view(W value);
 \expects
 \tcode{Bound} denotes \tcode{unreachable_sentinel_t} or
 \tcode{Bound()} is reachable from \tcode{value}.
+When \tcode{W} and \tcode{Bound} model \libconcept{totally_ordered_with},
+then \tcode{bool(value <= Bound())} is \tcode{true}.
 
 \pnum
 \effects
@@ -3411,7 +3416,7 @@ namespace std::ranges {
     // \ref{range.repeat.iterator}, class \tcode{repeat_view::\exposid{iterator}}
     struct @\exposidnc{iterator}@;                            // \expos
 
-    @\exposidnc{movable-box}@<W> @\exposid{value_}@ = W();                // \expos, see \ref{range.move.wrap}
+    @\exposidnc{movable-box}@<W> @\exposid{value_}@;                      // \expos, see \ref{range.move.wrap}
     Bound @\exposid{bound_}@ = Bound();                     // \expos
 
   public:
@@ -4273,7 +4278,7 @@ namespace std::ranges {
   template<class F, class Tuple>
   constexpr void @\exposid{tuple-for-each}@(F&& f, Tuple&& t) { // \expos
     apply([&]<class... Ts>(Ts&&... elements) {
-      (invoke(f, std::forward<Ts>(elements)), ...);
+      (static_cast<void>(invoke(f, std::forward<Ts>(elements))), ...);
     }, std::forward<Tuple>(t));
   }
 }
@@ -5226,7 +5231,7 @@ Let \tcode{C} denote the type
 \tcode{iterator_traits<iterator_t<\exposid{Base}>>::iterator_category}.
 \begin{itemize}
 \item
-If \tcode{is_lvalue_reference_v<invoke_result_t<\exposidnc{maybe-const}<Const, F>\&, range_reference_t<\linebreak\exposid{Base}>>>}
+If \tcode{is_reference_v<invoke_result_t<\exposidnc{maybe-const}<Const, F>\&, range_reference_t<\exposid{Base}>>>}
 is \tcode{true}, then
 \begin{itemize}
 \item
@@ -5804,6 +5809,10 @@ constexpr take_view(V base, range_difference_t<V> count);
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+\expects
+\tcode{count >= 0} is \tcode{true}.
+
 \pnum
 \effects
 Initializes \exposid{base_} with \tcode{std::move(base)} and
@@ -7101,8 +7110,8 @@ let \placeholder{PATTERNC} denote
 \item
 If
 \begin{codeblock}
-is_lvalue_reference_v<common_reference_t<iter_reference_t<@\exposid{InnerIter}@>,
-                                         iter_reference_t<@\exposid{PatternIter}@>>>
+is_reference_v<common_reference_t<iter_reference_t<@\exposid{InnerIter}@>,
+                                  iter_reference_t<@\exposid{PatternIter}@>>>
 \end{codeblock}
 is \tcode{false},
 \tcode{iterator_category} denotes \tcode{input_iterator_tag}.
@@ -9987,7 +9996,7 @@ If \tcode{Es} is an empty pack,
 let \tcode{FD} be \tcode{decay_t<decltype((F))>}.
 \begin{itemize}
 \item
-If \tcode{\libconcept{copy_constructible}<FD> \&\&
+If \tcode{\libconcept{move_constructible}<FD> \&\&
 \libconcept{regular_invocable}<FD\&>} is \tcode{false}, or
 if \tcode{decay_t<invoke_result_t<FD\&>>} is not an object type,
 \tcode{views::zip_transform(F, Es...)} is ill-formed.
@@ -10171,7 +10180,7 @@ If
 \begin{codeblock}
 invoke_result_t<@\exposid{maybe-const}@<Const, F>&, range_reference_t<@\exposid{maybe-const}@<Const, Views>>...>
 \end{codeblock}
-is not an lvalue reference,
+is not a reference,
 \tcode{iterator_category} denotes \tcode{input_iterator_tag}.
 \item
 Otherwise, let \tcode{Cs} denote the pack of types
@@ -11321,7 +11330,7 @@ is defined as follows:
 \item
 If \tcode{invoke_result_t<\exposid{maybe-const}<Const, F>\&,
 \exposid{REPEAT}(range_reference_t<\exposid{Base}>, N)...>}
-is\linebreak not an lvalue reference,
+is\linebreak not a reference,
 \tcode{iterator_category} denotes \tcode{input_iterator_tag}.
 \item
 Otherwise, let \tcode{C} denote the type
@@ -13299,7 +13308,7 @@ namespace std::ranges {
     requires @\libconcept{view}@<V> && is_object_v<Pred>
   class chunk_by_view : public view_interface<chunk_by_view<V, Pred>> {
     V @\exposid{base_}@ = V();                                          // \expos
-    @\exposidnc{movable-box}@<Pred> @\exposid{pred_}@ = Pred();                       // \expos
+    @\exposidnc{movable-box}@<Pred> @\exposid{pred_}@;                                // \expos
 
     // \ref{range.chunk.by.iter}, class \tcode{chunk_by_view::\exposid{iterator}}
     class @\exposidnc{iterator}@;                                         // \expos
@@ -14339,7 +14348,9 @@ constexpr @\exposid{iterator}@<false> begin()
 \pnum
 \effects
 Equivalent to:
-\tcode{return \exposid{iterator}<false>(\exposid{tuple-transform}(ranges::begin, \exposid{bases_}));}
+\begin{codeblock}
+return @\exposid{iterator}@<false>(*this, @\exposid{tuple-transform}@(ranges::begin, @\exposid{bases_}@));
+\end{codeblock}
 \end{itemdescr}
 
 \begin{itemdecl}
@@ -14351,7 +14362,9 @@ constexpr @\exposid{iterator}@<true> begin() const
 \pnum
 \effects
 Equivalent to:
-\tcode{return \exposid{iterator}<true>(\exposid{tuple-transform}(ranges::begin, \exposid{bases_}));}
+\begin{codeblock}
+return @\exposid{iterator}@<true>(*this, @\exposid{tuple-transform}@(ranges::begin, @\exposid{bases_}@));
+\end{codeblock}
 \end{itemdescr}
 
 \begin{itemdecl}
@@ -14385,7 +14398,7 @@ if \tcode{rng} is the first underlying range and
 \effects
 Equivalent to:
 \begin{codeblock}
-@\exposid{iterator}@<@\exposid{is-const}@> it(@\exposid{tuple-transform}@(
+@\exposid{iterator}@<@\exposid{is-const}@> it(*this, @\exposid{tuple-transform}@(
   [](auto& rng){ return @\exposid{begin-or-first-end}@(rng); }, @\exposid{bases_}@));
 return it;
 \end{codeblock}
@@ -14488,9 +14501,9 @@ namespace std::ranges {
     friend constexpr difference_type operator-(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
       requires @\exposconcept{cartesian-is-sized-sentinel}@<Const, iterator_t, First, Vs...>;
 
-    friend constexpr difference_type operator-(@\exposid{iterator}@ i, default_sentinel_t)
+    friend constexpr difference_type operator-(const @\exposid{iterator}@& i, default_sentinel_t)
       requires @\exposconcept{cartesian-is-sized-sentinel}@<Const, sentinel_t, First, Vs...>;
-    friend constexpr difference_type operator-(default_sentinel_t, @\exposid{iterator}@ i)
+    friend constexpr difference_type operator-(default_sentinel_t, const @\exposid{iterator}@& i)
       requires @\exposconcept{cartesian-is-sized-sentinel}@<Const, sentinel_t, First, Vs...>;
 
     friend constexpr auto iter_move(const @\exposid{iterator}@& i) noexcept(@\seebelow@);
@@ -14500,21 +14513,22 @@ namespace std::ranges {
         @\libconcept{indirectly_swappable}@<iterator_t<@\exposid{maybe-const}@<Const, Vs>>>);
 
   private:
-    @\exposid{maybe-const}@<Const, cartesian_product_view>* @\exposid{parent_}@ = nullptr;      // \expos
+    using @\exposidnc{Parent}@ = @\exposidnc{maybe-const}@<Const, cartesian_product_view>;          // \expos
+    @\exposidnc{Parent}@* @\exposidnc{parent_}@ = nullptr;                                          // \expos
     tuple<iterator_t<@\exposid{maybe-const}@<Const, First>>,
-      iterator_t<@\exposid{maybe-const}@<Const, Vs>>...> @\exposid{current_}@;                  // \expos
+      iterator_t<@\exposidnc{maybe-const}@<Const, Vs>>...> @\exposidnc{current_}@;                  // \expos
 
     template<size_t N = sizeof...(Vs)>
-      constexpr void @\exposid{next}@();                                            // \expos
+      constexpr void @\exposidnc{next}@();                                            // \expos
 
     template<size_t N = sizeof...(Vs)>
-      constexpr void @\exposid{prev}@();                                            // \expos
+      constexpr void @\exposidnc{prev}@();                                            // \expos
 
     template<class Tuple>
-      constexpr difference_type @\exposid{distance-from}@(Tuple t);                 // \expos
+      constexpr difference_type @\exposidnc{distance-from}@(const Tuple& t) const;    // \expos
 
-    constexpr explicit @\exposid{iterator}@(tuple<iterator_t<@\exposid{maybe-const}@<Const, First>>,
-      iterator_t<@\exposid{maybe-const}@<Const, Vs>>...> current);                  // \expos
+    constexpr @\exposid{iterator}@(@\exposid{Parent}@& parent, tuple<iterator_t<@\exposid{maybe-const}@<Const, First>>,
+      iterator_t<@\exposidnc{maybe-const}@<Const, Vs>>...> current);                  // \expos
   };
 }
 \end{codeblock}
@@ -14597,7 +14611,7 @@ if (it == ranges::begin(std::get<N>(@\exposid{parent_}@->@\exposid{bases_}@))) {
 
 \begin{itemdecl}
 template<class Tuple>
-  constexpr difference_type @\exposid{distance-from}@(Tuple t);
+  constexpr difference_type @\exposid{distance-from}@(const Tuple& t) const;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -14608,7 +14622,7 @@ Let:
 $\exposid{scaled-size}(N)$ be the product of
 \tcode{static_cast<difference_type>(ranges::size(std::get<\brk{}$N$>(\exposid{parent_}->\exposid{bases_})))} and
 $\exposid{scaled-size}(N+1)$
-if $N < \tcode{sizeof...(Vs)}$, otherwise \tcode{static_cast<difference_type>(1)};
+if $N \le \tcode{sizeof...(Vs)}$, otherwise \tcode{static_cast<difference_type>(1)};
 \item
 $\exposid{scaled-distance}(N)$ be the product of
 \tcode{static_cast<difference_type>(std::get<$N$>(\exposid{cur\-rent_}) - std::get<$N$>(t))} and $\exposid{scaled-size}(N+1)$; and
@@ -14627,14 +14641,16 @@ for every integer $0 \le N \le \tcode{sizeof...(Vs)}$.
 \end{itemdescr}
 
 \begin{itemdecl}
-constexpr explicit @\exposid{iterator}@(tuple<iterator_t<@\exposid{maybe-const}@<Const, First>>,
+constexpr @\exposid{iterator}@(@\exposid{Parent}@& parent, tuple<iterator_t<@\exposid{maybe-const}@<Const, First>>,
   iterator_t<@\exposid{maybe-const}@<Const, Vs>>...> current);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects
-Initializes \exposid{current_} with \tcode{std::move(current)}.
+Initializes
+\exposid{parent_} with \tcode{addressof(parent)} and
+\exposid{current_} with \tcode{std::move(current)}.
 \end{itemdescr}
 
 \begin{itemdecl}
@@ -14646,7 +14662,9 @@ constexpr @\exposid{iterator}@(@\exposid{iterator}@<!Const> i) requires Const &&
 \begin{itemdescr}
 \pnum
 \effects
-Initializes \exposid{current_} with \tcode{std::move(i.\exposid{current_})}.
+Initializes
+\exposid{parent_} with \tcode{i.\exposid{parent_}} and
+\exposid{current_} with \tcode{std::move(i.\exposid{current_})}.
 \end{itemdescr}
 
 \begin{itemdecl}
@@ -14878,7 +14896,7 @@ Equivalent to: \tcode{return x.\exposid{distance-from}(y.\exposid{current_});}
 \end{itemdescr}
 
 \begin{itemdecl}
-friend constexpr difference_type operator-(@\exposid{iterator}@ i, default_sentinel_t)
+friend constexpr difference_type operator-(const @\exposid{iterator}@& i, default_sentinel_t)
   requires @\exposconcept{cartesian-is-sized-sentinel}@<Const, sentinel_t, First, Vs...>;
 \end{itemdecl}
 
@@ -14902,7 +14920,7 @@ Equivalent to: \tcode{return i.\exposid{distance-from}(\exposid{end-tuple});}
 \end{itemdescr}
 
 \begin{itemdecl}
-friend constexpr difference_type operator-(default_sentinel_t s, @\exposid{iterator}@ i)
+friend constexpr difference_type operator-(default_sentinel_t s, const @\exposid{iterator}@& i)
   requires @\exposconcept{cartesian-is-sized-sentinel}@<Const, sentinel_t, First, Vs...>;
 \end{itemdecl}
 
@@ -15510,7 +15528,7 @@ namespace std {
     @\exposid{iterator}@& operator++();
     void operator++(int);
 
-    friend bool operator==(@\exposid{iterator}@ i, default_sentinel_t);
+    friend bool operator==(const @\exposid{iterator}@& i, default_sentinel_t);
 
   private:
     coroutine_handle<promise_type> @\exposid{coroutine_}@; // \expos
@@ -15598,7 +15616,7 @@ Equivalent to \tcode{++*this}.
 
 \indexlibrarymember{operator==}{generator::\exposid{iterator}}%
 \begin{itemdecl}
-friend bool operator==(@\exposid{iterator}@ i, default_sentinel_t);
+friend bool operator==(const @\exposid{iterator}@& i, default_sentinel_t);
 \end{itemdecl}
 
 \begin{itemdescr}
