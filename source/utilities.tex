@@ -15744,17 +15744,20 @@ that models
 \tcode{\libconcept{output_iterator}<const charT\&>}\iref{iterator.concept.output}.
 
 \begin{codeblock}
+template<class T, class Context,
+         class Formatter = typename Context::template formatter_type<remove_const_t<T>>>
+  concept @\defexposconcept{formattable-with}@ =                // \expos
+    @\libconcept{semiregular}@<Formatter> &&
+    requires(Formatter& f, const Formatter& cf, T&& t, Context fc,
+             basic_format_parse_context<typename Context::char_type> pc)
+    {
+      { f.parse(pc) } -> @\libconcept{same_as}@<typename decltype(pc)::iterator>;
+      { cf.format(t, fc) } -> @\libconcept{same_as}@<typename Context::iterator>;
+    };
+
 template<class T, class charT>
   concept @\deflibconcept{formattable}@ =
-    @\libconcept{semiregular}@<formatter<remove_cvref_t<T>, charT>> &&
-    requires(formatter<remove_cvref_t<T>, charT> f,
-             const formatter<remove_cvref_t<T>, charT> cf,
-             T t,
-             basic_format_context<@\placeholder{fmt-iter-for}@<charT>, charT> fc,
-             basic_format_parse_context<charT> pc) {
-        { f.parse(pc) } -> @\libconcept{same_as}@<basic_format_parse_context<charT>::iterator>;
-        { cf.format(t, fc) } -> @\libconcept{same_as}@<@\placeholder{fmt-iter-for}@<charT>>;
-    };
+    @\exposconcept{formattable-with}@<remove_reference_t<T>, basic_format_context<@\placeholder{fmt-iter-for}@<charT>>>;
 \end{codeblock}
 
 \pnum
@@ -16947,24 +16950,7 @@ namespace std {
             const char_type*, basic_string_view<char_type>,
             const void*, handle> value;                                         // \expos
 
-    template<class T> explicit basic_format_arg(T&& v) noexcept;                // \expos
-    explicit basic_format_arg(float n) noexcept;                                // \expos
-    explicit basic_format_arg(double n) noexcept;                               // \expos
-    explicit basic_format_arg(long double n) noexcept;                          // \expos
-    explicit basic_format_arg(const char_type* s);                              // \expos
-
-    template<class traits>
-      explicit basic_format_arg(
-        basic_string_view<char_type, traits> s) noexcept;                       // \expos
-
-    template<class traits, class Allocator>
-      explicit basic_format_arg(
-        const basic_string<char_type, traits, Allocator>& s) noexcept;          // \expos
-
-    explicit basic_format_arg(nullptr_t) noexcept;                              // \expos
-
-    template<class T>
-      explicit basic_format_arg(T* p) noexcept;                                 // \expos
+    template<class T> explicit basic_format_arg(T& v) noexcept;                 // \expos
 
   public:
     basic_format_arg() noexcept;
@@ -16994,142 +16980,74 @@ basic_format_arg() noexcept;
 \end{itemdescr}
 
 \begin{itemdecl}
-template<class T> explicit basic_format_arg(T&& v) noexcept;
+template<class T> explicit basic_format_arg(T& v) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \constraints
-The template specialization
-\begin{codeblock}
-typename Context::template formatter_type<remove_cvref_t<T>>
-\end{codeblock}
-meets the \newoldconcept{BasicFormatter} requirements\iref{formatter.requirements}.
-The extent to which an implementation determines that
-the specialization meets the \newoldconcept{BasicFormatter} requirements
-is unspecified,
-except that as a minimum the expression
-\begin{codeblock}
-typename Context::template formatter_type<remove_cvref_t<T>>()
-  .format(declval<T&>(), declval<Context&>())
-\end{codeblock}
-shall be well-formed when treated as an unevaluated operand\iref{term.unevaluated.operand}.
+\tcode{T} satisfies \tcode{\exposconcept{formattable-with}<Context>}.
+
+\pnum
+\expects
+If \tcode{decay_t<T>} is \tcode{char_type*} or \tcode{const char_type*},
+\tcode{static_cast<const char_\linebreak{}type*>(v)} points to a NTCTS\iref{defns.ntcts}.
 
 \pnum
 \effects
+Let \tcode{TD} be \tcode{remove_const_t<T>}.
 \begin{itemize}
 \item
-if \tcode{T} is \tcode{bool} or \tcode{char_type},
+If \tcode{TD} is \tcode{bool} or \tcode{char_type},
 initializes \tcode{value} with \tcode{v};
 \item
-otherwise, if \tcode{T} is \tcode{char} and \tcode{char_type} is
+otherwise, if \tcode{TD} is \tcode{char} and \tcode{char_type} is
 \keyword{wchar_t}, initializes \tcode{value} with
 \tcode{static_cast<wchar_t>(v)};
 \item
-otherwise, if \tcode{T} is a signed integer type\iref{basic.fundamental}
-and \tcode{sizeof(T) <= sizeof(int)},
+otherwise, if \tcode{TD} is a signed integer type\iref{basic.fundamental}
+and \tcode{sizeof(TD) <= sizeof(int)},
 initializes \tcode{value} with \tcode{static_cast<int>(v)};
 \item
-otherwise, if \tcode{T} is an unsigned integer type and
-\tcode{sizeof(T) <= sizeof(unsigned int)}, initializes
+otherwise, if \tcode{TD} is an unsigned integer type and
+\tcode{sizeof(TD) <= sizeof(unsigned int)}, initializes
 \tcode{value} with \tcode{static_cast<unsigned int>(v)};
 \item
-otherwise, if \tcode{T} is a signed integer type and
-\tcode{sizeof(T) <= sizeof(long long int)}, initializes
+otherwise, if \tcode{TD} is a signed integer type and
+\tcode{sizeof(TD) <= sizeof(long long int)}, initializes
 \tcode{value} with \tcode{static_cast<long long int>(v)};
 \item
-otherwise, if \tcode{T} is an unsigned integer type and
-\tcode{sizeof(T) <= sizeof(unsigned long long int)}, initializes
+otherwise, if \tcode{TD} is an unsigned integer type and
+\tcode{sizeof(TD) <= sizeof(unsigned long long int)}, initializes
 \tcode{value} with
 \tcode{static_cast<unsigned long long int>(v)};
 \item
+otherwise, if \tcode{TD} is a standard floating-point type,
+initializes \tcode{value} with \tcode{v};
+\item
+otherwise, if \tcode{TD} is
+a specialization of \tcode{basic_string_view} or \tcode{basic_string} and
+\tcode{TD::value_type} is \tcode{char_type},
+initializes \tcode{value} with
+\tcode{basic_string_view<char_type>(v.data(), v.size())};
+\item
+otherwise, if \tcode{decay_t<TD>} is
+\tcode{char_type*} or \tcode{const char_type*},
+initializes \tcode{value} with \tcode{static_cast<const char_type*>(v)};
+\item
+otherwise, if \tcode{is_void_v<remove_pointer_t<TD>>} is \tcode{true} or
+\tcode{is_null_pointer_v<TD>} is \tcode{true},
+initializes \tcode{value} with \tcode{static_cast<const void*>(v)};
+\item
 otherwise, initializes \tcode{value} with \tcode{handle(v)}.
 \end{itemize}
-\end{itemdescr}
-
-\begin{itemdecl}
-explicit basic_format_arg(float n) noexcept;
-explicit basic_format_arg(double n) noexcept;
-explicit basic_format_arg(long double n) noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Initializes \tcode{value} with \tcode{n}.
-\end{itemdescr}
-
-\begin{itemdecl}
-explicit basic_format_arg(const char_type* s);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\expects
-\tcode{s} points to a NTCTS\iref{defns.ntcts}.
-
-\pnum
-\effects
-Initializes \tcode{value} with \tcode{s}.
-\end{itemdescr}
-
-\begin{itemdecl}
-template<class traits>
-  explicit basic_format_arg(basic_string_view<char_type, traits> s) noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Initializes \tcode{value} with
-\tcode{basic_string_view<char_type>(s.data(), s.size())}.
-\end{itemdescr}
-
-\begin{itemdecl}
-template<class traits, class Allocator>
-  explicit basic_format_arg(
-    const basic_string<char_type, traits, Allocator>& s) noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Initializes \tcode{value} with
-\tcode{basic_string_view<char_type>(s.data(), s.size())}.
-\end{itemdescr}
-
-\begin{itemdecl}
-explicit basic_format_arg(nullptr_t) noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Initializes \tcode{value} with
-  \tcode{static_cast<const void*>(nullptr)}.
-\end{itemdescr}
-
-\begin{itemdecl}
-template<class T> explicit basic_format_arg(T* p) noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\constraints
-\tcode{is_void_v<T>} is \tcode{true}.
-
-\pnum
-\effects
-Initializes \tcode{value} with \tcode{p}.
-
-\pnum
 \begin{note}
-Constructing \tcode{basic_format_arg} from
-a pointer to a member is ill-formed unless
-the user provides an enabled specialization of
-\tcode{formatter} for that pointer to member type.
+Constructing \tcode{basic_format_arg} from a pointer to a member is ill-formed
+unless the user provides an enabled specialization of \tcode{formatter}
+for that pointer to member type.
 \end{note}
 \end{itemdescr}
+
 \indexlibrary{\idxcode{basic_format_arg}!constructor|)}%
 
 \indexlibrarymember{operator bool}{basic_format_arg}%
@@ -17156,7 +17074,7 @@ namespace std {
     void (*format_)(basic_format_parse_context<char_type>&,
                     Context&, const void*);                     // \expos
 
-    template<class T> explicit handle(T&& val) noexcept;        // \expos
+    template<class T> explicit handle(T& val) noexcept;         // \expos
 
     friend class basic_format_arg<Context>;                     // \expos
 
@@ -17168,7 +17086,7 @@ namespace std {
 
 \indexlibraryctor{basic_format_arg::handle}%
 \begin{itemdecl}
-template<class T> explicit handle(T&& val) noexcept;
+template<class T> explicit handle(T& val) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -17176,19 +17094,16 @@ template<class T> explicit handle(T&& val) noexcept;
 Let
 \begin{itemize}
 \item
-\tcode{TD} be \tcode{remove_cvref_t<T>},
+\tcode{TD} be \tcode{remove_const_t<T>},
 \item
-\exposid{const-formattable} be \tcode{true} if
-\tcode{typename Context::template formatter_type<TD>()\newline .format(declval<const TD\&>(), declval<Context\&>())} is well-formed, otherwise \tcode{false},
-\item
-\tcode{TQ} be \tcode{const TD} if \exposid{const-formattable} is \tcode{true}
+\tcode{TQ} be \tcode{const TD} if
+\tcode{const TD} satisfies \tcode{\exposconcept{formattable-with}<Context>}
 and \tcode{TD} otherwise.
 \end{itemize}
 
 \pnum
 \mandates
-\tcode{\exposid{const-formattable} || !is_const_v<remove_reference_t<T>>} is
-\tcode{true}.
+\tcode{TQ} satisfies \tcode{\exposconcept{formattable-with}<Context>}.
 
 \pnum
 \effects
@@ -17253,7 +17168,7 @@ template<class Context = format_context, class... Args>
 \pnum
 \expects
 The type
-\tcode{typename Context::template formatter_type<}$\tcode{T}_i$\tcode{>}
+\tcode{typename Context::template formatter_type<remove_cvref_t<}$\tcode{T}_i$\tcode{>>}\linebreak{}
 meets the \newoldconcept{BasicFormatter} requirements\iref{formatter.requirements}
 for each $\tcode{T}_i$ in \tcode{Args}.
 
