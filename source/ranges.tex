@@ -214,8 +214,7 @@ namespace std::ranges {
 
   // \ref{range.repeat}, repeat view
   template<@\libconcept{move_constructible}@ T, @\libconcept{semiregular}@ Bound = unreachable_sentinel_t>
-    requires (is_object_v<T> && @\libconcept{same_as}@<T, remove_cv_t<T>>
-      && (@\exposid{is-integer-like}@<Bound> || @\libconcept{same_as}@<Bound, unreachable_sentinel_t>))
+    requires @\seebelow@
   class repeat_view;                                                                // freestanding
 
   namespace views { inline constexpr @\unspecnc@ repeat = @\unspecnc@; }            // freestanding
@@ -2273,6 +2272,10 @@ template<class C, @\libconcept{input_range}@ R, class... Args> requires (!@\libc
 
 \begin{itemdescr}
 \pnum
+\mandates
+\tcode{C} is a cv-unqualified class type.
+
+\pnum
 \returns
 An object of type \tcode{C}
 constructed from the elements of \tcode{r} in the following manner:
@@ -2403,6 +2406,11 @@ template<template<class...> class C, class... Args>
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+\mandates
+For the first overload,
+\tcode{C} is a cv-unqualified class type.
+
 \pnum
 \returns
 A range adaptor closure object\iref{range.adaptor.object} \tcode{f}
@@ -3391,9 +3399,14 @@ for (int i : views::repeat(17, 4))
 
 \begin{codeblock}
 namespace std::ranges {
+  template<class T>
+    concept @\defexposconceptnc{integer-like-with-usable-difference-type}@ =  // \expos
+      @\exposid{is-signed-integer-like}@<T> || (@\exposid{is-integer-like}@<T> && @\libconcept{weakly_incrementable}@<T>);
+
   template<@\libconcept{move_constructible}@ T, @\libconcept{semiregular}@ Bound = unreachable_sentinel_t>
     requires (is_object_v<T> && @\libconcept{same_as}@<T, remove_cv_t<T>> &&
-              (@\exposid{is-integer-like}@<Bound> || @\libconcept{same_as}@<Bound, unreachable_sentinel_t>))
+              (@\exposconcept{integer-like-with-usable-difference-type}@<Bound> ||
+               @\libconcept{same_as}@<Bound, unreachable_sentinel_t>))
   class @\libglobal{repeat_view}@ : public view_interface<repeat_view<T, Bound>> {
   private:
     // \ref{range.repeat.iterator}, class \tcode{repeat_view::\exposid{iterator}}
@@ -3472,12 +3485,14 @@ constexpr explicit repeat_view(piecewise_construct_t,
 \begin{itemdescr}
 \pnum
 \effects
-Initializes \exposid{value_} with arguments of types \tcode{TArgs...}
-obtained by forwarding the elements of \tcode{value_args} and
-initializes \exposid{bound_} with arguments of types \tcode{BoundArgs...}
-obtained by forwarding the elements of \tcode{bound_args}.
-(Here, forwarding an element \tcode{x} of type \tcode{U} within a tuple object
-means calling \tcode{std::forward<U>(x)}.)
+Initializes \exposid{value_} with
+\tcode{make_from_tuple<T>(std::move(value_args))}
+and
+initializes\linebreak{} \exposid{bound_} with
+\tcode{make_from_tuple<Bound>(std::move(bound_args))}.
+The behavior is undefined if
+\tcode{Bound} is not \tcode{unreachable_sentinel_t} and
+\exposid{bound_} is negative.
 \end{itemdescr}
 
 \indexlibrarymember{begin}{repeat_view}%
@@ -3528,9 +3543,10 @@ Equivalent to: \tcode{return \exposid{to-unsigned-like}(\exposid{bound_});}
 
 \begin{codeblock}
 namespace std::ranges {
-  template<@\libconcept{move_constructible}@ T, @\libconcept{semiregular}@ Bound = unreachable_sentinel_t>
+  template<@\libconcept{move_constructible}@ T, @\libconcept{semiregular}@ Bound>
     requires (is_object_v<T> && @\libconcept{same_as}@<T, remove_cv_t<T>> &&
-              (@\exposid{is-integer-like}@<Bound> || @\libconcept{same_as}@<Bound, unreachable_sentinel_t>))
+              (@\exposconcept{integer-like-with-usable-difference-type}@<Bound> ||
+               @\libconcept{same_as}@<Bound, unreachable_sentinel_t>))
   class repeat_view<T, Bound>::@\exposid{iterator}@ {
   private:
     using @\exposidnc{index-type}@ =                          // \expos
@@ -3544,9 +3560,7 @@ namespace std::ranges {
     using iterator_concept = random_access_iterator_tag;
     using iterator_category = random_access_iterator_tag;
     using value_type = T;
-    using difference_type = conditional_t<@\exposid{is-signed-integer-like}@<@\exposid{index-type}@>,
-        @\exposid{index-type}@,
-        @\placeholdernc{IOTA-DIFF-T}@(@\exposid{index-type}@)>;
+    using difference_type = @\seebelow@;
 
     @\exposid{iterator}@() = default;
 
@@ -3573,6 +3587,12 @@ namespace std::ranges {
   };
 }
 \end{codeblock}
+
+\pnum
+If \tcode{\exposid{is-signed-integer-like}<\exposid{index-type}>} is \tcode{true},
+the member \grammarterm{typedef-name} \tcode{difference_type}
+denotes \exposid{index-type}.
+Otherwise, it denotes \tcode{\placeholdernc{IOTA-DIFF-T}(\exposid{index-type})}\iref{range.iota.view}.
 
 \indexlibraryctor{repeat_view::\exposid{iterator}}%
 \begin{itemdecl}
@@ -12484,7 +12504,8 @@ If \tcode{x} is negative, the \Fundescx{Effects} paragraph implies a preconditio
 Equivalent to:
 \begin{codeblock}
 if (x > 0) {
-  @\exposid{missing_}@ = ranges::advance(@\exposid{current_}@, @\exposid{n_}@ * x, @\exposid{end_}@);
+  ranges::advance(@\exposid{current_}@, @\exposid{n_}@ * (x - 1));
+  @\exposid{missing_}@ = ranges::advance(@\exposid{current_}@, @\exposid{n_}@, @\exposid{end_}@);
 } else if (x < 0) {
   ranges::advance(@\exposid{current_}@, @\exposid{n_}@ * x + @\exposid{missing_}@);
   @\exposid{missing_}@ = 0;
@@ -14047,7 +14068,8 @@ If \tcode{n} is negative, the \Fundescx{Effects} paragraph implies a preconditio
 Equivalent to:
 \begin{codeblock}
 if (n > 0) {
-  @\exposid{missing_}@ = ranges::advance(@\exposid{current_}@, @\exposid{stride_}@ * n, @\exposid{end_}@);
+  ranges::advance(@\exposid{current_}@, @\exposid{stride_}@ * (n - 1));
+  @\exposid{missing_}@ = ranges::advance(@\exposid{current_}@, @\exposid{stride_}@, @\exposid{end_}@);
 } else if (n < 0) {
   ranges::advance(@\exposid{current_}@, @\exposid{stride_}@ * n + @\exposid{missing_}@);
   @\exposid{missing_}@ = 0;
