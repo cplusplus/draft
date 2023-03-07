@@ -80,6 +80,8 @@ namespace std::ranges {
     using range_const_reference_t = iter_const_reference_t<iterator_t<R>>;          // freestanding
   template<@\libconcept{range}@ R>
     using range_rvalue_reference_t = iter_rvalue_reference_t<iterator_t<R>>;        // freestanding
+  template<@\libconcept{range}@ R>
+    using range_common_reference_t = iter_common_reference_t<iterator_t<R>>;        // freestanding
 
   // \ref{range.sized}, sized ranges
   template<class>
@@ -2298,7 +2300,10 @@ Otherwise, if
 \item
 \tcode{\libconcept{common_range}<R>} is \tcode{true},
 \item
-\tcode{\exposconcept{cpp17-input-iterator}<iterator_t<R>>} is \tcode{true}, and
+the \grammarterm{qualified-id}
+\tcode{iterator_traits<iterator_t<R>>::iterator_category}
+is valid and denotes a type that models
+\tcode{\libconcept{derived_from}<input_iterator_tag>}, and
 \item
 \tcode{\libconcept{constructible_from}<C, iterator_t<R>, sentinel_t<R>, Args...>}
 is \tcode{true}:
@@ -8625,9 +8630,18 @@ If \tcode{views::all_t<T>} models \libconcept{constant_range},
 then \tcode{views::all(E)}.
 \item
 Otherwise,
+if \tcode{U} denotes \tcode{empty_view<X>}
+for some type \tcode{X}, then \tcode{auto(views::empty<const X>)}.
+\item
+Otherwise,
 if \tcode{U} denotes \tcode{span<X, Extent>}
 for some type \tcode{X} and some extent \tcode{Extent},
 then \tcode{span<const X, Extent>(E)}.
+\item
+Otherwise,
+if \tcode{U} denotes \tcode{ref_view<X>} for some type \tcode{X} and
+\tcode{const X} models \libconcept{constant_range},
+then \tcode{ref_view(static_cast<const X\&>(E.base()))}.
 \item
 Otherwise,
 if \tcode{E} is an lvalue,
@@ -10565,6 +10579,9 @@ namespace std::ranges {
     adjacent_view() requires @\libconcept{default_initializable}@<V> = default;
     constexpr explicit adjacent_view(V base);
 
+    constexpr V base() const & requires @\libconcept{copy_constructible}@<V> { return @\exposid{base_}@; }
+    constexpr V base() && { return std::move(@\exposid{base_}@); }
+
     constexpr auto begin() requires (!@\exposconcept{simple-view}@<V>) {
       return @\exposid{iterator}@<false>(ranges::begin(@\exposid{base_}@), ranges::end(@\exposid{base_}@));
     }
@@ -11205,6 +11222,9 @@ namespace std::ranges {
   public:
     adjacent_transform_view() = default;
     constexpr explicit adjacent_transform_view(V base, F fun);
+
+    constexpr V base() const & requires @\libconcept{copy_constructible}@<@\exposid{InnerView}@> { return @\exposid{inner_}@.base(); }
+    constexpr V base() && { return std::move(@\exposid{inner_}@).base(); }
 
     constexpr auto begin() {
       return @\exposid{iterator}@<false>(*this, @\exposid{inner_}@.begin());
@@ -12013,6 +12033,13 @@ namespace std::ranges {
       requires @\libconcept{sized_sentinel_for}@<sentinel_t<V>, iterator_t<V>>;
     friend constexpr difference_type operator-(const @\exposid{inner-iterator}@& x, default_sentinel_t y)
       requires @\libconcept{sized_sentinel_for}@<sentinel_t<V>, iterator_t<V>>;
+
+    friend constexpr range_rvalue_reference_t<V> iter_move(const @\exposid{inner-iterator}@& i)
+      noexcept(noexcept(ranges::iter_move(*i.@\exposid{parent_}@->@\exposid{current_}@)));
+
+    friend constexpr void iter_swap(const @\exposid{inner-iterator}@& x, const @\exposid{inner-iterator}@& y)
+      noexcept(noexcept(ranges::iter_swap(*x.@\exposid{parent_}@->@\exposid{current_}@, *y.@\exposid{parent_}@->@\exposid{current_}@)))
+      requires @\libconcept{indirectly_swappable}@<iterator_t<V>>;
   };
 }
 \end{codeblock}
@@ -12117,6 +12144,29 @@ friend constexpr difference_type operator-(const @\exposid{inner-iterator}@& x, 
 \pnum
 \effects
 Equivalent to: \tcode{return -(y - x);}
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr range_rvalue_reference_t<V> iter_move(const @\exposid{inner-iterator}@& i)
+  noexcept(noexcept(ranges::iter_move(*i.@\exposid{parent_}@->@\exposid{current_}@)));
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return ranges::iter_move(*i.\exposid{parent_}->\exposid{current_});}
+\end{itemdescr}
+
+\begin{itemdecl}
+friend constexpr void iter_swap(const @\exposid{inner-iterator}@& x, const @\exposid{inner-iterator}@& y)
+  noexcept(noexcept(ranges::iter_swap(*x.@\exposid{parent_}@->@\exposid{current_}@, *y.@\exposid{parent_}@->@\exposid{current_}@)))
+  requires @\libconcept{indirectly_swappable}@<iterator_t<V>>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{ranges::iter_swap(*x.\exposid{parent_}->\exposid{current_}, *y.\exposid{parent_}->\exposid{current_});}
 \end{itemdescr}
 
 \rSec3[range.chunk.view.fwd]{Class template \tcode{chunk_view} for forward ranges}
@@ -12671,6 +12721,9 @@ namespace std::ranges {
 
   public:
     constexpr explicit slide_view(V base, range_difference_t<V> n);
+
+    constexpr V base() const & requires @\libconcept{copy_constructible}@<V> { return @\exposid{base_}@; }
+    constexpr V base() && { return std::move(@\exposid{base_}@); }
 
     constexpr auto begin()
       requires (!(@\exposconcept{simple-view}@<V> && @\exposconcept{slide-caches-nothing}@<const V>));
@@ -14458,7 +14511,7 @@ namespace std::ranges {
       range_reference_t<@\exposid{maybe-const}@<Const, Vs>>...>;
     using difference_type = @\seebelow@;
 
-    @\exposid{iterator}@() requires @\libconcept{forward_range}@<@\exposid{maybe-const}@<Const, First>> = default;
+    @\exposid{iterator}@() = default;
 
     constexpr @\exposid{iterator}@(@\exposid{iterator}@<!Const> i) requires Const &&
       (@\libconcept{convertible_to}@<iterator_t<First>, iterator_t<const First>> &&
@@ -14597,9 +14650,9 @@ template<size_t N = sizeof...(Vs)>
 Equivalent to:
 \begin{codeblock}
 auto& it = std::get<N>(@\exposid{current_}@);
-if (it == ranges::begin(std::get<N>(@\exposid{parent_}@->@\exposid{bases_}@))) {
-  it = @\exposid{cartesian-common-arg-end}@(std::get<N>(@\exposid{parent_}@->@\exposid{bases_}@));
-  if constexpr (N > 0) {
+if constexpr (N > 0) {
+  if (it == ranges::begin(std::get<N>(@\exposid{parent_}@->@\exposid{bases_}@))) {
+    it = @\exposid{cartesian-common-arg-end}@(std::get<N>(@\exposid{parent_}@->@\exposid{bases_}@));
     @\exposid{prev}@<N - 1>();
   }
 }
