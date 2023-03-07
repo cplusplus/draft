@@ -4267,7 +4267,7 @@ the previous value (if any) has been destroyed.
 to temporarily cache values as it is iterated over.
 \end{note}
 
-\rSec2[range.adaptor.tuple]{Range adaptor helpers}
+\rSec2[range.adaptor.helpers]{Range adaptor helpers}
 
 \begin{codeblock}
 namespace std::ranges {
@@ -4283,6 +4283,11 @@ namespace std::ranges {
     apply([&]<class... Ts>(Ts&&... elements) {
       (static_cast<void>(invoke(f, std::forward<Ts>(elements))), ...);
     }, std::forward<Tuple>(t));
+  }
+
+  template<class T>
+  constexpr T& @\exposid{as-lvalue}@(T&& t) {                   // \expos
+    return static_cast<T&>(t);
   }
 }
 \end{codeblock}
@@ -6439,6 +6444,8 @@ namespace std::ranges {
 
     V @\exposid{base_}@ = V();                                          // \expos
 
+    @\exposidnc{non-propagating-cache}@<iterator_t<V>> @\exposidnc{outer_}@;            // \expos, present only
+                                                            // when \tcode{!\libconcept{forward_range}<V>}
     @\exposidnc{non-propagating-cache}@<remove_cv_t<@\exposidnc{InnerRng}@>> @\exposid{inner_}@;    // \expos, present only
                                                             // when \tcode{!is_reference_v<\exposid{InnerRng}>}
 
@@ -6450,14 +6457,20 @@ namespace std::ranges {
     constexpr V base() && { return std::move(@\exposid{base_}@); }
 
     constexpr auto begin() {
-      constexpr bool use_const = @\exposconcept{simple-view}@<V> &&
-                                 is_reference_v<@\exposid{InnerRng}@>;
-      return @\exposid{iterator}@<use_const>{*this, ranges::begin(@\exposid{base_}@)};
+      if constexpr (@\libconcept{forward_range}@<V>) {
+        constexpr bool use_const = @\exposconcept{simple-view}@<V> &&
+                                   is_reference_v<@\exposid{InnerRng}@>;
+        return @\exposid{iterator}@<use_const>{*this, ranges::begin(@\exposid{base_}@)};
+      } else {
+        @\exposid{outer_}@ = ranges::begin(@\exposid{base_}@);
+        return @\exposid{iterator}@<false>{*this};
+      }
     }
 
     constexpr auto begin() const
-      requires @\libconcept{input_range}@<const V> &&
-               is_reference_v<range_reference_t<const V>>
+      requires @\libconcept{forward_range}@<const V> &&
+               is_reference_v<range_reference_t<const V>> &&
+               @\libconcept{input_range}@<range_reference_t<const V>>
     { return @\exposid{iterator}@<true>{*this, ranges::begin(@\exposid{base_}@)}; }
 
     constexpr auto end() {
@@ -6470,10 +6483,10 @@ namespace std::ranges {
     }
 
     constexpr auto end() const
-      requires @\libconcept{input_range}@<const V> &&
-               is_reference_v<range_reference_t<const V>> {
-      if constexpr (@\libconcept{forward_range}@<const V> &&
-                    @\libconcept{forward_range}@<range_reference_t<const V>> &&
+      requires @\libconcept{forward_range}@<const V> &&
+               is_reference_v<range_reference_t<const V>> &&
+               @\libconcept{input_range}@<range_reference_t<const V>> {
+      if constexpr (@\libconcept{forward_range}@<range_reference_t<const V>> &&
                     @\libconcept{common_range}@<const V> &&
                     @\libconcept{common_range}@<range_reference_t<const V>>)
         return @\exposid{iterator}@<true>{*this, ranges::end(@\exposid{base_}@)};
@@ -6515,11 +6528,20 @@ namespace std::ranges {
     static constexpr bool @\exposidnc{ref-is-glvalue}@ =                      // \expos
       is_reference_v<range_reference_t<@\exposidnc{Base}@>>;
 
-    @\exposidnc{OuterIter}@ @\exposid{outer_}@ = @\exposidnc{OuterIter}@();                             // \expos
+    @\exposidnc{OuterIter}@ @\exposid{outer_}@ = @\exposidnc{OuterIter}@();                     // \expos, present only
+                                                        // if \exposid{Base} models \libconcept{forward_range}
     optional<@\exposidnc{InnerIter}@> @\exposid{inner_}@;                                 // \expos
     @\exposidnc{Parent}@* @\exposid{parent_}@  = nullptr;                                 // \expos
 
     constexpr void @\exposidnc{satisfy}@();                                   // \expos
+
+    constexpr @\exposidnc{OuterIter}@& @\exposidnc{outer}@();                               // \expos
+    constexpr const @\exposidnc{OuterIter}@& @\exposidnc{outer}@() const;                   // \expos
+
+    constexpr @\exposidnc{iterator}@(@\exposidnc{Parent}@& parent, @\exposidnc{OuterIter}@ outer)
+      requires @\libconcept{forward_range}@<@\exposidnc{Base}@>;                             // \expos
+    constexpr explicit @\exposidnc{iterator}@(@\exposidnc{Parent}@& parent)
+      requires (!@\libconcept{forward_range}@<@\exposidnc{Base}@>);                          // \expos
 
   public:
     using iterator_concept  = @\seebelow@;
@@ -6527,8 +6549,7 @@ namespace std::ranges {
     using value_type        = range_value_t<range_reference_t<@\exposid{Base}@>>;
     using difference_type   = @\seebelow@;
 
-    @\exposid{iterator}@() requires @\libconcept{default_initializable}@<@\exposid{OuterIter}@> = default;
-    constexpr @\exposid{iterator}@(@\exposid{Parent}@& parent, @\exposid{OuterIter}@ outer);
+    @\exposid{iterator}@() = default;
     constexpr @\exposid{iterator}@(@\exposid{iterator}@<!Const> i)
       requires Const &&
                @\libconcept{convertible_to}@<iterator_t<V>, @\exposid{OuterIter}@> &&
@@ -6556,7 +6577,7 @@ namespace std::ranges {
                @\libconcept{common_range}@<range_reference_t<@\exposid{Base}@>>;
 
     friend constexpr bool operator==(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
-      requires @\exposid{ref-is-glvalue}@ && @\libconcept{equality_comparable}@<iterator_t<@\exposid{Base}@>> &&
+      requires @\exposid{ref-is-glvalue}@ && @\libconcept{forward_range}@<@\exposid{Base}@> &&
                @\libconcept{equality_comparable}@<iterator_t<range_reference_t<@\exposid{Base}@>>>;
 
     friend constexpr decltype(auto) iter_move(const @\exposid{iterator}@& i)
@@ -6624,6 +6645,18 @@ common_type_t<
 empty inner ranges.
 
 \begin{itemdecl}
+constexpr @\exposid{OuterIter}@& @\exposid{outer}@();
+constexpr const @\exposid{OuterIter}@& @\exposid{outer}@() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\exposid{outer_} if \exposid{Base} models \libconcept{forward_range};
+otherwise, \tcode{*\exposid{parent_}->\exposid{outer_}}.
+\end{itemdescr}
+
+\begin{itemdecl}
 constexpr void @\exposid{satisfy}@();
 \end{itemdecl}
 
@@ -6639,8 +6672,8 @@ auto update_inner = [this](const iterator_t<@\exposid{Base}@>& x) -> auto&& {
     return @\exposid{parent_}@->@\exposid{inner_}@.@\exposid{emplace-deref}@(x);
 };
 
-for (; @\exposid{outer_}@ != ranges::end(@\exposid{parent_}@->@\exposid{base_}@); ++@\exposid{outer_}@) {
-  auto&& inner = update_inner(@\exposid{outer_}@);
+for (; @\exposid{outer}@() != ranges::end(@\exposid{parent_}@->@\exposid{base_}@); ++@\exposid{outer}@()) {
+  auto&& inner = update_inner(@\exposid{outer}@());
   @\exposid{inner_}@ = ranges::begin(inner);
   if (*@\exposid{inner_}@ != ranges::end(inner))
     return;
@@ -6652,7 +6685,8 @@ if constexpr (@\exposid{ref-is-glvalue}@)
 
 \indexlibraryctor{join_view::\exposid{iterator}}%
 \begin{itemdecl}
-constexpr @\exposid{iterator}@(@\exposid{Parent}@& parent, @\exposid{OuterIter}@ outer);
+constexpr @\exposid{iterator}@(@\exposid{Parent}@& parent, @\exposid{OuterIter}@ outer)
+  requires @\libconcept{forward_range}@<@\exposid{Base}@>;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -6660,6 +6694,19 @@ constexpr @\exposid{iterator}@(@\exposid{Parent}@& parent, @\exposid{OuterIter}@
 \effects
 Initializes \exposid{outer_} with \tcode{std::move(outer)} and
 \exposid{parent_} with \tcode{addressof(parent)}; then calls \tcode{\exposid{satisfy}()}.
+\end{itemdescr}
+
+\indexlibraryctor{join_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr explicit @\exposid{iterator}@(@\exposid{Parent}@& parent)
+  requires (!@\libconcept{forward_range}@<@\exposid{Base}@>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{parent_} with \tcode{addressof(parent)};
+then calls \tcode{\exposid{satisfy}()}.
 \end{itemdescr}
 
 \indexlibraryctor{join_view::\exposid{iterator}}%
@@ -6676,6 +6723,12 @@ constexpr @\exposid{iterator}@(@\exposid{iterator}@<!Const> i)
 Initializes \exposid{outer_} with \tcode{std::move(i.\exposid{outer_})},
 \exposid{inner_} with \tcode{std::move(i.\exposid{inner_})}, and
 \exposid{parent_} with \tcode{i.\exposid{parent_}}.
+
+\pnum
+\begin{note}
+\tcode{Const} can only be \tcode{true}
+when \exposid{Base} models \libconcept{forward_range}.
+\end{note}
 \end{itemdescr}
 
 \indexlibrarymember{operator->}{join_view::\exposid{iterator}}%
@@ -6699,7 +6752,7 @@ constexpr @\exposid{iterator}@& operator++();
 \pnum
 Let \tcode{\placeholder{inner-range}} be:
 \begin{itemize}
-\item If \exposid{ref-is-glvalue} is \tcode{true}, \tcode{*\exposid{outer_}}.
+\item If \exposid{ref-is-glvalue} is \tcode{true}, \tcode{*\exposid{outer}()}.
 \item Otherwise, \tcode{*\exposid{parent_}->\exposid{inner_}}.
 \end{itemize}
 
@@ -6707,9 +6760,8 @@ Let \tcode{\placeholder{inner-range}} be:
 \effects
 Equivalent to:
 \begin{codeblock}
-auto&& inner_rng = @\placeholder{inner-range}@;
-if (++*@\exposid{inner_}@ == ranges::end(inner_rng)) {
-  ++@\exposid{outer_}@;
+if (++*@\exposid{inner_}@ == ranges::end(@\exposid{as-lvalue}@(@\placeholder{inner-range}@))) {
+  ++@\exposid{outer}@();
   @\exposid{satisfy}@();
 }
 return *this;
@@ -6759,9 +6811,9 @@ constexpr @\exposid{iterator}@& operator--()
 Equivalent to:
 \begin{codeblock}
 if (@\exposid{outer_}@ == ranges::end(@\exposid{parent_}@->@\exposid{base_}@))
-  @\exposid{inner_}@ = ranges::end(*--@\exposid{outer_}@);
-while (*@\exposid{inner_}@ == ranges::begin(*@\exposid{outer_}@))
-  *@\exposid{inner_}@ = ranges::end(*--@\exposid{outer_}@);
+  @\exposid{inner_}@ = ranges::end(@\exposid{as-lvalue}@(*--@\exposid{outer_}@));
+while (*@\exposid{inner_}@ == ranges::begin(@\exposid{as-lvalue}@(*@\exposid{outer_}@)))
+  *@\exposid{inner_}@ = ranges::end(@\exposid{as-lvalue}@(*--@\exposid{outer_}@));
 --*@\exposid{inner_}@;
 return *this;
 \end{codeblock}
@@ -6789,7 +6841,7 @@ return tmp;
 \indexlibrarymember{operator==}{join_view::\exposid{iterator}}%
 \begin{itemdecl}
 friend constexpr bool operator==(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
-  requires @\exposid{ref-is-glvalue}@ && @\libconcept{equality_comparable}@<iterator_t<@\exposid{Base}@>> &&
+  requires @\exposid{ref-is-glvalue}@ && @\libconcept{forward_range}@<@\exposid{Base}@> &&
            @\libconcept{equality_comparable}@<iterator_t<range_reference_t<@\exposid{Base}@>>>;
 \end{itemdecl}
 
@@ -6874,7 +6926,7 @@ friend constexpr bool operator==(const @\exposid{iterator}@<OtherConst>& x, cons
 \begin{itemdescr}
 \pnum
 \effects
-Equivalent to: \tcode{return x.\exposid{outer_} == y.\exposid{end_};}
+Equivalent to: \tcode{return x.\exposid{outer}() == y.\exposid{end_};}
 \end{itemdescr}
 
 \rSec2[range.join.with]{Join with view}
@@ -6928,6 +6980,8 @@ namespace std::ranges {
     using @\exposid{InnerRng}@ = range_reference_t<V>;                  // \expos
 
     V @\exposid{base_}@ = V();                                          // \expos
+    @\exposid{non-propagating-cache}@<iterator_t<V>> @\exposid{outer_it_}@;         // \expos, present only
+                                                            // when \tcode{!\libconcept{forward_range}<V>}
     @\exposid{non-propagating-cache}@<remove_cv_t<@\exposid{InnerRng}@>> @\exposid{inner_}@;   // \expos, present only
                                                             // when \tcode{!is_reference_v<\exposid{InnerRng}>}
     Pattern @\exposid{pattern_}@ = Pattern();                           // \expos
@@ -6953,14 +7007,21 @@ namespace std::ranges {
     constexpr V base() && { return std::move(@\exposid{base_}@); }
 
     constexpr auto begin() {
-      constexpr bool use_const =
-        @\exposconcept{simple-view}@<V> && is_reference_v<@\exposid{InnerRng}@> && @\exposconcept{simple-view}@<Pattern>;
-      return @\exposid{iterator}@<use_const>{*this, ranges::begin(@\exposid{base_}@)};
+      if constexpr (@\libconcept{forward_range}@<V>) {
+        constexpr bool use_const =
+          @\exposconcept{simple-view}@<V> && is_reference_v<@\exposid{InnerRng}@> && @\exposconcept{simple-view}@<Pattern>;
+        return @\exposid{iterator}@<use_const>{*this, ranges::begin(@\exposid{base_}@)};
+      }
+      else {
+        @\exposid{outer_it_}@ = ranges::begin(@\exposid{base_}@);
+        return @\exposid{iterator}@<false>{*this};
+      }
     }
     constexpr auto begin() const
-      requires @\libconcept{input_range}@<const V> &&
+      requires @\libconcept{forward_range}@<const V> &&
                @\libconcept{forward_range}@<const Pattern> &&
-               is_reference_v<range_reference_t<const V>> {
+               is_reference_v<range_reference_t<const V>> &&
+               @\libconcept{input_range}@<range_reference_t<const V>> {
       return @\exposid{iterator}@<true>{*this, ranges::begin(@\exposid{base_}@)};
     }
 
@@ -6973,10 +7034,11 @@ namespace std::ranges {
         return @\exposid{sentinel}@<@\exposconcept{simple-view}@<V> && @\exposconcept{simple-view}@<Pattern>>{*this};
     }
     constexpr auto end() const
-      requires @\libconcept{input_range}@<const V> && @\libconcept{forward_range}@<const Pattern> &&
-               is_reference_v<range_reference_t<const V>> {
+      requires @\libconcept{forward_range}@<const V> && @\libconcept{forward_range}@<const Pattern> &&
+               is_reference_v<range_reference_t<const V>> &&
+               @\libconcept{input_range}@<range_reference_t<const V>> {
       using InnerConstRng = range_reference_t<const V>;
-      if constexpr (@\libconcept{forward_range}@<const V> && @\libconcept{forward_range}@<InnerConstRng> &&
+      if constexpr (@\libconcept{forward_range}@<InnerConstRng> &&
                     @\libconcept{common_range}@<const V> && @\libconcept{common_range}@<InnerConstRng>)
         return @\exposid{iterator}@<true>{*this, ranges::end(@\exposid{base_}@)};
       else
@@ -7039,12 +7101,18 @@ namespace std::ranges {
     static constexpr bool @\exposid{ref-is-glvalue}@ = is_reference_v<@\exposid{InnerBase}@>;   // \expos
 
     @\exposid{Parent}@* @\exposid{parent_}@ = nullptr;                                          // \expos
-    @\exposid{OuterIter}@ @\exposid{outer_it_}@ = @\exposid{OuterIter}@();                                  // \expos
+    @\exposid{OuterIter}@ @\exposid{outer_it_}@ = @\exposid{OuterIter}@();                          // \expos, present only
+                                                                // if \exposid{Base} models \libconcept{forward_range}
     variant<@\exposid{PatternIter}@, @\exposid{InnerIter}@> @\exposid{inner_it_}@;                          // \expos
 
-    constexpr @\exposid{iterator}@(@\exposid{Parent}@& parent, iterator_t<@\exposid{Base}@> outer);         // \expos
-    constexpr auto&& @\exposid{update-inner}@(const @\exposid{OuterIter}@&);                    // \expos
-    constexpr auto&& @\exposid{get-inner}@(const @\exposid{OuterIter}@&);                       // \expos
+    constexpr @\exposid{iterator}@(@\exposid{Parent}@& parent, @\exposid{OuterIter}@ outer)
+      requires @\libconcept{forward_range}@<@\exposid{Base}@>;                                     // \expos
+    constexpr explicit @\exposid{iterator}@(@\exposid{Parent}@& parent)
+      requires (!@\libconcept{forward_range}@<@\exposid{Base}@>);                                  // \expos
+    constexpr @\exposid{OuterIter}@& @\exposid{outer}@();                                       // \expos
+    constexpr const @\exposid{OuterIter}@& @\exposid{outer}@() const;                           // \expos
+    constexpr auto& @\exposid{update-inner}@();                                     // \expos
+    constexpr auto& @\exposid{get-inner}@();                                        // \expos
     constexpr void @\exposid{satisfy}@();                                           // \expos
 
   public:
@@ -7053,7 +7121,7 @@ namespace std::ranges {
     using value_type = @\seebelow@;
     using difference_type = @\seebelow@;
 
-    @\exposid{iterator}@() requires @\libconcept{default_initializable}@<@\exposid{OuterIter}@> = default;
+    @\exposid{iterator}@() = default;
     constexpr @\exposid{iterator}@(@\exposid{iterator}@<!Const> i)
       requires Const && @\libconcept{convertible_to}@<iterator_t<V>, @\exposid{OuterIter}@> &&
                @\libconcept{convertible_to}@<iterator_t<@\exposid{InnerRng}@>, @\exposid{InnerIter}@> &&
@@ -7075,7 +7143,7 @@ namespace std::ranges {
                @\exposconcept{bidirectional-common}@<@\exposid{InnerBase}@> && @\exposconcept{bidirectional-common}@<@\exposid{PatternBase}@>;
 
     friend constexpr bool operator==(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
-      requires @\exposid{ref-is-glvalue}@ && @\libconcept{equality_comparable}@<@\exposid{OuterIter}@> &&
+      requires @\exposid{ref-is-glvalue}@ && @\libconcept{forward_range}@<@\exposid{Base}@> &&
                @\libconcept{equality_comparable}@<@\exposid{InnerIter}@>;
 
     friend constexpr decltype(auto) iter_move(const @\exposid{iterator}@& x) {
@@ -7165,7 +7233,19 @@ common_type_t<
 \end{codeblock}
 
 \begin{itemdecl}
-constexpr auto&& @\exposid{update-inner}@(const @\exposid{OuterIter}@& x);
+constexpr @\exposid{OuterIter}@& @\exposid{outer}@();
+constexpr const @\exposid{OuterIter}@& @\exposid{outer}@() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\exposid{outer_it_} if \exposid{Base} models \libconcept{forward_range};
+otherwise, \tcode{*\exposid{parent_}->\exposid{outer_it_}}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr auto& @\exposid{update-inner}@();
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -7174,14 +7254,14 @@ constexpr auto&& @\exposid{update-inner}@(const @\exposid{OuterIter}@& x);
 Equivalent to:
 \begin{codeblock}
 if constexpr (@\exposid{ref-is-glvalue}@)
-  return *x;
+  return @\exposid{as-lvalue}@(*@\exposid{outer}@());
 else
-  return @\exposid{parent_}@->@\exposid{inner_}@.@\exposid{emplace-deref}@(x);
+  return @\exposid{parent_}@->@\exposid{inner_}@.@\exposid{emplace-deref}@(@\exposid{outer}@());
 \end{codeblock}
 \end{itemdescr}
 
 \begin{itemdecl}
-constexpr auto&& @\exposid{get-inner}@(const @\exposid{OuterIter}@& x);
+constexpr auto& @\exposid{get-inner}@();
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -7190,7 +7270,7 @@ constexpr auto&& @\exposid{get-inner}@(const @\exposid{OuterIter}@& x);
 Equivalent to:
 \begin{codeblock}
 if constexpr (@\exposid{ref-is-glvalue}@)
-  return *x;
+  return @\exposid{as-lvalue}@(*@\exposid{outer}@());
 else
   return *@\exposid{parent_}@->@\exposid{inner_}@;
 \end{codeblock}
@@ -7209,13 +7289,11 @@ while (true) {
   if (@\exposid{inner_it_}@.index() == 0) {
     if (std::get<0>(@\exposid{inner_it_}@) != ranges::end(@\exposid{parent_}@->@\exposid{pattern_}@))
       break;
-    auto&& inner = @\exposid{update-inner}@(@\exposid{outer_it_}@);
-    @\exposid{inner_it_}@.emplace<1>(ranges::begin(inner));
+    @\exposid{inner_it_}@.emplace<1>(ranges::begin(@\exposid{update-inner}@()));
   } else {
-    auto&& inner = @\exposid{get-inner}@(@\exposid{outer_it_}@);
-    if (std::get<1>(@\exposid{inner_it_}@) != ranges::end(inner))
+    if (std::get<1>(@\exposid{inner_it_}@) != ranges::end(@\exposid{get-inner}@()))
       break;
-    if (++@\exposid{outer_it_}@ == ranges::end(@\exposid{parent_}@->@\exposid{base_}@)) {
+    if (++@\exposid{outer}@() == ranges::end(@\exposid{parent_}@->@\exposid{base_}@)) {
       if constexpr (@\exposid{ref-is-glvalue}@)
         @\exposid{inner_it_}@.emplace<0>();
       break;
@@ -7232,19 +7310,22 @@ to skip over empty inner ranges.
 \end{itemdescr}
 
 \begin{itemdecl}
-constexpr @\exposid{iterator}@(@\exposid{Parent}@& parent, iterator_t<@\exposid{Base}@> outer);
+constexpr @\exposid{iterator}@(@\exposid{Parent}@& parent, @\exposid{OuterIter}@ outer)
+  requires @\libconcept{forward_range}@<@\exposid{Base}@>;
+constexpr explicit @\exposid{iterator}@(@\exposid{Parent}@& parent)
+  requires (!@\libconcept{forward_range}@<@\exposid{Base}@>);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects
-Initializes \exposid{parent_} with \tcode{addressof(parent)} and
+Initializes \exposid{parent_} with \tcode{addressof(parent)}.
+For the first overload, also initializes
 \exposid{outer_it_} with \tcode{std::move(outer)}.
 Then, equivalent to:
 \begin{codeblock}
-if (@\exposid{outer_it_}@ != ranges::end(@\exposid{parent_}@->@\exposid{base_}@)) {
-  auto&& inner = @\exposid{update-inner}@(@\exposid{outer_it_}@);
-  @\exposid{inner_it_}@.emplace<1>(ranges::begin(inner));
+if (@\exposid{outer}@() != ranges::end(@\exposid{parent_}@->@\exposid{base_}@)) {
+  @\exposid{inner_it_}@.emplace<1>(ranges::begin(@\exposid{update-inner}@()));
   @\exposidnc{satisfy}@();
 }
 \end{codeblock}
@@ -7270,6 +7351,12 @@ if (i.@\exposid{inner_it_}@.index() == 0)
 else
   @\exposid{inner_it_}@.emplace<1>(std::get<1>(std::move(i.@\exposid{inner_it_}@)));
 \end{codeblock}
+
+\pnum
+\begin{note}
+\tcode{Const} can only be \tcode{true}
+when \exposid{Base} models \libconcept{forward_range}.
+\end{note}
 \end{itemdescr}
 
 \begin{itemdecl}
@@ -7387,7 +7474,7 @@ return tmp;
 
 \begin{itemdecl}
 friend constexpr bool operator==(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
-  requires @\exposid{ref-is-glvalue}@ && @\libconcept{equality_comparable}@<@\exposid{OuterIter}@> &&
+  requires @\exposid{ref-is-glvalue}@ && @\libconcept{forward_range}@<@\exposid{Base}@> &&
            @\libconcept{equality_comparable}@<@\exposid{InnerIter}@>;
 \end{itemdecl}
 
@@ -7457,7 +7544,7 @@ friend constexpr bool operator==(const @\exposid{iterator}@<OtherConst>& x, cons
 \begin{itemdescr}
 \pnum
 \effects
-Equivalent to: \tcode{return x.\exposid{outer_it_} == y.\exposid{end_};}
+Equivalent to: \tcode{return x.\exposid{outer}() == y.\exposid{end_};}
 \end{itemdescr}
 
 \rSec2[range.lazy.split]{Lazy split view}
