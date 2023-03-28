@@ -1,0 +1,3212 @@
+%!TEX root = std.tex
+\infannex{diff}{Compatibility}
+
+\rSec1[diff.cpp20]{\Cpp{} and ISO \CppXX{}}
+
+\rSec2[diff.cpp20.general]{General}
+
+\pnum
+\indextext{summary!compatibility with ISO \CppXX{}}%
+Subclause \ref{diff.cpp20} lists the differences between \Cpp{} and
+ISO \CppXX{} (ISO/IEC 14882:2020, \doccite{Programming Languages --- \Cpp{}}),
+by the chapters of this document.
+
+\rSec2[diff.cpp20.lex]{\ref{lex}: lexical conventions}
+
+\diffref{lex.name}
+\change
+Previously valid identifiers containing characters
+not present in \UAX{44} properties XID_Start or XID_Continue, or
+not in Normalization Form C, are now rejected.
+\rationale
+Prevent confusing characters in identifiers.
+Requiring normalization of names ensures consistent linker behavior.
+\effect
+Some identifiers are no longer well-formed.
+
+\diffref{lex.string}
+\change
+Concatenated \grammarterm{string-literal}s can no longer have
+conflicting \grammarterm{encoding-prefix}es.
+\rationale
+Removal of unimplemented conditionally-supported feature.
+\effect
+Concatenation of \grammarterm{string-literal}s
+with different \grammarterm{encoding-prefix}es
+is now ill-formed.
+For example:
+\begin{codeblock}
+auto c = L"a" U"b";             // was conditionally-supported; now ill-formed
+\end{codeblock}
+
+\rSec2[diff.cpp20.expr]{\ref{expr}: expressions}
+
+\diffref{expr.prim.id.unqual}
+\change
+Change move-eligible \grammarterm{id-expression}s from lvalues to xvalues.
+\rationale
+Simplify the rules for implicit move.
+\effect
+Valid \CppXX{} code that relies on a returned \grammarterm{id-expression}'s
+being an lvalue may change behavior or fail to compile.
+For example:
+\begin{codeblock}
+decltype(auto) f(int&& x) { return (x); }       // returns \tcode{int\&\&}; previously returned \tcode{int\&}
+int& g(int&& x) { return x; }                   // ill-formed; previously well-formed
+\end{codeblock}
+
+\diffref{expr.sub}
+\change
+Change the meaning of comma in subscript expressions.
+\rationale
+Enable repurposing a deprecated syntax to support multidimensional indexing.
+\effect
+Valid \CppXX{} code that uses a comma expression within a
+subscript expression may fail to compile.
+For example:
+\begin{codeblock}
+arr[1, 2]               // was equivalent to \tcode{arr[(1, 2)]},
+                        // now equivalent to \tcode{arr.operator[](1, 2)} or ill-formed
+\end{codeblock}
+
+\rSec2[diff.cpp20.stmt]{\ref{stmt.stmt}: statements}
+
+\diffref{stmt.ranged}
+\change
+The lifetime of temporary objects in the \grammarterm{for-range-initializer}
+is extended until the end of the loop\iref{class.temporary}.
+\rationale
+Improve usability of the range-based \keyword{for} statement.
+\effect
+Destructors of some temporary objects are invoked later.
+For example:
+\begin{codeblock}
+void f() {
+  std::vector<int> v = { 42, 17, 13 };
+  std::mutex m;
+
+  for (int x :
+       static_cast<void>(std::lock_guard<std::mutex>(m)), v) {  // lock released in \CppXX
+    std::lock_guard<std::mutex> guard(m);                       // OK in \CppXX, now deadlocks
+  }
+}
+\end{codeblock}
+
+\rSec2[diff.cpp20.dcl]{\ref{dcl.dcl}: declarations}
+
+\diffref{dcl.init.string}
+\change
+UTF-8 string literals may initialize arrays of \keyword{char} or
+\tcode{\keyword{unsigned} \keyword{char}}.
+\rationale
+Compatibility with previously written code that conformed to previous versions of this document.
+\effect
+Arrays of \keyword{char} or \tcode{\keyword{unsigned} \keyword{char}}
+may now be initialized with a UTF-8 string literal.
+This can affect initialization that includes arrays
+that are directly initialized within class types, typically aggregates.
+For example:
+\begin{codeblock}
+struct A {
+  char8_t s[10];
+};
+struct B {
+  char s[10];
+};
+
+void f(A);
+void f(B);
+
+int main() {
+  f({u8""});            // ambiguous
+}
+\end{codeblock}
+
+\rSec2[diff.cpp20.temp]{\ref{temp}: templates}
+
+\diffref{temp.deduct.type}
+\change
+Deducing template arguments from exception specifications.
+\rationale
+Facilitate generic handling of throwing and non-throwing functions.
+\effect
+Valid ISO \CppXX{} code may be ill-formed in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+template<bool> struct A { };
+template<bool B> void f(void (*)(A<B>) noexcept(B));
+void g(A<false>) noexcept;
+void h() {
+  f(g);                         // ill-formed; previously well-formed
+}
+\end{codeblock}
+
+\rSec2[diff.cpp20.library]{\ref{library}: library introduction}
+
+\diffref{headers}
+\change
+New headers.
+\rationale
+New functionality.
+\effect
+The following \Cpp{} headers are new:
+\libheaderref{expected},
+\libheaderrefx{flat_map}{flat.map.syn},
+\libheaderrefx{flat_set}{flat.set.syn},
+\libheaderref{generator},
+\libheaderref{print},
+\libheaderref{spanstream},
+\libheaderref{stacktrace}, and
+\libheaderref{stdatomic.h}.
+Valid \CppXX{} code that \tcode{\#include}{s} headers with these names may be
+invalid in this revision of \Cpp{}.
+
+\rSec2[diff.cpp20.concepts]{\ref{concepts}: concepts library}
+
+\diffref{cmp.concept,concept.equalitycomparable,concept.totallyordered}
+\change
+Replace \tcode{common_reference_with} in \tcode{three_way_comparable_with},
+\tcode{equality_comparable_with}, and \tcode{totally_ordered_with}
+with an exposition-only concept.
+\rationale
+Allow uncopyable, but movable, types to model these concepts.
+\effect
+Valid \CppXX{} code relying on subsumption
+with \tcode{common_reference_with}
+may fail to compile in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+template<class T, class U>
+  requires @\libconcept{equality_comparable_with}@<T, U>
+bool attempted_equals(const T&, const U& u);    // previously selected overload
+
+template<class T, class U>
+  requires @\libconcept{common_reference_with}@<const remove_reference_t<T>&, const remove_reference_t<U>&>
+bool attempted_equals(const T& t, const U& u);  // ambiguous overload; previously
+                                                // rejected by partial ordering
+bool test(shared_ptr<int> p) {
+  return attempted_equals(p, nullptr);          // ill-formed; previously well-formed
+}
+\end{codeblock}
+
+\rSec2[diff.cpp20.memory]{\ref{mem}: memory management library}
+
+\diffref{allocator.traits.general}
+\change
+Forbid partial and explicit program-defined specializations
+of \tcode{allocator_traits}.
+\rationale
+Allow addition of \tcode{allocate_at_least} to \tcode{allocator_traits},
+and potentially other members in the future.
+\effect
+Valid \CppXX{} code
+that partially or explicitly specializes \tcode{allocator_traits}
+is ill-formed with no diagnostic required in this revision of \Cpp{}.
+
+\rSec2[diff.cpp20.utilities]{\ref{utilities}: general utilities library}
+
+\diffref{format}
+\change
+Signature changes: \tcode{format}, \tcode{format_to}, \tcode{vformat_to},
+\tcode{format_to_n}, \tcode{formatted_size}.
+Removal of \tcode{format_args_t}.
+\rationale
+Improve safety via compile-time format string checks,
+avoid unnecessary template instantiations.
+\effect
+Valid \CppXX{} code that
+contained errors in format strings or
+relied on previous format string signatures or
+\tcode{format_args_t} may become ill-formed.
+For example:
+\begin{codeblock}
+auto s = std::format("{:d}", "I am not a number");      // ill-formed,
+                                                        // previously threw \tcode{format_error}
+\end{codeblock}
+
+\diffref{format}
+\change
+Signature changes: \tcode{format}, \tcode{format_to}, \tcode{format_to_n},
+\tcode{formatted_size}.
+\rationale
+Enable formatting of views
+that do not support iteration when const-qualified and
+that are not copyable.
+\effect
+Valid \CppXX{} code that passes bit fields to formatting functions
+may become ill-formed.
+For example:
+\begin{codeblock}
+struct tiny {
+  int bit: 1;
+};
+
+auto t = tiny();
+std::format("{}", t.bit);       // ill-formed, previously returned \tcode{"0"}
+\end{codeblock}
+
+\diffref{format.string.std}
+\change
+Restrict types of formatting arguments
+used as \fmtgrammarterm{width} or \fmtgrammarterm{precision} in
+a \fmtgrammarterm{std-format-spec}.
+\rationale
+Disallow types that do not have useful or portable semantics as
+a formatting width or precision.
+\effect
+Valid \CppXX{} code that passes a boolean or character type as
+\fmtgrammarterm{arg-id} becomes invalid.
+For example:
+\begin{codeblock}
+std::format("{:*^{}}", "", true);   // ill-formed, previously returned \tcode{"*"}
+std::format("{:*^{}}", "", '1');    // ill-formed, previously returned an
+                                    // implementation-defined number of \tcode{'*'} characters
+\end{codeblock}
+
+\diffref{format.formatter.spec}
+\change
+Removed the \tcode{formatter} specialization:
+\begin{codeblock}
+template<size_t N> struct formatter<const charT[N], charT>;
+\end{codeblock}
+\rationale
+The specialization is inconsistent with the design of \tcode{formatter},
+which is intended to be instantiated only with cv-unqualified object types.
+\effect
+Valid \CppXX{} code that instantiated the removed specialization
+can become ill-formed.
+
+\rSec2[diff.cpp20.strings]{\ref{strings}: strings library}
+
+\diffref{string.classes}
+\change
+Additional rvalue overload for the \tcode{substr} member function and
+the corresponding constructor.
+\rationale
+Improve efficiency of operations on rvalues.
+\effect
+Valid \CppXX{} code that created a substring
+by calling \tcode{substr} (or the corresponding constructor)
+on an xvalue expression with type \tcode{S}
+that is a specialization of \tcode{basic_string}
+may change meaning in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+std::string s1 = "some long string that forces allocation", s2 = s1;
+std::move(s1).substr(10, 5);
+assert(s1 == s2);       // unspecified, previously guaranteed to be \tcode{true}
+std::string s3(std::move(s2), 10, 5);
+assert(s1 == s2);       // unspecified, previously guaranteed to be \tcode{true}
+\end{codeblock}
+
+\rSec2[diff.cpp20.containers]{\ref{containers}: containers library}
+
+\diffref{associative.reqmts,unord.req}
+\change
+Heterogeneous \tcode{extract} and \tcode{erase} overloads
+for associative containers.
+\rationale
+Improve efficiency of erasing elements from associative containers.
+\effect
+Valid \CppXX{} code may fail to compile in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+struct B {
+  auto operator<=>(const B&) const = default;
+};
+
+struct D : private B {
+  void f(std::set<B, std::less<>>& s) {
+    s.erase(*this);             // ill formed; previously well-formed
+  }
+};
+\end{codeblock}
+
+\rSec2[diff.cpp20.thread]{\ref{thread}: concurrency support library}
+
+\diffref{thread.barrier}
+\change
+In this revision of \Cpp{},
+it is implementation-defined whether a barrier's phase completion step runs
+if no thread calls \tcode{wait}.
+Previously the phase completion step was guaranteed to run on the last thread that calls \tcode{arrive} or \tcode{arrive_and_drop} during the phase.
+In this revision of \Cpp{},
+it can run on any of the threads that arrived or waited at the barrier
+during the phase.
+\rationale
+Correct contradictory wording and
+improve implementation flexibility for performance.
+\effect
+Valid \CppXX{} code using a barrier might have
+different semantics in this revision of \Cpp{}
+if it depends on a completion function's side effects occurring exactly once,
+on a specific thread running the phase completion step, or
+on a completion function's side effects occurring
+without \tcode{wait} having been called.
+For example:
+\begin{codeblock}
+auto b0 = std::barrier(1);
+b0.arrive();
+b0.arrive();            // implementation-defined; previously well-defined
+
+int data = 0;
+auto b1 = std::barrier(1, [&] { data++; });
+b1.arrive();
+assert(data == 1);      // implementation-defined; previously well-defined
+b1.arrive();            // implementation-defined; previously well-defined
+\end{codeblock}
+
+\rSec1[diff.cpp17]{\Cpp{} and ISO \CppXVII{}}
+
+\rSec2[diff.cpp17.general]{General}
+
+\pnum
+\indextext{summary!compatibility with ISO \CppXVII{}}%
+Subclause \ref{diff.cpp17} lists the differences between \Cpp{} and
+ISO \CppXVII{} (ISO/IEC 14882:2017, \doccite{Programming Languages --- \Cpp{}}),
+by the chapters of this document.
+
+\rSec2[diff.cpp17.lex]{\ref{lex}: lexical conventions}
+
+\diffref{lex.pptoken,module.unit,module.import,cpp.pre,cpp.module,cpp.import}
+\change
+New identifiers with special meaning.
+\rationale
+Required for new features.
+\effect
+Logical lines beginning with
+\tcode{module} or \tcode{import} may
+be interpreted differently
+in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+class module {};
+module m1;          // was variable declaration; now \grammarterm{module-declaration}
+module *m2;         // variable declaration
+
+class import {};
+import j1;          // was variable declaration; now \grammarterm{module-import-declaration}
+::import j2;        // variable declaration
+\end{codeblock}
+
+\diffref{lex.header}
+\change
+\grammarterm{header-name} tokens are formed in more contexts.
+\rationale
+Required for new features.
+\effect
+When the identifier \tcode{import}
+is followed by a \tcode{<} character,
+a \grammarterm{header-name} token may be formed.
+For example:
+\begin{codeblock}
+template<typename> class import {};
+import<int> f();                // ill-formed; previously well-formed
+::import<int> g();              // OK
+\end{codeblock}
+
+\diffref{lex.key}
+\change
+New keywords.
+\rationale
+Required for new features.
+\begin{itemize}
+\item
+\indextext{UTF-8}%
+The \keyword{char8_t} keyword is added to differentiate
+the types of ordinary and UTF-8 literals\iref{lex.string}.
+\item
+The \tcode{concept} keyword is
+added to enable the definition of concepts\iref{temp.concept}.
+\item
+The \keyword{consteval} keyword is added to
+declare immediate functions\iref{dcl.constexpr}.
+\item
+The \keyword{constinit} keyword is added to
+prevent unintended dynamic initialization\iref{dcl.constinit}.
+\item
+The \keyword{co_await}, \keyword{co_yield}, and \keyword{co_return} keywords are added
+to enable the definition of coroutines \iref{dcl.fct.def.coroutine}.
+\item
+The \tcode{requires} keyword is added
+to introduce constraints through a \grammarterm{requires-clause}\iref{temp.pre}
+or a \grammarterm{requires-expression}\iref{expr.prim.req}.
+\end{itemize}
+\effectafteritemize
+Valid \CppXVII{} code using
+\keyword{char8_t},
+\tcode{concept},
+\keyword{consteval},
+\keyword{constinit},
+\keyword{co_await}, \keyword{co_yield}, \keyword{co_return},
+or \tcode{requires}
+as an identifier is not valid in this revision of \Cpp{}.
+
+\diffref{lex.operators}
+\change
+New operator \tcode{<=>}.
+\rationale
+Necessary for new functionality.
+\effect
+Valid \CppXVII{} code that contains a \tcode{<=} token
+immediately followed by a \tcode{>} token
+may be ill-formed or have different semantics in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+namespace N {
+  struct X {};
+  bool operator<=(X, X);
+  template<bool(X, X)> struct Y {};
+  Y<operator<=> y;              // ill-formed; previously well-formed
+}
+\end{codeblock}
+
+\diffref{lex.literal}
+\indextext{UTF-8}%
+\change
+Type of UTF-8 string and character literals.
+\rationale
+Required for new features.
+The changed types enable function overloading, template specialization, and
+type deduction to distinguish ordinary and UTF-8 string and character literals.
+\effect
+Valid \CppXVII{} code that depends on
+UTF-8 string literals having type ``array of \tcode{const char}'' and
+UTF-8 character literals having type ``\tcode{char}''
+is not valid in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+const auto *u8s = u8"text";     // \tcode{u8s} previously deduced as \tcode{const char*}; now deduced as \tcode{const char8_t*}
+const char *ps = u8s;           // ill-formed; previously well-formed
+
+auto u8c = u8'c';               // \tcode{u8c} previously deduced as \tcode{char}; now deduced as \keyword{char8_t}
+char *pc = &u8c;                // ill-formed; previously well-formed
+
+std::string s = u8"text";       // ill-formed; previously well-formed
+
+void f(const char *s);
+f(u8"text");                    // ill-formed; previously well-formed
+
+template<typename> struct ct;
+template<> struct ct<char> {
+  using type = char;
+};
+ct<decltype(u8'c')>::type x;    // ill-formed; previously well-formed.
+\end{codeblock}
+
+\rSec2[diff.cpp17.basic]{\ref{basic}: basics}
+
+\diffref{basic.life}
+\change
+A pseudo-destructor call ends the lifetime of
+the object to which it is applied.
+\rationale
+Increase consistency of the language model.
+\effect
+Valid ISO \CppXVII{} code may be ill-formed or
+have undefined behavior in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+int f() {
+  int a = 123;
+  using T = int;
+  a.~T();
+  return a;         // undefined behavior; previously returned 123
+}
+\end{codeblock}
+
+\diffref{intro.races}
+\change
+Except for the initial release operation,
+a release sequence consists solely of atomic read-modify-write operations.
+\rationale
+Removal of rarely used and confusing feature.
+\effect
+If a \tcode{memory_order_release} atomic store is followed
+by a \tcode{memory_order_relaxed} store to the same variable by the same thread,
+then reading the latter value with a \tcode{memory_order_acquire} load
+no longer provides any ``happens before'' guarantees,
+even in the absence of intervening stores by another thread.
+
+\rSec2[diff.cpp17.expr]{\ref{expr}: expressions}
+
+\diffref{expr.prim.lambda.capture}
+\change
+Implicit lambda capture may capture additional entities.
+\rationale
+Rule simplification, necessary to resolve interactions with constexpr if.
+\effect
+Lambdas with a \grammarterm{capture-default}
+may capture local entities
+that were not captured in \CppXVII{}
+if those entities are only referenced in contexts
+that do not result in an odr-use.
+
+\rSec2[diff.cpp17.dcl.dcl]{\ref{dcl.dcl}: declarations}
+
+\diffref{dcl.typedef}
+\change
+Unnamed classes with a typedef name for linkage purposes
+can contain only C-compatible constructs.
+\rationale
+Necessary for implementability.
+\effect
+Valid \CppXVII{} code may be ill-formed in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+typedef struct {
+  void f() {}           // ill-formed; previously well-formed
+} S;
+\end{codeblock}
+
+\diffref{dcl.fct.default}
+\change
+A function cannot have different default arguments
+in different translation units.
+\rationale
+Required for modules support.
+\effect
+Valid \CppXVII{} code may be ill-formed in this revision of \Cpp{},
+with no diagnostic required.
+For example:
+\begin{codeblock}
+// Translation unit 1
+int f(int a = 42);
+int g() { return f(); }
+
+// Translation unit 2
+int f(int a = 76) { return a; }         // ill-formed, no diagnostic required; previously well-formed
+int g();
+int main() { return g(); }              // used to return 42
+\end{codeblock}
+
+\diffref{dcl.init.aggr}
+\change
+A class that has user-declared constructors is never an aggregate.
+\rationale
+Remove potentially error-prone aggregate initialization
+which may apply notwithstanding the declared constructors of a class.
+\effect
+Valid \CppXVII{} code that aggregate-initializes
+a type with a user-declared constructor
+may be ill-formed or have different semantics
+in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+struct A {              // not an aggregate; previously an aggregate
+  A() = delete;
+};
+
+struct B {              // not an aggregate; previously an aggregate
+  B() = default;
+  int i = 0;
+};
+
+struct C {              // not an aggregate; previously an aggregate
+  C(C&&) = default;
+  int a, b;
+};
+
+A a{};                  // ill-formed; previously well-formed
+B b = {1};              // ill-formed; previously well-formed
+auto* c = new C{2, 3};  // ill-formed; previously well-formed
+
+struct Y;
+
+struct X {
+  operator Y();
+};
+
+struct Y {              // not an aggregate; previously an aggregate
+  Y(const Y&) = default;
+  X x;
+};
+
+Y y{X{}};               // copy constructor call; previously aggregate-initialization
+\end{codeblock}
+
+\diffref{dcl.init.list}
+\change
+Boolean conversion from a pointer or pointer-to-member type
+is now a narrowing conversion.
+\rationale
+Catches bugs.
+\effect
+Valid \CppXVII{} code may fail to compile
+in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+bool y[] = { "bc" };    // ill-formed; previously well-formed
+\end{codeblock}
+
+\rSec2[diff.cpp17.class]{\ref{class}: classes}
+
+\diffref{class.ctor,class.conv.fct}
+\change
+The class name can no longer be used parenthesized
+immediately after an \keyword{explicit} \grammarterm{decl-specifier}
+in a constructor declaration.
+The \grammarterm{conversion-function-id} can no longer be used parenthesized
+immediately after an \keyword{explicit} \grammarterm{decl-specifier}
+in a conversion function declaration.
+\rationale
+Necessary for new functionality.
+\effect
+Valid \CppXVII{} code may fail to compile
+in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+struct S {
+  explicit (S)(const S&);       // ill-formed; previously well-formed
+  explicit (operator int)();    // ill-formed; previously well-formed
+  explicit(true) (S)(int);      // OK
+};
+\end{codeblock}
+
+\diffref{class.ctor,class.dtor}
+\change
+A \grammarterm{simple-template-id}
+is no longer valid as the \grammarterm{declarator-id} of a constructor or destructor.
+\rationale
+Remove potentially error-prone option for redundancy.
+\effect
+Valid \CppXVII{} code may fail to compile
+in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+template<class T>
+struct A {
+  A<T>();           // error: \grammarterm{simple-template-id} not allowed for constructor
+  A(int);           // OK, injected-class-name used
+  ~A<T>();          // error: \grammarterm{simple-template-id} not allowed for destructor
+};
+\end{codeblock}
+
+\diffref{class.copy.elision}
+\change
+A function returning an implicitly movable entity
+may invoke a constructor taking an rvalue reference to a type
+different from that of the returned expression.
+Function and catch-clause parameters can be thrown using move constructors.
+\rationale
+Side effect of making it easier to write
+more efficient code that takes advantage of moves.
+\effect
+Valid \CppXVII{} code may fail to compile or have different semantics
+in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+struct base {
+  base();
+  base(base const &);
+private:
+  base(base &&);
+};
+
+struct derived : base {};
+
+base f(base b) {
+  throw b;                      // error: \tcode{base(base \&\&)} is private
+  derived d;
+  return d;                     // error: \tcode{base(base \&\&)} is private
+}
+
+struct S {
+  S(const char *s) : m(s) { }
+  S(const S&) = default;
+  S(S&& other) : m(other.m) { other.m = nullptr; }
+  const char * m;
+};
+
+S consume(S&& s) { return s; }
+
+void g() {
+  S s("text");
+  consume(static_cast<S&&>(s));
+  char c = *s.m;                // undefined behavior; previously ok
+}
+\end{codeblock}
+
+\rSec2[diff.cpp17.over]{\ref{over}: overloading}
+
+\diffref{over.match.oper}
+\change
+Equality and inequality expressions can now find
+reversed and rewritten candidates.
+\rationale
+Improve consistency of equality with three-way comparison
+and make it easier to write the full complement of equality operations.
+\effect
+For certain pairs of types where one is convertible to the other,
+equality or inequality expressions between an object of one type
+and an object of the other type invoke a different operator.
+Also, for certain types, equality or inequality expressions
+between two objects of that type become ambiguous.
+For example:
+\begin{codeblock}
+struct A {
+  operator int() const;
+};
+
+bool operator==(A, int);        // \#1
+// \#2 is built-in candidate: \tcode{bool operator==(int, int);}
+// \#3 is built-in candidate: \tcode{bool operator!=(int, int);}
+
+int check(A x, A y) {
+  return (x == y) +             // ill-formed; previously well-formed
+    (10 == x) +                 // calls \#1, previously selected \#2
+    (10 != x);                  // calls \#1, previously selected \#3
+}
+\end{codeblock}
+
+\diffref{over.match.oper}
+\change
+Overload resolution may change for equality operators\iref{expr.eq}.
+\rationale
+Support calling \tcode{operator==} with reversed order of arguments.
+\effect
+Valid \CppXVII{} code that uses equality operators with conversion functions
+may be ill-formed or have different semantics in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+struct A {
+  operator int() const { return 10; }
+};
+
+bool operator==(A, int);        // \#1
+// \#2 is built-in candidate: \tcode{bool operator==(int, int);}
+bool b = 10 == A();             // calls \#1 with reversed order of arguments; previously selected \#2
+
+struct B {
+  bool operator==(const B&);    // member function with no cv-qualifier
+};
+B b1;
+bool eq = (b1 == b1);           // ambiguous; previously well-formed
+\end{codeblock}
+
+\rSec2[diff.cpp17.temp]{\ref{temp}: templates}
+
+\diffref{temp.names}
+\change
+An \grammarterm{unqualified-id}
+that is followed by a \tcode{<}
+and for which name lookup
+finds nothing or finds a function
+will be treated as a \grammarterm{template-name}
+in order to potentially cause argument dependent lookup to be performed.
+\rationale
+It was problematic to call a function template
+with an explicit template argument list
+via argument dependent lookup
+because of the need to have a template with the same name
+visible via normal lookup.
+\effect
+Previously valid code that uses a function name
+as the left operand of a \tcode{<} operator
+would become ill-formed.
+For example:
+\begin{codeblock}
+struct A {};
+bool operator<(void (*fp)(), A);
+void f() {}
+int main() {
+  A a;
+  f < a;    // ill-formed; previously well-formed
+  (f) < a;  // still well formed
+}
+\end{codeblock}
+
+\rSec2[diff.cpp17.except]{\ref{except}: exception handling}
+
+\diffref{except.spec}
+\change
+Remove \tcode{throw()} exception specification.
+\rationale
+Removal of obsolete feature that has been replaced by \keyword{noexcept}.
+\effect
+A valid \CppXVII{} function declaration, member function declaration, function
+pointer declaration, or function reference declaration that uses \tcode{throw()}
+for its exception specification will be rejected as ill-formed in this
+revision of \Cpp{}. It should simply be replaced with \keyword{noexcept} for no
+change of meaning since \CppXVII{}.
+\begin{note}
+There is no way to write a function declaration
+that is non-throwing in this revision of \Cpp{}
+and is also non-throwing in \CppIII{}
+except by using the preprocessor to generate
+a different token sequence in each case.
+\end{note}
+
+\rSec2[diff.cpp17.library]{\ref{library}: library introduction}
+
+\diffref{headers}
+\change
+New headers.
+\rationale
+New functionality.
+\effect
+The following \Cpp{} headers are new:
+\libheaderref{barrier},
+\libheaderref{bit},
+\libheaderref{charconv},
+\libheaderref{compare},
+\libheaderref{concepts},
+\libheaderref{coroutine},
+\libheaderref{format},
+\libheaderref{latch},
+\libheaderref{numbers},
+\libheaderref{ranges},
+\libheaderref{semaphore},
+\libheaderrefx{source_location}{source.location.syn},
+\libheaderref{span},
+\libheaderrefx{stop_token}{thread.stoptoken.syn},
+\libheaderref{syncstream}, and
+\libheaderrefx{version}{support.limits.general}.
+Valid \CppXVII{} code that \tcode{\#include}{s} headers with these names may be
+invalid in this revision of \Cpp{}.
+
+\diffref{headers}
+\change
+Remove vacuous \Cpp{} header files.
+\rationale
+The empty headers implied a false requirement to achieve C compatibility with the \Cpp{} headers.
+\effect
+A valid \CppXVII{} program that \tcode{\#include}{s} any of the following headers may fail to compile:
+\libnoheader{ccomplex},
+\libnoheader{ciso646},
+\libnoheader{cstdalign},
+\libnoheader{cstdbool}, and
+\libnoheader{ctgmath}.
+To retain the same behavior:
+\begin{itemize}
+\item
+a \tcode{\#include} of \libnoheader{ccomplex} can be replaced by
+a \tcode{\#include} of \libheaderref{complex},
+\item
+a \tcode{\#include} of \libnoheader{ctgmath} can be replaced by
+a \tcode{\#include} of \libheaderref{cmath} and
+a \tcode{\#include} of \libheader{complex},
+and
+\item
+a \tcode{\#include} of
+\libnoheader{ciso646},
+\libnoheader{cstdalign}, or
+\libnoheader{cstdbool}
+can simply be removed.
+\end{itemize}
+
+\rSec2[diff.cpp17.containers]{\ref{containers}: containers library}
+
+\diffref{forward.list,list}
+\change
+Return types of \tcode{remove}, \tcode{remove_if}, and \tcode{unique}
+changed from \keyword{void} to \tcode{container::size_type}.
+\rationale
+Improve efficiency and convenience of finding number of removed elements.
+\effect
+Code that depends on the return types might have different semantics in this revision of \Cpp{}.
+Translation units compiled against this version of \Cpp{} may be incompatible with
+translation units compiled against \CppXVII{}, either failing to link or having undefined behavior.
+
+\rSec2[diff.cpp17.iterators]{\ref{iterators}: iterators library}
+
+\diffref{iterator.traits}
+\change
+The specialization of \tcode{iterator_traits} for \tcode{void*} and
+for function pointer types no longer contains any nested typedefs.
+\rationale
+Corrects an issue misidentifying pointer types that are not incrementable
+as iterator types.
+\effect
+A valid \CppXVII{} program that relies on the presence of the typedefs
+may fail to compile, or have different behavior.
+
+\rSec2[diff.cpp17.alg.reqs]{\ref{algorithms}: algorithms library}
+
+\diffref{algorithms.requirements}
+\change
+The number and order of deducible template parameters for algorithm declarations
+is now unspecified, instead of being as-declared.
+\rationale
+Increase implementor freedom and allow some function templates
+to be implemented as function objects with templated call operators.
+\effect
+A valid \CppXVII{} program that passes explicit template arguments to
+algorithms not explicitly specified to allow such in this version of \Cpp{}
+may fail to compile or have undefined behavior.
+
+\rSec2[diff.cpp17.input.output]{\ref{input.output}: input/output library}
+
+\diffref{istream.extractors}
+\change
+Character array extraction only takes array types.
+\rationale
+Increase safety via preventing buffer overflow at compile time.
+\effect
+Valid \CppXVII{} code may fail to compile in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+auto p = new char[100];
+char q[100];
+std::cin >> std::setw(20) >> p;         // ill-formed; previously well-formed
+std::cin >> std::setw(20) >> q;         // OK
+\end{codeblock}
+
+\diffref{ostream.inserters.character}
+\indextext{UTF-8}%
+\change
+Overload resolution for ostream inserters used with UTF-8 literals.
+\rationale
+Required for new features.
+\effect
+Valid \CppXVII{} code that passes UTF-8 literals to
+\tcode{basic_ostream<char, ...>::operator<<} or
+\tcode{basic_ostream<wchar_t, ...>::operator<<} is now ill-formed.
+For example:
+\begin{codeblock}
+std::cout << u8"text";          // previously called \tcode{operator<<(const char*)} and printed a string;
+                                // now ill-formed
+std::cout << u8'X';             // previously called \tcode{operator<<(char)} and printed a character;
+                                // now ill-formed
+\end{codeblock}
+
+\diffref{ostream.inserters.character}
+\change
+Overload resolution for ostream inserters
+used with \keyword{wchar_t}, \keyword{char16_t}, or \keyword{char32_t} types.
+\rationale
+Removal of surprising behavior.
+\effect
+Valid \CppXVII{} code that passes
+\keyword{wchar_t}, \keyword{char16_t}, or \keyword{char32_t} characters or strings
+to \tcode{basic_ostream<char, ...>::operator<<} or
+that passes \keyword{char16_t} or \keyword{char32_t} characters or strings
+to \tcode{basic_ostream<wchar_t, ...>::operator<<} is now ill-formed.
+For example:
+\begin{codeblock}
+std::cout << u"text";           // previously formatted the string as a pointer value;
+                                // now ill-formed
+std::cout << u'X';              // previously formatted the character as an integer value;
+                                // now ill-formed
+\end{codeblock}
+
+\diffref{fs.class.path}
+\change
+Return type of filesystem path format observer member functions.
+\rationale
+Required for new features.
+\effect
+Valid \CppXVII{} code that depends on the \tcode{u8string()} and
+\tcode{generic_u8string()} member functions of \tcode{std::filesystem::path}
+returning \tcode{std::string} is not valid in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+std::filesystem::path p;
+std::string s1 = p.u8string();          // ill-formed; previously well-formed
+std::string s2 = p.generic_u8string();  // ill-formed; previously well-formed
+\end{codeblock}
+
+\rSec2[diff.cpp17.depr]{\ref{depr}: compatibility features}
+
+\nodiffref
+\change
+Remove \tcode{uncaught_exception}.
+\rationale
+The function did not have a clear specification when multiple exceptions were
+active, and has been superseded by \tcode{uncaught_exceptions}.
+\effect
+A valid \CppXVII{} program that calls \tcode{std::uncaught_exception} may fail
+to compile. It can be revised to use \tcode{std::uncaught_exceptions} instead,
+for clear and portable semantics.
+
+\nodiffref
+\change
+Remove support for adaptable function API.
+\rationale
+The deprecated support relied on a limited convention that could not be
+extended to support the general case or new language features. It has been
+superseded by direct language support with \keyword{decltype}, and by the
+\tcode{std::bind} and \tcode{std::not_fn} function templates.
+\effect
+A valid \CppXVII{} program that relies on the presence of \tcode{result_type},
+\tcode{argument_type}, \tcode{first_argument_type}, or
+\tcode{second_argument_type} in a standard library class may fail to compile. A
+valid \CppXVII{} program that calls \tcode{not1} or \tcode{not2}, or uses the
+class templates \tcode{unary_negate} or \tcode{binary_negate}, may fail to
+compile.
+
+\nodiffref
+\change
+Remove redundant members from \tcode{std::allocator}.
+\rationale
+\tcode{std::allocator} was overspecified, encouraging direct usage in user containers
+rather than relying on \tcode{std::allocator_traits}, leading to poor containers.
+\effect
+A valid \CppXVII{} program that directly makes use of the \tcode{pointer},
+\tcode{const_pointer}, \tcode{reference}, \tcode{const_reference},
+\tcode{rebind}, \tcode{address}, \tcode{construct}, \tcode{destroy}, or
+\tcode{max_size} members of \tcode{std::allocator}, or that directly calls
+\tcode{allocate} with an additional hint argument, may fail to compile.
+
+\nodiffref
+\change
+Remove \tcode{raw_storage_iterator}.
+\rationale
+The iterator encouraged use of potentially-throwing algorithms, but did
+not return the number of elements successfully constructed,
+as would be necessary to destroy them.
+\effect
+A valid \CppXVII{} program that uses this iterator class may fail to compile.
+
+\nodiffref
+\change
+Remove temporary buffers API.
+\rationale
+The temporary buffer facility was intended to provide an efficient optimization
+for small memory requests, but there is little evidence this was achieved in
+practice, while requiring the user to provide their own exception-safe wrappers
+to guard use of the facility in many cases.
+\effect
+A valid \CppXVII{} program that calls \tcode{get_temporary_buffer} or
+\tcode{return_temporary_buffer} may fail to compile.
+
+\nodiffref
+\change
+Remove \tcode{shared_ptr::unique}.
+\rationale
+The result of a call to this member function is not reliable in the presence of
+multiple threads and weak pointers. The member function \tcode{use_count} is
+similarly unreliable, but has a clearer contract in such cases, and remains
+available for well defined use in single-threaded cases.
+\effect
+A valid \CppXVII{} program that calls \tcode{unique} on a \tcode{shared_ptr}
+object may fail to compile.
+
+\diffref{depr.meta.types}
+\change
+Remove deprecated type traits.
+\rationale
+The traits had unreliable or awkward interfaces. The \tcode{is_literal_type}
+trait provided no way to detect which subset of constructors and member
+functions of a type were declared \keyword{constexpr}. The \tcode{result_of}
+trait had a surprising syntax that did not directly support function types.
+It has been superseded by the \tcode{invoke_result} trait.
+\effect
+A valid \CppXVII{} program that relies on the \tcode{is_literal_type} or
+\tcode{result_of} type traits, on the \tcode{is_literal_type_v} variable template,
+or on the \tcode{result_of_t} alias template may fail to compile.
+
+\rSec1[diff.cpp14]{\Cpp{} and ISO \CppXIV{}}
+
+\rSec2[diff.cpp14.general]{General}
+
+\pnum
+\indextext{summary!compatibility with ISO \CppXIV{}}%
+Subclause \ref{diff.cpp14} lists the differences between \Cpp{} and
+ISO \CppXIV{} (ISO/IEC 14882:2014, \doccite{Programming Languages --- \Cpp{}}),
+in addition to those listed above,
+by the chapters of this document.
+
+\rSec2[diff.cpp14.lex]{\ref{lex}: lexical conventions}
+
+\diffref{lex.phases}
+\indextext{trigraph sequence}%
+\change
+Removal of trigraph support as a required feature.
+\rationale
+Prevents accidental uses of trigraphs in non-raw string literals and comments.
+\effect
+Valid \CppXIV{} code that uses trigraphs may not be valid or may have different
+semantics in this revision of \Cpp{}. Implementations may choose to
+translate trigraphs as specified in \CppXIV{} if they appear outside of a raw
+string literal, as part of the \impldef{mapping input source file characters
+to translation character set} mapping from input source file characters to
+the translation character set.
+
+\diffref{lex.ppnumber}
+\change
+\grammarterm{pp-number} can contain \tcode{p} \grammarterm{sign} and
+\tcode{P} \grammarterm{sign}.
+\rationale
+Necessary to enable \grammarterm{hexadecimal-floating-point-literal}s.
+\effect
+Valid \CppXIV{} code may fail to compile or produce different results in
+this revision of \Cpp{}. Specifically, character sequences like \tcode{0p+0}
+and \tcode{0e1_p+0} are three separate tokens each in \CppXIV{}, but one single token
+in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+#define F(a) b ## a
+int b0p = F(0p+0);  // ill-formed; equivalent to ``\tcode{int b0p = b0p + 0;}\!'' in \CppXIV{}
+\end{codeblock}
+
+\rSec2[diff.cpp14.expr]{\ref{expr}: expressions}
+
+\diffref{expr.post.incr,expr.pre.incr}
+\change
+Remove increment operator with \tcode{bool} operand.
+\rationale
+Obsolete feature with occasionally surprising semantics.
+\effect
+A valid \CppXIV{} expression utilizing the increment operator on
+a \tcode{bool} lvalue is ill-formed in this revision of \Cpp{}.
+
+\diffref{expr.new,expr.delete}
+\change
+Dynamic allocation mechanism for over-aligned types.
+\rationale
+Simplify use of over-aligned types.
+\effect
+In \CppXIV{} code that uses a \grammarterm{new-expression}
+to allocate an object with an over-aligned class type,
+where that class has no allocation functions of its own,
+\tcode{::operator new(std::size_t)}
+is used to allocate the memory.
+In this revision of \Cpp{},
+\tcode{::operator new(std::size_t, std::align_val_t)}
+is used instead.
+
+\rSec2[diff.cpp14.dcl.dcl]{\ref{dcl.dcl}: declarations}
+
+\diffref{dcl.stc}
+\indextext{\idxcode{register} storage class}%
+\change
+Removal of \keyword{register} \grammarterm{storage-class-specifier}.
+\rationale
+Enable repurposing of deprecated keyword in future revisions of \Cpp{}.
+\effect
+A valid \CppXIV{} declaration utilizing the \keyword{register}
+\grammarterm{storage-class-specifier} is ill-formed in this revision of \Cpp{}.
+The specifier can simply be removed to retain the original meaning.
+
+\diffref{dcl.spec.auto}
+\change
+\keyword{auto} deduction from \grammarterm{braced-init-list}.
+\rationale
+More intuitive deduction behavior.
+\effect
+Valid \CppXIV{} code may fail to compile or may change meaning
+in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+auto x1{1};         // was \tcode{std::initializer_list<int>}, now \tcode{int}
+auto x2{1, 2};      // was \tcode{std::initializer_list<int>}, now ill-formed
+\end{codeblock}
+
+\diffref{dcl.fct}
+\change
+Make exception specifications be part of the type system.
+\rationale
+Improve type-safety.
+\effect
+Valid \CppXIV{} code may fail to compile or change meaning in this
+revision of \Cpp{}.
+For example:
+\begin{codeblock}
+void g1() noexcept;
+void g2();
+template<class T> int f(T *, T *);
+int x = f(g1, g2);              // ill-formed; previously well-formed
+\end{codeblock}
+
+\diffref{dcl.init.aggr}
+\change
+Definition of an aggregate is extended
+to apply to user-defined types with base classes.
+\rationale
+To increase convenience of aggregate initialization.
+\effect
+Valid \CppXIV{} code may fail to compile or produce different results in this
+revision of \Cpp{}; initialization from an empty initializer list will
+perform aggregate initialization instead of invoking a default constructor
+for the affected types.
+For example:
+\begin{codeblock}
+struct derived;
+struct base {
+  friend struct derived;
+private:
+  base();
+};
+struct derived : base {};
+
+derived d1{};       // error; the code was well-formed in \CppXIV{}
+derived d2;         // still OK
+\end{codeblock}
+
+\rSec2[diff.cpp14.class]{\ref{class}: classes}
+
+\diffref{class.inhctor.init}
+\change
+Inheriting a constructor no longer injects a constructor into the derived class.
+\rationale
+Better interaction with other language features.
+\effect
+Valid \CppXIV{} code that uses inheriting constructors may not be valid
+or may have different semantics. A \grammarterm{using-declaration}
+that names a constructor now makes the corresponding base class constructors
+visible to initializations of the derived class
+rather than declaring additional derived class constructors.
+For example:
+\begin{codeblock}
+struct A {
+  template<typename T> A(T, typename T::type = 0);
+  A(int);
+};
+struct B : A {
+  using A::A;
+  B(int);
+};
+B b(42L);           // now calls \tcode{B(int)}, used to call \tcode{B<long>(long)},
+                    // which called \tcode{A(int)} due to substitution failure
+                    // in \tcode{A<long>(long)}.
+\end{codeblock}
+
+\rSec2[diff.cpp14.temp]{\ref{temp}: templates}
+
+\diffref{temp.deduct.type}
+\change
+Allowance to deduce from the type of a non-type template argument.
+\rationale
+In combination with the ability to declare
+non-type template arguments with placeholder types,
+allows partial specializations to decompose
+from the type deduced for the non-type template argument.
+\effect
+Valid \CppXIV{} code may fail to compile
+or produce different results in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+template <int N> struct A;
+template <typename T, T N> int foo(A<N> *) = delete;
+void foo(void *);
+void bar(A<0> *p) {
+  foo(p);           // ill-formed; previously well-formed
+}
+\end{codeblock}
+
+\rSec2[diff.cpp14.except]{\ref{except}: exception handling}
+
+\diffref{except.spec}
+\change
+Remove dynamic exception specifications.
+\rationale
+Dynamic exception specifications were a deprecated feature
+that was complex and brittle in use.
+They interacted badly with the type system,
+which became a more significant issue in this revision of \Cpp{}
+where (non-dynamic) exception specifications are part of the function type.
+\effect
+A valid \CppXIV{} function declaration,
+member function declaration,
+function pointer declaration,
+or function reference declaration,
+if it has a potentially throwing dynamic exception specification,
+is rejected as ill-formed in this revision of \Cpp{}.
+Violating a non-throwing dynamic exception specification
+calls \tcode{terminate} rather than \tcode{unexpected},
+and it is unspecified whether stack unwinding is performed
+prior to such a call.
+
+\rSec2[diff.cpp14.library]{\ref{library}: library introduction}
+
+\diffref{headers}
+\change
+New headers.
+\rationale
+New functionality.
+\effect
+The following \Cpp{} headers are new:
+\libheaderrefx{any}{any.synop},
+\libheaderref{charconv},
+\libheaderref{execution},
+\libheaderrefx{filesystem}{fs.filesystem.syn},
+\libheaderrefx{memory_resource}{mem.res.syn},
+\libheaderref{optional},\\
+\libheaderrefx{string_view}{string.view.synop},
+and
+\libheaderref{variant}.
+Valid \CppXIV{} code that \tcode{\#include}{s} headers with these names may be
+invalid in this revision of \Cpp{}.
+
+\diffref{namespace.future}
+\change
+New reserved namespaces.
+\rationale
+Reserve namespaces for future revisions of the standard library
+that might otherwise be incompatible with existing programs.
+\effect
+The global namespaces \tcode{std}
+followed by an arbitrary sequence of \grammarterm{digit}{s}\iref{lex.name}
+are reserved for future standardization.
+Valid \CppXIV{} code that uses such a top-level namespace,
+e.g., \tcode{std2}, may be invalid in this revision of \Cpp{}.
+
+\rSec2[diff.cpp14.utilities]{\ref{utilities}: general utilities library}
+
+\diffref{func.wrap}
+\change
+Constructors taking allocators removed.
+\rationale
+No implementation consensus.
+\effect
+Valid \CppXIV{} code may fail to compile or may change meaning in this
+revision of \Cpp{}. Specifically, constructing a \tcode{std::function} with
+an allocator is ill-formed and uses-allocator construction will not pass an
+allocator to \tcode{std::function} constructors in this revision of \Cpp{}.
+
+\diffref{util.smartptr.shared}
+\change
+Different constraint on conversions from \tcode{unique_ptr}.
+\rationale
+Adding array support to \tcode{shared_ptr},
+via the syntax \tcode{shared_ptr<T[]>} and \tcode{shared_ptr<T[N]>}.
+\effect
+Valid \CppXIV{} code may fail to compile or may change meaning in this
+revision of \Cpp{}.
+For example:
+\begin{codeblock}
+#include <memory>
+std::unique_ptr<int[]> arr(new int[1]);
+std::shared_ptr<int> ptr(std::move(arr));   // error: \tcode{int(*)[]} is not compatible with \tcode{int*}
+\end{codeblock}
+
+\rSec2[diff.cpp14.string]{\ref{strings}: strings library}
+
+\diffref{basic.string}
+\change
+Non-const \tcode{.data()} member added.
+\rationale
+The lack of a non-const \tcode{.data()}
+differed from the similar member of \tcode{std::vector}.
+This change regularizes behavior.
+\effect
+Overloaded functions which have differing code paths
+for \tcode{char*} and \tcode{const char*} arguments
+will execute differently
+when called with a non-const string's \tcode{.data()} member
+in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+int f(char *) = delete;
+int f(const char *);
+string s;
+int x = f(s.data());            // ill-formed; previously well-formed
+\end{codeblock}
+
+\rSec2[diff.cpp14.containers]{\ref{containers}: containers library}
+
+\diffref{associative.reqmts}
+\change
+Requirements change:
+\rationale
+Increase portability, clarification of associative container requirements.
+\effect
+Valid \CppXIV{} code that attempts to use associative containers
+having a comparison object with non-const function call operator
+may fail to compile in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+#include <set>
+
+struct compare
+{
+  bool operator()(int a, int b)
+  {
+    return a < b;
+  }
+};
+
+int main() {
+  const std::set<int, compare> s;
+  s.find(0);
+}
+\end{codeblock}
+
+\rSec2[diff.cpp14.depr]{\ref{depr}: compatibility features}
+
+\nodiffref
+\change
+The class templates
+\tcode{auto_ptr},
+\tcode{unary_function}, and
+\tcode{binary_function},
+the function templates
+\tcode{random_shuffle},
+and the function templates (and their return types)
+\tcode{ptr_fun},
+\tcode{mem_fun},
+\tcode{mem_fun_ref},
+\tcode{bind1st}, and
+\tcode{bind2nd}
+are not defined.
+\rationale
+Superseded by new features.
+\effect
+Valid \CppXIV{} code that uses these class templates
+and function templates may fail to compile in this revision of \Cpp{}.
+
+\nodiffref
+\change
+Remove old iostreams members [depr.ios.members].
+\rationale
+Redundant feature for compatibility with pre-standard code
+has served its time.
+\effect
+A valid \CppXIV{} program using these identifiers
+may be ill-formed in this revision of \Cpp{}.
+
+\rSec1[diff.cpp11]{\Cpp{} and ISO \CppXI{}}
+
+\rSec2[diff.cpp11.general]{General}
+
+\pnum
+\indextext{summary!compatibility with ISO \CppXI{}}%
+Subclause \ref{diff.cpp11} lists the differences between \Cpp{} and
+ISO \CppXI{} (ISO/IEC 14882:2011, \doccite{Programming Languages --- \Cpp{}}),
+in addition to those listed above,
+by the chapters of this document.
+
+\rSec2[diff.cpp11.lex]{\ref{lex}: lexical conventions}
+
+\diffref{lex.ppnumber}
+\change
+\grammarterm{pp-number} can contain one or more single quotes.
+\rationale
+Necessary to enable single quotes as digit separators.
+\effect
+Valid \CppXI{} code may fail to compile or may change meaning in this
+revision of \Cpp{}. For example, the following code is valid both in \CppXI{} and in
+this revision of \Cpp{}, but the macro invocation produces different outcomes
+because the single quotes delimit a \grammarterm{character-literal} in \CppXI{}, whereas they are digit
+separators in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+#define M(x, ...) __VA_ARGS__
+int x[2] = { M(1'2,3'4, 5) };
+// \tcode{int x[2] = \{ 5 \};\ \ \ \ \ } --- \CppXI{}
+// \tcode{int x[2] = \{ 3'4, 5 \};} --- this revision of \Cpp{}
+\end{codeblock}
+
+\rSec2[diff.cpp11.basic]{\ref{basic}: basics}
+
+\diffref{basic.stc.dynamic.deallocation}
+\change
+New usual (non-placement) deallocator.
+\rationale
+Required for sized deallocation.
+\effect
+Valid \CppXI{} code can declare a global placement allocation function and
+deallocation function as follows:
+\begin{codeblock}
+void* operator new(std::size_t, std::size_t);
+void operator delete(void*, std::size_t) noexcept;
+\end{codeblock}
+In this revision of \Cpp{}, however, the declaration of \tcode{operator delete}
+might match a predefined usual (non-placement)
+\tcode{operator delete}\iref{basic.stc.dynamic}. If so, the
+program is ill-formed, as it was for class member allocation functions and
+deallocation functions\iref{expr.new}.
+
+\rSec2[diff.cpp11.expr]{\ref{expr}: expressions}
+
+\diffref{expr.cond}
+\change
+A conditional expression with a throw expression as its second or third
+operand keeps the type and value category of the other operand.
+\rationale
+Formerly mandated conversions (lvalue-to-rvalue\iref{conv.lval},
+array-to-pointer\iref{conv.array}, and function-to-pointer\iref{conv.func}
+standard conversions), especially the creation of the temporary due to
+lvalue-to-rvalue conversion, were considered gratuitous and surprising.
+\effect
+Valid \CppXI{} code that relies on the conversions may behave differently
+in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+struct S {
+  int x = 1;
+  void mf() { x = 2; }
+};
+int f(bool cond) {
+  S s;
+  (cond ? s : throw 0).mf();
+  return s.x;
+}
+\end{codeblock}
+In \CppXI{}, \tcode{f(true)} returns \tcode{1}. In this revision of \Cpp{},
+it returns \tcode{2}.
+\begin{codeblock}
+sizeof(true ? "" : throw 0)
+\end{codeblock}
+In \CppXI{}, the expression yields \tcode{sizeof(const char*)}. In this
+revision of \Cpp{}, it yields \tcode{sizeof(const char[1])}.
+
+\rSec2[diff.cpp11.dcl.dcl]{\ref{dcl.dcl}: declarations}
+
+\diffref{dcl.constexpr}
+\change
+\keyword{constexpr} non-static member functions are not implicitly
+\keyword{const} member functions.
+\rationale
+Necessary to allow \keyword{constexpr} member functions to mutate
+the object.
+\effect
+Valid \CppXI{} code may fail to compile in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+struct S {
+  constexpr const int &f();
+  int &f();
+};
+\end{codeblock}
+This code is valid in \CppXI{}
+but invalid in this revision of \Cpp{} because it declares the same member
+function twice with different return types.
+
+\diffref{dcl.init.aggr}
+\change
+Classes with default member initializers can be aggregates.
+\rationale
+Necessary to allow default member initializers to be used
+by aggregate initialization.
+\effect
+Valid \CppXI{} code may fail to compile or may change meaning in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+struct S {          // Aggregate in \CppXIV{} onwards.
+  int m = 1;
+};
+struct X {
+  operator int();
+  operator S();
+};
+X a{};
+S b{a};             // uses copy constructor in \CppXI{},
+                    // performs aggregate initialization in this revision of \Cpp{}
+\end{codeblock}
+
+\rSec2[diff.cpp11.library]{\ref{library}: library introduction}
+
+\diffref{headers}
+\change
+New header.
+\rationale
+New functionality.
+\effect
+The \Cpp{} header \libheaderrefx{shared_mutex}{shared.mutex.syn} is new.
+Valid \CppXI{} code that \tcode{\#include}{s} a header with that name may be
+invalid in this revision of \Cpp{}.
+
+\rSec2[diff.cpp11.input.output]{\ref{input.output}: input/output library}
+
+\diffref{c.files}
+\change
+\tcode{gets} is not defined.
+\rationale
+Use of \tcode{gets} is considered dangerous.
+\effect
+Valid \CppXI{} code that uses the \tcode{gets} function may fail to compile
+in this revision of \Cpp{}.
+
+\rSec1[diff.cpp03]{\Cpp{} and ISO \CppIII{}}
+
+\rSec2[diff.cpp03.general]{General}
+
+\pnum
+\indextext{summary!compatibility with ISO \CppIII{}}%
+Subclause \ref{diff.cpp03} lists the differences between \Cpp{} and
+ISO \CppIII{} (ISO/IEC 14882:2003, \doccite{Programming Languages --- \Cpp{}}),
+in addition to those listed above,
+by the chapters of this document.
+
+\rSec2[diff.cpp03.lex]{\ref{lex}: lexical conventions}
+
+\diffref{lex.pptoken}
+\change
+New kinds of \grammarterm{string-literal}s.
+\rationale
+Required for new features.
+\effect
+Valid \CppIII{} code may fail to compile or produce different results in
+this revision of \Cpp{}. Specifically, macros named \tcode{R}, \tcode{u8},
+\tcode{u8R}, \tcode{u}, \tcode{uR}, \tcode{U}, \tcode{UR}, or \tcode{LR} will
+not be expanded when adjacent to a \grammarterm{string-literal} but will be interpreted as
+part of the \grammarterm{string-literal}.
+For example:
+\begin{codeblock}
+#define u8 "abc"
+const char* s = u8"def";        // Previously \tcode{"abcdef"}, now \tcode{"def"}
+\end{codeblock}
+
+\diffref{lex.pptoken}
+\change
+User-defined literal string support.
+\rationale
+Required for new features.
+\effect
+Valid \CppIII{} code may fail to compile or produce different results in
+this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+#define _x "there"
+"hello"_x           // \#1
+\end{codeblock}
+
+Previously, \#1 would have consisted of two separate preprocessing tokens and
+the macro \tcode{_x} would have been expanded. In this revision of \Cpp{},
+\#1 consists of a single preprocessing token, so the macro is not expanded.
+
+\diffref{lex.key}
+\change
+New keywords.
+\rationale
+Required for new features.
+\effect
+Added to \tref{lex.key}, the following identifiers are new keywords:
+\tcode{alignas},
+\tcode{alignof},
+\keyword{char16_t},
+\keyword{char32_t},
+\keyword{constexpr},
+\keyword{decltype},
+\keyword{noexcept},
+\keyword{nullptr},
+\keyword{static_assert},
+and
+\keyword{thread_local}.
+Valid \CppIII{} code using these identifiers is invalid in this revision of \Cpp{}.
+
+\diffref{lex.icon}
+\change
+Type of integer literals.
+\rationale
+C99 compatibility.
+\effect
+Certain integer literals larger than can be represented by \tcode{long} could
+change from an unsigned integer type to \tcode{signed long long}.
+
+\rSec2[diff.cpp03.expr]{\ref{expr}: expressions}
+
+\diffref{conv.ptr}
+\change
+Only literals are integer null pointer constants.
+\rationale
+Removing surprising interactions with templates and constant
+expressions.
+\effect
+Valid \CppIII{} code may fail to compile or produce different results in
+this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+void f(void *);     // \#1
+void f(...);        // \#2
+template<int N> void g() {
+  f(0*N);           // calls \#2; used to call \#1
+}
+\end{codeblock}
+
+\diffref{expr.mul}
+\change
+Specify rounding for results of integer \tcode{/} and \tcode{\%}.
+\rationale
+Increase portability, C99 compatibility.
+\effect
+Valid \CppIII{} code that uses integer division rounds the result toward 0 or
+toward negative infinity, whereas this revision of \Cpp{} always rounds
+the result toward 0.
+
+\diffref{expr.log.and}
+\change
+\tcode{\&\&} is valid in a \grammarterm{type-name}.
+\rationale
+Required for new features.
+\effect
+Valid \CppIII{} code may fail to compile or produce different results in
+this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+bool b1 = new int && false;             // previously \tcode{false}, now ill-formed
+struct S { operator int(); };
+bool b2 = &S::operator int && false;    // previously \tcode{false}, now ill-formed
+\end{codeblock}
+
+\rSec2[diff.cpp03.dcl.dcl]{\ref{dcl.dcl}: declarations}
+
+\diffref{dcl.spec}
+\change
+Remove \keyword{auto} as a storage class specifier.
+\rationale
+New feature.
+\effect
+Valid \CppIII{} code that uses the keyword \keyword{auto} as a storage class
+specifier
+may be invalid in this revision of \Cpp{}.
+In this revision of \Cpp{},
+\keyword{auto} indicates that the type of a variable is to be deduced
+from its initializer expression.
+
+\diffref{dcl.init.list}
+\change
+Narrowing restrictions in aggregate initializers.
+\rationale
+Catches bugs.
+\effect
+Valid \CppIII{} code may fail to compile in this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+int x[] = { 2.0 };
+\end{codeblock}
+This code is valid in \CppIII{} but invalid in this
+revision of \Cpp{} because \tcode{double} to \tcode{int} is a narrowing
+conversion.
+
+\rSec2[diff.cpp03.class]{\ref{class}: classes}
+
+\diffref{class.default.ctor,class.dtor,class.copy.ctor,class.copy.assign}
+\change
+Implicitly-declared special member functions are defined as deleted
+when the implicit definition would have been ill-formed.
+\rationale
+Improves template argument deduction failure.
+\effect
+A valid \CppIII{} program that uses one of these special member functions in a
+context where the definition is not required (e.g., in an expression that is
+not potentially evaluated) becomes ill-formed.
+
+\diffref{class.dtor}
+\change
+User-declared destructors have an implicit exception specification.
+\rationale
+Clarification of destructor requirements.
+\effect
+Valid \CppIII{} code may execute differently in this revision of \Cpp{}. In
+particular, destructors that throw exceptions will call \tcode{std::terminate}
+(without calling \tcode{std::unexpected}) if their exception specification is
+non-throwing.
+
+\rSec2[diff.cpp03.temp]{\ref{temp}: templates}
+
+\diffref{temp.param}
+\change
+Repurpose \keyword{export} for modules\iref{module,cpp.module,cpp.import}.
+\rationale
+No implementation consensus for the \CppIII{} meaning of \keyword{export}.
+\effect
+A valid \CppIII{} program containing \tcode{export} is ill-formed in this
+revision of \Cpp{}.
+
+\diffref{temp.arg}
+\change
+Remove whitespace requirement for nested closing template right angle
+brackets.
+\rationale
+Considered a persistent but minor annoyance. Template aliases
+representing non-class types would exacerbate whitespace issues.
+\effect
+Change to semantics of well-defined expression. A valid \CppIII{} expression
+containing a right angle bracket (``\tcode{>}'') followed immediately by
+another right angle bracket may now be treated as closing two templates.
+For example:
+\begin{codeblock}
+template <class T> struct X { };
+template <int N> struct Y { };
+X< Y< 1 >> 2 > > x;
+\end{codeblock}
+This code is valid in \CppIII{} because ``\tcode{>>}''
+is a right-shift operator, but invalid in this revision of \Cpp{} because
+``\tcode{>>}'' closes two templates.
+
+\diffref{temp.dep.candidate}
+\change
+Allow dependent calls of functions with internal linkage.
+\rationale
+Overly constrained, simplify overload resolution rules.
+\effect
+A valid \CppIII{} program can get a different result in this
+revision of \Cpp{}.
+
+\rSec2[diff.cpp03.library]{\ref{library}: library introduction}
+
+\pnum
+\textbf{Affected:} \ref{library} -- \ref{\lastlibchapter}
+\change
+New reserved identifiers.
+\rationale
+Required by new features.
+\effect
+Valid \CppIII{} code that uses any identifiers added to the \Cpp{} standard
+library by later revisions of \Cpp{} may fail to compile or produce different
+results in this revision of \Cpp{}. A comprehensive list of identifiers used
+by the \Cpp{} standard library can be found in the Index of Library Names in this
+document.
+
+\diffref{headers}
+\change
+New headers.
+\rationale
+New functionality.
+\effect
+The following \Cpp{} headers are new:
+\libheaderref{array},
+\libheaderrefx{atomic}{atomics.syn},
+\libheaderrefx{chrono}{time.syn},
+\libdeprheaderref{codecvt},
+\libheaderrefx{condition_variable}{condition.variable.syn},
+\libheaderrefx{forward_list}{forward.list.syn},
+\libheaderref{future},
+\libheaderrefx{initializer_list}{initializer.list.syn},
+\libheaderref{mutex},
+\libheaderrefx{random}{rand.synopsis},
+\libheaderref{ratio},
+\libheaderrefx{regex}{re.syn},
+\libheaderrefx{scoped_allocator}{allocator.adaptor.syn},
+\libheaderrefx{system_error}{system.error.syn},
+\libheaderref{thread},
+\libheaderref{tuple},
+\libheaderrefx{type\-index}{type.index.synopsis},
+\libheaderrefx{type_traits}{meta.type.synop},
+\libheaderrefx{unordered_map}{unord.map.syn},
+and
+\libheaderrefx{unordered_set}{unord.set.syn}.
+In addition the following C compatibility headers are new:
+\libheaderref{cfenv},
+\libheaderref{cinttypes},
+\libheaderref{cstdint},
+and
+\libheaderref{cuchar}.
+Valid \CppIII{} code that \tcode{\#include}{s} headers with these names may be
+invalid in this revision of \Cpp{}.
+
+\diffref{swappable.requirements}
+\effect
+Function \tcode{swap} moved to a different header
+\rationale
+Remove dependency on \libheaderref{algorithm} for \tcode{swap}.
+\effect
+Valid \CppIII{} code that has been compiled expecting swap to be in
+\libheaderref{algorithm} may have to instead include \libheaderref{utility}.
+
+\diffref{namespace.posix}
+\change
+New reserved namespace.
+\rationale
+New functionality.
+\effect
+The global namespace \tcode{posix} is now reserved for standardization. Valid
+\CppIII{} code that uses a top-level namespace \tcode{posix} may be invalid in
+this revision of \Cpp{}.
+
+\diffref{res.on.macro.definitions}
+\change
+Additional restrictions on macro names.
+\rationale
+Avoid hard to diagnose or non-portable constructs.
+\effect
+Names of attribute identifiers may not be used as macro names. Valid \CppIII{}
+code that defines \tcode{override}, \tcode{final},
+\tcode{carries_dependency}, or \tcode{noreturn} as macros is invalid in this
+revision of \Cpp{}.
+
+\rSec2[diff.cpp03.language.support]{\ref{support}:
+language support library}
+
+\diffref{new.delete.single}
+\change
+\tcode{operator new} may throw exceptions other than
+\tcode{std::bad_alloc}.
+\rationale
+Consistent application of \keyword{noexcept}.
+\effect
+Valid \CppIII{} code that assumes that global \tcode{operator new} only
+throws \tcode{std::bad_alloc} may execute differently in this revision of \Cpp{}.
+Valid \CppIII{} code that replaces the global replaceable \tcode{operator new}
+is ill-formed in this revision of \Cpp{},
+because the exception specification of \tcode{throw(std::bad_alloc)}
+was removed.
+
+\rSec2[diff.cpp03.diagnostics]{\ref{diagnostics}: diagnostics library}
+
+\diffref{errno}
+\change
+Thread-local error numbers.
+\rationale
+Support for new thread facilities.
+\effect
+Valid but implementation-specific \CppIII{} code that relies on
+\tcode{errno} being the same across threads may change behavior in this
+revision of \Cpp{}.
+
+\rSec2[diff.cpp03.utilities]{\ref{utilities}: general utilities library}
+
+\diffref{refwrap,arithmetic.operations,comparisons,logical.operations,bitwise.operations}
+\change
+Standard function object types no longer derived from
+\tcode{std::unary_function} or \tcode{std::binary_function}.
+\rationale
+Superseded by new feature; \tcode{unary_function} and
+\tcode{binary_function} are no longer defined.
+\effect
+Valid \CppIII{} code that depends on function object types being derived from
+\tcode{unary_function} or \tcode{binary_function} may fail to compile
+in this revision of \Cpp{}.
+
+\rSec2[diff.cpp03.strings]{\ref{strings}: strings library}
+
+\diffref{string.classes}
+\change
+\tcode{basic_string} requirements no longer allow reference-counted
+strings.
+\rationale
+Invalidation is subtly different with reference-counted strings.
+This change regularizes behavior.
+\effect
+Valid \CppIII{} code may execute differently in this revision of \Cpp{}.
+
+\diffref{string.require}
+\change
+Loosen \tcode{basic_string} invalidation rules.
+\rationale
+Allow small-string optimization.
+\effect
+Valid \CppIII{} code may execute differently in this revision of \Cpp{}.
+Some \keyword{const} member functions, such as \tcode{data} and \tcode{c_str},
+no longer invalidate iterators.
+
+\rSec2[diff.cpp03.containers]{\ref{containers}: containers library}
+
+\diffref{container.requirements}
+\change
+Complexity of \tcode{size()} member functions now constant.
+\rationale
+Lack of specification of complexity of \tcode{size()} resulted in
+divergent implementations with inconsistent performance characteristics.
+\effect
+Some container implementations that conform to \CppIII{} may not conform to the
+specified \tcode{size()} requirements in this revision of \Cpp{}. Adjusting
+containers such as \tcode{std::list} to the stricter requirements may require
+incompatible changes.
+
+\diffref{container.requirements}
+\change
+Requirements change: relaxation.
+\rationale
+Clarification.
+\effect
+Valid \CppIII{} code that attempts to meet the specified container requirements
+may now be over-specified. Code that attempted to be portable across containers
+may need to be adjusted as follows:
+\begin{itemize}
+\item not all containers provide \tcode{size()}; use \tcode{empty()} instead
+of \tcode{size() == 0};
+\item not all containers are empty after construction (\tcode{array});
+\item not all containers have constant complexity for \tcode{swap()} (\tcode{array}).
+\end{itemize}
+
+\diffref{container.requirements}
+\change
+Requirements change: default constructible.
+\rationale
+Clarification of container requirements.
+\effect
+Valid \CppIII{} code that attempts to explicitly instantiate a container using
+a user-defined type with no default constructor may fail to compile.
+
+\diffref{sequence.reqmts,associative.reqmts}
+\change
+Signature changes: from \keyword{void} return types.
+\rationale
+Old signature threw away useful information that may be expensive
+to recalculate.
+\effect
+The following member functions have changed:
+\begin{itemize}
+\item \tcode{erase(iter)} for \tcode{set}, \tcode{multiset}, \tcode{map}, \tcode{multimap}
+\item \tcode{erase(begin, end)} for \tcode{set}, \tcode{multiset}, \tcode{map}, \tcode{multimap}
+\item \tcode{insert(pos, num, val)} for \tcode{vector}, \tcode{deque}, \tcode{list}, \tcode{forward_list}
+\item \tcode{insert(pos, beg, end)} for \tcode{vector}, \tcode{deque}, \tcode{list}, \tcode{forward_list}
+\end{itemize}
+
+Valid \CppIII{} code that relies on these functions returning \keyword{void}
+(e.g., code that creates a pointer to member function that points to one
+of these functions) will fail to compile with this revision of \Cpp{}.
+
+\diffref{sequence.reqmts,associative.reqmts}
+\change
+Signature changes: from \tcode{iterator} to \tcode{const_iterator}
+parameters.
+\rationale
+Overspecification.
+\effect
+The signatures of the following member functions changed from taking an
+\tcode{iterator} to taking a \tcode{const_iterator}:
+
+\begin{itemize}
+\item \tcode{insert(iter, val)} for \tcode{vector}, \tcode{deque}, \tcode{list},
+\tcode{set}, \tcode{multiset}, \tcode{map}, \tcode{multimap}
+\item \tcode{insert(pos, beg, end)} for \tcode{vector}, \tcode{deque}, \tcode{list},
+\tcode{forward_list}
+\item \tcode{erase(begin, end)} for \tcode{set}, \tcode{multiset}, \tcode{map}, \tcode{multimap}
+\item all forms of \tcode{list::splice}
+\item all forms of \tcode{list::merge}
+\end{itemize}
+
+Valid \CppIII{} code that uses these functions may fail to compile with this
+revision of \Cpp{}.
+
+\diffref{sequence.reqmts,associative.reqmts}
+\change
+Signature changes: \tcode{resize}.
+\rationale
+Performance, compatibility with move semantics.
+\effect
+For \tcode{vector}, \tcode{deque}, and \tcode{list}
+the fill value passed to \tcode{resize} is now passed by reference instead of
+by value, and an additional overload of \tcode{resize} has been added. Valid
+\CppIII{} code that uses this function may fail to compile with this revision of \Cpp{}.
+
+\rSec2[diff.cpp03.algorithms]{\ref{algorithms}: algorithms library}
+
+\diffref{algorithms.general}
+\change
+Result state of inputs after application of some algorithms.
+\rationale
+Required by new feature.
+\effect
+A valid \CppIII{} program may detect that an object with a valid but
+unspecified state has a different valid but unspecified state with this
+revision of \Cpp{}. For example, \tcode{std::remove} and
+\tcode{std::remove_if} may leave the tail of the input sequence with a
+different set of values than previously.
+
+\rSec2[diff.cpp03.numerics]{\ref{numerics}: numerics library}
+
+\diffref{complex.numbers}
+\change
+Specified representation of complex numbers.
+\rationale
+Compatibility with C99.
+\effect
+Valid \CppIII{} code that uses implementation-specific knowledge about the
+binary representation of the required template specializations of
+\tcode{std::complex} may not be compatible with this revision of \Cpp{}.
+
+\rSec2[diff.cpp03.locale]{\ref{localization}: localization library}
+
+\diffref{facet.num.get.virtuals}
+\change
+The \tcode{num_get} facet recognizes hexadecimal floating point values.
+\rationale
+Required by new feature.
+\effect
+Valid \CppIII{} code may have different behavior in this revision of \Cpp{}.
+
+\rSec2[diff.cpp03.input.output]{\ref{input.output}: input/output library}
+
+\diffref{istream.sentry,ostream.sentry,iostate.flags}
+\change
+Specify use of \keyword{explicit} in existing boolean conversion functions.
+\rationale
+Clarify intentions, avoid workarounds.
+\effect
+Valid \CppIII{} code that relies on implicit boolean conversions will fail to
+compile with this revision of \Cpp{}. Such conversions occur in the
+following conditions:
+
+\begin{itemize}
+\item passing a value to a function that takes an argument of type \tcode{bool};
+\item using \tcode{operator==} to compare to \tcode{false} or \tcode{true};
+\item returning a value from a function with a return type of \tcode{bool};
+\item initializing members of type \tcode{bool} via aggregate initialization;
+\item initializing a \tcode{const bool\&} which would bind to a temporary object.
+\end{itemize}
+
+\diffref{ios.failure}
+\change
+Change base class of \tcode{std::ios_base::failure}.
+\rationale
+More detailed error messages.
+\effect
+\tcode{std::ios_base::failure} is no longer derived directly from
+\tcode{std::exception}, but is now derived from \tcode{std::system_error},
+which in turn is derived from \tcode{std::runtime_error}. Valid \CppIII{} code
+that assumes that \tcode{std::ios_base::failure} is derived directly from
+\tcode{std::exception} may execute differently in this revision of \Cpp{}.
+
+\diffref{ios.base}
+\change
+Flag types in \tcode{std::ios_base} are now bitmasks with values
+defined as constexpr static members.
+\rationale
+Required for new features.
+\effect
+Valid \CppIII{} code that relies on \tcode{std::ios_base} flag types being
+represented as \tcode{std::bitset} or as an integer type may fail to compile
+with this revision of \Cpp{}.
+For example:
+\begin{codeblock}
+#include <iostream>
+
+int main() {
+  int flag = std::ios_base::hex;
+  std::cout.setf(flag);         // error: \tcode{setf} does not take argument of type \tcode{int}
+}
+\end{codeblock}
+
+\rSec1[diff.iso]{\Cpp{} and ISO C}
+
+\rSec2[diff.iso.general]{General}
+
+\pnum
+\indextext{summary!compatibility with ISO C}%
+Subclause \ref{diff.iso} lists the differences between \Cpp{} and ISO C,
+in addition to those listed above,
+by the chapters of this document.
+
+\rSec2[diff.lex]{\ref{lex}: lexical conventions}
+
+\diffref{lex.key}
+\change
+New Keywords\\
+New keywords are added to \Cpp{};
+see \ref{lex.key}.
+\rationale
+These keywords were added in order to implement the new
+semantics of \Cpp{}.
+\effect
+Change to semantics of well-defined feature.
+Any ISO C programs that used any of these keywords as identifiers
+are not valid \Cpp{} programs.
+\difficulty
+Syntactic transformation.
+Converting one specific program is easy.
+Converting a large collection
+of related programs takes more work.
+\howwide
+Common.
+
+\diffref{lex.ccon}
+\change
+Type of \grammarterm{character-literal} is changed from \tcode{int} to \tcode{char}.
+\rationale
+This is needed for improved overloaded function argument type
+matching. For example:
+\begin{codeblock}
+int function( int i );
+int function( char c );
+
+function( 'x' );
+\end{codeblock}
+It is preferable that this call match the second version of
+function rather than the first.
+\effect
+Change to semantics of well-defined feature.
+ISO C programs which depend on
+\begin{codeblock}
+sizeof('x') == sizeof(int)
+\end{codeblock}
+will not work the same as \Cpp{} programs.
+\difficulty
+Simple.
+\howwide
+Programs which depend upon \tcode{sizeof('x')} are probably rare.
+
+\diffref{lex.string}
+\change
+Concatenated \grammarterm{string-literal}s can no longer have
+conflicting \grammarterm{encoding-prefix}es.
+\rationale
+Removal of non-portable feature.
+\effect
+Concatenation of \grammarterm{string-literal}s
+with different \grammarterm{encoding-prefix}es
+is now ill-formed.
+\difficulty
+Syntactic transformation.
+\howwide
+Seldom.
+
+\diffref{lex.string}
+\change
+String literals made const.\\
+The type of a \grammarterm{string-literal} is changed
+from ``array of \tcode{char}''
+to ``array of \tcode{const char}''.
+\indextext{UTF-8}%
+The type of a UTF-8 string literal is changed
+from ``array of \tcode{char}''
+to ``array of \tcode{const char8_t}''.
+\indextext{UTF-16}%
+The type of a UTF-16 string literal is changed
+from ``array of \textit{some-integer-type}''
+to ``array of \tcode{const char16_t}''.
+\indextext{UTF-32}%
+The type of a UTF-32 string literal is changed
+from ``array of \textit{some-integer-type}''
+to ``array of \tcode{const char32_t}''.
+The type of a wide string literal is changed
+from ``array of \keyword{wchar_t}''
+to ``array of \tcode{const wchar_t}''.
+\rationale
+This avoids calling an inappropriate overloaded function,
+which might expect to be able to modify its argument.
+\effect
+Change to semantics of well-defined feature.
+\difficulty
+Syntactic transformation. The fix is to add a cast:
+\begin{codeblock}
+char* p = "abc";                // valid in C, invalid in \Cpp{}
+void f(char*) {
+  char* p = (char*)"abc";       // OK, cast added
+  f(p);
+  f((char*)"def");              // OK, cast added
+}
+\end{codeblock}
+\howwide
+Programs that have a legitimate reason to treat string literal objects
+as potentially modifiable memory are probably rare.
+
+\rSec2[diff.basic]{\ref{basic}: basics}
+
+\diffref{basic.def}
+\change
+\Cpp{} does not have ``tentative definitions'' as in C.\\
+E.g., at file scope,
+\begin{codeblock}
+int i;
+int i;
+\end{codeblock}
+is valid in C, invalid in \Cpp{}.
+This makes it impossible to define
+mutually referential file-local objects with static storage duration,
+if initializers are restricted to the syntactic forms of C\@.
+For example,
+\begin{codeblock}
+struct X { int i; struct X* next; };
+
+static struct X a;
+static struct X b = { 0, &a };
+static struct X a = { 1, &b };
+\end{codeblock}
+\rationale
+This avoids having different initialization rules for
+fundamental types and user-defined types.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Semantic transformation.
+In \Cpp{}, the initializer for one of a set of
+mutually-referential file-local objects with static storage
+duration must invoke a function
+call to achieve the initialization.
+\howwide
+Seldom.
+
+\diffref{basic.scope}
+\change
+A \keyword{struct} is a scope in \Cpp{}, not in C.
+For example,
+\begin{codeblock}
+struct X {
+  struct Y { int a; } b;
+};
+struct Y c;
+\end{codeblock}
+is valid in C but not in \Cpp{}, which would require \tcode{X::Y c;}.
+\rationale
+Class scope is crucial to \Cpp{}, and a struct is a class.
+\effect
+Change to semantics of well-defined feature.
+\difficulty
+Semantic transformation.
+\howwide
+C programs use \keyword{struct} extremely frequently, but the
+change is only noticeable when \keyword{struct}, enumeration, or enumerator
+names are referred to outside the \keyword{struct}.
+The latter is probably rare.
+
+\diffref{basic.link} [also \ref{dcl.type}]
+\change
+A name of file scope that is explicitly declared \keyword{const}, and not explicitly
+declared \keyword{extern}, has internal linkage, while in C it would have external linkage.
+\rationale
+Because const objects may be used as values during translation in
+\Cpp{}, this feature urges programmers to provide an explicit initializer
+for each const object.
+This feature allows the user to put const objects in source files that are included
+in more than one translation unit.
+\effect
+Change to semantics of well-defined feature.
+\difficulty
+Semantic transformation.
+\howwide
+Seldom.
+
+\diffref{basic.start.main}
+\change
+The \tcode{main} function cannot be called recursively and cannot have its address taken.
+\rationale
+The \tcode{main} function may require special actions.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Trivial: create an intermediary function such as
+\tcode{mymain(argc, argv)}.
+\howwide
+Seldom.
+
+\diffref{basic.types}
+\change
+C allows ``compatible types'' in several places, \Cpp{} does not.\\
+For example,
+otherwise-identical \keyword{struct} types with different tag names
+are ``compatible'' in C but are distinctly different types
+in \Cpp{}.
+\rationale
+Stricter type checking is essential for \Cpp{}.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Semantic transformation.
+The ``typesafe linkage'' mechanism will find many, but not all,
+of such problems.
+Those problems not found by typesafe linkage will continue to
+function properly,
+according to the ``layout compatibility rules'' of this
+document.
+\howwide
+Common.
+
+\rSec2[diff.expr]{\ref{expr}: expressions}
+
+\diffref{conv.ptr}
+\change
+Converting \tcode{\keyword{void}*} to a pointer-to-object type requires casting.
+\begin{codeblock}
+char a[10];
+void* b=a;
+void foo() {
+  char* c=b;
+}
+\end{codeblock}
+
+ISO C accepts this usage of pointer to \keyword{void} being assigned
+to a pointer to object type.
+\Cpp{} does not.
+\rationale
+\Cpp{} tries harder than C to enforce compile-time type safety.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Can be automated.
+Violations will be diagnosed by the \Cpp{} translator.
+The
+fix is to add a  cast.
+For example:
+\begin{codeblock}
+char* c = (char*) b;
+\end{codeblock}
+
+\howwide
+This is fairly widely used but it is good
+programming practice to add the cast when assigning pointer-to-void to pointer-to-object.
+Some ISO C translators will give a warning
+if the cast is not used.
+
+\diffref{expr.post.incr,expr.pre.incr}
+\change
+Decrement operator is not allowed with \keyword{bool} operand.
+\rationale
+Feature with surprising semantics.
+\effect
+A valid ISO C expression utilizing the decrement operator on
+a \keyword{bool} lvalue
+(for instance, via the C typedef in \libheaderref{stdbool.h})
+is ill-formed in \Cpp{}.
+
+\diffref{expr.sizeof,expr.cast}
+\change
+In \Cpp{}, types can only be defined in declarations, not in expressions.\\
+In C, a \keyword{sizeof} expression or cast expression may define a new type.
+For example,
+\begin{codeblock}
+p = (void*)(struct x {int i;} *)0;
+\end{codeblock}
+defines a new type, struct \tcode{x}.
+\rationale
+This prohibition helps to clarify the location of
+definitions in the source code.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Syntactic transformation.
+\howwide
+Seldom.
+
+\diffref{expr.cond,expr.ass,expr.comma}
+\indextext{conversion!lvalue-to-rvalue}%
+\indextext{rvalue!lvalue conversion to}%
+\indextext{lvalue}%
+\change
+The result of a conditional expression, an assignment expression, or a comma expression may be an lvalue.
+\rationale
+\Cpp{} is an object-oriented language, placing relatively
+more emphasis on lvalues.  For example, function calls may
+yield lvalues.
+\effect
+Change to semantics of well-defined feature.  Some C
+expressions that implicitly rely on lvalue-to-rvalue
+conversions will yield different results.
+For example,
+\begin{codeblock}
+char arr[100];
+sizeof(0, arr)
+\end{codeblock}
+yields
+\tcode{100}
+in \Cpp{} and
+\tcode{sizeof(char*)}
+in C.
+\difficulty
+Programs must add explicit casts to the appropriate rvalue.
+\howwide
+Rare.
+
+\rSec2[diff.stat]{\ref{stmt.stmt}: statements}
+
+\diffref{stmt.switch,stmt.goto}
+\change
+It is now invalid to jump past a declaration with explicit or implicit initializer (except across entire block not entered).
+\rationale
+Constructors used in initializers may allocate
+resources which need to be de-allocated upon leaving the
+block.
+Allowing jump past initializers would require
+complicated runtime determination of allocation.
+Furthermore, many operations on such an uninitialized object
+have undefined behavior.
+With this simple compile-time rule, \Cpp{} assures that
+if an initialized variable is in scope, then it has assuredly been
+initialized.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Semantic transformation.
+\howwide
+Seldom.
+
+\diffref{stmt.return}
+\change
+It is now invalid to return (explicitly or implicitly) from a function which is
+declared to return a value without actually returning a value.
+\rationale
+The caller and callee may assume fairly elaborate
+return-value mechanisms for the return of class objects.
+If
+some flow paths execute a return without specifying any value,
+the implementation must embody many more complications.
+Besides,
+promising to return a value of a given type, and then not returning
+such a value, has always been recognized to be a questionable
+practice, tolerated only because very-old C had no distinction between
+functions with \keyword{void} and \keyword{int} return types.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Semantic transformation.
+Add an appropriate return value to the source code, such as zero.
+\howwide
+Seldom.
+For several years, many existing C implementations have produced warnings in
+this case.
+
+\rSec2[diff.dcl]{\ref{dcl.dcl}: declarations}
+
+\diffref{dcl.stc}
+\change
+In \Cpp{}, the \keyword{static} or \keyword{extern} specifiers can only be applied to names of objects or functions.\\
+Using these specifiers with type declarations is illegal in \Cpp{}.
+In C, these specifiers are ignored when used on type declarations.
+
+Example:
+\begin{codeblock}
+static struct S {               // valid C, invalid in \Cpp{}
+  int i;
+};
+\end{codeblock}
+
+\rationale
+Storage class specifiers don't have any meaning when associated
+with a type.
+In \Cpp{}, class members can be declared with the \keyword{static} storage
+class specifier.
+Storage class specifiers on type
+declarations can be confusing for users.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Syntactic transformation.
+\howwide
+Seldom.
+
+\diffref{dcl.stc}
+\change
+In \Cpp{}, \keyword{register} is not a storage class specifier.
+\rationale
+The storage class specifier had no effect in \Cpp{}.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Syntactic transformation.
+\howwide
+Common.
+
+\diffref{dcl.typedef}
+\change
+A \Cpp{} \grammarterm{typedef-name} must be different from any class type name declared
+in the same scope (except if the typedef is a synonym of the class name with the
+same name). In C, a \grammarterm{typedef-name} and a struct tag name declared in the same scope
+can have the same name (because they have different name spaces).
+
+Example:
+\begin{codeblock}
+typedef struct name1 { @\commentellip@ } name1;         // valid C and \Cpp{}
+struct name { @\commentellip@ };
+typedef int name;               // valid C, invalid \Cpp{}
+\end{codeblock}
+
+\rationale
+For ease of use, \Cpp{} doesn't require that a type name be prefixed
+with the keywords \keyword{class}, \keyword{struct} or \keyword{union} when used in object
+declarations or type casts.
+
+Example:
+\begin{codeblock}
+class name { @\commentellip@ };
+name i;                         // \tcode{i} has type \tcode{class name}
+\end{codeblock}
+
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Semantic transformation.
+One of the 2 types has to be renamed.
+\howwide
+Seldom.
+
+\diffref{dcl.type} [see also \ref{basic.link}]
+\change
+Const objects must be initialized in \Cpp{} but can be left uninitialized in C.
+\rationale
+A const object cannot be assigned to so it must be initialized
+to hold a useful value.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Semantic transformation.
+\howwide
+Seldom.
+
+\diffref{dcl.spec.auto}
+\change
+The keyword \keyword{auto} cannot be used as a storage class specifier.
+
+Example:
+\begin{codeblock}
+void f() {
+  auto int x;       // valid C, invalid \Cpp{}
+}
+\end{codeblock}
+
+\rationale
+Allowing the use of \keyword{auto} to deduce the type
+of a variable from its initializer results in undesired interpretations of
+\keyword{auto} as a storage class specifier in certain contexts.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Syntactic transformation.
+\howwide
+Rare.
+
+\diffref{dcl.fct}
+\change
+In \Cpp{}, a function declared with an empty parameter list takes no arguments.
+In C, an empty parameter list means that the number and type of the function arguments are unknown.
+
+Example:
+\begin{codeblock}
+int f();            // means   \tcode{int f(void)} in \Cpp{}
+                    // \tcode{int f(} unknown \tcode{)} in C
+\end{codeblock}
+
+\rationale
+This is to avoid erroneous function calls (i.e., function calls
+with the wrong number or type of arguments).
+\effect
+Change to semantics of well-defined feature.
+This feature was marked as ``obsolescent'' in C.
+\difficulty
+Syntactic transformation.
+The function declarations using C incomplete declaration style must
+be completed to become full prototype declarations.
+A program may need to be updated further if different calls to the
+same (non-prototype) function have different numbers of arguments or
+if the type of corresponding arguments differed.
+\howwide
+Common.
+
+\diffref{dcl.fct} [see \ref{expr.sizeof}]
+\change
+In \Cpp{}, types may not be defined in return or parameter types.
+In C, these type definitions are allowed.
+
+Example:
+\begin{codeblock}
+void f( struct S { int a; } arg ) {}    // valid C, invalid \Cpp{}
+enum E { A, B, C } f() {}               // valid C, invalid \Cpp{}
+\end{codeblock}
+
+\rationale
+When comparing types in different translation units, \Cpp{} relies
+on name equivalence when C relies on structural equivalence.
+Regarding parameter types: since the type defined in a parameter list
+would be in the scope of the function, the only legal calls in \Cpp{}
+would be from within the function itself.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Semantic transformation.
+The type definitions must be moved to file scope, or in header files.
+\howwide
+Seldom.
+This style of type definition is seen as poor coding style.
+
+\diffref{dcl.fct.def}
+\change
+In \Cpp{}, the syntax for function definition excludes the ``old-style'' C function.
+In C, ``old-style'' syntax is allowed, but deprecated as ``obsolescent''.
+\rationale
+Prototypes are essential to type safety.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Syntactic transformation.
+\howwide
+Common in old programs, but already known to be obsolescent.
+
+\diffref{dcl.init.aggr}
+\change
+In \Cpp{}, designated initialization support is restricted
+compared to the corresponding functionality in C\@.
+In \Cpp{},
+designators for non-static data members
+must be specified in declaration order,
+designators for array elements and nested designators
+are not supported,
+and
+designated and non-designated initializers
+cannot be mixed in the same initializer list.
+
+Example:
+\begin{codeblock}
+struct A { int x, y; };
+struct B { struct A a; };
+struct A a = {.y = 1, .x = 2};  // valid C, invalid \Cpp{}
+int arr[3] = {[1] = 5};         // valid C, invalid \Cpp{}
+struct B b = {.a.x = 0};        // valid C, invalid \Cpp{}
+struct A c = {.x = 1, 2};       // valid C, invalid \Cpp{}
+\end{codeblock}
+\rationale
+In \Cpp{}, members are destroyed in reverse construction order
+and the elements of an initializer list are evaluated in lexical order,
+so field initializers must be specified in order.
+Array designators conflict with \grammarterm{lambda-expression} syntax.
+Nested designators are seldom used.
+\effect
+Deletion of feature that is incompatible with \Cpp{}.
+\difficulty
+Syntactic transformation.
+\howwide
+Out-of-order initializers are common.
+The other features are seldom used.
+
+\diffref{dcl.init.string}
+\change
+In \Cpp{}, when initializing an array of character with a string, the number of
+characters in the string (including the terminating \tcode{'\textbackslash 0'}) must not exceed the
+number of elements in the array. In C, an array can be initialized with a string even if
+the array is not large enough to contain the string-terminating \tcode{'\textbackslash 0'}.
+
+Example:
+\begin{codeblock}
+char array[4] = "abcd";         // valid C, invalid \Cpp{}
+\end{codeblock}
+\rationale
+When these non-terminated arrays are manipulated by standard
+string functions, there is potential for major catastrophe.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Semantic transformation.
+The arrays must be declared one element bigger to contain the
+string terminating \tcode{'\textbackslash 0'}.
+\howwide
+Seldom.
+This style of array initialization is seen as poor coding style.
+
+\diffref{dcl.enum}
+\change
+\Cpp{} objects of enumeration type can only be assigned values of the same enumeration type.
+In C, objects of enumeration type can be assigned values of any integral type.
+
+Example:
+\begin{codeblock}
+enum color { red, blue, green };
+enum color c = 1;               // valid C, invalid \Cpp{}
+\end{codeblock}
+
+\rationale
+The type-safe nature of \Cpp{}.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Syntactic transformation.
+(The type error produced by the assignment can be automatically
+corrected by applying an explicit cast.)
+\howwide
+Common.
+
+\diffref{dcl.enum}
+\change
+In \Cpp{}, the type of an enumerator is its enumeration. In C, the type of an enumerator is \keyword{int}.
+
+Example:
+\begin{codeblock}
+enum e { A };
+sizeof(A) == sizeof(int)        // in C
+sizeof(A) == sizeof(e)          // in \Cpp{}
+/* and @sizeof(int)@ is not necessarily equal to @sizeof(e)@ */
+\end{codeblock}
+
+\rationale
+In \Cpp{}, an enumeration is a distinct type.
+\effect
+Change to semantics of well-defined feature.
+\difficulty
+Semantic transformation.
+\howwide
+Seldom.
+The only time this affects existing C code is when the size of an
+enumerator is taken.
+Taking the size of an enumerator is not a
+common C coding practice.
+
+\diffref{dcl.align}
+\change
+In \Cpp{},
+an \grammarterm{alignment-specifier} is an \grammarterm{attribute-specifier}.
+In C, an \grammarterm{alignment-specifier} is a \gterm{declaration-specifier}.
+
+Example:
+\begin{codeblock}
+#include <stdalign.h>
+unsigned alignas(8) int x;      // valid C, invalid \Cpp{}
+unsigned int y alignas(8);      // valid \Cpp{}, invalid C
+\end{codeblock}
+\rationale
+\Cpp{} requires unambiguous placement of the \grammarterm{alignment-specifier}.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Syntactic transformation.
+\howwide
+Seldom.
+
+\rSec2[diff.class]{\ref{class}: classes}
+
+\diffref{class.name} [see also \ref{dcl.typedef}]
+\change
+In \Cpp{}, a class declaration introduces the class name into the scope where it is
+declared and hides any object, function or other declaration of that name in an enclosing
+scope. In C, an inner scope declaration of a struct tag name never hides the name of an
+object or function in an outer scope.
+
+Example:
+\begin{codeblock}
+int x[99];
+void f() {
+  struct x { int a; };
+  sizeof(x);  /* size of the array in C */
+  /* size of the struct in @\textit{\textrm{\Cpp{}}}@ */
+}
+\end{codeblock}
+\rationale
+This is one of the few incompatibilities between C and \Cpp{} that
+can be attributed to the new \Cpp{} name space definition where a
+name can be declared as a type and as a non-type in a single scope
+causing the non-type name to hide the type name and requiring that
+the keywords \keyword{class}, \keyword{struct}, \keyword{union} or \keyword{enum} be used to refer to the type name.
+This new name space definition provides important notational
+conveniences to \Cpp{} programmers and helps making the use of the
+user-defined types as similar as possible to the use of fundamental
+types.
+The advantages of the new name space definition were judged to
+outweigh by far the incompatibility with C described above.
+\effect
+Change to semantics of well-defined feature.
+\difficulty
+Semantic transformation.
+If the hidden name that needs to be accessed is at global scope,
+the \tcode{::} \Cpp{} operator can be used.
+If the hidden name is at block scope, either the type or the struct
+tag has to be renamed.
+\howwide
+Seldom.
+
+\diffref{class.copy.ctor}
+\change
+Copying volatile objects.
+
+The implicitly-declared copy constructor and
+implicitly-declared copy assignment operator
+cannot make a copy of a volatile lvalue.
+For example, the following is valid in ISO C:
+\begin{codeblock}
+struct X { int i; };
+volatile struct X x1 = {0};
+struct X x2 = x1;               // invalid \Cpp{}
+struct X x3;
+x3 = x1;                        // also invalid \Cpp{}
+\end{codeblock}
+
+\rationale
+Several alternatives were debated at length.
+Changing the parameter to
+\keyword{volatile}
+\keyword{const}
+\tcode{X\&}
+would greatly complicate the generation of
+efficient code for class objects.
+Discussion of
+providing two alternative signatures for these
+implicitly-defined operations raised
+unanswered concerns about creating
+ambiguities and complicating
+the rules that specify the formation of
+these operators according to the bases and
+members.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Semantic transformation.
+If volatile semantics are required for the copy,
+a user-declared constructor or assignment must
+be provided.
+If non-volatile semantics are required,
+an explicit
+\keyword{const_cast}
+can be used.
+\howwide
+Seldom.
+
+\diffref{class.bit}
+\change
+\indextext{bit-field!implementation-defined sign of}%
+Bit-fields of type plain \keyword{int} are signed.
+\rationale
+The signedness needs to be consistent among template specializations.
+For consistency,
+the implementation freedom was eliminated for non-dependent types,
+too.
+\effect
+The choice is implementation-defined in C, but not so in \Cpp{}.
+\difficulty
+Syntactic transformation.
+\howwide
+Seldom.
+
+\diffref{class.nest}
+\change
+In \Cpp{}, the name of a nested class is local to its enclosing class. In C
+the name of the nested class belongs to the same scope as the name of the outermost enclosing class.
+
+Example:
+\begin{codeblock}
+struct X {
+  struct Y { @\commentellip@ } y;
+};
+struct Y yy;                    // valid C, invalid \Cpp{}
+\end{codeblock}
+\rationale
+\Cpp{} classes have member functions which require that classes
+establish scopes.
+The C rule would leave classes as an incomplete scope mechanism
+which would prevent \Cpp{} programmers from maintaining locality
+within a class.
+A coherent set of scope rules for \Cpp{} based on the C rule would
+be very complicated and \Cpp{} programmers would be unable to predict
+reliably the meanings of nontrivial examples involving nested or
+local functions.
+\effect
+Change to semantics of well-defined feature.
+\difficulty
+Semantic transformation.
+To make the struct type name visible in the scope of the enclosing
+struct, the struct tag can be declared in the scope of the
+enclosing struct, before the enclosing struct is defined.
+Example:
+\begin{codeblock}
+struct Y;                       // \tcode{struct Y} and \tcode{struct X} are at the same scope
+struct X {
+  struct Y { @\commentellip@ } y;
+};
+\end{codeblock}
+
+All the definitions of C struct types enclosed in other struct
+definitions and accessed outside the scope of the enclosing
+struct can be exported to the scope of the enclosing struct.
+Note: this is a consequence of the difference in scope rules,
+which is documented in \ref{basic.scope}.
+\howwide
+Seldom.
+
+\diffref{class.member.lookup}
+\change
+In \Cpp{}, a \grammarterm{typedef-name} may not be redeclared in a class definition after being used in that definition.
+
+Example:
+\begin{codeblock}
+typedef int I;
+struct S {
+  I i;
+  int I;            // valid C, invalid \Cpp{}
+};
+\end{codeblock}
+\rationale
+When classes become complicated, allowing such a redefinition
+after the type has been used can create confusion for \Cpp{}
+programmers as to what the meaning of \tcode{I} really is.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Semantic transformation.
+Either the type or the struct member has to be renamed.
+\howwide
+Seldom.
+
+\rSec2[diff.cpp]{\ref{cpp}: preprocessing directives}
+
+\diffref{cpp.predefined}
+\change
+Whether \mname{STDC} is defined and if so, what its value is, are
+\impldef{definition and meaning of \mname{STDC}}.
+\rationale
+\Cpp{} is not identical to ISO C\@.
+Mandating that \mname{STDC}
+be defined would require that translators make an incorrect claim.
+\effect
+Change to semantics of well-defined feature.
+\difficulty
+Semantic transformation.
+\howwide
+Programs and headers that reference \mname{STDC} are
+quite common.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\rSec1[diff.library]{C standard library}
+
+\rSec2[diff.library.general]{General}
+\indextext{library!C standard}%
+
+\pnum
+Subclause \ref{diff.library} summarizes the explicit changes in headers,
+definitions, declarations, or behavior between the C standard library
+in the C standard and the parts of the \Cpp{} standard library that were
+included from the C standard library.
+
+\rSec2[diff.mods.to.headers]{Modifications to headers}
+
+\pnum
+For compatibility with the C standard library\indextext{library!C standard},
+the \Cpp{} standard library provides the C headers enumerated
+in~\ref{support.c.headers}.
+
+\pnum
+There are no \Cpp{} headers for the C standard library's headers
+\libnoheader{stdnoreturn.h} and \libnoheader{threads.h},
+nor are these headers from the C standard library headers themselves part of \Cpp{}.
+
+\pnum
+The C headers \libheader{complex.h} and
+\libheader{tgmath.h} do not contain any of the content from
+the C standard library and instead merely include other headers from the \Cpp{}
+standard library.
+
+\rSec2[diff.mods.to.definitions]{Modifications to definitions}
+
+\rSec3[diff.char16]{Types \tcode{char16_t} and \tcode{char32_t}}
+
+\pnum
+The types \keyword{char16_t} and \keyword{char32_t}
+are distinct types rather than typedefs to existing integral types.
+The tokens \keyword{char16_t} and \keyword{char32_t}
+are keywords in \Cpp{}\iref{lex.key}.
+They do not appear as macro or type names defined in
+\libheaderref{cuchar}.
+
+\rSec3[diff.wchar.t]{Type \tcode{wchar_t}}
+
+\pnum
+The type \keyword{wchar_t} is a distinct type rather than a typedef to an
+existing integral type.
+The token \keyword{wchar_t}
+is a keyword in \Cpp{}\iref{lex.key}.
+It does not appear as a macro or type name defined in any of
+\libheaderref{cstddef},
+\libheaderref{cstdlib},
+or \libheaderref{cwchar}.
+
+\rSec3[diff.header.assert.h]{Header \tcode{<assert.h>}}
+\indexhdr{assert.h}%
+
+\pnum
+The token \keyword{static_assert} is a keyword in \Cpp{}.
+It does not appear as a macro name defined
+in \libheaderref{cassert}.
+
+\rSec3[diff.header.iso646.h]{Header \tcode{<iso646.h>}}
+
+\pnum
+The tokens
+\keyword{and},
+\keyword{and_eq},
+\keyword{bitand},
+\keyword{bitor},
+\keyword{compl},
+\keyword{not},
+\keyword{not_eq},
+\keyword{or},
+\keyword{or_eq},
+\keyword{xor},
+and
+\keyword{xor_eq}
+are keywords in \Cpp{}\iref{lex.key},
+and are not introduced as macros
+by \libheaderref{iso646.h}.
+
+\rSec3[diff.header.stdalign.h]{Header \tcode{<stdalign.h>}}
+\indexhdr{stdalign.h}%
+
+\pnum
+The token \keyword{alignas} is a keyword in \Cpp{}\iref{lex.key},
+and is not introduced as a macro
+by \libheaderref{stdalign.h}.
+
+\rSec3[diff.header.stdbool.h]{Header \tcode{<stdbool.h>}}
+\indexhdr{stdbool.h}%
+
+\pnum
+The tokens \keyword{bool}, \keyword{true}, and \keyword{false}
+are keywords in \Cpp{}\iref{lex.key},
+and are not introduced as macros
+by \libheaderref{stdbool.h}.
+
+\rSec3[diff.null]{Macro \tcode{NULL}}
+
+\pnum
+The macro
+\tcode{NULL},
+defined in any of
+\libheaderref{clocale},
+\libheaderref{cstddef},
+\libheaderref{cstdio},
+\libheaderref{cstdlib},
+\libheaderref{cstring},
+\libheaderref{ctime},
+or \libheaderref{cwchar},
+is an \impldef{definition of \tcode{NULL}} null pointer constant in
+\Cpp{}\iref{support.types}.
+
+\rSec2[diff.mods.to.declarations]{Modifications to declarations}
+
+\pnum
+Header \libheaderref{cstring}:
+The following functions have different declarations:
+
+\begin{itemize}
+\item \tcode{strchr}
+\item \tcode{strpbrk}
+\item \tcode{strrchr}
+\item \tcode{strstr}
+\item \tcode{memchr}
+\end{itemize}
+
+Subclause \ref{cstring.syn} describes the changes.
+
+\pnum
+Header \libheaderref{cwchar}:
+The following functions have different declarations:
+
+\begin{itemize}
+\item \tcode{wcschr}
+\item \tcode{wcspbrk}
+\item \tcode{wcsrchr}
+\item \tcode{wcsstr}
+\item \tcode{wmemchr}
+\end{itemize}
+
+Subclause \ref{cwchar.syn} describes the changes.
+
+\pnum
+Header \libheaderref{cstddef}
+declares the names \tcode{nullptr_t}, \tcode{byte}, and \tcode{to_integer},
+and the operators and operator templates in \iref{support.types.byteops},
+in addition to the names declared in
+\libheaderrefx{stddef.h}{support.c.headers} in the C standard library.
+
+\rSec2[diff.mods.to.behavior]{Modifications to behavior}
+
+\rSec3[diff.mods.to.behavior.general]{General}
+
+\pnum
+Header \libheaderref{cstdlib}:
+The following functions have different behavior:
+
+\begin{itemize}
+\item \tcode{atexit}
+\item \tcode{exit}
+\item \tcode{abort}
+\end{itemize}
+
+Subclause \ref{support.start.term} describes the changes.
+
+\pnum
+Header \libheaderref{csetjmp}:
+The following functions have different behavior:
+\begin{itemize}
+\item \tcode{longjmp}
+\end{itemize}
+
+Subclause \ref{csetjmp.syn} describes the changes.
+
+\rSec3[diff.offsetof]{Macro \tcode{offsetof(\placeholder{type}, \placeholder{member-designator})}}
+\indexlibraryglobal{offsetof}%
+
+\pnum
+The macro \tcode{offsetof}, defined in
+\libheaderref{cstddef},
+accepts a restricted set of \tcode{\placeholder{type}} arguments in \Cpp{}.
+Subclause \ref{support.types.layout} describes the change.
+
+\rSec3[diff.malloc]{Memory allocation functions}
+
+\pnum
+The functions
+\indexlibraryglobal{aligned_alloc}\tcode{aligned_alloc},
+\indexlibraryglobal{calloc}\tcode{calloc},
+\indexlibraryglobal{malloc}\tcode{malloc},
+and
+\indexlibraryglobal{realloc}\tcode{realloc}
+are restricted in \Cpp{}.
+Subclause \ref{c.malloc} describes the changes.
