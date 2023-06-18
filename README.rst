@@ -48,7 +48,7 @@ Getting Started on Arch Linux
 
 Install the following packages:
 
-   pacman -S texlive-latexextra
+   pacman -S make texlive-latexextra texlive-binextra texlive-plaingeneric texlive-fontsrecommended
 
 -----------------------------
 Getting Started on Microsoft Windows
