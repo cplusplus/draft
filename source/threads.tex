@@ -19,9 +19,9 @@ between threads, as summarized in \tref{thread.summary}.
   \tcode{<mutex>}, \tcode{<shared_mutex>} \\ \rowsep
 \ref{thread.condition}& Condition variables   & \tcode{<condition_variable>}  \\ \rowsep
 \ref{thread.sema}     & Semaphores & \tcode{<semaphore>} \\ \rowsep
-\ref{thread.coord}    & Coordination types & \tcode{<latch>} \tcode{<barrier>} \\ \rowsep
+\ref{thread.coord}    & Coordination types & \tcode{<latch>}, \tcode{<barrier>} \\ \rowsep
 \ref{futures}         & Futures               & \tcode{<future>}              \\ \rowsep
-\ref{saferecl}        & Safe reclamation      & \tcode{<rcu>}                 \\
+\ref{saferecl}        & Safe reclamation      & \tcode{<rcu>}, \tcode{<hazard_pointer>}  \\
 \end{libsumtab}
 
 \rSec1[thread.req]{Requirements}
@@ -12021,4 +12021,459 @@ If scheduled evaluations acquire resources
 held across any invocation of \tcode{rcu_retire} on \tcode{dom},
 deadlock can occur.
 \end{note}
+\end{itemdescr}
+
+\rSec2[saferecl.hp]{Hazard pointers}
+
+\rSec3[saferecl.hp.general]{General}
+
+\pnum
+\indextext{hazard pointer}%
+A hazard pointer is a single-writer multi-reader pointer
+that can be owned by at most one thread at any time.
+Only the owner of the hazard pointer can set its value,
+while any number of threads may read its value.
+The owner thread sets the value of a hazard pointer to point to an object
+in order to indicate to concurrent threads---which
+may delete such an object---that
+the object is not yet safe to delete.
+
+\pnum
+A class type \tcode{T} is \defn{hazard-protectable}
+if it has exactly one base class of type \tcode{hazard_pointer_obj_base<T, D>}
+for some \tcode{D},
+that base is public and non-virtual, and
+it has no base classes of type \tcode{hazard_pointer_obj_base<T2, D2>}
+for any other combination \tcode{T2}, \tcode{D2}.
+An object is \defn{hazard-protectable} if it is of hazard-protectable type.
+
+\pnum
+The time span between creation and destruction of a hazard pointer $h$
+is partitioned into a series of \defnadjx{protection}{epochs}{epoch};
+in each protection epoch,
+$h$ either is \defnx{associated with}{hazard pointer!associated}
+a hazard-protectable object, or is \defnx{unassociated}{hazard pointer!unassociated}.
+Upon creation, a hazard pointer is unassociated.
+Changing the association (possibly to the same object)
+initiates a new protection epoch and ends the preceding one.
+
+\pnum
+An object \tcode{x} of hazard-protectable type \tcode{T} is
+\defn{retired} with a deleter of type \tcode{D}
+when the member function \tcode{hazard_pointer_obj_base<T, D>::retire}
+is invoked on \tcode{x}.
+Any given object \tcode{x} shall be retired at most once.
+
+\pnum
+A retired object \tcode{x} is \defn{reclaimed}
+by invoking its deleter with a pointer to \tcode{x};
+the behavior is undefined if that invocation exits via an exception.
+
+\pnum
+A hazard-protectable object \tcode{x} is \defn{possibly-reclaimable}
+with respect to an evaluation $A$ if:
+\begin{itemize}
+\item
+\tcode{x} is not reclaimed; and
+\item
+\tcode{x} is retired in an evaluation $R$ and
+$A$ does not happen before $R$; and
+\item
+for all hazard pointers $h$ and for every protection epoch $E$ of $h$
+during which $h$ is associated with \tcode{x}:
+\begin{itemize}
+\item
+if the beginning of $E$ happens before $R$,
+the end of $E$ strongly happens before $A$; and
+\item
+if $E$ began by an evaluation of \tcode{try_protect} with argument \tcode{src},
+label its atomic load operation $L$.
+If there exists an atomic modification $B$ on \tcode{src}
+such that $L$ observes a modification that is modification-ordered before $B$, and
+$B$ happens before \tcode{x} is retired,
+the end of $E$ strongly happens before $A$.
+\begin{note}
+In typical use, a store to \tcode{src} sequenced before retiring \tcode{x}
+will be such an atomic operation $B$.
+\end{note}
+\end{itemize}
+\begin{note}
+The latter two conditions convey the informal notion
+that a protection epoch that began before retiring \tcode{x},
+as implied either by the happens-before relation or
+the coherence order of some source,
+delays the reclamation of \tcode{x}.
+\end{note}
+\end{itemize}
+
+\pnum
+The number of possibly-reclaimable objects has an unspecified bound.
+\begin{note}
+The bound can be a function of the number of hazard pointers,
+the number of threads that retire objects, and
+the number of threads that use hazard pointers.
+\end{note}
+\begin{example}
+The following example shows how hazard pointers allow updates to be carried out
+in the presence of concurrent readers.
+The object of type \tcode{hazard_pointer} in \tcode{print_name}
+protects the object \tcode{*ptr} from being reclaimed by \tcode{ptr->retire}
+until the end of the protection epoch.
+\begin{codeblock}
+struct Name : public hazard_pointer_obj_base<Name> { /* details */ };
+atomic<Name*> name;
+// called often and in parallel!
+void print_name() {
+  hazard_pointer h = make_hazard_pointer();
+  Name* ptr = h.protect(name);          // Protection epoch starts
+  // ... safe to access \tcode{*ptr}
+}                                       // Protection epoch ends.
+
+// called rarely, but possibly concurrently with \tcode{print_name}
+void update_name(Name* new_name) {
+  Name* ptr = name.exchange(new_name);
+  ptr->retire();
+}
+\end{codeblock}
+\end{example}
+
+\rSec3[hazard.pointer.syn]{Header \tcode{<hazard_pointer>} synopsis}
+
+\indexheader{hazard_pointer}%
+\begin{codeblock}
+namespace std {
+  // \ref{saferecl.hp.base}, class template \tcode{hazard_pointer_obj_base}
+  template<class T, class D = default_delete<T>> class hazard_pointer_obj_base;
+
+  // \ref{saferecl.hp.holder}, class \tcode{hazard_pointer}
+  class hazard_pointer;
+
+  // \ref{saferecl.hp.holder.nonmem}, non-member functions
+  hazard_pointer make_hazard_pointer();
+  void swap(hazard_pointer&, hazard_pointer&) noexcept;
+}
+\end{codeblock}
+
+\rSec3[saferecl.hp.base]{Class template \tcode{hazard_pointer_obj_base}}
+
+\begin{codeblock}
+namespace std {
+  template<class T, class D = default_delete<T>>
+  class hazard_pointer_obj_base {
+  public:
+    void retire(D d = D()) noexcept;
+  protected:
+    hazard_pointer_obj_base() = default;
+    hazard_pointer_obj_base(const hazard_pointer_obj_base&) = default;
+    hazard_pointer_obj_base(hazard_pointer_obj_base&&) = default;
+    hazard_pointer_obj_base& operator=(const hazard_pointer_obj_base&) = default;
+    hazard_pointer_obj_base& operator=(hazard_pointer_obj_base&&) = default;
+    ~hazard_pointer_obj_base() = default;
+  private:
+    D @\exposid{deleter}@;      // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+\tcode{D} shall be a function object type\iref{func.require}
+for which, given a value \tcode{d} of type \tcode{D} and
+a value \tcode{ptr} of type \tcode{T*},
+the expression \tcode{d(ptr)} is valid.
+
+\pnum
+The behavior of a program
+that adds specializations for \tcode{hazard_pointer_obj_base} is undefined.
+
+\pnum
+\tcode{D} shall meet the requirements for
+\oldconcept{DefaultConstructible} and \oldconcept{MoveAssignable}.
+
+\pnum
+\tcode{T} may be an incomplete type.
+It shall be complete before any member
+of the resulting specialization of \tcode{hazard_pointer_obj_base}
+is referenced.
+
+\indexlibrarymember{retire}{hazard_pointer_obj_base}%
+\begin{itemdecl}
+void retire(D d = D()) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{T} is a hazard-protectable type.
+
+\pnum
+\expects
+\tcode{*this} is
+a base class subobject of an object \tcode{x} of type \tcode{T}.
+\tcode{x} is not retired.
+Move-assigning \tcode{d} to \tcode{deleter} does not exit via an exception.
+
+\pnum
+\effects
+Move-assigns \tcode{d} to \tcode{deleter},
+thereby setting it as the deleter of \tcode{x},
+then retires \tcode{x}.
+May reclaim possibly-reclaimable objects.
+\end{itemdescr}
+
+\rSec3[saferecl.hp.holder]{Class \tcode{hazard_pointer}}
+
+\rSec4[saferecl.hp.holder.general]{General}
+
+\begin{codeblock}
+namespace std {
+  class hazard_pointer {
+  public:
+    hazard_pointer() noexcept;
+    hazard_pointer(hazard_pointer&&) noexcept;
+    hazard_pointer& operator=(hazard_pointer&&) noexcept;
+    ~hazard_pointer();
+
+    [[nodiscard]] bool empty() const noexcept;
+    template<class T> T* protect(const atomic<T*>& src) noexcept;
+    template<class T> bool try_protect(T*& ptr, const atomic<T*>& src) noexcept;
+    template<class T> void reset_protection(const T* ptr) noexcept;
+    void reset_protection(nullptr_t = nullptr) noexcept;
+    void swap(hazard_pointer&) noexcept;
+  };
+}
+\end{codeblock}
+
+\pnum
+An object of type \tcode{hazard_pointer} is either empty or
+\defnx{owns}{owning!hazard pointer} a hazard pointer.
+Each hazard pointer is owned by
+exactly one object of type \tcode{hazard_pointer}.
+\begin{note}
+An empty \tcode{hazard_pointer} object is different from
+a \tcode{hazard_pointer} object
+that owns an unassociated hazard pointer.
+An empty \tcode{hazard_pointer} object does not own any hazard pointers.
+\end{note}
+
+\rSec4[saferecl.hp.holder.ctor]{Constructors, destructor, and assignment}
+
+\indexlibraryctor{hazard_pointer}%
+\begin{itemdecl}
+hazard_pointer() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\ensures
+\tcode{*this} is empty.
+\end{itemdescr}
+
+\indexlibraryctor{hazard_pointer}%
+\begin{itemdecl}
+hazard_pointer(hazard_pointer&& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\ensures
+If \tcode{other} is empty, \tcode{*this} is empty.
+Otherwise,
+\tcode{*this} owns the hazard pointer originally owned by \tcode{other};
+\tcode{other} is empty.
+\end{itemdescr}
+
+\indexlibrarydtor{hazard_pointer}%
+\begin{itemdecl}
+~hazard_pointer();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{*this} is not empty,
+destroys the hazard pointer owned by \tcode{*this},
+thereby ending its current protection epoch.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{hazard_pointer}%
+\begin{itemdecl}
+hazard_pointer& operator=(hazard_pointer&& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{this == \&other} is \tcode{true}, no effect.
+Otherwise, if \tcode{*this} is not empty,
+destroys the hazard pointer owned by \tcode{*this},
+thereby ending its current protection epoch.
+
+\pnum
+\ensures
+If \tcode{other} was empty, \tcode{*this} is empty.
+Otherwise, \tcode{*this} owns the hazard pointer originally
+owned by \tcode{other}.
+If \tcode{this != \&other} is \tcode{true}, \tcode{other} is empty.
+
+\pnum
+\returns
+\tcode{*this}.
+\end{itemdescr}
+
+\rSec4[saferecl.hp.holder.mem]{Member functions}
+
+\indexlibrarymember{empty}{hazard_pointer}%
+\begin{itemdecl}
+[[nodiscard]] bool empty() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if and only if \tcode{*this} is empty.
+\end{itemdescr}
+
+\indexlibrarymember{protect}{hazard_pointer}%
+\begin{itemdecl}
+template<class T> T* protect(const atomic<T*>& src) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+T* ptr = src.load(memory_order::relaxed);
+while (!try_protect(ptr, src)) {}
+return ptr;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{try_protect}{hazard_pointer}%
+\begin{itemdecl}
+template<class T> bool try_protect(T*& ptr, const atomic<T*>& src) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{T} is a hazard-protectable type.
+
+\pnum
+\expects
+\tcode{*this} is not empty.
+
+\pnum
+\effects
+Performs the following steps in order:
+\begin{itemize}
+\item Initializes a variable \tcode{old} of type \tcode{T*} with the value of \tcode{ptr}.
+\item Evaluates \tcode{reset_protection(old)}.
+\item Assigns the value of \tcode{src.load(memory_order::acquire)} to \tcode{ptr}.
+\item If \tcode{old == ptr} is \tcode{false},
+evaluates \tcode{reset_protection()}.
+\end{itemize}
+
+\pnum
+\returns
+\tcode{old == ptr}.
+\end{itemdescr}
+
+\indexlibrarymember{reset_protection}{hazard_pointer}%
+\begin{itemdecl}
+template<class T> void reset_protection(const T* ptr) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{T} is a hazard-protectable type.
+
+\pnum
+\expects
+\tcode{*this} is not empty.
+
+\pnum
+\effects
+If \tcode{ptr} is a null pointer value, invokes \tcode{reset_protection()}.
+Otherwise,
+associates the hazard pointer owned by \tcode{*this} with \tcode{*ptr},
+thereby ending the current protection epoch.
+
+\pnum
+\complexity
+Constant.
+\end{itemdescr}
+
+\indexlibrarymember{reset_protection}{hazard_pointer}%
+\begin{itemdecl}
+void reset_protection(nullptr_t = nullptr) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{*this} is not empty.
+
+\pnum
+\ensures
+The hazard pointer owned by \tcode{*this} is unassociated.
+
+\pnum
+\complexity
+Constant.
+\end{itemdescr}
+
+\indexlibrarymember{swap}{hazard_pointer}%
+\begin{itemdecl}
+void swap(hazard_pointer& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Swaps the hazard pointer ownership of this object with that of \tcode{other}.
+\begin{note}
+The owned hazard pointers, if any, remain unchanged during the swap and
+continue to be associated with the respective objects
+that they were protecting before the swap, if any.
+No protection epochs are ended or initiated.
+\end{note}
+
+\pnum
+\complexity
+Constant.
+\end{itemdescr}
+
+\rSec4[saferecl.hp.holder.nonmem]{Non-member functions}
+
+\indexlibraryglobal{make_hazard_pointer}%
+\begin{itemdecl}
+hazard_pointer make_hazard_pointer();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Constructs a hazard pointer.
+
+\pnum
+\returns
+A \tcode{hazard_pointer} object that owns the newly-constructed hazard pointer.
+
+\pnum
+\throws
+May throw \tcode{bad_alloc}
+if memory for the hazard pointer could not be allocated.
+\end{itemdescr}
+
+\indexlibrarymember{swap}{hazard_pointer}%
+\begin{itemdecl}
+void swap(hazard_pointer& a, hazard_pointer& b) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{a.swap(b)}.
 \end{itemdescr}
