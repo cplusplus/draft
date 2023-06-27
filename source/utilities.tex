@@ -214,6 +214,15 @@ namespace std {
       explicit in_place_index_t() = default;
     };
   template<size_t I> constexpr in_place_index_t<I> in_place_index{};
+
+  // \tcode{nontype} argument tag%
+\indexlibraryglobal{nontype_t}%
+\indexlibraryglobal{nontype}
+  template<auto V>
+    struct nontype_t {
+      explicit nontype_t() = default;
+    };
+  template<auto V> constexpr nontype_t<V> nontype{};
 }
 \end{codeblock}
 
@@ -10576,9 +10585,14 @@ namespace std {
     bool operator==(const function<R(ArgTypes...)>&, nullptr_t) noexcept;
 
   // \ref{func.wrap.move}, move only wrapper
-  template<class... S> class move_only_function;        // \notdef
+  template<class... S> class move_only_function;                        // \notdef
   template<class R, class... ArgTypes>
-    class move_only_function<R(ArgTypes...) @\cv{}@ @\placeholder{ref}@ noexcept(@\placeholder{noex}@)>; // \seebelow
+    class move_only_function<R(ArgTypes...) @\cv{}\itcorr[-1]@ @\placeholdernc{ref}@ noexcept(@\placeholdernc{noex}@)>;     // \seebelow
+
+  // \ref{func.wrap.ref}, non-owning wrapper
+  template<class... S> class function_ref;                              // freestanding, \notdef
+  template<class R, class... ArgTypes>
+    class function_ref<R(ArgTypes...) @\cv{}\itcorr[-1]@ noexcept(@\placeholdernc{noex}@)>;               // freestanding, \seebelow
 
   // \ref{func.search}, searchers
   template<class ForwardIterator1, class BinaryPredicate = equal_to<>>
@@ -13437,6 +13451,355 @@ friend bool operator==(const move_only_function& f, nullptr_t) noexcept;
 \pnum
 \returns
 \tcode{true} if \tcode{f} has no target object, otherwise \tcode{false}.
+\end{itemdescr}
+
+\rSec3[func.wrap.ref]{Non-owning wrapper}
+
+\rSec4[func.wrap.ref.general]{General}
+
+\pnum
+The header provides partial specializations of \tcode{function_ref}
+for each combination of the possible replacements of
+the placeholders \cv{} and \placeholder{noex} where:
+
+\begin{itemize}
+\item \cv{} is either const or empty, and
+\item \placeholder{noex} is either \tcode{true} or \tcode{false}.
+\end{itemize}
+
+\rSec4[func.wrap.ref.class]{Class template \tcode{function_ref}}
+
+\indexlibraryglobal{function_ref}%
+\begin{codeblock}
+namespace std {
+  template<class... S> class function_ref;                      // \notdef
+
+  template<class R, class... ArgTypes>
+  class function_ref<R(ArgTypes...) @\cv{}@ noexcept(@\placeholder{noex}@)> {
+  public:
+    // \ref{func.wrap.ref.ctor}, constructors and assignment operators
+    template<class F> function_ref(F*) noexcept;
+    template<class F> constexpr function_ref(F&&) noexcept;
+    template<auto f> constexpr function_ref(nontype_t<f>) noexcept;
+    template<auto f, class U> constexpr function_ref(nontype_t<f>, U&&) noexcept;
+    template<auto f, class T> constexpr function_ref(nontype_t<f>, @\cv{}@ T*) noexcept;
+
+    constexpr function_ref(const function_ref&) noexcept = default;
+    constexpr function_ref& operator=(const function_ref&) noexcept = default;
+    template<class T> function_ref& operator=(T) = delete;
+
+    // \ref{func.wrap.ref.inv}, invocation
+    R operator()(ArgTypes...) const noexcept(@\placeholder{noex}@);
+
+  private:
+    template<class... T>
+      static constexpr bool @\exposid{is-invocable-using}@ = @\seebelow@;     // \expos
+  };
+
+  // \ref{func.wrap.ref.deduct}, deduction guides
+  template<class F>
+    function_ref(F*) -> function_ref<F>;
+  template<auto f>
+    function_ref(nontype_t<f>) -> function_ref<@\seebelow@>;
+  template<auto f>
+    function_ref(nontype_t<f>, auto) -> function_ref<@\seebelow@>;
+}
+\end{codeblock}
+
+\pnum
+An object of class
+\tcode{function_ref<R(Args...) \cv{} noexcept(\placeholder{noex})>}
+stores
+%FIXME: What is "thunk-ptr"? where did it come from?
+a pointer to function \exposid{thunk-ptr} and
+%FIXME: What is "bound-entity"? where did it come from?
+an object \exposid{bound-entity}.
+\exposid{bound-entity} has
+an unspecified trivially copyable type \tcode{BoundEntityType}, that
+models \libconcept{copyable} and
+is capable of storing a pointer to object value or a pointer to function value.
+The type of \exposid{thunk-ptr} is
+\tcode{R(*)(BoundEntityType, Args\&\&...) noexcept(\placeholder{noex})}.
+
+\pnum
+Each specialization of \tcode{function_ref} is
+a trivially copyable type\iref{term.trivially.copyable.type}
+that models \libconcept{copyable}.
+
+\pnum
+Within subclause \ref{func.wrap.ref},
+\tcode{\placeholder{call-args}} is an argument pack with elements such that
+\tcode{decltype((\placeholder{call-args}\linebreak{}))...} denote
+\tcode{Args\&\&...} respectively.
+
+\rSec4[func.wrap.ref.ctor]{Constructors and assignment operators}
+
+\indextext{function_ref::is-invocable-using@\tcode{function_ref::\exposid{is-invocable-using}}}%
+\begin{itemdecl}
+template<class... T>
+  static constexpr bool @\exposid{is-invocable-using}@ = @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+If \placeholder{noex} is \tcode{true},
+\tcode{\exposid{is-invocable-using}<T...>} is equal to:
+\begin{codeblock}
+is_nothrow_invocable_r_v<R, T..., ArgTypes...>
+\end{codeblock}
+Otherwise, \tcode{\exposid{is-invocable-using}<T...>} is equal to:
+\begin{codeblock}
+is_invocable_r_v<R, T..., ArgTypes...>
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryctor{function_ref}%
+\begin{itemdecl}
+template<class F> function_ref(F* f) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_function_v<F>} is \tcode{true}, and
+\item \tcode{\exposid{is-invocable-using}<F>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\expects
+\tcode{f} is not a null pointer.
+
+\pnum
+\effects
+Initializes
+\exposid{bound-entity} with \tcode{f}, and
+\exposid{thunk-ptr} with the address of a function \tcode{\placeholder{thunk}}
+such that
+\tcode{\placeholder{thunk}(\exposid{bound-entity}, \placeholder{call-args}...)}
+is expression-equivalent to
+\tcode{invoke_r<R>(f, \placeholder{call-args}...)}.
+\end{itemdescr}
+
+\indexlibraryctor{function_ref}%
+\begin{itemdecl}
+template<class F> constexpr function_ref(F&& f) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{T} be \tcode{remove_reference_t<F>}.
+
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{remove_cvref_t<F>} is not the same type as \tcode{function_ref},
+\item \tcode{is_member_pointer_v<T>} is \tcode{false}, and
+\item \tcode{\exposid{is-invocable-using}<\cv{} T\&>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\effects
+Initializes
+\exposid{bound-entity} with \tcode{addressof(f)}, and
+\exposid{thunk-ptr} with the address of a function \tcode{\placeholder{thunk}}
+such that
+\tcode{\placeholder{thunk}(\exposid{bound-entity}, \placeholder{call-args}...)}
+is expression-equivalent to
+\tcode{invoke_r<R>(static_cast<\cv{} T\&>(f), \placeholder{call-args}...)}.
+\end{itemdescr}
+
+\indexlibraryctor{function_ref}%
+\begin{itemdecl}
+template<auto f> constexpr function_ref(nontype_t<f>) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{F} be \tcode{decltype(f)}.
+
+\pnum
+\constraints
+\tcode{\exposid{is-invocable-using}<F>} is \tcode{true}.
+
+\pnum
+\mandates
+If \tcode{is_pointer_v<F> || is_member_pointer_v<F>} is \tcode{true},
+then \tcode{f != nullptr} is \tcode{true}.
+
+\pnum
+\effects
+Initializes
+\exposid{bound-entity} with a pointer to an unspecified object or
+null pointer value, and
+\exposid{thunk-ptr} with the address of a function \tcode{\placeholder{thunk}}
+such that
+\tcode{\placeholder{thunk}(\exposid{bound-entity}, \placeholder{call-args}...)}
+is expression-equivalent to
+\tcode{invoke_r<R>(f, \placeholder{call-args}...)}.
+\end{itemdescr}
+
+\indexlibraryctor{function_ref}%
+\begin{itemdecl}
+template<auto f, class U>
+  constexpr function_ref(nontype_t<f>, U&& obj) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{T} be \tcode{remove_reference_t<U>} and
+\tcode{F} be \tcode{decltype(f)}.
+
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_rvalue_reference_v<U\&\&>} is \tcode{false}, and
+\item \tcode{\exposid{is-invocable-using}<F, \cv{} T\&>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+If \tcode{is_pointer_v<F> || is_member_pointer_v<F>} is \tcode{true},
+then \tcode{f != nullptr} is \tcode{true}.
+
+\pnum
+\effects
+Initializes
+\exposid{bound-entity} with \tcode{addressof(obj)}, and
+\exposid{thunk-ptr} with the address of a function \tcode{\placeholder{thunk}}
+such that
+\tcode{\placeholder{thunk}(\exposid{bound-entity}, \placeholder{call-args}...)}
+is expression-equivalent to
+\tcode{invoke_r<R>(f, static_cast<\cv{} T\&>(obj), \placeholder{call-args}...)}.
+\end{itemdescr}
+
+\indexlibraryctor{function_ref}%
+\begin{itemdecl}
+template<auto f, class T>
+  constexpr function_ref(nontype_t<f>, @\cv{}@ T* obj) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{F} be \tcode{decltype(f)}.
+
+\pnum
+\constraints
+\tcode{\exposid{is-invocable-using}<F, \cv{} T*>} is \tcode{true}.
+
+\pnum
+\mandates
+If \tcode{is_pointer_v<F> || is_member_pointer_v<F>} is \tcode{true},
+then \tcode{f != nullptr} is \tcode{true}.
+
+\pnum
+\expects
+If \tcode{is_member_pointer_v<F>} is \tcode{true},
+\tcode{obj} is not a null pointer.
+
+\pnum
+\effects
+Initializes
+\exposid{bound-entity} with \tcode{obj}, and
+\exposid{thunk-ptr} with the address of a function \tcode{\placeholder{thunk}}
+such that
+\tcode{\placeholder{thunk}(\exposid{bound-entity}, \placeholder{call-args}...)}
+is expression-equivalent to
+\tcode{invoke_r<R>(f, obj, \placeholder{call-args}...)}.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{function_ref}%
+\begin{itemdecl}
+template<class T> function_ref& operator=(T) = delete;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{T} is not the same type as \tcode{function_ref},
+\item \tcode{is_pointer_v<T>} is \tcode{false}, and
+\item \tcode{T} is not a specialization of \tcode{nontype_t}.
+\end{itemize}
+\end{itemdescr}
+
+\rSec4[func.wrap.ref.inv]{Invocation}
+
+\indexlibrarymember{operator()}{function_ref}%
+\begin{itemdecl}
+R operator()(ArgTypes... args) const noexcept(@\placeholder{noex}@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\tcode{return \exposid{thunk-ptr}(\exposid{bound-entity}, std::forward<ArgTypes>(args)...);}
+\end{itemdescr}
+
+\rSec4[func.wrap.ref.deduct]{Deduction guides}
+
+\begin{itemdecl}
+template<class F>
+  function_ref(F*) -> function_ref<F>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{is_function_v<F>} is \tcode{true}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<auto f>
+  function_ref(nontype_t<f>) -> function_ref<@\seebelow@>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{F} be \tcode{remove_pointer_t<decltype(f)>}.
+
+\pnum
+\constraints
+\tcode{is_function_v<F>} is \tcode{true}.
+
+\pnum
+\remarks
+The deduced type is \tcode{function_ref<F>}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<auto f, class T>
+  function_ref(nontype_t<f>, T&&) -> function_ref<@\seebelow@>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{F} be \tcode{decltype(f)}.
+
+\pnum
+\constraints
+%FIXME: R and E should be defined outside of these constraints.
+%FIXME: Define R and E via "let" in paragraph above, then use them here and below.
+\begin{itemize}
+\item
+\tcode{F} is of the form
+\tcode{R(G::*)(A...) \cv{} \opt{\&} noexcept(E)} for a type \tcode{G}, or
+\item
+\tcode{F} is of the form
+\tcode{M G::*} for a type \tcode{G} and an object type \tcode{M},
+in which case
+let \tcode{R} be \tcode{invoke_result_t<F, T\&>},
+\tcode{A...} be an empty pack, and
+\tcode{E} be \tcode{false}, or
+\item
+\tcode{F} is of the form
+\tcode{R(*)(G, A...) noexcept(E)} for a type \tcode{G}.
+\end{itemize}
+
+\pnum
+\remarks
+The deduced type is \tcode{function_ref<R(A...) noexcept(E)>}.
 \end{itemdescr}
 \indextext{function object!wrapper|)}
 
