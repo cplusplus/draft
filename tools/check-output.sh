@@ -73,6 +73,7 @@ for f in *.tex; do
 done
 
 # Cross references since the previous standard.
+# Note: xrefprev should be a copy of the previous standard's xrefindex.glo.
 function indexentries() { sed 's,\\glossaryentry{\(.*\)@.*,\1,' "$1" | LANG=C sort; }
 function removals() { diff -u "$1" "$2" | grep '^-' | grep -v '^---' | sed 's/^-//'; }
 function difference() { diff -u "$1" "$2" | grep '^[-+]' | grep -v '^\(---\|+++\)'; }
