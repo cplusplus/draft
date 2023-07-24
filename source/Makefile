@@ -1,4 +1,4 @@
-FIGURES=$(patsubst %.dot,%.pdf,$(wildcard *.dot))
+FIGURES=$(patsubst %.dot,%.pdf,$(wildcard assets/*.dot))
 
 default: full
 
