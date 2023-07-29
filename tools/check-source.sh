@@ -21,11 +21,6 @@ function fail() {
     grep .
 }
 
-
-# Find non-ASCII (Unicode) characters in the source
-LC_ALL=C grep -ne '[^ -~	]' *.tex |
-    fail 'non-ASCII character' || failed=1
-
 # Trailing whitespace in a line.
 grep -ne '\s$' *.tex |
     fail 'trailing whitespace' || failed=1

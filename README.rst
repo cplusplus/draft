@@ -32,7 +32,7 @@ Getting Started on Debian-based Systems
 
 Install the following packages:
 
-   sudo apt-get install latexmk texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended lmodern
+   sudo apt-get install latexmk texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended texlive-fonts-extra lmodern
 
 -------------------------
 Getting Started on Fedora
