@@ -45,3 +45,4 @@
  * [N4928](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2023/n4928.pdf) 2022-11 C++ Working Draft
  * [N4944](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2023/n4944.pdf) 2023-02 C++ Working Draft
  * [N4950](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2023/n4950.pdf) 2023-05 C++ Working Draft
+ * [N4958](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2023/n4958.pdf) 2023-08 C++ Working Draft
