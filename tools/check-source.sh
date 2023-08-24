@@ -76,7 +76,7 @@ grep -n '^[^%]*[^{"]C++[^"}]' $texfiles |
     fail 'use \\Cpp{} instead' || failed=1
 
 # Use \caret instead of \^
-fgrep -n '\^' $texfiles |
+grep -F -n '\^' $texfiles |
     fail 'use \\caret instead' || failed=1
 
 # Use \unicode instead of U+nnnn
@@ -137,7 +137,7 @@ done |
     fail 'No namespace around class definition' || failed=1
 
 # ref-qualifier on member functions with no space, e.g. "const&"
-fgrep -ne ') const&' $texlib |
+grep -F -ne ') const&' $texlib |
     fail 'no space between cv-qualifier and ref-qualifier' || failed=1
 
 # \begin{example/note} with non-whitespace in front on the same line.
