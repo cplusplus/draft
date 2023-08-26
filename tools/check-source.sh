@@ -54,7 +54,7 @@ done |
     fail 'two consecutive \\pnum' || failed=1
 
 # punctuation after the footnote marker
-grep -n "\\end{footnote" $texfiles | grep -v '}[@)%]\?$' |
+grep -n '\\end{footnote' $texfiles | grep -v '}[@)%]\?$' |
     fail "punctuation after footnote marker" || failed=1
 
 # \opt used incorrectly.
