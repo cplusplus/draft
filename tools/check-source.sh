@@ -185,13 +185,13 @@ grep -n '^\\rSec.\[[^]]*[^a-z.0-9][^]]*\]{' $texfiles |
 grep -n '[ ~](\\ref{[.a-z0-9]*})' $texfiles |
     fail 'replace \\ref with \\iref' || failed=1
 
-# "shall", "may", or "should" inside a note
+# "shall", "may", "should", or "is required" inside a note
 for f in $texfiles; do
-    sed -n '/begin{\(note\|footnote\)}/,/end{\(note\|footnote\)}/{/\(shall\|may\|should\)[^a-zA-Z]/{=;p;};}' $f |
+    sed -n '/begin{\(note\|footnote\)}/,/end{\(note\|footnote\)}/{/\(shall\|may\|should\|is required\)[^a-zA-Z]/{=;p;};}' $f |
     # prefix output with filename and line
     sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/"
 done |
-    fail '"shall", "should", or "may" inside a note' || failed=1
+    fail '"shall", "should", "is required", or "may" inside a note' || failed=1
 
 # Comma after e.g. and i.e.
 grep -n "e\.g\.[^,]" $texfiles |
