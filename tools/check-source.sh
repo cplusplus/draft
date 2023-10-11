@@ -6,7 +6,7 @@ failed=0
 
 # Ignore files where rules may be violated within macro definitions.
 texfiles=$(ls *.tex | grep -v macros.tex | grep -v layout.tex | grep -v tables.tex)
-texlibdesc="support.tex concepts.tex diagnostics.tex utilities.tex strings.tex containers.tex iterators.tex ranges.tex algorithms.tex numerics.tex time.tex locales.tex iostreams.tex regex.tex atomics.tex threads.tex"
+texlibdesc="support.tex concepts.tex diagnostics.tex memory.tex meta.tex utilities.tex strings.tex containers.tex iterators.tex ranges.tex algorithms.tex numerics.tex time.tex locales.tex iostreams.tex regex.tex threads.tex"
 texlib="lib-intro.tex $texlibdesc"
 
 # Filter that reformats the error message as a "workflow command",
@@ -54,7 +54,7 @@ done |
     fail 'two consecutive \\pnum' || failed=1
 
 # punctuation after the footnote marker
-grep -n "\\end{footnote" $texfiles | grep -v '}[@)%]\?$' |
+grep -n '\\end{footnote' $texfiles | grep -v '}[@)%]\?$' |
     fail "punctuation after footnote marker" || failed=1
 
 # \opt used incorrectly.
@@ -73,17 +73,29 @@ grep -n "// not defined" $texfiles |
 
 # Use \Cpp{} instead of C++
 grep -n '^[^%]*[^{"]C++[^"}]' $texfiles |
-    fail 'use \Cpp{} instead' || failed=1
+    fail 'use \\Cpp{} instead' || failed=1
+
+# Use \caret instead of \^
+grep -F -n '\^' $texfiles |
+    fail 'use \\caret instead' || failed=1
 
 # Use \unicode instead of U+nnnn
 grep -n 'U+' $texfiles |
     fail 'use \\unicode or \\ucode or \\uname instead' || failed=1
+
+# Discourage double-wrapping \tcode{\exposid{data_}}
+grep -n '\\tcode{\\exposid{[a-zA-Z0-9_]*}}' $texfiles |
+    fail 'double-wrapped \\exposid in \\tcode' || failed=1
 
 # Hex digits inside \ucode and \unicode must be lowercase so that \textsc works
 grep -n 'ucode{[^}]*[^0-9a-f}][^}]*}' $texfiles |
     fail 'use lowercase hex digits inside \\ucode' || failed=1
 grep -n 'unicode{[^}]*[^0-9a-f}][^}]*}' $texfiles |
     fail 'use lowercase hex digits inside \\unicode' || failed=1
+
+# Use \iref instead of "(\ref", except for subclause ranges
+grep -n '.(\\ref' $texfiles  | grep -v -- "--" |
+    fail 'use \\iref instead of (\\ref' || failed=1
 
 # Use \xrefc instead of "ISO C x.y.z"
 grep -n "^ISO C [0-9]*\." $texfiles |
@@ -104,9 +116,17 @@ grep -Hne '^\\\(change\|rationale\|effect\|difficulty\|howwide\)\s.\+$' compatib
     fail "change marker in [diff] followed by stuff" || failed=1
 # Fixup: sed 's/^\\\(change\|rationale\|effect\|difficulty\|howwide\)\s\(.\)/\\\1\n\2/'q
 
-# "template <class" (with space) in library clause.
-grep -ne 'template\s<class' $texlib |
-    fail 'space between "template" and "<class"' || failed=1
+# "template <" (with space) in library clause.
+grep -ne 'template\s\+<' $texlib |
+    fail 'space between "template" and "<"' || failed=1
+
+# In library declarations, constexpr should not follow explicit
+grep -ne '\bexplicit\b.*\bconstexpr\b' $texlib |
+    fail 'explicit constexpr' || failed=1
+
+# In library declarations, static should not follow constexpr
+grep -ne '\bconstexpr\b.*\bstatic\b' $texlib | grep -ve '\bconstexpr\b.*\bnon-static\b' |
+    fail 'constexpr static' || failed=1
 
 # "Class" heading without namespace
 for f in $texlib; do
@@ -115,6 +135,10 @@ for f in $texlib; do
     sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/"
 done |
     fail 'No namespace around class definition' || failed=1
+
+# ref-qualifier on member functions with no space, e.g. "const&"
+grep -F -ne ') const&' $texlib |
+    fail 'no space between cv-qualifier and ref-qualifier' || failed=1
 
 # \begin{example/note} with non-whitespace in front on the same line.
 grep -ne '^.*[^ ]\s*\\\(begin\|end\){\(example\|note\)}' $texfiles |
@@ -169,6 +193,27 @@ for f in $texfiles; do
 done |
     fail '"shall", "should", or "may" inside a note' || failed=1
 
+# Comma after e.g. and i.e.
+grep -n "e\.g\.[^,]" $texfiles |
+    fail '"e.g." must be followed by a comma'
+grep -n "i\.e\.[^,]" $texfiles |
+    fail '"i.e." must be followed by a comma'
+
+
+# \logop should use lowercase arguments
+grep -n '\\logop{[^}]*[^andor}][^}]*}' $texfiles |
+    fail 'bad argument for \\logop' || failed=1
+
+# Bad indexing for ::iterator and ::sentinel exposition-only classes
+grep -Hn '\\indexlibrary\(ctor\|member\).*::\(iterator\|sentinel\)}.*' ranges.tex |
+    fail 'use \\exposid for iterator/sentinel member indexing' || failed=1
+# Fixup: sed -i '/indexlibrary\(member\|ctor\)/s/::\(iterator\|sentinel\)/::\\exposid{\1}/' ranges.tex
+
+# Do not index the exposition-only ::iterator and ::sentinel class names
+grep -Hn '\\indexlibraryglobal.*::\(iterator\|sentinel\)}.*' ranges.tex |
+    fail 'do not index exposition-only ::iterator and ::sentinel class names' ranges.tex || failed=1
+# Fixup: sed -i '/indexlibraryglobal.*::\(iterator\|sentinel\)}.*/d' ranges.tex
+
 # Hanging paragraphs
 for f in $texfiles; do
     sed -n '/^\\rSec/{=;p;};/^\\pnum/{s/^.*$/x/;=;p;}' $f |
@@ -198,7 +243,9 @@ done | fail 'subclause without siblings' || failed=1
 
 # Library descriptive macros not immediately preceded by \pnum.
 for f in $texlibdesc; do
-    awk '/^\\pnum/ { seenpnum=1; next } /^\\index/ { next } /^\\(constraints|mandates|expects|effects|sync|ensures|returns|throws|complexity|remarks|errors)/ { if(seenpnum == 0) { print FILENAME ":" FNR ":" $0 } } { seenpnum=0 }' $f
+    sed -n '/begin{itemdescr}/,/end{itemdescr}/{=;p;}' < $f |
+    sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/" |
+    awk -F: '$3 ~ /^\\pnum/ { seenpnum=1; next } $3 ~ /^\\index/ { next } $3 ~ /^\\(constraints|mandates|expects|effects|sync|ensures|returns|throws|complexity|remarks|errors|recommended)/ { if(seenpnum == 0) { print $0 } } { seenpnum=0 }'
 done |
     fail '\\pnum missing' || failed=1
 

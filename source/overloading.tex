@@ -154,15 +154,17 @@ to use such transformations and constructions.
 \indextext{function!overload resolution and}%
 The set of candidate functions can contain both member and non-member
 functions to be resolved against the same argument list.
-So that argument and parameter lists are comparable within this
-heterogeneous set, a member function that does not have an explicit object parameter is considered to have an
-extra first parameter, called the
-\defn{implicit object parameter},
-which represents the object for which the member function has been
-called.
-For the purposes of overload resolution, both static and
-non-static member functions have an object parameter,
-but constructors do not.
+If a member function is
+\begin{itemize}
+\item
+an implicit object member function that is not a constructor, or
+\item
+a static member function and
+the argument list includes an implied object argument,
+\end{itemize}
+it is considered to have an extra first parameter,
+called the \defnadj{implicit}{object parameter},
+which represents the object for which the member function has been called.
 
 \pnum
 Similarly, when appropriate, the context can construct an
@@ -239,8 +241,7 @@ Because other than in list-initialization only one user-defined conversion
 is allowed
 in an
 implicit conversion sequence, special rules apply when selecting
-the best user-defined conversion~(\ref{over.match.best},
-\ref{over.best.ics}).
+the best user-defined conversion\iref{over.match.best,over.best.ics}.
 \begin{example}
 \begin{codeblock}
 class T {
@@ -285,8 +286,7 @@ any candidates that are explicit are discarded.
 \pnum
 In each case where a candidate is a function template, candidate
 function template specializations
-are generated using template argument deduction~(\ref{temp.over},
-\ref{temp.deduct}).
+are generated using template argument deduction\iref{temp.over,temp.deduct}.
 If a constructor template or conversion function template
 has an \grammarterm{explicit-specifier}
 whose \grammarterm{constant-expression} is value-dependent\iref{temp.dep},
@@ -318,7 +318,7 @@ with the set of non-template candidate functions.
 
 \pnum
 A
-defaulted move special member function~(\ref{class.copy.ctor}, \ref{class.copy.assign})
+defaulted move special member function\iref{class.copy.ctor,class.copy.assign}
 that is defined as deleted
 is excluded from the set of candidate functions in all contexts.
 A constructor inherited from class type \tcode{C}\iref{class.inhctor.init}
@@ -369,7 +369,11 @@ resolution is applied as specified in \ref{over.call.object}.
 \pnum
 If the \grammarterm{postfix-expression} is the address of an overload set,
 overload resolution is applied using that set as described above.
-If the function selected by overload resolution is a non-static member function,
+\begin{note}
+No implied object argument is added in this case.
+\end{note}
+If the function selected by overload resolution is
+an implicit object member function,
 the program is ill-formed.
 \begin{note}
 The resolution of the address of an
@@ -445,15 +449,16 @@ In unqualified function calls, the function is named by a
 The function declarations found by name lookup\iref{basic.lookup} constitute the
 set of candidate functions.
 Because of the rules for name lookup, the set of candidate functions
-consists (1) entirely of non-member functions or (2) entirely of
+consists either entirely of non-member functions or entirely of
 member functions of some class
 \tcode{T}.
-In case (1),
+In the former case or
+if the \grammarterm{primary-expression} is the address of an overload set,
 the argument list is
 the same as the
 \grammarterm{expression-list}
 in the call.
-In case (2), the argument list is the
+Otherwise, the argument list is the
 \grammarterm{expression-list}
 in the call augmented by the addition of an implied object
 argument as in a qualified function call.
@@ -485,6 +490,19 @@ struct C {
   void a();
   void b() {
     a();                // OK, \tcode{(*this).a()}
+  }
+
+  void c(this const C&);    // \#1
+  void c() &;               // \#2
+  static void c(int = 0);   // \#3
+
+  void d() {
+    c();                // error: ambiguous between \#2 and \#3
+    (C::c)();           // error: as above
+    (&(C::c))();        // error: cannot resolve address of overloaded \tcode{this->C::c}\iref{over.over}
+    (&C::c)(C{});       // selects \#1
+    (&C::c)(*this);     // error: selects \#2, and is ill-formed\iref{over.match.call.general}
+    (&C::c)();          // selects \#3
   }
 
   void f(this const C&);
@@ -581,12 +599,6 @@ function call operator.
 When comparing the call against a
 surrogate call function, the implied object argument is compared
 against the first parameter of the surrogate call function.
-The
-conversion function from which the surrogate call function was
-derived will be used in the conversion sequence for that
-parameter since it converts the implied object argument to the
-appropriate function pointer or reference required by that first
-parameter.
 \end{note}
 \begin{example}
 \begin{codeblock}
@@ -634,7 +646,7 @@ struct String {
 String operator + (const String&, const String&);
 
 void f() {
-  const char* p= "one" + "two"; // error: cannot add two pointers; overloaded \tcode{operator+} not considered
+  const char* p= "one" + "two"; // error: cannot add two pointers; overloaded \tcode{\keyword{operator}+} not considered
                                 // because neither operand has class or enumeration type
   int I = 1 + 1;                // always evaluates to \tcode{2} even if class or enumeration types exist
                                 // that would perform the operation.
@@ -694,8 +706,7 @@ For the operators \tcode{=}, \tcode{[]}, or \tcode{->},
 the set of non-member candidates is empty;
 otherwise, it includes the result of unqualified lookup for
 \tcode{\keyword{operator}@}
-in the rewritten function call
-(\ref{basic.lookup.unqual}, \ref{basic.lookup.argdep}),
+in the rewritten function call\iref{basic.lookup.unqual,basic.lookup.argdep},
 ignoring all member functions.
 However, if no operand has a class type, only those non-member
 functions in the lookup set that have a first parameter of type
@@ -732,6 +743,7 @@ accept operand types to which the given operand or
 operands can be converted according to \ref{over.best.ics}, and
 \item
 do not have the same parameter-type-list as any non-member candidate
+or rewritten non-member candidate
 that is not a function template specialization.
 \end{itemize}
 
@@ -758,13 +770,15 @@ for the expression
 For the \tcode{!=} operator\iref{expr.eq},
 the rewritten candidates
 include all non-rewritten candidates
-for the expression \tcode{x == y}.
+for the expression \tcode{x == y}
+that are rewrite targets with first operand \tcode{x} (see below).
 \item
 For the equality operators,
 the rewritten candidates also include a synthesized candidate,
 with the order of the two parameters reversed,
 for each non-rewritten candidate
-for the expression \tcode{y == x}.
+for the expression \tcode{y == x}
+that is a rewrite target with first operand \tcode{y}.
 \item
 For all other operators, the rewritten candidate set is empty.
 \end{itemize}
@@ -776,15 +790,51 @@ are considered for the first, but not for the second, parameter.
 \end{itemize}
 
 \pnum
-For the built-in assignment operators, conversions of the left
-operand are restricted as follows:
-\begin{itemize}
-\item
-no temporaries are introduced to hold the left operand, and
-\item
-no user-defined conversions are applied to the left operand to achieve
-a type match with the left-most parameter of a built-in candidate.
-\end{itemize}
+A non-template function or function template \tcode{F} named \tcode{\keyword{operator}==}
+is a rewrite target with first operand \tcode{o}
+unless a search for the name \tcode{\keyword{operator}!=} in the scope $S$
+from the instantiation context of the operator expression
+finds a function or function template
+that would correspond\iref{basic.scope.scope} to \tcode{F}
+if its name were \tcode{\keyword{operator}==},
+where $S$ is the scope of the class type of \tcode{o}
+if \tcode{F} is a class member, and
+the namespace scope of which \tcode{F} is a member otherwise.
+A function template specialization named \tcode{\keyword{operator}==} is a rewrite target
+if its function template is a rewrite target.
+\begin{example}
+\begin{codeblock}
+struct A {};
+template<typename T> bool operator==(A, T);     // \#1
+bool a1 = 0 == A();                             // OK, calls reversed \#1
+template<typename T> bool operator!=(A, T);
+bool a2 = 0 == A();                             // error, \#1 is not a rewrite target
+
+struct B {
+  bool operator==(const B&);    // \#2
+};
+struct C : B {
+  C();
+  C(B);
+  bool operator!=(const B&);    // \#3
+};
+bool c1 = B() == C();           // OK, calls \#2; reversed \#2 is not a candidate
+                                // because search for \tcode{\keyword{operator}!=} in \tcode{C} finds \#3
+bool c2 = C() == B();           // error: ambiguous between \#2 found when searching \tcode{C} and
+                                // reversed \#2 found when searching \tcode{B}
+
+struct D {};
+template<typename T> bool operator==(D, T);     // \#4
+inline namespace N {
+  template<typename T> bool operator!=(D, T);   // \#5
+}
+bool d1 = 0 == D();             // OK, calls reversed \#4; \#5 does not forbid \#4 as a rewrite target
+\end{codeblock}
+\end{example}
+
+\pnum
+For the first parameter of the built-in assignment operators,
+only standard conversion sequences\iref{over.ics.scs} are considered.
 
 \pnum
 For all other operators, no such restrictions apply.
@@ -1121,7 +1171,7 @@ the argument list consists of the elements of the initializer list.
 In copy-list-initialization, if an explicit constructor is
 chosen, the initialization is ill-formed.
 \begin{note}
-This differs from other situations~(\ref{over.match.ctor}, \ref{over.match.copy}),
+This differs from other situations\iref{over.match.ctor,over.match.copy},
 where only converting constructors are considered for copy-initialization.
 This restriction only
 applies if this initialization is part of the final result of overload
@@ -1204,8 +1254,12 @@ that would be initialized by $x_i$\iref{dcl.init.aggr} if
 \begin{itemize}
 \item
 brace elision is not considered for any aggregate element
-that has a dependent non-array type or
-an array type with a value-dependent bound, and
+that has
+\begin{itemize}
+\item a dependent non-array type,
+\item an array type with a value-dependent bound, or
+\item an array type with a dependent array element type and $x_i$ is a string literal; and
+\end{itemize}
 \item
 each non-trailing aggregate element that is a pack expansion
 is assumed to correspond to no elements of the initializer list, and
@@ -1221,8 +1275,13 @@ where
 \begin{itemize}
 \item
 if $e_i$ is of array type and
-$x_i$ is a \grammarterm{braced-init-list} or \grammarterm{string-literal},
+$x_i$ is a \grammarterm{braced-init-list},
 $\tcode{T}_i$ is an rvalue reference to the declared type of $e_i$, and
+\item
+if $e_i$ is of array type and
+$x_i$ is a \grammarterm{string-literal},
+$\tcode{T}_i$ is an lvalue reference to
+the const-qualified declared type of $e_i$, and
 \item
 otherwise, $\tcode{T}_i$ is the declared type of $e_i$,
 \end{itemize}
@@ -1232,6 +1291,86 @@ that was skipped because it was a parameter pack, and
 the trailing sequence of parameters corresponding
 to a trailing aggregate element that is a pack expansion (if any)
 is replaced by a single parameter of the form $\tcode{T}_n \tcode{...}$.
+In addition,
+if \tcode{C} is defined and
+inherits constructors\iref{namespace.udecl}
+from a direct base class denoted in the \grammarterm{base-specifier-list}
+by a \grammarterm{class-or-decltype} \tcode{B},
+let \tcode{A} be an alias template
+whose template parameter list is that of \tcode{C} and
+whose \grammarterm{defining-type-id} is \tcode{B}.
+%% FIXME: the following sentence is very hard to follow; rewrite!
+If \tcode{A} is a deducible template\iref{dcl.type.simple},
+the set contains the guides of \tcode{A}
+with the return type \tcode{R} of each guide
+replaced with \tcode{typename CC<R>::type} given a class template
+\begin{codeblock}
+template <typename> class CC;
+\end{codeblock}
+whose primary template is not defined and
+with a single partial specialization
+whose template parameter list is that of \tcode{A} and
+whose template argument list is a specialization of \tcode{A} with
+the template argument list of \tcode{A}\iref{temp.dep.type}
+having a member typedef \tcode{type} designating a template specialization with
+the template argument list of \tcode{A} but
+with \tcode{C} as the template.
+\begin{note}
+Equivalently,
+the template parameter list of the specialization is that of \tcode{C},
+the template argument list of the specialization is \tcode{B}, and
+the member typedef names \tcode{C} with the template argument list of \tcode{C}.
+\end{note}
+
+\pnum
+\begin{example}
+\begin{codeblock}
+template <typename T> struct B {
+  B(T);
+};
+template <typename T> struct C : public B<T> {
+  using B<T>::B;
+};
+template <typename T> struct D : public B<T> {};
+
+C c(42);            // OK, deduces \tcode{C<int>}
+D d(42);            // error: deduction failed, no inherited deduction guides
+B(int) -> B<char>;
+C c2(42);           // OK, deduces \tcode{C<char>}
+
+template <typename T> struct E : public B<int> {
+  using B<int>::B;
+};
+
+E e(42);            // error: deduction failed, arguments of \tcode{E} cannot be deduced from introduced guides
+
+template <typename T, typename U, typename V> struct F {
+  F(T, U, V);
+};
+template <typename T, typename U> struct G : F<U, T, int> {
+  using G::F::F;
+}
+
+G g(true, 'a', 1);  // OK, deduces \tcode{G<char, bool>}
+
+template<class T, std::size_t N>
+struct H {
+  T array[N];
+};
+template<class T, std::size_t N>
+struct I {
+  volatile T array[N];
+};
+template<std::size_t N>
+struct J {
+  unsigned char array[N];
+};
+
+H h = { "abc" };    // OK, deduces \tcode{H<char, 4>} (not \tcode{T = const char})
+I i = { "def" };    // OK, deduces \tcode{I<char, 4>}
+J j = { "ghi" };    // error: cannot bind reference to array of \tcode{unsigned char} to array of \tcode{char} in deduction
+\end{codeblock}
+\end{example}
 
 \pnum
 When resolving a placeholder for a deduced class type\iref{dcl.type.simple}
@@ -1252,6 +1391,8 @@ from the \grammarterm{defining-type-id} of \tcode{A}
 according to the process in \ref{temp.deduct.type}
 with the exception that deduction does not fail
 if not all template arguments are deduced.
+If deduction fails for another reason,
+proceed with an empty set of deduced template arguments.
 Let \tcode{g} denote the result of substituting
 these deductions into \tcode{f}.
 If substitution succeeds,
@@ -1417,7 +1558,7 @@ struct W { operator Y(); };
 
 F f1 = {Types<X, Y, Z>{}, {}, {}};      // OK, \tcode{F<X, Y, Z>} deduced
 F f2 = {Types<X, Y, Z>{}, X{}, Y{}};    // OK, \tcode{F<X, Y, Z>} deduced
-F f3 = {Types<X, Y, Z>{}, X{}, W{}};    // error: conflicting types deduced; \tcode{operator Y} not considered
+F f3 = {Types<X, Y, Z>{}, X{}, W{}};    // error: conflicting types deduced; \tcode{\keyword{operator} Y} not considered
 \end{codeblock}
 \end{example}
 
@@ -1450,7 +1591,7 @@ template <class V> class AA<A<V>> { };
 template <class T> concept deduces_A = requires { sizeof(AA<T>); };
 
 // \tcode{f1} is formed from the constructor \#1 of \tcode{C}, generating the following function template
-template<T, U>
+template<class T, class U>
   auto f1(T, U) -> C<T, U>;
 
 // Deducing arguments for \tcode{C<T, U>} from \tcode{C<V *, V*>} deduces \tcode{T} as \tcode{V *} and \tcode{U} as \tcode{V *};
@@ -1553,31 +1694,14 @@ the viability of the function (see~\ref{over.ics.ref}).
 
 \pnum
 \indextext{conversion!overload resolution and}%
-Define $\text{ICS}^i(\tcode{F})$ as follows:
-\begin{itemize}
-\item
-If \tcode{F} is a static member function,
-$\text{ICS}^1(\tcode{F})$ is defined such that
-$\text{ICS}^1(\tcode{F})$ is neither better nor worse than
-$\text{ICS}^1(\tcode{G})$ for any function \tcode{G},
-and, symmetrically, $\text{ICS}^1(\tcode{G})$ is neither better nor worse than
-$\text{ICS}^1(\tcode{F})$;
-\begin{footnote}
-If a function is a static member function, this
-definition means that the first argument, the implied object argument,
-has no effect in the determination of whether the function is better
-or worse than any other function.
-\end{footnote}
-otherwise,
-\item
-let $\text{ICS}^i(\tcode{F})$ denote the implicit conversion sequence that converts
+Define $\text{ICS}^i(\tcode{F})$ as
+the implicit conversion sequence that converts
 the $i^\text{th}$ argument in the list to the type of
 the $i^\text{th}$ parameter of viable function \tcode{F}.
 \ref{over.best.ics} defines the implicit conversion sequences and \ref{over.ics.rank}
 defines what it means for one implicit conversion sequence to be
 a better conversion sequence or worse conversion sequence than
 another.
-\end{itemize}
 
 \pnum
 Given these definitions,
@@ -1717,6 +1841,18 @@ bool b = 1 < S();                                               // calls \#2
 or, if not that
 
 \item
+\tcode{F1} and \tcode{F2} are generated
+from class template argument deduction\iref{over.match.class.deduct}
+for a class \tcode{D}, and
+\tcode{F2} is generated
+from inheriting constructors from a base class of \tcode{D}
+while \tcode{F1} is not, and
+for each explicit function argument,
+the corresponding parameters of \tcode{F1} and \tcode{F2}
+are either both ellipses or have the same type,
+or, if not that,
+
+\item
 \tcode{F1} is generated from a
 \grammarterm{deduction-guide}\iref{over.match.class.deduct}
 and \tcode{F2} is not, or, if not that,
@@ -1812,7 +1948,7 @@ void f() {
                     // and \tcode{1L} $\to$ \tcode{short} and \tcode{1L} $\to$ \tcode{int} are indistinguishable
 
   Fcn(&i, 'c');     // calls \tcode{Fcn(int*, int)}, because \tcode{\&i} $\to$ \tcode{int*} is better than \tcode{\&i} $\to$ \tcode{const int*}
-                    // and \tcode{c} $\to$ \tcode{int} is better than \tcode{c} $\to$ \tcode{short}
+                    // and \tcode{'c'} $\to$ \tcode{int} is better than \tcode{'c'} $\to$ \tcode{short}
 }
 \end{codeblock}
 \end{example}
@@ -1857,7 +1993,7 @@ The
 sequence of conversions is an implicit conversion as defined in
 \ref{conv}, which means it is governed by the rules for
 initialization of an object or reference by a single
-expression~(\ref{dcl.init}, \ref{dcl.init.ref}).
+expression\iref{dcl.init,dcl.init.ref}.
 
 \pnum
 Implicit conversion sequences are concerned only with the type,
@@ -1951,6 +2087,8 @@ contains no ``conversion'' from
 to
 \tcode{A}.
 \end{example}
+
+\pnum
 When the parameter has a class type and the argument expression has the
 same type, the implicit conversion sequence is an identity conversion.
 When the parameter has a class type and the argument expression has a
@@ -1958,11 +2096,16 @@ derived class type, the implicit conversion sequence is a
 derived-to-base
 \indextext{conversion!derived-to-base}%
 conversion from the derived class to the base class.
+A derived-to-base conversion has Conversion rank\iref{over.ics.scs}.
 \begin{note}
 There is no such standard conversion; this derived-to-base conversion exists
 only in the description of implicit conversion sequences.
 \end{note}
-A derived-to-base conversion has Conversion rank\iref{over.ics.scs}.
+
+\pnum
+When the parameter is the implicit object parameter of a static member function,
+the implicit conversion sequence is a standard conversion sequence
+that is neither better nor worse than any other standard conversion sequence.
 
 \pnum
 In all contexts, when converting to the implicit object parameter
@@ -2213,7 +2356,8 @@ When an argument is an initializer list\iref{dcl.init.list}, it is not an
 expression and special rules apply for converting it to a parameter type.
 
 \pnum
-If the initializer list is a \grammarterm{designated-initializer-list},
+If the initializer list is a \grammarterm{designated-initializer-list}
+and the parameter is not a reference,
 a conversion is only possible if
 the parameter has an aggregate type
 that can be initialized from the initializer list
@@ -2280,9 +2424,9 @@ f( {'a','b'} );                 // OK, \tcode{f(initializer_list<int>)} integral
 f( {1.0} );                     // error: narrowing
 
 struct A {
-  A(std::initializer_list<double>);             // \#1
-  A(std::initializer_list<complex<double>>);    // \#2
-  A(std::initializer_list<std::string>);        // \#3
+  A(std::initializer_list<double>);                     // \#1
+  A(std::initializer_list<std::complex<double>>);       // \#2
+  A(std::initializer_list<std::string>);                // \#3
 };
 A a{ 1.0,2.0 };                 // OK, uses \#1
 
@@ -2678,6 +2822,34 @@ is better than one that does.
 A conversion that promotes an enumeration whose underlying type is fixed to its underlying
 type is better than one that promotes to the promoted underlying type, if the two are
 different.
+\item
+A conversion in either direction
+between floating-point type \tcode{FP1} and floating-point type \tcode{FP2}
+is better than a conversion in the same direction
+between \tcode{FP1} and arithmetic type \tcode{T3} if
+\begin{itemize}
+\item
+the floating-point conversion rank\iref{conv.rank} of \tcode{FP1}
+is equal to the rank of \tcode{FP2}, and
+\item
+\tcode{T3} is not a floating-point type, or
+\tcode{T3} is a floating-point type
+whose rank is not equal to the rank of \tcode{FP1}, or
+the floating-point conversion subrank\iref{conv.rank} of \tcode{FP2}
+is greater than the subrank of \tcode{T3}.
+\begin{example}
+\begin{codeblock}
+int f(std::float32_t);
+int f(std::float64_t);
+int f(long long);
+float x;
+std::float16_t y;
+int i = f(x);           // calls \tcode{f(std::float32_t)} on implementations where
+                        // \tcode{float} and \tcode{std::float32_t} have equal conversion ranks
+int j = f(y);           // error: ambiguous, no equal conversion rank
+\end{codeblock}
+\end{example}
+\end{itemize}
 
 \item
 If class
@@ -2830,8 +3002,7 @@ as described below.
 The target can be
 \begin{itemize}
 \item
-an object or reference being initialized~(\ref{dcl.init}, \ref{dcl.init.ref},
-\ref{dcl.init.list}),
+an object or reference being initialized\iref{dcl.init,dcl.init.ref,dcl.init.list},
 \item
 the left side of an assignment\iref{expr.ass},
 \item
@@ -2841,8 +3012,7 @@ a parameter of a user-defined operator\iref{over.oper},
 \item
 the return value of a function, operator function, or conversion\iref{stmt.return},
 \item
-an explicit type conversion~(\ref{expr.type.conv}, \ref{expr.static.cast},
-\ref{expr.cast}), or
+an explicit type conversion\iref{expr.type.conv,expr.static.cast,expr.cast}, or
 \item
 a non-type
 \grammarterm{template-parameter}\iref{temp.arg.nontype}.
@@ -2866,8 +3036,8 @@ pointer-to-member-function type.
 \end{note}
 
 \pnum
-The specialization, if any, generated by template argument deduction
-(\ref{temp.over}, \ref{temp.deduct.funcaddr}, \ref{temp.arg.explicit})
+The specialization, if any, generated by template argument
+deduction\iref{temp.over,temp.deduct.funcaddr,temp.arg.explicit}
 for each function template named
 is added to the set of selected functions considered.
 
@@ -2877,7 +3047,7 @@ static member functions, and
 explicit object member functions
 match targets of function pointer type or
 reference to function type.
-Non-static member functions match targets of
+Implicit object member functions match targets of
 pointer-to-member-function type.
 \begin{note}
 %% FIXME: Should this only apply after the eliminations in the next paragraph?
@@ -3082,9 +3252,15 @@ stated in~\ref{expr.await}.
 \pnum
 \indextext{restriction!overloading}%
 An operator function
-shall either be a non-static member function or be a non-member function that
+shall either
+\begin{itemize}
+\item
+be a member function or
+\item
+be a non-member function that
 has at least one non-object parameter whose type is a class, a reference to a class, an
 enumeration, or a reference to an enumeration.
+\end{itemize}
 It is not possible to change the precedence, grouping, or number of operands
 of operators.
 The meaning of
@@ -3270,7 +3446,7 @@ void f() {
 \pnum
 A \defnadj{function call}{operator function}
 is a function named \tcode{\keyword{operator}()}
-that is a non-static member function with an arbitrary number of parameters.
+that is a member function with an arbitrary number of parameters.
 It may have default arguments.
 For an expression of the form
 \begin{ncsimplebnf}
@@ -3279,11 +3455,12 @@ postfix-expression \terminal{(} \opt{expression-list} \terminal{)}
 where the \grammarterm{postfix-expression} is of class type,
 the operator function
 is selected by overload resolution\iref{over.call.object}.
-If a surrogate call function for a conversion function
-named \keyword{operator} \grammarterm{conversion-type-id} is selected,
+If a surrogate call function is selected,
+let $e$ be the result of invoking the corresponding conversion operator function on the \grammarterm{postfix-expression};
+
 the expression is interpreted as
 \begin{ncsimplebnf}
-postfix-expression \terminal{.} \keyword{operator} conversion-type-id \terminal{(}\terminal{)} \terminal{(} \opt{expression-list} \terminal{)}
+$e$ \terminal{(} \opt{expression-list} \terminal{)}
 \end{ncsimplebnf}
 Otherwise, the expression is interpreted as
 \begin{ncsimplebnf}
@@ -3296,8 +3473,9 @@ postfix-expression \terminal{.} \keyword{operator} \terminal{(}\terminal{)} \ter
 
 \pnum
 A \defnadj{subscripting}{operator function}
-is a function named \tcode{\keyword{operator}[]}
-that is a non-static member function.
+is a member function named \tcode{\keyword{operator}[]}
+with an arbitrary number of parameters.
+It may have default arguments.
 For an expression of the form
 \begin{ncsimplebnf}
 postfix-expression \terminal{[} \opt{expression-list} \terminal{]}
@@ -3758,18 +3936,20 @@ functions of the form
 
 \begin{bnf}
 \nontermdef{literal-operator-id}\br
-    \keyword{operator} string-literal identifier\br
+    \keyword{operator} unevaluated-string identifier\br
     \keyword{operator} user-defined-string-literal
 \end{bnf}
 
 \pnum
-The \grammarterm{string-literal} or \grammarterm{user-defined-string-literal}
-in a \grammarterm{literal-operator-id} shall have no
-\grammarterm{encoding-prefix} and shall contain no characters other than the
-implicit terminating \tcode{'\textbackslash 0'}.
+The \grammarterm{user-defined-string-literal}
+in a \grammarterm{literal-operator-id}
+shall have no \grammarterm{encoding-prefix}.
+The \grammarterm{unevaluated-string} or
+\grammarterm{user-defined-string-literal} shall be empty.
 The \grammarterm{ud-suffix} of the \grammarterm{user-defined-string-literal} or
 the \grammarterm{identifier} in a \grammarterm{literal-operator-id} is called a
 \defnx{literal suffix identifier}{literal!suffix identifier}.
+The first form of \grammarterm{literal-operator-id} is deprecated\iref{depr.lit}.
 Some literal suffix identifiers are reserved for future standardization;
 see~\ref{usrlit.suffix}.  A declaration whose \grammarterm{literal-operator-id} uses
 such a literal suffix identifier is ill-formed, no diagnostic required.
@@ -3844,19 +4024,19 @@ taken, etc.
 \pnum
 \begin{example}
 \begin{codeblock}
-void operator "" _km(long double);                  // OK
-string operator "" _i18n(const char*, std::size_t); // OK
-template <char...> double operator "" _\u03C0();    // OK, UCN for lowercase pi
+void operator ""_km(long double);                   // OK
+string operator "" _i18n(const char*, std::size_t); // OK, deprecated
+template <char...> double operator ""_\u03C0();     // OK, UCN for lowercase pi
 float operator ""_e(const char*);                   // OK
 float operator ""E(const char*);                    // ill-formed, no diagnostic required:
-                                                    // reserved literal suffix~(\ref{usrlit.suffix}, \ref{lex.ext})
+                                                    // reserved literal suffix\iref{usrlit.suffix,lex.ext}
 double operator""_Bq(long double);                  // OK, does not use the reserved \grammarterm{identifier} \tcode{_Bq}\iref{lex.name}
 double operator"" _Bq(long double);                 // ill-formed, no diagnostic required:
                                                     // uses the reserved \grammarterm{identifier} \tcode{_Bq}\iref{lex.name}
-float operator " " B(const char*);                  // error: non-empty \grammarterm{string-literal}
-string operator "" 5X(const char*, std::size_t);    // error: invalid literal suffix identifier
-double operator "" _miles(double);                  // error: invalid \grammarterm{parameter-declaration-clause}
-template <char...> int operator "" _j(const char*); // error: invalid \grammarterm{parameter-declaration-clause}
-extern "C" void operator "" _m(long double);        // error: C language linkage
+float operator " "B(const char*);                   // error: non-empty \grammarterm{string-literal}
+string operator ""5X(const char*, std::size_t);     // error: invalid literal suffix identifier
+double operator ""_miles(double);                   // error: invalid \grammarterm{parameter-declaration-clause}
+template <char...> int operator ""_j(const char*);  // error: invalid \grammarterm{parameter-declaration-clause}
+extern "C" void operator ""_m(long double);         // error: C language linkage
 \end{codeblock}
 \end{example}

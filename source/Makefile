@@ -1,4 +1,5 @@
-FIGURES=$(patsubst %.dot,%.pdf,$(wildcard *.dot))
+FIGURES=$(patsubst %.dot,%.pdf,$(wildcard assets/*.dot))
+EXAMPLES=$(patsubst %.tex,%.pdf,$(wildcard assets/*.tex))
 
 default: full
 
@@ -15,9 +16,17 @@ quiet:
 	latexmk -pdf std -e '$$max_repeat = 1;' -silent || ( rm std.pdf; latexmk -pdf std -e '$$max_repeat = 4;' )
 
 %.pdf: %.dot
-	dot -o $@ -Tpdf $<
+	dot -o $@ -Tpdf $< -Nfontname=NewComputerModernSans10
 
 clean-figures:
 	rm -f $(FIGURES)
 
 figures: $(FIGURES)
+
+%.pdf: %.tex
+	lualatex -output-directory assets $<
+
+clean-examples:
+	rm -f $(EXAMPLES)
+
+examples: $(EXAMPLES)
