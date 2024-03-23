@@ -4997,8 +4997,8 @@ are the elements that are, or contain, those members.
 \item
 If the initializer list is a brace-enclosed \grammarterm{initializer-list},
 the explicitly initialized elements of the aggregate
-are the first $n$ elements of the aggregate,
-where $n$ is the number of elements in the initializer list.
+are those for which an element of the initializer list
+appertains to the aggregate element or to a subobject thereof (see below).
 \item
 Otherwise, the initializer list must be \tcode{\{\}},
 and there are no explicitly initialized elements.
@@ -5029,21 +5029,30 @@ struct C {
 initializes \tcode{c.a} with 1 and \tcode{c.x} with 3.
 \end{example}
 \item
-Otherwise, the element is copy-initialized
-from the corresponding \grammarterm{initializer-clause}
-or is initialized with the \grammarterm{brace-or-equal-initializer}
+Otherwise, if the initializer list is
+a brace-enclosed \grammarterm{designated-initializer-list},
+the element is initialized with the \grammarterm{brace-or-equal-initializer}
 of the corresponding \grammarterm{designated-initializer-clause}.
 If that initializer is of the form
-\grammarterm{assignment-expression} or
 \tcode{= }\grammarterm{assignment-expression}
 and
 a narrowing conversion\iref{dcl.init.list} is required
 to convert the expression, the program is ill-formed.
 \begin{note}
-If the initialization is by \grammarterm{designated-initializer-clause},
-its form determines whether copy-initialization or direct-initialization
-is performed.
+The form of the initializer determines
+whether copy-initialization or direct-initialization is performed.
 \end{note}
+\item
+Otherwise,
+the initializer list is a brace-enclosed \grammarterm{initializer-list}.
+If an \grammarterm{initializer-clause} appertains to the aggregate element,
+then the aggregate element is copy-initialized from the \grammarterm{initializer-clause}.
+Otherwise,
+the aggregate element is copy-initialized
+from a brace-enclosed \grammarterm{initializer-list}
+consisting of all of the \grammarterm{initializer-clause}s
+that appertain to subobjects of the aggregate element,
+in the order of appearance.
 \begin{note}
 If an initializer is itself an initializer list,
 the element is list-initialized, which will result in a recursive application
@@ -5133,13 +5142,7 @@ with \tcode{"asdf"},
 with the value of an expression of the form
 \tcode{int\{\}}
 (that is, \tcode{0}), and \tcode{ss.d} with the value of \tcode{ss.b[ss.a]}
-(that is, \tcode{'s'}), and in
-\begin{codeblock}
-struct X { int i, j, k = 42; };
-X a[] = { 1, 2, 3, 4, 5, 6 };
-X b[2] = { { 1, 2, 3 }, { 4, 5, 6 } };
-\end{codeblock}
-\tcode{a} and \tcode{b} have the same value
+(that is, \tcode{'s'}).
 
 \begin{codeblock}
 struct A {
@@ -5181,15 +5184,9 @@ in case an exception is thrown\iref{except.ctor}.
 \end{note}
 
 \pnum
-An array of unknown bound initialized with a
-brace-enclosed
-\grammarterm{initializer-list}
-containing
-\tcode{n}
-\grammarterm{initializer-clause}{s}
-is defined as having
-\tcode{n}
-elements\iref{dcl.array}.
+The number of elements\iref{dcl.array} in an array of unknown bound
+initialized with a brace-enclosed \grammarterm{initializer-list}
+is the number of explicitly initialized elements of the array.
 \begin{example}
 \begin{codeblock}
 int x[] = { 1, 3, 5 };
@@ -5198,6 +5195,15 @@ declares and initializes
 \tcode{x}
 as a one-dimensional array that has three elements
 since no size was specified and there are three initializers.
+\end{example}
+\begin{example}
+In
+\begin{codeblock}
+struct X { int i, j, k; };
+X a[] = { 1, 2, 3, 4, 5, 6 };
+X b[2] = { { 1, 2, 3 }, { 4, 5, 6 } };
+\end{codeblock}
+\tcode{a} and \tcode{b} have the same value.
 \end{example}
 An array of unknown bound shall not be initialized with
 an empty \grammarterm{braced-init-list} \tcode{\{\}}.
@@ -5247,19 +5253,6 @@ and not the unnamed bit-field before it.
 \end{note}
 
 \pnum
-An
-\grammarterm{initializer-list}
-is ill-formed if the number of
-\grammarterm{initializer-clause}{s}
-exceeds the number of elements of the aggregate.
-\begin{example}
-\begin{codeblock}
-char cv[4] = { 'a', 's', 'd', 'f', 0 };     // error
-\end{codeblock}
-is ill-formed.
-\end{example}
-
-\pnum
 If a member has a default member initializer
 and a potentially-evaluated subexpression thereof is an aggregate
 initialization that would use that default member initializer,
@@ -5277,32 +5270,6 @@ A a{a,a};                       // OK
 struct B {
   int n = B{}.n;                // error
 };
-\end{codeblock}
-\end{example}
-
-\pnum
-If an aggregate class \tcode{C} contains a subaggregate element
-\tcode{e} with no elements,
-the \grammarterm{initializer-clause} for \tcode{e} shall not be
-omitted from an \grammarterm{initializer-list} for an object of type
-\tcode{C} unless the \grammarterm{initializer-clause}{s} for all
-elements of \tcode{C} following \tcode{e} are also omitted.
-\begin{example}
-\begin{codeblock}
-struct S { } s;
-struct A {
-  S s1;
-  int i1;
-  S s2;
-  int i2;
-  S s3;
-  int i3;
-} a = {
-  { },              // Required initialization
-  0,
-  s,                // Required initialization
-  0
-};                  // Initialization not required for \tcode{A::s3} because \tcode{A::i3} is also not initialized
 \end{codeblock}
 \end{example}
 
@@ -5343,28 +5310,71 @@ and leaves the rest zero.
 \end{example}
 
 \pnum
-Braces can be elided in an
-\grammarterm{initializer-list}
-as follows.
-If the
-\grammarterm{initializer-list}
-begins with a left brace,
-then the succeeding comma-separated list of
-\grammarterm{initializer-clause}{s}
-initializes the elements of a subaggregate;
-it is erroneous for there to be more
-\grammarterm{initializer-clause}{s}
-than elements.
-If, however, the
-\grammarterm{initializer-list}
-for a subaggregate does not begin with a left brace,
-then only enough
-\grammarterm{initializer-clause}{s}
-from the list are taken to initialize the elements of the subaggregate;
-any remaining
-\grammarterm{initializer-clause}{s}
-are left to initialize the next element of the aggregate
-of which the current subaggregate is an element.
+Each \grammarterm{initializer-clause} in
+a brace-enclosed \grammarterm{initializer-list}
+is said to \defn{appertain}
+to an element of the aggregate being initialized or
+to an element of one of its subaggregates.
+Considering the sequence of \grammarterm{initializer-clause}s,
+and the sequence of aggregate elements
+initially formed as the sequence of elements of the aggregate being initialized
+and potentially modified as described below,
+each \grammarterm{initializer-clause} appertains to
+the corresponding aggregate element if
+\begin{itemize}
+\item
+the aggregate element is not an aggregate, or
+\item
+the \grammarterm{initializer-clause} begins with a left brace, or
+\item
+the \grammarterm{initializer-clause} is an expression and
+an implicit conversion sequence can be formed
+that converts the expression to the type of the aggregate element, or
+\item
+the aggregate element is an aggregate that itself has no aggregate elements.
+\end{itemize}
+Otherwise,
+the aggregate element is an aggregate and
+that subaggregate is replaced in the list of aggregate elements by
+the sequence of its own aggregate elements, and
+the appertainment analysis resumes with
+the first such element and the same \grammarterm{initializer-clause}.
+\begin{note}
+These rules apply recursively to the aggregate's subaggregates.
+\begin{example}
+In
+\begin{codeblock}
+struct S1 { int a, b; };
+struct S2 { S1 s, t; };
+
+S2 x[2] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+S2 y[2] = {
+  {
+    { 1, 2 },
+    { 3, 4 }
+  },
+  {
+    { 5, 6 },
+    { 7, 8 }
+  }
+};
+\end{codeblock}
+\tcode{x} and \tcode{y} have the same value.
+\end{example}
+\end{note}
+This process continues
+until all \grammarterm{initializer-clause}s have been exhausted.
+If any \grammarterm{initializer-clause} remains
+that does not appertain to
+an element of the aggregate or one of its subaggregates,
+the program is ill-formed.
+\begin{example}
+\begin{codeblock}
+char cv[4] = { 'a', 's', 'd', 'f', 0 };     // error: too many initializers
+\end{codeblock}
+\end{example}
+
+\pnum
 \begin{example}
 \begin{codeblock}
 float y[4][3] = {
@@ -5419,21 +5429,30 @@ and
 \end{example}
 
 \pnum
-All implicit type conversions\iref{conv} are considered when
-initializing the element with an \grammarterm{assignment-expression}.
-If the
-\grammarterm{assignment-expression}
-can initialize an element, the element is initialized.
-Otherwise, if the element is itself a subaggregate,
-brace elision is assumed and the
-\grammarterm{assignment-expression}
-is considered for the initialization of the first element of the subaggregate.
 \begin{note}
-As specified above, brace elision cannot apply to
-subaggregates with no elements; an
-\grammarterm{initializer-clause} for the entire subobject is needed.
+The initializer for an empty subaggregate is needed
+if any initializers are provided for subsequent elements.
+\begin{example}
+\begin{codeblock}
+struct S { } s;
+struct A {
+  S s1;
+  int i1;
+  S s2;
+  int i2;
+  S s3;
+  int i3;
+} a = {
+  { },              // Required initialization
+  0,
+  s,                // Required initialization
+  0
+};                  // Initialization not required for \tcode{A::s3} because \tcode{A::i3} is also not initialized
+\end{codeblock}
+\end{example}
 \end{note}
 
+\pnum
 \begin{example}
 \begin{codeblock}
 struct A {
@@ -5447,7 +5466,6 @@ struct B {
 A a;
 B b = { 4, a, a };
 \end{codeblock}
-
 Braces are elided around the
 \grammarterm{initializer-clause}
 for
