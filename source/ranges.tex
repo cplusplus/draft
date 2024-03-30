@@ -366,6 +366,13 @@ namespace std::ranges {
     inline constexpr @\unspecnc@ split = @\unspecnc@;                               // freestanding
   }
 
+  // \ref{range.concat}, concat view
+  template<@\libconcept{input_range}@... Views>
+    requires @\seebelow@
+  class concat_view;
+
+  namespace views { inline constexpr @\unspecnc@ concat = @\unspecnc@; }
+
   // \ref{range.counted}, counted view
   namespace views { inline constexpr @\unspecnc@ counted = @\unspecnc@; }           // freestanding
 
@@ -4331,6 +4338,17 @@ namespace std::ranges {
   constexpr T& @\exposid{as-lvalue}@(T&& t) {                   // \expos
     return static_cast<T&>(t);
   }
+
+  template<bool Const, class... Views>
+    concept @\defexposconceptnc{all-random-access}@ =                     // \expos
+      (@\libconcept{random_access_range}@<@\exposid{maybe-const}@<Const, Views>> && ...);
+  template<bool Const, class... Views>
+    concept @\defexposconceptnc{all-bidirectional}@ =                     // \expos
+      (@\libconcept{bidirectional_range}@<@\exposid{maybe-const}@<Const, Views>> && ...);
+  template<bool Const, class... Views>
+    concept @\defexposconceptnc{all-forward}@ =                           // \expos
+      (@\libconcept{forward_range}@<@\exposid{maybe-const}@<Const, Views>> && ...);
+
 }
 \end{codeblock}
 
@@ -8452,6 +8470,1017 @@ friend constexpr bool operator==(const @\exposid{iterator}@& x, const @\exposid{
 Equivalent to: \tcode{return x.\exposid{cur_} == y.\exposid{end_} \&\& !x.\exposid{trailing_empty_};}
 \end{itemdescr}
 
+\rSec2[range.concat]{Concat view}
+
+\rSec3[range.concat.overview]{Overview}
+
+\pnum
+\tcode{concat_view} presents a view that concatenates all the underlying ranges.
+
+\pnum
+The name \tcode{views::concat} denotes
+a customization point object\iref{customization.point.object}.
+Given a pack of subexpressions \tcode{Es...},
+the expression \tcode{views::concat(Es...)} is expression-equivalent to
+\begin{itemize}
+\item \tcode{views::all(Es...)} if \tcode{Es} is a pack with only one element,
+\item otherwise, \tcode{concat_view(Es...)}.
+\end{itemize}
+\begin{example}
+\begin{codeblock}
+std::vector<int> v1{1, 2, 3}, v2{4, 5}, v3{};
+std::array a{6, 7, 8};
+auto s = std::views::single(9);
+for (auto&& i : std::views::concat(v1, v2, v3, a, s)) {
+  std::print("{} ", i);         // prints \tcode{1 2 3 4 5 6 7 8 9}
+}
+\end{codeblock}
+\end{example}
+
+\rSec3[range.concat.view]{Class template \tcode{concat_view}}
+
+\indexlibraryglobal{concat_view}%
+\begin{codeblock}
+namespace std::ranges {
+  template<class... Rs>
+  using @\exposidnc{concat-reference-t}@ = common_reference_t<range_reference_t<Rs>...>;      // \expos
+  template<class... Rs>
+  using @\exposidnc{concat-value-t}@ = common_type_t<range_value_t<Rs>...>;                   // \expos
+  template<class... Rs>
+  using @\exposidnc{concat-rvalue-reference-t}@ =                                             // \expos
+    common_reference_t<range_rvalue_reference_t<Rs>...>;
+
+  template<class... Rs>
+    concept @\exposconcept{concat-indirectly-readable}@ = @\seebelow@;     // \expos
+  template<class... Rs>
+    concept @\exposconcept{concatable}@ = @\seebelow@;                     // \expos
+  template<bool Const, class... Rs>
+    concept @\exposconcept{concat-is-random-access}@ = @\seebelow@;        // \expos
+  template<bool Const, class... Rs>
+    concept @\exposconcept{concat-is-bidirectional}@ = @\seebelow@;        // \expos
+
+  template<@\libconcept{input_range}@... Views>
+    requires (@\libconcept{view}@<Views> && ...) && (sizeof...(Views) > 0) &&
+              @\exposconcept{concatable}@<Views...>
+  class concat_view : public view_interface<concat_view<Views...>> {
+
+    tuple<Views...> @\exposidnc{views_}@;                                             // \expos
+
+    // \ref{range.concat.iterator}, class template \tcode{concat_view::\exposid{iterator}}
+    template<bool> class @\exposidnc{iterator}@;                                      // \expos
+
+  public:
+    constexpr concat_view() = default;
+    constexpr explicit concat_view(Views... views);
+
+    constexpr @\exposid{iterator}@<false> begin() requires(!(@\exposconcept{simple-view}@<Views> && ...));
+    constexpr @\exposid{iterator}@<true> begin() const
+      requires((@\libconcept{range}@<const Views> && ...) && @\exposconcept{concatable}@<const Views...>);
+
+    constexpr auto end() requires(!(@\exposconcept{simple-view}@<Views> && ...));
+    constexpr auto end() const
+      requires((@\libconcept{range}@<const Views> && ...) && @\exposconcept{concatable}@<const Views...>);
+
+    constexpr auto size() requires(@\libconcept{sized_range}@<Views>&&...);
+    constexpr auto size() const requires(@\libconcept{sized_range}@<const Views>&&...);
+  };
+
+  template<class... R>
+    concat_view(R&&...) -> concat_view<views::all_t<R>...>;
+}
+\end{codeblock}
+
+\begin{itemdecl}
+template<class... Rs>
+  concept @\defexposconcept{concat-indirectly-readable}@ = @\seebelow@;                           // \expos
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The exposition-only \exposconcept{concat-indirectly-readable} concept
+is equivalent to:
+\begin{codeblock}
+template<class Ref, class RRef, class It>
+  concept @\defexposconcept{concat-indirectly-readable-impl}@ =                         // \expos
+    requires (const It it) {
+      { *it } -> @\libconcept{convertible_to}@<Ref>;
+      { ranges::iter_move(it) } -> @\libconcept{convertible_to}@<RRef>;
+    };
+
+template<class... Rs>
+  concept @\exposconcept{concat-indirectly-readable}@ =                              // \expos
+    @\libconcept{common_reference_with}@<@\exposid{concat-reference-t}@<Rs...>&&,
+                          @\exposid{concat-value-t}@<Rs...>&> &&
+    @\libconcept{common_reference_with}@<@\exposid{concat-reference-t}@<Rs...>&&,
+                          @\exposid{concat-rvalue-reference-t}@<Rs...>&&> &&
+    @\libconcept{common_reference_with}@<@\exposid{concat-rvalue-reference-t}@<Rs...>&&,
+                          @\exposid{concat-value-t}@<Rs...> const&> &&
+    (@\exposconcept{concat-indirectly-readable-impl}@<@\exposid{concat-reference-t}@<Rs...>,
+                                     @\exposid{concat-rvalue-reference-t}@<Rs...>,
+                                     iterator_t<Rs>> && ...);
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class... Rs>
+  concept @\defexposconcept{concatable}@ = @\seebelow@;                                           // \expos
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The exposition-only \exposconcept{concatable} concept is equivalent to:
+\begin{codeblock}
+template<class... Rs>
+  concept @\exposconcept{concatable}@ = requires {                                   // \expos
+    typename @\exposid{concat-reference-t}@<Rs...>;
+    typename @\exposid{concat-value-t}@<Rs...>;
+    typename @\exposid{concat-rvalue-reference-t}@<Rs...>;
+  } && @\exposconcept{concat-indirectly-readable}@<Rs...>;
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+template<bool Const, class... Rs>
+  concept @\defexposconcept{concat-is-random-access}@ = @\seebelow@;                              // \expos
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{Fs} be the pack that consists of all elements of \tcode{Rs}
+except the last element,
+then \exposconceptx{concat-is-ran\-dom-access}{concat-is-random-access}
+is equivalent to:
+\begin{codeblock}
+template<bool Const, class... Rs>
+  concept @\exposconcept{concat-is-random-access}@ =                                 // \expos
+    @\exposconcept{all-random-access}@<Const, Rs...> &&
+    (@\libconcept{common_range}@<@\exposid{maybe-const}@<Const, Fs>> && ...);
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+template<bool Const, class... Rs>
+  concept @\defexposconcept{concat-is-bidirectional}@ = @\seebelow@;                              // \expos
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{Fs} be the pack that consists of all elements of \tcode{Rs}
+except the last element,
+then \exposconceptx{concat-is-bidirec\-tional}{concat-is-bidirectional}
+is equivalent to:
+\begin{codeblock}
+template<bool Const, class... Rs>
+  concept @\exposconcept{concat-is-bidirectional}@ =                                 // \expos
+    @\exposconcept{all-bidirectional}@<Const, Rs...> &&
+    (@\libconcept{common_range}@<@\exposid{maybe-const}@<Const, Fs>> && ...);
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryctor{concat_view}%
+\begin{itemdecl}
+constexpr explicit concat_view(Views... views);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{views_} with \tcode{std::move(views)...}.
+\end{itemdescr}
+
+\indexlibrarymember{begin}{concat_view}%
+\begin{itemdecl}
+constexpr @\exposid{iterator}@<false> begin() requires(!(@\exposconcept{simple-view}@<Views> && ...));
+constexpr @\exposid{iterator}@<true> begin() const
+  requires((@\libconcept{range}@<const Views> && ...) && @\exposconcept{concatable}@<const Views...>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Let \tcode{is-const} be
+\tcode{true} for the const-qualified overload, and
+\tcode{false} otherwise.
+Equivalent to:
+\begin{codeblock}
+@\exposid{iterator}@<is-const> it(this, in_place_index<0>, ranges::begin(std::get<0>(@\exposid{views_}@)));
+it.template @\exposid{satisfy}@<0>();
+return it;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{end}{concat_view}%
+\begin{itemdecl}
+constexpr auto end() requires(!(@\exposconcept{simple-view}@<Views> && ...));
+constexpr auto end() const
+  requires((@\libconcept{range}@<const Views> && ...) && @\exposconcept{concatable}@<const Views...>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Let \tcode{is-const} be
+\tcode{true} for the const-qualified overload, and
+\tcode{false} otherwise.
+Equivalent to:
+\begin{codeblock}
+constexpr auto N = sizeof...(Views);
+if constexpr (@\libconcept{common_range}@<@\exposid{maybe-const}@<is-const, Views...[N - 1]>>) {
+  return @\exposid{iterator}@<is-const>(this, in_place_index<N - 1>,
+                            ranges::end(std::get<N - 1>(@\exposid{views_}@)));
+} else {
+  return default_sentinel;
+}
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{size}{concat_view}%
+\begin{itemdecl}
+constexpr auto size() requires(@\libconcept{sized_range}@<Views>&&...);
+constexpr auto size() const requires(@\libconcept{sized_range}@<const Views>&&...);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return apply(
+  [](auto... sizes) {
+    using CT = make-unsigned-like-t<common_type_t<decltype(sizes)...>>;
+    return (CT(sizes) + ...);
+  },
+  tuple-transform(ranges::size, @\exposid{views_}@));
+\end{codeblock}
+\end{itemdescr}
+
+\rSec3[range.concat.iterator]{Class \tcode{concat_view::\exposid{iterator}}}
+
+\indexlibrarymember{iterator}{concat_view}%
+\begin{codeblock}
+namespace std::ranges {
+  template<@\libconcept{input_range}@... Views>
+    requires (@\libconcept{view}@<Views> && ...) && (sizeof...(Views) > 0) &&
+              @\exposconcept{concatable}@<Views...>
+  template<bool Const>
+  class concat_view<Views...>::@\exposid{iterator}@ {
+
+  public:
+    using iterator_category = @\seebelow@;                                // not always present.
+    using iterator_concept = @\seebelow@;
+    using value_type = @\exposid{concat-value-t}@<@\exposid{maybe-const}@<Const, Views>...>;
+    using difference_type = common_type_t<range_difference_t<@\exposid{maybe-const}@<Const, Views>>...>;
+
+  private:
+    using @\exposid{base-iter}@ =                                                       // \expos
+      variant<iterator_t<@\exposid{maybe-const}@<Const, Views>>...>;
+
+    @\exposid{maybe-const}@<Const, concat_view>* @\exposid{parent_}@ = nullptr;                     // \expos
+    @\exposid{base-iter}@ @\exposid{it_}@;                                                          // \expos
+
+    template<size_t N>
+      constexpr void @\exposid{satisfy}@();                                             // \expos
+    template<size_t N>
+      constexpr void @\exposid{prev}@();                                                // \expos
+
+    template<size_t N>
+      constexpr void @\exposid{advance-fwd}@(difference_type offset,                    // \expos
+                                 difference_type steps);
+    template<size_t N>
+      constexpr void @\exposid{advance-bwd}@(difference_type offset,                    // \expos
+                                 difference_type steps);
+
+    template<class... Args>
+      constexpr explicit @\exposid{iterator}@(@\exposid{maybe-const}@<Const, concat_view>* parent,  // \expos
+                                  Args&&... args)
+        requires @\libconcept{constructible_from}@<@\exposid{base-iter}@, Args&&...>;
+
+  public:
+    @\exposid{iterator}@() = default;
+
+    constexpr @\exposid{iterator}@(iterator<!Const> i)
+      requires Const && (@\libconcept{convertible_to}@<iterator_t<Views>, iterator_t<const Views>> && ...);
+
+    constexpr decltype(auto) operator*() const;
+    constexpr @\exposid{iterator}@& operator++();
+    constexpr void operator++(int);
+    constexpr @\exposid{iterator}@ operator++(int)
+      requires @\exposconcept{all-forward}@<Const, Views...>;
+    constexpr @\exposid{iterator}@& operator--()
+      requires @\exposconcept{concat-is-bidirectional}@<Const, Views...>;
+    constexpr @\exposid{iterator}@ operator--(int)
+      requires @\exposconcept{concat-is-bidirectional}@<Const, Views...>;
+    constexpr @\exposid{iterator}@& operator+=(difference_type n)
+      requires @\exposconcept{concat-is-random-access}@<Const, Views...>;
+    constexpr @\exposid{iterator}@& operator-=(difference_type n)
+      requires @\exposconcept{concat-is-random-access}@<Const, Views...>;
+    constexpr decltype(auto) operator[](difference_type n) const
+      requires @\exposconcept{concat-is-random-access}@<Const, Views...>;
+
+    friend constexpr bool operator==(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+      requires(@\libconcept{equality_comparable}@<iterator_t<@\exposid{maybe-const}@<Const, Views>>>&&...);
+    friend constexpr bool operator==(const @\exposid{iterator}@& it, default_sentinel_t);
+    friend constexpr bool operator<(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+      requires @\exposconcept{all-random-access}@<Const, Views...>;
+    friend constexpr bool operator>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+      requires @\exposconcept{all-random-access}@<Const, Views...>;
+    friend constexpr bool operator<=(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+      requires @\exposconcept{all-random-access}@<Const, Views...>;
+    friend constexpr bool operator>=(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+      requires @\exposconcept{all-random-access}@<Const, Views...>;
+    friend constexpr auto operator<=>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+      requires (@\exposconcept{all-random-access}@<Const, Views...> &&
+                (@\libconcept{three_way_comparable}@<iterator_t<@\exposid{maybe-const}@<Const, Views>>> && ...));
+    friend constexpr @\exposid{iterator}@ operator+(const @\exposid{iterator}@& it, difference_type n)
+        requires @\exposconcept{concat-is-random-access}@<Const, Views...>;
+    friend constexpr @\exposid{iterator}@ operator+(difference_type n, const @\exposid{iterator}@& it)
+      requires @\exposconcept{concat-is-random-access}@<Const, Views...>;
+    friend constexpr @\exposid{iterator}@ operator-(const @\exposid{iterator}@& it, difference_type n)
+      requires @\exposconcept{concat-is-random-access}@<Const, Views...>;
+    friend constexpr difference_type operator-(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+      requires @\exposconcept{concat-is-random-access}@<Const, Views...>;
+    friend constexpr difference_type operator-(const @\exposid{iterator}@& x, default_sentinel_t)
+      requires @\seebelow@;
+    friend constexpr difference_type operator-(default_sentinel_t, const @\exposid{iterator}@& x)
+      requires @\seebelow@;
+    friend constexpr decltype(auto) iter_move(const @\exposid{iterator}@& it) noexcept(@\seebelow@);
+    friend constexpr void iter_swap(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y) noexcept(@\seebelow@)
+      requires @\seebelow@;
+  };
+}
+\end{codeblock}
+
+\pnum
+\tcode{\exposid{iterator}::iterator_concept} is defined as follows:
+\begin{itemize}
+\item
+If
+\tcode{\exposconcept{concat-is-random-access}<Const, Views...>} is modeled,
+then \tcode{iterator_concept} denotes \tcode{ran\-dom_access_iterator_tag}.
+\item
+Otherwise, if
+\tcode{\exposconcept{concat-is-bidirectional}<Const, Views...>} is modeled,
+then \tcode{iterator_concept} denotes \tcode{bidirectional_iterator_tag}.
+\item
+Otherwise, if
+\tcode{\exposconcept{all-forward}<Const, Views...>} is modeled,
+then \tcode{iterator_concept} denotes \tcode{for\-ward_iterator_tag}.
+\item
+Otherwise, \tcode{iterator_concept} denotes \tcode{input_iterator_tag}.
+\end{itemize}
+
+\pnum
+The member \grammarterm{typedef-name} \tcode{iterator_category} is defined
+if and only if
+\tcode{\exposconcept{all-forward}<Const, Views...>} is modeled.
+In that case,
+\tcode{\exposid{iterator}::iterator_category} is defined as follows:
+
+\begin{itemize}
+\item
+If
+\tcode{is_reference_v<\exposid{concat-reference-t}<@\exposid{maybe-const}@<Const, Views>...>>}
+is \tcode{false},
+then \tcode{it\-erator_category} denotes \tcode{input_iterator_tag}.
+
+\item
+Otherwise,
+let \tcode{Cs} denote the pack of types
+\tcode{iterator_traits<iterator_t<@\exposid{maybe-const}@<Const, Views>>>::iterator_category...}.
+\begin{itemize}
+\item
+If
+\tcode{(\libconcept{derived_from}<Cs, random_access_iterator_tag> \&\& ...) \&\& \exposconceptx{concat-is-random-ac-\linebreak{}cess}{concat-is-random-access}<Const, Views...>}
+is \tcode{true},
+\tcode{iterator_category} denotes \tcode{random_access_iterator_tag}.
+\item
+Otherwise, if
+\tcode{(\libconcept{derived_from}<Cs, bidirectional_iterator_tag> \&\& ...) \&\& \exposconceptx{concat-is--\linebreak{}bidirectional}{concat-is-bidirectional}<Const, Views...>}
+is \tcode{true},
+\tcode{iterator_category} denotes \tcode{bidirectional_iter\-ator_tag}.
+\item
+Otherwise, if
+\tcode{(\libconcept{derived_from}<Cs, forward_iterator_tag> \&\& ...)}
+is \tcode{true},
+\tcode{iterator_cate\-gory} denotes \tcode{forward_iterator_tag}.
+\item
+Otherwise, \tcode{iterator_category} denotes \tcode{input_iterator_tag}.
+\end{itemize}
+\end{itemize}
+
+\indexlibrarymember{\exposid{satisfy}}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+template<size_t N>
+  constexpr void @\exposid{satisfy}@();                                 // \expos
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if constexpr (N < (sizeof...(Views) - 1)) {
+  if (std::get<N>(@\exposid{it_}@) == ranges::end(std::get<N>(@\exposid{parent_}@->@\exposid{views_}@))) {
+    @\exposid{it_}@.template emplace<N + 1>(ranges::begin(std::get<N + 1>(@\exposid{parent_}@->@\exposid{views_}@)));
+    @\exposid{satisfy}@<N + 1>();
+  }
+}
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{\exposid{prev}}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+template<size_t N>
+  constexpr void @\exposid{prev}@();                                    // \expos
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if constexpr (N == 0) {
+  --std::get<0>(@\exposid{it_}@);
+} else {
+  if (std::get<N>(@\exposid{it_}@) == ranges::begin(std::get<N>(@\exposid{parent_}@->@\exposid{views_}@))) {
+    @\exposid{it_}@.template emplace<N - 1>(ranges::end(std::get<N - 1>(@\exposid{parent_}@->@\exposid{views_}@)));
+    @\exposid{prev}@<N - 1>();
+  } else {
+    --std::get<N>(@\exposid{it_}@);
+  }
+}
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{\exposid{advance-fwd}}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+template<size_t N>
+  constexpr void @\exposid{advance-fwd}@(difference_type offset, difference_type steps);        // \expos
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+using underlying_diff_type = iter_difference_t<variant_alternative_t<N, @\exposid{base-iter}@>>;
+if constexpr (N == sizeof...(Views) - 1) {
+  std::get<N>(@\exposid{it_}@) += static_cast<underlying_diff_type>(steps);
+} else {
+  auto n_size = ranges::distance(std::get<N>(@\exposid{parent_}@->@\exposid{views_}@));
+  if (offset + steps < n_size) {
+    std::get<N>(@\exposid{it_}@) += static_cast<underlying_diff_type>(steps);
+  } else {
+    @\exposid{it_}@.template emplace<N + 1>(ranges::begin(std::get<N + 1>(@\exposid{parent_}@->@\exposid{views_}@)));
+    @\exposid{advance-fwd}@<N + 1>(0, offset + steps - n_size);
+  }
+}
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{\exposid{advance-bwd}}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+template<size_t N>
+  constexpr void @\exposid{advance-bwd}@(difference_type offset, difference_type steps);        // \expos
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+using underlying_diff_type = iter_difference_t<variant_alternative_t<N, @\exposid{base-iter}@>>;
+if constexpr (N == 0) {
+  std::get<N>(@\exposid{it_}@) -= static_cast<underlying_diff_type>(steps);
+} else {
+  if (offset >= steps) {
+    std::get<N>(@\exposid{it_}@) -= static_cast<underlying_diff_type>(steps);
+  } else {
+    auto prev_size = ranges::distance(std::get<N - 1>(@\exposid{parent_}@->@\exposid{views_}@));
+    @\exposid{it_}@.template emplace<N - 1>(ranges::end(std::get<N - 1>(@\exposid{parent_}@->@\exposid{views_}@)));
+    @\exposid{advance-bwd}@<N - 1>(prev_size, steps - offset);
+  }
+}
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryctor{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+template<class... Args>
+  constexpr explicit @\exposid{iterator}@(@\exposid{maybe-const}@<Const, concat_view>* parent,          // \expos
+                              Args&&... args)
+    requires @\libconcept{constructible_from}@<@\exposid{base-iter}@, Args&&...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{parent_} with \tcode{parent}, and
+initializes \exposid{it_} with \tcode{std::forward<Args>(args)...}.
+\end{itemdescr}
+
+\indexlibraryctor{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr @\exposid{iterator}@(@\exposid{iterator}@<!Const> it)
+  requires Const &&
+           (@\libconcept{convertible_to}@<iterator_t<Views>, iterator_t<const Views>> && ...);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{parent_} with \tcode{it.\exposid{parent_}}, and
+let \tcode{$i$} be \tcode{it.\exposid{it_}.index()},
+initializes \exposid{it_} with
+\tcode{\exposid{base-iter}(in_place_index<$i$>, std::get<$i$>(std::move(it.\exposid{it_})))}.
+\end{itemdescr}
+
+\indexlibrarymember{operator*}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr decltype(auto) operator*() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{\exposid{it_}.valueless_by_exception()} is \tcode{false}.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+using reference = @\exposid{concat-reference-t}@<@\exposid{maybe-const}@<Const, Views>...>;
+return std::visit([](auto&& it) -> reference { return *it; },
+                  @\exposid{it_}@);
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator++}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr @\exposid{iterator}@& operator++();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\exposid{it_}.valueless_by_exception() is \tcode{false}.
+
+\pnum
+\effects
+Let \tcode{$i$} be \tcode{\exposid{it_}.index()}.
+Equivalent to:
+\begin{codeblock}
+++std::get<@$i$@>(@\exposid{it_}@);
+@\exposid{satisfy}@<@$i$@>();
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator++}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr void operator++(int);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+++*this;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator++}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr @\exposid{iterator}@ operator++(int)
+  requires @\exposconcept{all-forward}@<Const, Views...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto tmp = *this;
+++*this;
+return tmp;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator--}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr @\exposid{iterator}@& operator--()
+  requires @\exposconcept{concat-is-bidirectional}@<Const, Views...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{\exposid{it_}.valueless_by_exception()} is \tcode{false}.
+
+\pnum
+\effects
+Let \tcode{$i$} be \tcode{\exposid{it_}.index()}.
+Equivalent to:
+\begin{codeblock}
+@\exposid{prev}@<@$i$@>();
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator--}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr @\exposid{iterator}@ operator--(int)
+  requires @\exposconcept{concat-is-bidirectional}@<Const, Views...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto tmp = *this;
+--*this;
+return tmp;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator+=}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr @\exposid{iterator}@& operator+=(difference_type n)
+  requires @\exposconcept{concat-is-random-access}@<Const, Views...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\exposid{it_}.valueless_by_exception() is \tcode{false}.
+
+\pnum
+\effects
+Let \tcode{$i$} be \tcode{\exposid{it_}.index()}.
+Equivalent to:
+\begin{codeblock}
+if (n > 0) {
+  @\exposid{advance-fwd}@<@$i$@>(std::get<@$i$@>(@\exposid{it_}@) - ranges::begin(std::get<@$i$@>(@\exposid{parent_}@->@\exposid{views_}@)), n);
+} else if (n < 0) {
+  @\exposid{advance-bwd}@<@$i$@>(std::get<@$i$@>(@\exposid{it_}@) - ranges::begin(std::get<@$i$@>(@\exposid{parent_}@->@\exposid{views_}@)), -n);
+}
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator-=}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr @\exposid{iterator}@& operator-=(difference_type n)
+  requires @\exposconcept{concat-is-random-access}@<Const, Views...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+*this += -n;
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator[]}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr decltype(auto) operator[](difference_type n) const
+  requires @\exposconcept{concat-is-random-access}@<Const, Views...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return *((*this) + n);
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator==}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+friend constexpr bool operator==(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+  requires(@\libconcept{equality_comparable}@<iterator_t<@\exposid{maybe-const}@<Const, Views>>>&&...);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{x.\exposid{it_}.valueless_by_exception()} and
+\tcode{y.\exposid{it_}.valueless_by_exception()} are each \tcode{false}.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return x.@\exposid{it_}@ == y.@\exposid{it_}@;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator==}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+friend constexpr bool operator==(const @\exposid{iterator}@& it, default_sentinel_t);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{it.\exposid{it_}.valueless_by_exception()} is \tcode{false}.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+constexpr auto last_idx = sizeof...(Views) - 1;
+return it.@\exposid{it_}@.index() == last_idx &&
+       std::get<last_idx>(it.@\exposid{it_}@) == ranges::end(std::get<last_idx>(it.@\exposid{parent_}@->@\exposid{views_}@));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator<}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+friend constexpr bool operator<(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+  requires @\exposconcept{all-random-access}@<Const, Views...>;
+friend constexpr bool operator>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+  requires @\exposconcept{all-random-access}@<Const, Views...>;
+friend constexpr bool operator<=(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+  requires @\exposconcept{all-random-access}@<Const, Views...>;
+friend constexpr bool operator>=(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+  requires @\exposconcept{all-random-access}@<Const, Views...>;
+friend constexpr auto operator<=>(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+  requires (@\exposconcept{all-random-access}@<Const, Views...> &&
+            (@\libconcept{three_way_comparable}@<iterator_t<@\exposid{maybe-const}@<Const, Views>>> && ...));
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{x.\exposid{it_}.valueless_by_exception()} and
+\tcode{y.\exposid{it_}.valueless_by_exception()} are each \tcode{false}.
+
+\pnum
+Let \tcode{$op$} be the operator.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return x.@\exposid{it_}@ @$op$@ y.@\exposid{it_}@;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator+}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+friend constexpr @\exposid{iterator}@ operator+(const @\exposid{iterator}@& it, difference_type n)
+  requires @\exposconcept{concat-is-random-access}@<Const, Views...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto temp = it;
+temp += n;
+return temp;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator+}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+friend constexpr @\exposid{iterator}@ operator+(difference_type n, const @\exposid{iterator}@& it)
+  requires @\exposconcept{concat-is-random-access}@<Const, Views...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return it + n;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator-}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+friend constexpr @\exposid{iterator}@ operator-(const @\exposid{iterator}@& it, difference_type n)
+  requires @\exposconcept{concat-is-random-access}@<Const, Views...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto temp = it;
+temp -= n;
+return temp;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator-}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+friend constexpr difference_type operator-(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+  requires @\exposconcept{concat-is-random-access}@<Const, Views...>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{x.\exposid{it_}.valueless_by_exception()} and
+\tcode{y.\exposid{it_}.valueless_by_exception()} are each \tcode{false}.
+
+\pnum
+\effects
+Let
+\tcode{$i_\tcode{x}$} denote \tcode{x.\exposid{it_}.index()} and
+\tcode{$i_\tcode{y}$} denote \tcode{y.\exposid{it_}.index()}.
+
+\begin{itemize}
+\item
+%FIXME This is hard to parse.
+If \tcode{$i_\tcode{x}$ > $i_\tcode{y}$}, let
+\tcode{$d_\tcode{y}$} be
+\tcode{ranges::distance(std::get<$i_\tcode{y}$>(y.\exposid{it_}), ranges::end(std::get<$i_\tcode{y}$>(y.\linebreak{}\exposid{parent_}->\exposid{views_})))},
+\tcode{$d_\tcode{x}$} be
+\tcode{ranges::distance(ranges::begin(std::get<$i_\tcode{x}$>(x.\exposid{parent_}->\linebreak{}\exposid{views_})), std::get<$i_\tcode{x}$>(x.\exposid{it_}))}.
+Let \tcode{$s$} denote the sum of the sizes of all the ranges
+\tcode{std::get<\linebreak{}$i$>(x.\exposid{parent_}->\exposid{views_})}
+for every integer \tcode{$i$} in the range
+\range{$i_\tcode{y}$ + 1}{$i_\tcode{x}$}
+if there is any, and
+\tcode{0} otherwise,
+of type difference_type,
+equivalent to:
+\begin{codeblock}
+return @$d_\tcode{y}$@ + @$s$@ + @$d_\tcode{x}$@;
+\end{codeblock}
+
+\item
+otherwise, if \tcode{$i_\tcode{x}$ < $i_\tcode{y}$} is \tcode{true},
+equivalent to:
+\begin{codeblock}
+return -(y - x);
+\end{codeblock}
+
+\item
+otherwise, equivalent to:
+\begin{codeblock}
+return std::get<@$i_\tcode{x}$@>(x.@\exposid{it_}@) - std::get<@$i_\tcode{y}$@>(y.@\exposid{it_}@);
+\end{codeblock}
+\end{itemize}
+\end{itemdescr}
+
+\indexlibrarymember{operator-}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+friend constexpr difference_type operator-(const @\exposid{iterator}@& x, default_sentinel_t)
+  requires @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{x.\exposid{it_}.valueless_by_exception()} is \tcode{false}.
+
+\pnum
+\effects
+%FIXME This is hard to parse.
+Let
+\tcode{$i_\tcode{x}$} denote \tcode{x.\exposid{it_}.index()},
+\tcode{$d_\tcode{x}$} be
+\tcode{ranges::distance(std::get<$i_\tcode{x}$>(x.\exposid{it_}), ranges::\linebreak{}end(std::get<$i_\tcode{x}$>(x.\exposid{parent_}->\exposid{views_})))}.
+Let \tcode{$s$} denote the sum of the sizes of all the ranges
+\tcode{std::get<$i$>(x.\exposid{parent_}->\exposid{views_})}
+for every integer \tcode{$i$} in the range
+\range{$i_\tcode{x}$ + 1}{sizeof...(Views)}
+if there is any, and
+\tcode{0} otherwise,
+of type difference_type,
+equivalent to:
+\begin{codeblock}
+return -(@$d_\tcode{x}$@ + @$s$@);
+\end{codeblock}
+
+\pnum
+\remarks
+Let \tcode{Fs} be the pack that consists of all elements of \tcode{Views}
+except the first element,
+%FIXME Do we want \grammarterm{expression} here? Same elsewhere?
+the expression in the \grammarterm{requires-clause} is equivalent to:
+\begin{codeblock}
+(@\libconcept{sized_sentinel_for}@<sentinel_t<@\exposid{maybe-const}@<Const, Views>>,
+                    iterator_t<@\exposid{maybe-const}@<Const, Views>>> && ...) &&
+(@\libconcept{sized_range}@<@\exposid{maybe-const}@<Const, Fs>> && ...)
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator-}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+friend constexpr difference_type operator-(default_sentinel_t, const @\exposid{iterator}@& x)
+  requires @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return -(x - default_sentinel);
+\end{codeblock}
+
+\pnum
+\remarks
+Let \tcode{Fs} be the pack that consists of all elements of \tcode{Views}
+except the first element,
+the expression in the \grammarterm{requires-clause} is equivalent to:
+\begin{codeblock}
+(@\libconcept{sized_sentinel_for}@<sentinel_t<@\exposid{maybe-const}@<Const, Views>>,
+                    iterator_t<@\exposid{maybe-const}@<Const, Views>>> && ...) &&
+(@\libconcept{sized_range}@<@\exposid{maybe-const}@<Const, Fs>> && ...)
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{iter_move}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+friend constexpr decltype(auto) iter_move(const @\exposid{iterator}@& it) noexcept(@\seebelow@);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{it.\exposid{it_}.valueless_by_exception()} is \tcode{false}.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return std::visit([](const auto& i)
+                  -> @\exposid{concat-rvalue-reference-t}@<@\exposid{maybe-const}@<Const, Views>...> {
+                    return ranges::iter_move(i);
+                  },
+                  it.@\exposid{it_}@);
+\end{codeblock}
+
+\pnum
+\remarks
+The exception specification is equivalent to:
+\begin{codeblock}
+((is_nothrow_invocable_v<decltype(ranges::iter_move),
+                         const iterator_t<@\exposid{maybe-const}@<Const, Views>>&> &&
+  is_nothrow_convertible_v<range_rvalue_reference_t<@\exposid{maybe-const}@<Const, Views>>,
+                           @\exposid{concat-rvalue-reference-t}@<@\exposid{maybe-const}@<Const, Views>...>>) &&
+ ...)
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{iter_swap}{concat_view::\exposid{iterator}}%
+\begin{itemdecl}
+friend constexpr void iter_swap(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y) noexcept(@\seebelow@)
+  requires @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{x.\exposid{it_}.valueless_by_exception()} and
+\tcode{y.\exposid{it_}.valueless_by_exception()} are each \tcode{false}.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+std::visit([&](const auto& it1, const auto& it2) {
+             if constexpr (is_same_v<decltype(it1), decltype(it2)>) {
+               ranges::iter_swap(it1, it2);
+             } else {
+               ranges::swap(*x, *y);
+             }
+           },
+           x.@\exposid{it_}@, y.@\exposid{it_}@);
+\end{codeblock}
+
+\pnum
+\remarks
+The exception specification is equivalent to
+\begin{codeblock}
+(noexcept(ranges::swap(*x, *y)) && ... && noexcept(ranges::iter_swap(its, its)))
+\end{codeblock}
+where \tcode{its} is a pack of lvalues of type
+%FIXME "respectively" doesn't make sense here.
+\tcode{const iterator_t<@\exposid{maybe-const}@<Const, Views>>} respectively.
+
+\par % This paragraph is part of the \remarks clause.
+The expression in the \grammarterm{requires-clause} is equivalent to
+\begin{codeblock}
+swappable_with<iter_reference_t<iterator>, iter_reference_t<iterator>> &&
+(... && indirectly_swappable<iterator_t<@\exposid{maybe-const}@<Const, Views>>>)
+\end{codeblock}
+\end{itemdescr}
+
 \rSec2[range.counted]{Counted view}
 
 \pnum
@@ -10191,16 +11220,6 @@ return apply([](auto... sizes) {
 
 \begin{codeblock}
 namespace std::ranges {
-  template<bool Const, class... Views>
-    concept @\defexposconceptnc{all-random-access}@ =                 // \expos
-      (@\libconcept{random_access_range}@<@\exposid{maybe-const}@<Const, Views>> && ...);
-  template<bool Const, class... Views>
-    concept @\defexposconceptnc{all-bidirectional}@ =                 // \expos
-      (@\libconcept{bidirectional_range}@<@\exposid{maybe-const}@<Const, Views>> && ...);
-  template<bool Const, class... Views>
-    concept @\defexposconceptnc{all-forward}@ =                       // \expos
-      (@\libconcept{forward_range}@<@\exposid{maybe-const}@<Const, Views>> && ...);
-
   template<@\libconcept{input_range}@... Views>
     requires (@\libconcept{view}@<Views> && ...) && (sizeof...(Views) > 0)
   template<bool Const>
