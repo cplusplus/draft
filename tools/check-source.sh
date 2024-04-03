@@ -125,7 +125,7 @@ grep -ne '\bexplicit\b.*\bconstexpr\b' $texlib |
     fail 'explicit constexpr' || failed=1
 
 # In library declarations, static should not follow constexpr
-grep -ne '\bconstexpr\b.*\bstatic\b' $texlib | grep -ve '\bconstexpr\b.*\bnon-static\b' |
+grep -ne '\bconstexpr\b.*\sstatic\s' $texlib |
     fail 'constexpr static' || failed=1
 
 # "Class" heading without namespace
