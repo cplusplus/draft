@@ -2248,25 +2248,33 @@ constexpr bool @\exposid{reservable-container}@ =          // \expos
 \end{codeblock}
 
 \pnum
-Let \exposid{container-insertable} be defined as follows:
+Let \exposid{container-appendable} be defined as follows:
 \begin{codeblock}
 template<class Container, class Ref>
-constexpr bool @\exposid{container-insertable}@ =          // \expos
+constexpr bool @\exposid{container-appendable}@ =          // \expos
   requires(Container& c, Ref&& ref) {
-    requires (requires { c.push_back(std::forward<Ref>(ref)); } ||
+    requires (requires { c.emplace_back(std::forward<Ref>(ref)); } ||
+              requires { c.push_back(std::forward<Ref>(ref)); } ||
+              requires { c.emplace(c.end(), std::forward<Ref>(ref)); } ||
               requires { c.insert(c.end(), std::forward<Ref>(ref)); });
   };
 \end{codeblock}
 
 \pnum
-Let \exposid{container-inserter} be defined as follows:
+Let \exposid{container-appendable} be defined as follows:
 \begin{codeblock}
 template<class Ref, class Container>
-constexpr auto @\exposid{container-inserter}@(Container& c) {                // \expos
-  if constexpr (requires { c.push_back(declval<Ref>()); })
-    return back_inserter(c);
-  else
-    return inserter(c, c.end());
+constexpr auto @\exposid{container-appendable}@(Container& c) {                // \expos
+  return [&c]<class Ref>(Ref&& ref) {
+    if constexpr (requires { c.emplace_back(declval<Ref>()); })
+      c.emplace_back(std::forward<Ref>(ref));
+    else if constexpr (requires { c.push_back(declval<Ref>()); })
+      c.push_back(std::forward<Ref>(ref));
+    else if constexpr (requires { c.emplace(c.end(), declval<Ref>()); })
+      c.emplace(c.end(), std::forward<Ref>(ref));
+    else
+      c.insert(c.end(), std::forward<Ref>(ref));
+  };
 }
 \end{codeblock}
 
@@ -2328,13 +2336,13 @@ Otherwise, if
 \item
 \tcode{\libconcept{constructible_from}<C, Args...>} is \tcode{true}, and
 \item
-\tcode{\exposid{container-insertable}<C, range_reference_t<R>>} is \tcode{true}:
+\tcode{\exposid{container-appendable}<C, range_reference_t<R>>} is \tcode{true}:
 \end{itemize}
 \begin{codeblock}
 C c(std::forward<Args>(args)...);
 if constexpr (@\libconcept{sized_range}@<R> && @\exposid{reservable-container}@<C>)
   c.reserve(static_cast<range_size_t<C>>(ranges::size(r)));
-ranges::copy(r, @\exposid{container-inserter}@<range_reference_t<R>>(c));
+ranges::for_each(r, @\exposid{container-append}@(c));
 \end{codeblock}
 \item
 Otherwise, the program is ill-formed.
@@ -2344,7 +2352,7 @@ Otherwise, the program is ill-formed.
 Otherwise,
 if \tcode{\libconcept{input_range}<range_reference_t<R>>} is \tcode{true}:
 \begin{codeblock}
-to<C>(r | views::transform([](auto&& elem) {
+to<C>(ref_view(r) | views::transform([](auto&& elem) {
   return to<range_value_t<C>>(std::forward<decltype(elem)>(elem));
 }), std::forward<Args>(args)...);
 \end{codeblock}
@@ -2533,6 +2541,7 @@ namespace std::ranges {
     constexpr const T* begin() const noexcept;
     constexpr T* end() noexcept;
     constexpr const T* end() const noexcept;
+    static constexpr bool empty() noexcept;
     static constexpr size_t size() noexcept;
     constexpr T* data() noexcept;
     constexpr const T* data() const noexcept;
@@ -2601,6 +2610,17 @@ constexpr const T* end() const noexcept;
 \pnum
 \effects
 Equivalent to: \tcode{return data() + 1;}
+\end{itemdescr}
+
+\indexlibrarymember{empty}{single_view}%
+\begin{itemdecl}
+static constexpr bool empty() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return false;}
 \end{itemdescr}
 
 \indexlibrarymember{size}{single_view}%
@@ -3406,7 +3426,7 @@ a customization point object\iref{customization.point.object}.
 Given subexpressions \tcode{E} and \tcode{F},
 the expressions \tcode{views::repeat(E)} and \tcode{views::repeat(E, F)}
 are expression-equivalent to
-\tcode{repeat_view(E)} and \tcode{repeat_view(E, F)}, respectively.
+\tcode{repeat_view<decay_t<decltype((E))>>(E)} and \tcode{repeat_view(E, F)}, respectively.
 
 \pnum
 \begin{example}
@@ -3456,8 +3476,8 @@ namespace std::ranges {
     constexpr auto size() const requires (!@\libconcept{same_as}@<Bound, unreachable_sentinel_t>);
   };
 
-  template<class T, class Bound>
-    repeat_view(T, Bound) -> repeat_view<T, Bound>;
+  template<class T, class Bound = unreachable_sentinel_t>
+    repeat_view(T, Bound = Bound()) -> repeat_view<T, Bound>;
 }
 \end{codeblock}
 
@@ -7909,10 +7929,9 @@ namespace std::ranges {
   private:
     @\exposid{outer-iterator}@ @\exposid{i_}@ = @\exposid{outer-iterator}@();               // \expos
 
-  public:
-    value_type() = default;
-    constexpr explicit value_type(@\exposid{outer-iterator}@ i);
+    constexpr explicit value_type(@\exposid{outer-iterator}@ i);    // \expos
 
+  public:
     constexpr @\exposid{inner-iterator}@<Const> begin() const;
     constexpr default_sentinel_t end() const noexcept;
   };
@@ -8542,7 +8561,7 @@ namespace std::ranges {
     constexpr V base() const & requires @\libconcept{copy_constructible}@<V> { return @\exposid{base_}@; }
     constexpr V base() && { return std::move(@\exposid{base_}@); }
 
-    constexpr auto begin() {
+    constexpr auto begin() requires (!@\exposconcept{simple-view}@<V>) {
       if constexpr (@\libconcept{random_access_range}@<V> && @\libconcept{sized_range}@<V>)
         return ranges::begin(@\exposid{base_}@);
       else
@@ -8556,7 +8575,7 @@ namespace std::ranges {
         return common_iterator<iterator_t<const V>, sentinel_t<const V>>(ranges::begin(@\exposid{base_}@));
     }
 
-    constexpr auto end() {
+    constexpr auto end() requires (!@\exposconcept{simple-view}@<V>) {
       if constexpr (@\libconcept{random_access_range}@<V> && @\libconcept{sized_range}@<V>)
         return ranges::begin(@\exposid{base_}@) + ranges::distance(@\exposid{base_}@);
       else
@@ -9539,13 +9558,13 @@ namespace std::ranges {
     { return @\exposid{iterator}@<true>(ranges::begin(@\exposid{base_}@), 0); }
 
     constexpr auto end() requires (!@\exposconcept{simple-view}@<V>) {
-      if constexpr (@\libconcept{common_range}@<V> && @\libconcept{sized_range}@<V>)
+      if constexpr (@\libconcept{forward_range}@<V> && @\libconcept{common_range}@<V> && @\libconcept{sized_range}@<V>)
         return @\exposid{iterator}@<false>(ranges::end(@\exposid{base_}@), ranges::distance(@\exposid{base_}@));
       else
         return @\exposid{sentinel}@<false>(ranges::end(@\exposid{base_}@));
     }
     constexpr auto end() const requires @\exposconcept{range-with-movable-references}@<const V> {
-      if constexpr (@\libconcept{common_range}@<const V> && @\libconcept{sized_range}@<const V>)
+      if constexpr (@\libconcept{forward_range}@<const V> && @\libconcept{common_range}@<const V> && @\libconcept{sized_range}@<const V>)
         return @\exposid{iterator}@<true>(ranges::end(@\exposid{base_}@), ranges::distance(@\exposid{base_}@));
       else
         return @\exposid{sentinel}@<true>(ranges::end(@\exposid{base_}@));
