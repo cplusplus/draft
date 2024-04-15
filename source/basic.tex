@@ -465,8 +465,8 @@ A structured binding is odr-used if it appears as a potentially-evaluated expres
 
 \pnum
 \tcode{*\keyword{this}} is odr-used if \keyword{this} appears as a potentially-evaluated expression
-(including as the result of the implicit transformation in the body of a non-static
-member function\iref{class.mfct.non.static}).
+(including as the result of any implicit transformation to
+a class member access expression\iref{expr.prim.id.general}).
 
 \pnum
 A virtual member
@@ -533,6 +533,27 @@ void f(int n) {
   [=](int k = n) {};            // error: \tcode{n} is not odr-usable due to being
                                 // outside the block scope of the \grammarterm{lambda-expression}
   [&] { [n]{ return n; }; };    // OK
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\begin{example}
+\begin{codeblock}
+void g() {
+  constexpr int x = 1;
+  auto lambda = [] <typename T, int = ((T)x, 0)> {};    // OK
+  lambda.operator()<int, 1>();          // OK, does not consider \tcode{x} at all
+  lambda.operator()<int>();             // OK, does not odr-use \tcode{x}
+  lambda.operator()<const int&>();      // error: odr-uses \tcode{x} from a context where \tcode{x} is not odr-usable
+}
+
+void h() {
+  constexpr int x = 1;
+  auto lambda = [] <typename T> { (T)x; };      // OK
+  lambda.operator()<int>();             // OK, does not odr-use \tcode{x}
+  lambda.operator()<void>();            // OK, does not odr-use \tcode{x}
+  lambda.operator()<const int&>();      // error: odr-uses \tcode{x} from a context where \tcode{x} is not odr-usable
 }
 \end{codeblock}
 \end{example}
@@ -2034,7 +2055,7 @@ entities is empty.
 its associated entities are:
 the class itself;
 the class of which it is a member, if any;
-and its direct and indirect base classes.
+and, if it is a complete type, its direct and indirect base classes.
 Furthermore, if \tcode{T} is a class template specialization,
 its associated entities also include:
 the entities
@@ -3809,6 +3830,10 @@ one of the following:
 \item automatic storage duration
 \item dynamic storage duration
 \end{itemize}
+\begin{note}
+After the duration of a region of storage has ended,
+the use of pointers to that region of storage is limited\iref{basic.compound}.
+\end{note}
 
 \pnum
 \indextext{storage duration!static}%
@@ -3816,30 +3841,15 @@ one of the following:
 \indextext{storage duration!automatic}%
 \indextext{storage duration!dynamic}%
 Static, thread, and automatic storage durations are associated with objects
-introduced by declarations\iref{basic.def} and implicitly created by
-the implementation\iref{class.temporary}. The dynamic storage duration
+introduced by declarations\iref{basic.def} and
+with temporary objects\iref{class.temporary}.
+The dynamic storage duration
 is associated with objects created by a
-\grammarterm{new-expression}\iref{expr.new}.
+\grammarterm{new-expression}\iref{expr.new} or
+with implicitly created objects\iref{intro.object}.
 
 \pnum
 The storage duration categories apply to references as well.
-
-\pnum
-When the end of the duration of a region of storage is reached,
-the values of all pointers
-representing the address of any part of that region of storage
-become invalid pointer values\iref{basic.compound}.
-Indirection through an invalid pointer value and
-passing an invalid pointer value to a deallocation function
-have undefined behavior.
-Any other use of an invalid pointer value has
-\impldef{any use of an invalid pointer other than to perform indirection or deallocate}
-behavior.
-\begin{footnote}
-Some implementations might define that
-copying an invalid pointer value
-causes a system-generated runtime fault.
-\end{footnote}
 
 \rSec3[basic.stc.static]{Static storage duration}
 
@@ -3897,15 +3907,16 @@ and, if constructed, is destroyed on thread exit\iref{basic.start.term}.
 
 \pnum
 \indextext{storage duration!local object}%
-Variables that belong to a block or parameter scope and are
+Variables that belong to a block scope and are
 not explicitly declared \keyword{static}, \keyword{thread_local}, or \keyword{extern} have
 \defnadj{automatic}{storage duration}. The storage
-for these entities lasts until the block in which they are created exits.
-
-\pnum
+for such variables lasts until the block in which they are created exits.
 \begin{note}
 These variables are initialized and destroyed as described in~\ref{stmt.dcl}.
 \end{note}
+Variables that belong to a parameter scope also have automatic storage duration.
+The storage for a function parameter lasts until
+immediately after its destruction\iref{expr.call}.
 
 \pnum
 If a variable with automatic storage duration has initialization or a destructor with side
@@ -4285,15 +4296,9 @@ supported by an implementation, the program is ill-formed.
 Temporary objects are created
 \begin{itemize}
 \item
-when a prvalue is converted to an xvalue\iref{conv.rval},
+when a prvalue is converted to an xvalue\iref{conv.rval} and
 \item
-when needed by the implementation to pass or return an object of trivially copyable type (see below),
-and
-\item
-when throwing an exception\iref{except.throw}.
-\begin{note}
-The lifetime of exception objects is described in~\ref{except.throw}.
-\end{note}
+when needed by the implementation to pass or return an object of trivially copyable type (see below).
 \end{itemize}
 Even when the creation of the temporary object is
 unevaluated\iref{expr.context},
@@ -4318,7 +4323,9 @@ Temporary objects are materialized:
 when binding a reference to a prvalue\iref{dcl.init.ref,expr.type.conv,
 expr.dynamic.cast,expr.static.cast,expr.const.cast,expr.cast},
 \item
-when performing member access on a class prvalue\iref{expr.ref,expr.mptr.oper},
+when performing certain member accesses on a class prvalue\iref{expr.ref,expr.mptr.oper},
+\item
+when invoking an implicit object member function on a class prvalue\iref{expr.call},
 \item
 when performing an array-to-pointer conversion or subscripting on an array prvalue\iref{conv.array,expr.sub},
 \item
@@ -4541,7 +4548,7 @@ S* p = new S{ 1, {2,3} };       // creates dangling reference
 \end{itemize}
 
 \pnum
-The fourth context is when a temporary object other than a function parameter object
+The fourth context is when a temporary object
 is created in the \grammarterm{for-range-initializer} of a range-based \keyword{for} statement.
 If such a temporary object would otherwise be destroyed
 at the end of the \grammarterm{for-range-initializer} full-expression,
@@ -4549,10 +4556,13 @@ the object persists for the lifetime of the reference
 initialized by the \grammarterm{for-range-initializer}.
 
 \pnum
-The destruction of a temporary whose lifetime is not extended
-beyond the full-expression in which it was created
-is sequenced before the destruction of every
-temporary which is constructed earlier in the same full-expression.
+Let \tcode{x} and \tcode{y} each be either
+a temporary object whose lifetime is not extended, or
+a function parameter.
+If the lifetimes of \tcode{x} and \tcode{y} end at
+the end of the same full-expression, and
+\tcode{x} is initialized before \tcode{y}, then
+the destruction of \tcode{y} is sequenced before that of \tcode{x}.
 If the lifetime of two or more temporaries
 with lifetimes extending beyond the full-expressions in which they were created
 ends at the same point,
@@ -5207,6 +5217,7 @@ with the return type \cv{}~\keyword{void}, or as the operand of an explicit conv
 to type \cv{}~\keyword{void}.
 
 \pnum
+The types denoted by \cv~\tcode{std::nullptr_t} are distinct types.
 A value of type \tcode{std::nullptr_t} is a null pointer
 constant\iref{conv.ptr}. Such values participate in the pointer and the
 pointer-to-member conversions\iref{conv.ptr,conv.mem}.
@@ -5416,10 +5427,6 @@ A pointer past the end of an object\iref{expr.add}
 is not considered to point to an unrelated object
 of the object's type,
 even if the unrelated object is located at that address.
-A pointer value becomes invalid
-when the storage it denotes
-reaches the end of its storage duration;
-see \ref{basic.stc}.
 \end{note}
 For purposes of pointer arithmetic\iref{expr.add}
 and comparison\iref{expr.rel,expr.eq},
@@ -5438,6 +5445,31 @@ requirements\iref{basic.align}.
 Pointers to over-aligned types\iref{basic.align} have no special
 representation, but their range of valid values is restricted by the extended
 alignment requirement.
+\end{note}
+
+\pnum
+A pointer value $P$ is
+\indextext{value!valid in the context of an evaluation}%
+\defn{valid in the context of} an evaluation $E$
+if $P$ is a null pointer value, or
+if it is a pointer to or past the end of an object $O$ and
+$E$ happens before the end of the duration of the region of storage for $O$.
+If a pointer value $P$ is used in an evaluation $E$ and
+$P$ is not valid in the context of $E$,
+then the behavior is undefined if $E$ is
+an indirection\iref{expr.unary.op} or
+an invocation of a deallocation function\iref{basic.stc.dynamic.deallocation},
+and \impldef{invalid pointer value in the context of an evaluation} otherwise.
+\begin{footnote}
+Some implementations might define that
+copying such a pointer value causes a system-generated runtime fault.
+\end{footnote}
+\begin{note}
+$P$ can be valid in the context of $E$ even
+if it points to a type unrelated to that of $O$ or
+if $O$ is not within its lifetime,
+although further restrictions apply
+to such pointer values\iref{basic.life, basic.lval, expr.add}.
 \end{note}
 
 \pnum
@@ -6703,8 +6735,7 @@ non-negative. The value of \tcode{argv[argc]} shall be 0.
 Any further (optional) parameters should be added after \tcode{argv}.
 
 \pnum
-The function \tcode{main} shall not be used within
-a program.
+The function \tcode{main} shall not be named by an expression.
 \indextext{\idxcode{main} function!implementation-defined linkage of}%
 The linkage\iref{basic.link} of \tcode{main} is
 \impldef{linkage of \tcode{main}}. A program that defines \tcode{main} as

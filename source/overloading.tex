@@ -1001,17 +1001,18 @@ derived class type\iref{dcl.init},
 or default-initialized\iref{dcl.init},
 overload resolution selects the constructor.
 For direct-initialization or default-initialization
-that is not in the context of copy-initialization, the
-candidate functions are
+(including default-initialization in the context of copy-list-initialization),
+the candidate functions are
 all the constructors of the class of the object being
 initialized.
-For copy-initialization (including default initialization
-in the context of copy-initialization), the candidate functions are all
+Otherwise, the candidate functions are all
 the converting constructors\iref{class.conv.ctor} of that
 class.
 The argument list is the
 \grammarterm{expression-list} or \grammarterm{assignment-expression}
 of the \grammarterm{initializer}.
+For default-initialization in the context of copy-list-initialization,
+if an explicit constructor is chosen, the initialization is ill-formed.
 
 \rSec3[over.match.copy]{Copy-initialization of class by user-defined conversion}%
 \indextext{overloading!resolution!initialization}
@@ -1200,9 +1201,16 @@ if any.
 \item
 The associated constraints\iref{temp.constr.decl} are the conjunction of
 the associated constraints of \tcode{C} and
-the associated constraints of the constructor.
+the associated constraints of the constructor, if any.
+\begin{note}
+A \grammarterm{constraint-expression} in
+the \grammarterm{template-head} of \tcode{C}
+is checked for satisfaction before any constraints from
+the \grammarterm{template-head} or trailing \grammarterm{requires-clause}
+of the constructor.
+\end{note}
 \item
-The types of the function parameters are those of the constructor.
+The \grammarterm{parameter-declaration-clause} is that of the constructor.
 \item
 The return type is the class template specialization
 designated by \tcode{C}
@@ -1228,8 +1236,8 @@ with the following properties:
 
 \begin{itemize}
 \item
-The template parameters, if any,
-and function parameters
+The \grammarterm{template-head}, if any,
+and \grammarterm{parameter-declaration-clause}
 are those of the \grammarterm{deduction-guide}.
 \item
 The return type
@@ -2310,11 +2318,32 @@ specification of the function called (see~\ref{expr.call}).
 \rSec4[over.ics.ref]{Reference binding}
 
 \pnum
-When a parameter of reference type binds directly\iref{dcl.init.ref} to an
-argument expression, the implicit conversion sequence is the identity conversion,
-unless the argument expression has a type that is a derived class of the parameter
-type, in which case the implicit conversion sequence is a derived-to-base
+When a parameter of type ``reference to \cv \tcode{T}''
+binds directly\iref{dcl.init.ref} to an argument expression:
+\begin{itemize}
+\item
+If the argument expression has a type that
+is a derived class of the parameter type,
+the implicit conversion sequence is a derived-to-base
 conversion\iref{over.best.ics}.
+
+\item
+Otherwise,
+if \tcode{T} is a function type, or
+if the type of the argument is possibly cv-qualified \tcode{T}, or
+if \tcode{T} is an array type of unknown bound with element type \tcode{U} and
+the argument has an array type of known bound whose
+element type is possibly cv-qualified \tcode{U},
+the implicit conversion sequence is the identity conversion.
+\begin{note}
+When \tcode{T} is a function type,
+the type of the argument can differ only by the presence of \keyword{noexcept}.
+\end{note}
+
+\item
+Otherwise, the implicit conversion sequence is a qualification conversion.
+\end{itemize}
+
 \begin{example}
 \begin{codeblock}
 struct A {};
@@ -2327,9 +2356,8 @@ int i = f(b);       // calls \tcode{f(B\&)}, an exact match, rather than \tcode{
 If the parameter binds directly to the result of
 applying a conversion function to the argument expression, the implicit
 conversion sequence is a user-defined conversion sequence\iref{over.ics.user}
-whose second standard conversion sequence is either an identity conversion or,
-if the conversion function returns an entity of a type that is a derived class
-of the parameter type, a derived-to-base conversion.
+whose second standard conversion sequence is
+determined by the above rules.
 
 \pnum
 When a parameter of reference type is not bound directly to an argument
@@ -2760,14 +2788,21 @@ or, if not that,
 \item
 \tcode{S1} and \tcode{S2} differ only
 in their qualification conversion\iref{conv.qual} and
-yield similar types \tcode{T1} and \tcode{T2}, respectively,
-where \tcode{T1} can be converted to \tcode{T2} by a qualification conversion.
+yield similar types \tcode{T1} and \tcode{T2}, respectively
+(where a standard conversion sequence that is a reference binding
+is considered to yield the cv-unqualified referenced type),
+where \tcode{T1} and \tcode{T2} are not the same type, and
+\tcode{const T2} is reference-compatible with \tcode{T1}\iref{dcl.init.ref}.
 \begin{example}
 \begin{codeblock}
 int f(const volatile int *);
 int f(const int *);
 int i;
 int j = f(&i);                  // calls \tcode{f(const int*)}
+int g(const int*);
+int g(const volatile int* const&);
+int* p;
+int k = g(p);                   // calls \tcode{g(const int*)}
 \end{codeblock}
 \end{example}
 or, if not that,
@@ -2775,13 +2810,10 @@ or, if not that,
 \tcode{S1}
 and
 \tcode{S2}
-include reference bindings\iref{dcl.init.ref}, and the types to which the references
-refer are the same type except for top-level cv-qualifiers, and the type to
-which the reference initialized by
-\tcode{S2}
-refers is more cv-qualified than the type to which the reference initialized by
-\tcode{S1}
-refers.
+bind ``reference to \tcode{T1}'' and ``reference to \tcode{T2}'',
+respectively\iref{dcl.init.ref},
+where \tcode{T1} and \tcode{T2} are not the same type, and
+\tcode{T2} is reference-compatible with \tcode{T1}.
 \begin{example}
 \begin{codeblock}
 int f(const int &);
@@ -2800,6 +2832,17 @@ struct X {
 void g(const X& a, X b) {
   a.f();                        // calls \tcode{X::f() const}
   b.f();                        // calls \tcode{X::f()}
+}
+
+int h1(int (&)[]);
+int h1(int (&)[1]);
+int h2(void (&)());
+int h2(void (&)() noexcept);
+void g2() {
+  int a[1];
+  h1(a);                        // calls \tcode{h1(int (\&)[1])}
+  extern void f2() noexcept;
+  h2(f2);                       // calls \tcode{h2(void (\&)() noexcept)}
 }
 \end{codeblock}
 \end{example}
