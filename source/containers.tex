@@ -19064,6 +19064,10 @@ namespace std {
   struct layout_left;
   struct layout_right;
   struct layout_stride;
+  template<size_t PaddingValue = dynamic_extent>
+    struct layout_left_padded;
+  template<size_t PaddingValue = dynamic_extent>
+    struct layout_right_padded;
 
   // \ref{mdspan.accessor.default}, class template \tcode{default_accessor}
   template<class ElementType>
@@ -19074,7 +19078,7 @@ namespace std {
            class AccessorPolicy = default_accessor<ElementType>>
     class mdspan;
 
-  // \ref{mdspan.submdspan}, \tcode{submdspan} creation
+  // \ref{mdspan.sub}, \tcode{submdspan} creation
   template<class OffsetType, class LengthType, class StrideType>
     struct strided_slice;
 
@@ -19087,7 +19091,7 @@ namespace std {
   template<class IndexType, class... Extents, class... SliceSpecifiers>
     constexpr auto submdspan_extents(const extents<IndexType, Extents...>&, SliceSpecifiers...);
 
-  // \ref{mdspan.submdspan.submdspan}, \tcode{submdspan} function template
+  // \ref{mdspan.sub.sub}, \tcode{submdspan} function template
   template<class ElementType, class Extents, class LayoutPolicy,
            class AccessorPolicy, class... SliceSpecifiers>
     constexpr auto submdspan(
@@ -19555,13 +19559,47 @@ all other elements are equal to 0.
 \end{itemize}
 
 \pnum
-In subclauses \ref{mdspan.layout.reqmts} through \ref{mdspan.layout.stride},
-let \exposid{is-mapping-of} be the exposition-only variable template defined as follows:
+In subclauses \ref{mdspan.layout.reqmts} through \ref{mdspan.layout.stride}:
+\begin{itemize}
+\item
+Let \exposid{is-mapping-of} be the exposition-only variable template defined as follows:
 \begin{codeblock}
 template<class Layout, class Mapping>
 constexpr bool @\exposid{is-mapping-of}@ =  // \expos
   is_same_v<typename Layout::template mapping<typename Mapping::extents_type>, Mapping>;
 \end{codeblock}
+\item
+Let \exposid{is-layout-left-padded-mapping-of} be
+the exposition-only variable template defined as follows:
+\begin{codeblock}
+template<class Mapping>
+constexpr bool @\exposid{is-layout-left-padded-mapping-of}@ = @\seebelow@;   // \expos
+\end{codeblock}
+where \tcode{\exposid{is-layout-left-padded-mapping-of}<Mapping>} is \tcode{true}
+if and only if \tcode{Mapping} denotes
+a specialization of \tcode{layout_left_padded<S>::mapping}
+for some value \tcode{S} of type \tcode{size_t}.
+\item
+Let \exposid{is-layout-right-padded-mapping-of} be
+the exposition-only variable template defined as follows:
+\begin{codeblock}
+template<class Mapping>
+constexpr bool @\exposid{is-layout-right-padded-mapping-of}@ = @\seebelow@;   // \expos
+\end{codeblock}
+where \tcode{\exposid{is-layout-right-padded-mapping-of}<Mapping>} is \tcode{true}
+if and only if \tcode{Mapping} denotes
+a specialization of \tcode{layout_right_padded<S>::mapping}
+for some value \tcode{S} of type \tcode{size_t}.
+\item
+For nonnegative integers $x$ and $y$,
+let $\exposid{LEAST-MULTIPLE-AT-LEAST}(x, y)$ denote
+\begin{itemize}
+\item
+$y$ if $x$ is zero,
+\item
+otherwise, the least multiple of $x$ that is greater than or equal to $y$.
+\end{itemize}
+\end{itemize}
 
 \rSec4[mdspan.layout.reqmts]{Requirements}
 
@@ -19855,11 +19893,25 @@ namespace std {
     template<class Extents>
       class mapping;
   };
+
+  template<size_t PaddingValue>
+  struct layout_left_padded {
+    template<class Extents> class mapping;
+  };
+  template<size_t PaddingValue>
+  struct layout_right_padded {
+    template<class Extents> class mapping;
+  };
 }
 \end{codeblock}
 
 \pnum
 Each of \tcode{layout_left}, \tcode{layout_right}, and \tcode{layout_stride}
+meets the layout mapping policy requirements and is a trivial type.
+
+\pnum
+Each specialization of
+\tcode{layout_left_padded} and \tcode{layout_right_padded}
 meets the layout mapping policy requirements and is a trivial type.
 
 \rSec4[mdspan.layout.left]{Class template \tcode{layout_left::mapping}}
@@ -19892,6 +19944,10 @@ namespace std {
     template<class OtherExtents>
       constexpr explicit(!is_convertible_v<OtherExtents, extents_type>)
         mapping(const layout_right::mapping<OtherExtents>&) noexcept;
+    template<class LayoutLeftPaddedMapping>
+      constexpr explicit(!is_convertible_v<typename LayoutLeftPaddedMapping::extents_type,
+                                           extents_type>)
+        mapping(const LayoutLeftPaddedMapping&) noexcept;
     template<class OtherExtents>
       constexpr explicit(extents_type::rank() > 0)
         mapping(const layout_stride::mapping<OtherExtents>&);
@@ -19920,12 +19976,12 @@ namespace std {
       friend constexpr bool operator==(const mapping&, const mapping<OtherExtents>&) noexcept;
 
   private:
-    extents_type @\exposid{extents_}@{};    // \expos
+    extents_type @\exposid{extents_}@{};                                               // \expos
 
-    // \ref{mdspan.submdspan.mapping}, \tcode{submdspan} mapping specialization
+    // \ref{mdspan.sub.map}, \tcode{submdspan} mapping specialization
     template<class... SliceSpecifiers>
-      constexpr auto @\exposid{submdspan-mapping-impl}@(                    // \expos
-        SliceSpecifiers... slices) const -> @\seebelow@;
+      constexpr auto @\exposid{submdspan-mapping-impl}@(SliceSpecifiers...) const     // \expos
+        -> @\seebelow@;
 
     template<class... SliceSpecifiers>
       friend constexpr auto submdspan_mapping(
@@ -20015,6 +20071,56 @@ a value of type \tcode{index_type}\iref{basic.fundamental}.
 \pnum
 \effects
 Direct-non-list-initializes \exposid{extents_} with \tcode{other.extents()}.
+\end{itemdescr}
+
+\indexlibraryctor{layout_left::mapping}%
+\begin{itemdecl}
+template<class LayoutLeftPaddedMapping>
+  constexpr explicit(!is_convertible_v<typename LayoutLeftPaddedMapping::extents_type,
+                                       extents_type>)
+    mapping(const LayoutLeftPaddedMapping&) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{\exposid{is-layout-left-padded-mapping-of}<LayoutLeftPaddedMapping>} is \tcode{true}.
+\item
+\tcode{is_constructible_v<extents_type, typename LayoutLeftPaddedMapping::extents_type>}\newline is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+If
+\begin{itemize}
+\item
+\tcode{Extents::rank()} is greater than one,
+\item
+\tcode{Extents::static_extent(0)} does not equal \tcode{dynamic_extent}, and
+\item
+\tcode{LayoutLeftPaddedMapping::\exposid{static-padding-stride}}
+does not equal \tcode{dynamic_extent},
+\end{itemize}
+then \tcode{Extents::static_extent(0)} equals
+\tcode{LayoutLeftPaddedMapping::\exposid{static-padding-stride}}.
+
+\pnum
+\expects
+\begin{itemize}
+\item
+If \tcode{extents_type::rank() > 1} is \tcode{true},
+then \tcode{other.stride(1)} equals \tcode{other.extents(0)}.
+\item
+\tcode{other.required_span_size()} is representable as
+a value of type \tcode{index_type}.
+\end{itemize}
+
+\pnum
+\effects
+Effects: Direct-non-list-initializes
+\tcode{extents_} with \tcode{other.extents()}.
 \end{itemdescr}
 
 \indexlibraryctor{layout_left::mapping}%
@@ -20161,6 +20267,10 @@ namespace std {
     template<class OtherExtents>
       constexpr explicit(!is_convertible_v<OtherExtents, extents_type>)
         mapping(const layout_left::mapping<OtherExtents>&) noexcept;
+    template<class LayoutRightPaddedMapping>
+      constexpr explicit(!is_convertible_v<typename LayoutRightPaddedMapping::extents_type,
+                                           extents_type>)
+        mapping(const LayoutRightPaddedMapping&) noexcept;
     template<class OtherExtents>
       constexpr explicit(extents_type::rank() > 0)
         mapping(const layout_stride::mapping<OtherExtents>&) noexcept;
@@ -20191,10 +20301,10 @@ namespace std {
   private:
     extents_type @\exposid{extents_}@{};    // \expos
 
-    // \ref{mdspan.submdspan.mapping}, \tcode{submdspan} mapping specialization
+    // \ref{mdspan.sub.map}, \tcode{submdspan} mapping specialization
     template<class... SliceSpecifiers>
-      constexpr auto @\exposid{submdspan-mapping-impl}@(                    // \expos
-        SliceSpecifiers... slices) const -> @\seebelow@;
+      constexpr auto @\exposid{submdspan-mapping-impl}@(SliceSpecifiers...) const       // \expos
+        -> @\seebelow@;
 
     template<class... SliceSpecifiers>
       friend constexpr auto submdspan_mapping(
@@ -20284,6 +20394,59 @@ a value of type \tcode{index_type}\iref{basic.fundamental}.
 \pnum
 \effects
 Direct-non-list-initializes \exposid{extents_} with \tcode{other.extents()}.
+\end{itemdescr}
+
+\indexlibraryctor{layout_right::mapping}%
+\begin{itemdecl}
+template<class LayoutRightPaddedMapping>
+  constexpr explicit(!is_convertible_v<typename LayoutRightPaddedMapping::extents_type,
+                                       extents_type>)
+    mapping(const LayoutRightPaddedMapping&) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{\exposid{is-layout-right-padded-mapping-of}<LayoutRightPaddedMapping>}
+is \tcode{true}.
+\item
+\tcode{is_constructible_v<extents_type, typename LayoutRightPaddedMapping::extents_-\newline type>}
+is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+If
+\begin{itemize}
+\item
+\tcode{Extents::rank()} is greater than one,
+\item
+\tcode{Extents::static_extent(Extents::rank() - 1)}
+does not equal \tcode{dynamic_extent}, and
+\item
+\tcode{LayoutRightPaddedMapping::\exposid{static-padding-stride}}
+does not equal \tcode{dynamic_extent},
+\end{itemize}
+then \tcode{Extents::static_extent(Extents::rank() - 1)} equals
+\tcode{LayoutRightPaddedMapping::\exposid{sta\-tic-padding-stride}}.
+
+\pnum
+\expects
+\begin{itemize}
+\item
+If \tcode{extents_type::rank() > 1} is \tcode{true},
+then \tcode{other.stride(extents_type::rank() - 2)}\newline equals
+\tcode{other.extents().extent(extents_type::rank() - 1)}.
+\item
+\tcode{other.required_span_size()} is representable as
+a value of type \tcode{index_type}.
+\end{itemize}
+
+\pnum
+\effects
+Direct-non-list-initializes \tcode{extents_} with \tcode{other.extents()}.
 \end{itemdescr}
 
 \indexlibraryctor{layout_right::mapping}%
@@ -20462,10 +20625,10 @@ namespace std {
     extents_type @\exposid{extents_}@{};                    // \expos
     array<index_type, @\exposid{rank_}@> @\exposid{strides_}@{};        // \expos
 
-    // \ref{mdspan.submdspan.mapping}, \tcode{submdspan} mapping specialization
+    // \ref{mdspan.sub.map}, \tcode{submdspan} mapping specialization
     template<class... SliceSpecifiers>
-      constexpr auto @\exposid{submdspan-mapping-impl}@(                    // \expos
-        SliceSpecifiers... slices) const -> @\seebelow@;
+      constexpr auto @\exposid{submdspan-mapping-impl}@(SliceSpecifiers...) const       // \expos
+        -> @\seebelow@;
 
     template<class... SliceSpecifiers>
       friend constexpr auto submdspan_mapping(
@@ -20674,6 +20837,8 @@ Remarks: The expression inside \tcode{explicit} is equivalent to:
 !(is_convertible_v<typename StridedLayoutMapping::extents_type, extents_type> &&
   (@\exposid{is-mapping-of}@<layout_left, StridedLayoutMapping> ||
    @\exposid{is-mapping-of}@<layout_right, StridedLayoutMapping> ||
+   @\exposid{is-layout-left-padded-mapping-of}@<StridedLayoutMapping> ||
+   @\exposid{is-layout-right-padded-mapping-of}@<StridedLayoutMapping> ||
    @\exposid{is-mapping-of}@<layout_stride, StridedLayoutMapping>))
 \end{codeblock}
 \end{itemdescr}
@@ -20778,6 +20943,1262 @@ template<class OtherMapping>
 \tcode{\exposid{OFFSET}(y) == 0} is \tcode{true}, and
 each of \tcode{x.stride($r$) == y.stride($r$)} is \tcode{true}
 for $r$ in the range  $[0, \tcode{x.extents().rank()})$.
+Otherwise, \tcode{false}.
+\end{itemdescr}
+
+\rSec4[mdspan.layout.leftpad]{Class template \tcode{layout_left_padded::mapping}}
+
+\rSec5[mdspan.layout.leftpad.overview]{Overview}
+
+\pnum
+\tcode{layout_left_padded} provides a layout mapping
+that behaves like \tcode{layout_left::mapping},
+except that the padding stride \tcode{stride(1)}
+can be greater than or equal to \tcode{extent(0)}.
+
+\begin{codeblock}
+namespace std {
+  template<size_t PaddingValue>
+  template<class Extents>
+  class layout_left_padded<PaddingValue>::mapping {
+  public:
+    static constexpr size_t padding_value = PaddingValue;
+
+    using extents_type = Extents;
+    using index_type = typename extents_type::index_type;
+    using size_type = typename extents_type::size_type;
+    using rank_type = typename extents_type::rank_type;
+    using layout_type = layout_left_padded<PaddingValue>;
+
+  private:
+    static constexpr size_t @\exposid{rank_}@ = extents_type::rank();         // \expos
+    static constexpr size_t @\exposid{first-static-extent}@ =                 // \expos
+      extents_type::static_extent(0);
+
+    // \ref{mdspan.layout.leftpad.expo}, exposition-only members
+    static constexpr size_t @\exposid{static-padding-stride}@ = @\seebelow@;  // \expos
+
+  public:
+    // \ref{mdspan.layout.leftpad.cons}, constructors
+    constexpr mapping() noexcept : mapping(extents_type{}) {}
+    constexpr mapping(const mapping&) noexcept = default;
+    constexpr mapping(const extents_type&);
+    template<class OtherIndexType>
+      constexpr mapping(const extents_type&, OtherIndexType);
+    template<class OtherExtents>
+      constexpr explicit(!is_convertible_v<OtherExtents, extents_type>)
+        mapping(const layout_left::mapping<OtherExtents>&);
+    template<class OtherExtents>
+      constexpr explicit(extents_type::rank() > 0)
+        mapping(const layout_stride::mapping<OtherExtents>&);
+    template<class LayoutLeftPaddedMapping>
+      constexpr explicit( @\seebelow@ )
+        mapping(const LayoutLeftPaddedMapping&);
+    template<class LayoutRightPaddedMapping>
+      constexpr explicit( @\seebelow@ )
+        mapping(const LayoutRightPaddedMapping&) noexcept;
+
+    constexpr mapping& operator=(const mapping&) noexcept = default;
+
+    // \ref{mdspan.layout.leftpad.obs}, observers
+    constexpr const extents_type& extents() const noexcept { return @\exposid{extents_}@; }
+    constexpr array<index_type, rank_> strides() const noexcept;
+
+    constexpr index_type required_span_size() const noexcept;
+    template<class... Indices>
+      constexpr index_type operator()(Indices...) const noexcept;
+
+    static constexpr bool is_always_unique() noexcept { return true; }
+    static constexpr bool is_always_exhaustive() noexcept;
+    static constexpr bool is_always_strided() noexcept { return true; }
+
+    static constexpr bool is_unique() noexcept { return true; }
+    constexpr bool is_exhaustive() const noexcept;
+    static constexpr bool is_strided() noexcept { return true; }
+
+    constexpr index_type stride(rank_type) const noexcept;
+
+    template<class LayoutLeftPaddedMapping>
+      friend constexpr bool operator==(const mapping&, const LayoutLeftPaddedMapping&) noexcept;
+
+  private:
+    // \ref{mdspan.layout.leftpad.expo}, exposition-only members
+    index_type @\exposid{stride-1}@ = @\exposid{static-padding-stride}@;                           // \expos
+    extents_type @\exposid{extents_}@{};                                               // \expos
+    // \ref{mdspan.sub.map}, submdspan mapping specialization
+    template<class... SliceSpecifiers>
+      constexpr auto @\exposid{submdspan-mapping-impl}@(SliceSpecifiers...) const     // \expos
+        -> @\seebelow@;
+
+    template<class... SliceSpecifiers>
+      friend constexpr auto submdspan_mapping(const mapping& src, SliceSpecifiers... slices) {
+      return src.@\exposid{submdspan-mapping-impl}@(slices...);
+    }
+  };
+}
+\end{codeblock}
+
+\pnum
+If \tcode{Extents} is not a specialization of \tcode{extents},
+then the program is ill-formed.
+
+\pnum
+\tcode{layout_left_padded::mapping<E>} is a trivially copyable type
+that models \libconcept{regular} for each \tcode{E}.
+
+\pnum
+Throughout \ref{mdspan.layout.leftpad},
+let \tcode{P_rank} be the following
+size \exposid{rank_} parameter pack of \tcode{size_}t values:
+\begin{itemize}
+\item
+the empty parameter pack, if \exposid{rank_} equals zero;
+\item
+\tcode otherwise, {0zu}, if \exposid{rank_} equals one;
+\item
+otherwise, the parameter pack \tcode{0zu}, \tcode{1zu}, \ldots, \tcode{\exposid{rank_}- 1}.
+\end{itemize}
+
+\pnum
+\mandates
+\begin{itemize}
+\item
+If \tcode{rank_dynamic() == 0} is \tcode{true},
+then the size of the multidimensional index space \tcode{Extents()}
+is representable as a value of type \tcode{index_type}.
+\item
+\tcode{padding_value} is representable as a value of type \tcode{index_type}.
+\item
+If
+\begin{itemize}
+\item
+\exposid{rank_} is greater than one,
+\item
+\tcode{padding_value} does not equal \tcode{dynamic_extent}, and
+\item
+\exposid{first-static-extent} does not equal \tcode{dynamic_extent},
+\end{itemize}
+then \tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(padding_value, \exposid{first-static-extent})}
+is representable as a val\-ue of type \tcode{size_t}, and
+is representable as a value of type \tcode{index_type}.
+\item
+If
+\begin{itemize}
+\item
+\exposid{rank_} is greater than one,
+\item
+\tcode{padding_value} does not equal \tcode{dynamic_extent}, and
+\item
+\tcode{extents_type::static_extent($k$)} does not equal \tcode{dynamic_extent}
+for all $k$ in the range \range{0}{extents_type::rank()},
+\end{itemize}
+then the product of
+\tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(padding_value, ext.static_extent(0))} and
+all values \tcode{ext.static_extent($k$)}
+with $k$ in the range of \range{1}{\exposid{rank_}}
+is representable as a value of type \tcode{size_t}, and
+is representable as a value of type \tcode{index_type}.
+\end{itemize}
+
+\rSec5[mdspan.layout.leftpad.expo]{Exposition-only members}
+
+\begin{itemdecl}
+static constexpr size_t @\exposid{static-padding-stride}@ = @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The value is
+\begin{itemize}
+\item
+\tcode{0}, if \exposid{rank_} equals zero or one;
+\item
+otherwise, \tcode{dynamic_extent},
+if \tcode{padding_value} or \exposid{first-static-extent} equals
+\tcode{dynamic_extent};
+\item
+otherwise, the \tcode{size_t} value which is
+\tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(padding_value, \exposid{first-sta\-tic-extent})}.
+\end{itemize}
+\end{itemdescr}
+
+\begin{itemdecl}
+index_type @\exposid{stride-1}@ = @\exposid{static-padding-stride}@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\recommended
+Implementations should not store this value
+if \exposid{static-padding-stride} is not \tcode{dynamic_extent}.
+\begin{note}
+Using \tcode{extents<index_type, \exposid{static-padding-stride}>} instead of
+\tcode{index_type} as the type of \exposid{stride-1} would achieve this.
+\end{note}
+\end{itemdescr}
+
+\rSec5[mdspan.layout.leftpad.cons]{Constructors}
+
+\indexlibraryctor{layout_left_padded::mapping}%
+\begin{itemdecl}
+constexpr mapping(const extents_type& ext);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\begin{itemize}
+\item
+The size of the multidimensional index space \tcode{ext} is representable as
+a value of type \tcode{index_type}.
+\item
+If \exposid{rank_} is greater than one and
+\tcode{padding_value} does not equal \tcode{dynamic_extent},
+then \tcode{\exposid{LEAST-MUL\-TIPLE-AT-LEAST}(padding_value, ext.extent(0))}
+is representable as a value of type \exposid{index_type}.
+\item
+If \exposid{rank_} is greater than one and
+\tcode{padding_value} does not equal \tcode{dynamic_extent},
+then the product of
+\tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(padding_value, ext.extent(0))} and
+all values \tcode{ext.extent($k$)}
+with $k$ in the range of \range{1}{\exposid{rank_}}
+is representable as a value of type \tcode{index_type}.
+\end{itemize}
+
+\pnum
+\effects
+\begin{itemize}
+\item
+Direct-non-list-initializes \exposid{extents_} with \tcode{ext}; and
+\item
+if \exposid{rank_} is greater than one,
+direct-non-list-initializes \exposid{stride-1}
+\begin{itemize}
+\item
+with \tcode{ext.extent(0)} if padding_value is \tcode{dynamic_extent},
+\item
+otherwise with
+\tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(padding_value, ext.extent(0))}.
+\end{itemize}
+\end{itemize}
+\end{itemdescr}
+
+\indexlibraryctor{layout_left_padded::mapping}%
+\begin{itemdecl}
+template<class OtherIndexType>
+constexpr mapping(const extents_type& ext, OtherIndexType pad);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{is_convertible_v<OtherIndexType, index_type>} is \tcode{true}.
+\item
+\tcode{is_nothrow_constructible_v<index_type, OtherIndexType>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\expects
+\begin{itemize}
+\item
+\tcode{pad} is representable as a value of type \tcode{index_type}.
+\item
+\tcode{extents_type::index-cast(pad)} is greater than zero.
+\item
+If \exposid{rank_} is greater than one,
+then \tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(pad, ext.extent(0))}
+is representable as a value of type \tcode{index_type.}
+\item
+If \exposid{rank_} is greater than one,
+then the product of
+\tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(pad, ext.extent(\linebreak 0))} and
+all values \tcode{ext.extent($k$)}
+with $k$ in the range of \range{1}{\exposid{rank_}}
+is representable as a value of type \tcode{index_type}.
+\item
+If \tcode{padding_value} is not equal to \tcode{dynamic_extent},
+\tcode{padding_value} equals \tcode{extents_type::\exposid{in\-dex-cast}(pad)}.
+\end{itemize}
+
+\pnum
+\effects
+Direct-non-list-initializes \exposid{extents_} with \tcode{ext}, and
+if \exposid{rank_} is greater than one,
+direct-non-list-initializes \exposid{stride-1} with
+\tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(pad, ext.extent(0))}.
+\end{itemdescr}
+
+\indexlibraryctor{layout_left_padded::mapping}%
+\begin{itemdecl}
+template<class OtherExtents>
+  constexpr explicit(!is_convertible_v<OtherExtents, extents_type>)
+    mapping(const layout_left::mapping<OtherExtents>& other);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{is_constructible_v<extents_type, OtherExtents>} is \tcode{true}.
+
+\pnum
+\mandates
+If \tcode{OtherExtents::rank()} is greater than \tcode{1}, then
+\begin{codeblock}
+(static-padding-stride== dynamic_extent) ||
+(OtherExtents::static_extent(0) == dynamic_extent) ||
+(static-padding-stride== OtherExtents::static_extent(0))
+\end{codeblock}
+is \tcode{true}.
+
+\pnum
+\expects
+\begin{itemize}
+\item
+If \tcode{extents_type::rank() > 1} is \tcode{true} and
+\tcode{padding_value} == \tcode{dynamic_extent} is \tcode{false},
+then \tcode{other.stride(1)} equals
+\begin{codeblock}
+@\exposid{LEAST-MULTIPLE-AT-LEAST}@(padding_value,
+                        extents_type::@\exposid{index-cast}@(other.extents().extent(0)))
+\end{codeblock}
+and
+\item
+\tcode{other.required_span_size()} is representable as
+a value of type \tcode{index_type}.
+\end{itemize}
+
+\pnum
+\effects
+Equivalent to \tcode{mapping(other.extents())}.
+\end{itemdescr}
+
+\indexlibraryctor{layout_left_padded::mapping}%
+\begin{itemdecl}
+template<class OtherExtents>
+  constexpr explicit(rank_ > 0)
+    mapping(const layout_stride::mapping<OtherExtents>& other);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{is_constructible_v<extents_type, OtherExtents>} is \tcode{true}.
+
+\pnum
+\expects
+\begin{itemize}
+\item
+If \exposid{rank_} is greater than \tcode{1} and
+\tcode{padding_value} does not equal \tcode{dynamic_extent},
+then \tcode{other.\linebreak stride(1)} equals
+\begin{codeblock}
+@\exposid{LEAST-MULTIPLE-AT-LEAST}@(padding_value,
+                        extents_type::@\exposid{index-cast}@(other.extents().extent(0)))
+\end{codeblock}
+\item
+If \exposid{rank_} is greater than 0,
+then \tcode{other.stride(0)} equals 1.
+\item
+If \exposid{rank_} is greater than 2,
+then for all $r$ in the range \range{2}{\exposid{rank_}},
+\tcode{other.stride(r)} equals
+\begin{codeblock}
+(other.extents().@\exposid{fwd-prod-of-extents}@(r) / other.extents().extent(0)) * other.stride(1)
+\end{codeblock}
+\item
+\tcode{other.required_span_size()} is representable as
+a value of type \exposid{index_type}.
+\end{itemize}
+
+\pnum
+\effects
+\begin{itemize}
+\item
+Direct-non-list-initializes \exposid{extents_} with \tcode{other.extents()} and
+\item
+if \exposid{rank_} is greater than one,
+direct-non-list-initializes \exposid{stride-1} with
+\tcode{other.stride(1)}.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibraryctor{layout_left_padded::mapping}%
+\begin{itemdecl}
+template<class LayoutLeftPaddedMapping>
+  constexpr explicit(@\seebelow@)
+    mapping(const LayoutLeftPaddedMapping& other);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{\exposid{is-layout-left-padded-mapping-of}<LayoutLeftPaddedMapping>}
+is \tcode{true}.
+\item
+\tcode{is_constructible_v<extents_type, typename LayoutLeftPaddedMapping::extents_type>}
+\newline is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+If \exposid{rank_} is greater than 1,
+then
+\begin{codeblock}
+padding_value == dynamic_extent ||
+LayoutLeftPaddedMapping::padding_value == dynamic_extent ||
+padding_value == LayoutLeftPaddedMapping::padding_value
+\end{codeblock}
+is true.
+
+\pnum
+\begin{itemize}
+\item
+If \exposid{rank_} is greater than 1 and
+\tcode{padding_value} does not equal \tcode{dynamic_extent},
+then \tcode{other.\linebreak stride(1)} equals
+\begin{codeblock}
+@\exposid{LEAST-MULTIPLE-AT-LEAST}@(padding_value,
+                        extents_type::@\exposid{index-cast}@(other.extent(0)))
+\end{codeblock}
+\item
+\tcode{other.required_span_size()} is representable as
+a value of type \tcode{index_type}.
+\end{itemize}
+
+\pnum
+\effects
+\begin{itemize}
+\item
+Direct-non-list-initializes \exposid{extents_} with \tcode{other.extents()} and
+\item
+if \exposid{rank_} is greater than one,
+direct-non-list-initializes \exposid{stride-1} with \tcode{other.stride(1)}.
+\end{itemize}
+
+\pnum
+\remarks
+The expression inside \tcode{explicit} is equivalent to:
+\begin{codeblock}
+rank_> 1 &&
+(padding_value != dynamic_extent ||
+ LayoutLeftPaddedMapping::padding_value == dynamic_extent)
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryctor{layout_left_padded::mapping}%
+\begin{itemdecl}
+template<class LayoutRightPaddedMapping>
+  constexpr explicit(@\seebelow@)
+    mapping(const LayoutRightPaddedMapping& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{\exposid{is-layout-right-padded-mapping-of}<LayoutRightPaddedMapping>}
+is \tcode{true} or\newline
+\tcode{\exposid{is-mapping-of}<layout_right, LayoutRightPaddedMapping>}
+is \tcode{true}.
+\item
+\exposid{rank_} equals zero or one.
+\item
+\tcode{is_constructible_v<extents_type, typename LayoutRightPaddedMapping::extents_-\newline type>}
+is \tcode{true}.
+\end{itemize}
+
+\pnum
+\expects
+\tcode{other.required_span_size()} is representable as
+a value of type \tcode{index_type}.
+
+\pnum
+\effects
+Direct-non-list-initializes \exposid{extents_} with \tcode{other.extents()}.
+
+\pnum
+\remarks
+The expression inside \tcode{explicit} is equivalent to:
+\begin{codeblock}
+!is_convertible_v<typename LayoutRightPaddedMapping::extents_type, extents_type>
+\end{codeblock}
+
+\begin{note}
+Neither the input mapping nor the mapping to be constructed
+uses the padding stride in the rank-0 or rank-1 case,
+so the padding stride does not affect
+either the constraints or the preconditions.
+\end{note}
+\end{itemdescr}
+
+\rSec5[mdspan.layout.leftpad.obs]{Observers}
+
+\begin{itemdecl}
+constexpr array<index_type, @\exposid{rank_}@> strides() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{array<index_type, \exposid{rank_}>(\{stride(P_rank)...\})}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr index_type required_span_size() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\begin{itemize}
+\item
+\tcode{0} if the multidimensional index space \exposid{extents_} is empty,
+\item
+otherwise, \tcode{*this(((\exposid{extents_}(P_rank) - index_type(1))...)) + 1}.
+\end{itemize}
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class... Indices>
+constexpr size_t operator()(Indices... idxs) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{sizeof...(Indices) == \exposid{rank_}} is \tcode{true}.
+\item
+\tcode{(is_convertible_v<Indices, index_type> \&\& ...)} is \tcode{true}.
+\item
+\item
+\tcode{(is_nothrow_constructible_v<index_type, Indices> \&\& ...)} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\expects
+\tcode{extents_type::\exposid{index-cast}(idxs)} is
+a multidimensional index in \tcode{extents()}\iref{mdspan.overview}.
+
+\pnum
+\returns
+\tcode{((static_cast<index_type>(idxs) * stride(P_rank)) + ... + 0)}.
+\end{itemdescr}
+
+\begin{itemdecl}
+static constexpr bool is_always_exhaustive() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\begin{itemize}
+\item
+If \exposid{rank_} equals zero or one, then \tcode{true};
+\item
+otherwise, if
+neither \exposid{static-padding-stride} nor \exposid{first-static-extent}
+equal \tcode{dynamic_extent},
+then \tcode{\exposid{static-padding-stride} == \exposid{first-static-extent}};
+\item
+otherwise, \tcode{false}.
+\end{itemize}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr bool is_exhaustive() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if \exposid{rank_} equals zero or one;
+otherwise, \tcode{extents_.extent(0) == stride(1)}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr index_type stride(rank_type r) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{r} is smaller than \exposid{rank_}.
+
+\pnum
+\returns
+\begin{itemize}
+\item
+If \tcode{r} equals zero: 1;
+\item
+otherwise, if \tcode{r} equals one: \exposid{stride-1};
+\item
+otherwise, the product of \exposid{stride-1} and
+all values \tcode{extents_.extent($k$)} with $k$ in the range \range{1}{r}.
+\end{itemize}
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class LayoutLeftPaddedMapping>
+  friend constexpr bool operator==(const mapping& x, const LayoutLeftPaddedMapping& y) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{\exposid{is-layout-left-padded-mapping-of}<LayoutLeftPaddedMapping>}
+is \tcode{true}.
+\item
+\tcode{LayoutLeftPaddedMapping::extents_type::rank() == rank_} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\returns
+\tcode{true} if \tcode{x.extents() == y.extents()} is \tcode{true} and
+\tcode{\exposid{rank_} < 2 || x.stride(1) == y.\newline stride(1)} is \tcode{true}.
+Otherwise, \tcode{false}.
+\end{itemdescr}
+
+\rSec4[mdspan.layout.rightpad]{Class template \tcode{layout_right_padded::mapping}}
+
+\rSec5[mdspan.layout.rightpad.overview]{Overview}
+
+\pnum
+\tcode{layout_right_padded} provides a layout mapping
+that behaves like \tcode{layout_right::mapping},
+except that the padding stride \tcode{stride(extents_type::rank() - 2)}
+can be greater than or equal to
+\tcode{extents_type::ex\-tent(extents_type::rank() - 1)}.
+
+\begin{codeblock}
+namespace std {
+  template<size_t PaddingValue>
+  template<class Extents>
+  class layout_right_padded<PaddingValue>::mapping {
+  public:
+    static constexpr size_t padding_value = PaddingValue;
+
+    using extents_type = Extents;
+    using index_type = typename extents_type::index_type;
+    using size_type = typename extents_type::size_type;
+    using rank_type = typename extents_type::rank_type;
+    using layout_type = layout_right_padded<PaddingValue>;
+
+  private:
+    static constexpr size_t @\exposid{rank_}@ = extents_type::rank();    // \expos
+    static constexpr size_t @\exposid{last-static-extent}@ =             // \expos
+      extents_type::static_extent(@\exposid{rank_}@ - 1);
+
+    // \ref{mdspan.layout.rightpad.expo}, exposition-only members
+    static constexpr size_t @\exposid{static-padding-stride}@ = @\seebelow@; // \expos
+
+  public:
+    // \ref{mdspan.layout.rightpad.cons}, constructors
+    constexpr mapping() noexcept : mapping(extents_type{}) {}
+    constexpr mapping(const mapping&) noexcept = default;
+    constexpr mapping(const extents_type&);
+    template<class OtherIndexType>
+      constexpr mapping(const extents_type&, OtherIndexType);
+
+    template<class OtherExtents>
+      constexpr explicit(!is_convertible_v<OtherExtents, extents_type>)
+        mapping(const layout_right::mapping<OtherExtents>&);
+    template<class OtherExtents>
+      constexpr explicit(rank_ > 0)
+        mapping(const layout_stride::mapping<OtherExtents>&);
+    template<class LayoutRightPaddedMapping>
+      constexpr explicit( @\seebelow@ )
+        mapping(const LayoutRightPaddedMapping&);
+    template<class LayoutLeftPaddedMapping>
+      constexpr explicit( @\seebelow@ )
+        mapping(const LayoutLeftPaddedMapping&) noexcept;
+
+    constexpr mapping& operator=(const mapping&) noexcept = default;
+
+    // \ref{mdspan.layout.rightpad.obs}, observers
+    constexpr const extents_type& extents() const noexcept { return extents_; }
+    constexpr array<index_type, rank_> strides() const noexcept;
+
+    constexpr index_type required_span_size() const noexcept;
+
+    template<class... Indices>
+      constexpr index_type operator()(Indices...) const noexcept;
+
+    static constexpr bool is_always_unique() noexcept { return true; }
+    static constexpr bool is_always_exhaustive() noexcept;
+    static constexpr bool is_always_strided() noexcept { return true; }
+
+    static constexpr bool is_unique() noexcept { return true; }
+    constexpr bool is_exhaustive() const noexcept;
+    static constexpr bool is_strided() noexcept { return true; }
+
+    constexpr index_type stride(rank_type) const noexcept;
+
+    template<class LayoutRightPaddedMapping>
+      friend constexpr bool operator==(const mapping&, const LayoutRightPaddedMapping&) noexcept;
+
+  private:
+    // \ref{mdspan.layout.rightpad.expo}, exposition-only members
+    index_type @\exposid{stride-rm2}@ = @\exposid{static-padding-stride}@;                         // \expos
+    extents_type @\exposid{extents_}@{};                                               // \expos
+
+    // \ref{mdspan.sub.map}, submdspan mapping specialization
+    template<class... SliceSpecifiers>
+      constexpr auto @\exposid{submdspan-mapping-impl}@(SliceSpecifiers...) const     // \expos
+        -> @\seebelow@;
+
+    template<class... SliceSpecifiers>
+      friend constexpr auto submdspan_mapping(const mapping& src, SliceSpecifiers... slices) {
+      return src.@\exposid{submdspan-mapping-impl}@(slices...);
+    }
+  };
+}
+\end{codeblock}
+
+\pnum
+If \tcode{Extents} is not a specialization of \tcode{extents},
+then the program is ill-formed.
+
+\pnum
+\tcode{layout_right_padded::mapping<E>} is a trivially copyable type
+that models \libconcept{regular} for each \tcode{E}.
+
+\pnum
+Throughout \ref{mdspan.layout.rightpad},
+let \tcode{P_rank} be the following
+size \exposid{rank_} parameter pack of \tcode{size_}t values:
+\begin{itemize}
+\item
+the empty parameter pack, if \exposid{rank_} equals zero;
+\item
+\tcode otherwise, \tcode{0zu}, if \exposid{rank_} equals one;
+\item
+otherwise, the parameter pack \tcode{0zu}, \tcode{1zu}, \ldots, \tcode{\exposid{rank_}- 1}.
+\end{itemize}
+
+\pnum
+\mandates
+\begin{itemize}
+\item
+If \tcode{rank_dynamic() == 0} is \tcode{true},
+then the size of the multidimensional index space \tcode{Extents()}
+is representable as a value of type \tcode{index_type}.
+\item
+\tcode{padding_value} is representable as a value of type \tcode{index_type}.
+\item
+If
+\begin{itemize}
+\item
+\exposid{rank_} is greater than one,
+\item
+\tcode{padding_value} does not equal \tcode{dynamic_extent}, and
+\item
+\exposid{last-static-extent} does not equal \tcode{dynamic_extent},
+\end{itemize}
+then \tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(padding_value, \exposid{last-static-extent})}
+is representable as a value of type \tcode{size_t}, and
+is representable as a value of type \tcode{index_type}.
+\item
+If
+\begin{itemize}
+\item
+\exposid{rank_} is greater than one,
+\item
+\tcode{padding_value} does not equal \tcode{dynamic_extent}, and
+\item
+\tcode{extents_type::static_extent($k$)} does not equal \tcode{dynamic_extent}
+for all $k$ in the range \range{0}{\exposid{rank_}},
+\end{itemize}
+then the product of
+\tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(padding_value, ext.static_extent(\exposid{rank_} - 1))} and
+all values \tcode{ext.static_extent($k$)}
+with $k$ in the range of \range{0}{\exposid{rank_} - 1}
+is representable as a value of type \tcode{size_t}, and
+is representable as a value of type \tcode{index_type}.
+\end{itemize}
+
+\rSec5[mdspan.layout.rightpad.expo]{Exposition-only members}
+
+\begin{itemdecl}
+static constexpr size_t @\exposid{static-padding-stride}@ = @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The value is
+\begin{itemize}
+\item
+\tcode{0}, if \exposid{rank_} equals zero or one;
+\item
+otherwise, \tcode{dynamic_extent},
+if \tcode{padding_value} or \exposid{last-static-extent} equals
+\tcode{dynamic_extent};
+\item
+otherwise, the \tcode{size_t} value which is
+\tcode{LEAST-MULTIPLE-AT-LEAST(padding_value, \exposid{last-sta\-tic-extent})}.
+\end{itemize}
+\end{itemdescr}
+
+\begin{itemdecl}
+index_type @\exposid{stride-rm2}@ = @\exposid{static-padding-stride}@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\recommended
+Implementations should not store this value
+if \exposid{static-padding-stride} is not \tcode{dynamic_extent}.
+\begin{note}
+Using \tcode{extents<index_type, \exposid{static-padding-stride}>}
+instead of \tcode{index_type} as the type of \exposid{stride-\linebreak rm2}
+would achieve this.
+\end{note}
+\end{itemdescr}
+
+\rSec5[mdspan.layout.rightpad.cons]{Constructors}
+
+\indexlibraryctor{layout_right_padded::mapping}%
+\begin{itemdecl}
+constexpr mapping(const extents_type& ext);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\begin{itemize}
+\item
+The size of the multidimensional index space \tcode{ext}
+is representable as a value of type \tcode{index_type}.
+\item
+If \exposid{rank_} is greater than one and
+\tcode{padding_value} does not equal \tcode{dynamic_extent},
+then \tcode{\exposid{LEAST-MUL\-TIPLE-AT-LEAST}(padding_value, ext.extent(\exposid{rank_} - 1))}
+is representable as a value of type \exposid{index_type}.
+\item
+If \exposid{rank_} is greater than one and
+\tcode{padding_value} does not equal \tcode{dynamic_extent},
+then the product of
+\tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(padding_value, ext.extent(\exposid{rank_} - 1))} and
+all values \tcode{ext.extent($k$)}
+with $k$ in the range of \range{0}{\exposid{rank_} - 1}
+is representable as a value of type \tcode{index_type}.
+\end{itemize}
+
+\pnum
+\effects
+\begin{itemize}
+\item
+Direct-non-list-initializes \exposid{extents_} with \tcode{ext}; and
+\item
+if \exposid{rank_} is greater than one,
+direct-non-list-initializes \exposid{stride-rm2}
+\begin{itemize}
+\item
+with \tcode{ext.extent(\exposid{rank_} - 1)}
+if \tcode{padding_value} is \tcode{dynamic_extent},
+\item
+otherwise with
+\tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(padding_value, ext.extent(\exposid{rank_} - 1))}.
+\end{itemize}
+\end{itemize}
+\end{itemdescr}
+
+\indexlibraryctor{layout_right_padded::mapping}%
+\begin{itemdecl}
+template<class OtherIndexType>
+constexpr mapping(const extents_type& ext, OtherIndexType pad);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{is_convertible_v<OtherIndexType, index_type>} is \tcode{true}.
+\item
+\tcode{is_nothrow_constructible_v<index_type, OtherIndexType>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\expects
+\begin{itemize}
+\item
+\tcode{pad} is representable as a value of type \tcode{index_type}.
+\item
+\tcode{extents_type::\exposid{index-cast}(pad)} is greater than zero.
+\item
+If \exposid{rank_} is greater than one,
+then \tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(pad, ext.extent(\exposid{rank_} - 1))}
+is representable as a value of type \tcode{index_type}.
+\item
+If \exposid{rank_} is greater than one,
+then the product of
+\tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(pad, ext.extent(\exposid{\linebreak rank_} - 1))} and
+all values \tcode{ext.extent($k$)}
+with $k$ in the range of \range{0}{\exposid{rank_} - 1}
+is representable as a value of type \tcode{index_type}.
+\item
+If \tcode{padding_value} is not equal to \tcode{dynamic_extent},
+\tcode{padding_value} equals \tcode{extents_type::\linebreak \exposid{index-cast}(pad)}.
+\end{itemize}
+
+\pnum
+\effects
+Direct-non-list-initializes \exposid{extents_} with \tcode{ext}, and
+if \exposid{rank_} is greater than one,
+direct-non-list-initializes \exposid{stride-rm2} with
+\tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(pad, ext.extent(\exposid{rank_} - 1))}.
+\end{itemdescr}
+
+\indexlibraryctor{layout_right_padded::mapping}%
+\begin{itemdecl}
+template<class OtherExtents>
+  constexpr explicit(!is_convertible_v<OtherExtents, extents_type>)
+    mapping(const layout_right::mapping<OtherExtents>& other);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{is_constructible_v<extents_type, OtherExtents>} is \tcode{true}.
+
+\pnum
+\mandates
+If \tcode{OtherExtents::rank()} is greater than 1, then
+\begin{codeblock}
+(@\exposid{static-padding-stride}@ == dynamic_extent) ||
+(OtherExtents::static_extent(@\exposid{rank_}@ - 1) == dynamic_extent) ||
+(@\exposid{static-padding-stride}@ == OtherExtents::static_extent(@\exposid{rank_}@ - 1))
+\end{codeblock}
+is \tcode{true}.
+
+\pnum
+\expects
+\begin{itemize}
+\item
+If \tcode{\exposid{rank_} > 1} is \tcode{true} and
+\tcode{padding_value == dynamic_extent} is \tcode{false}, then
+\tcode{other.stride(\newline \exposid{rank_} - 2)} equals
+\begin{codeblock}
+@\exposid{LEAST-MULTIPLE-AT-LEAST}@(padding_value,
+                        extents_type::@\exposid{index-cast}@(other.extents().extent(rank_ - 1)))
+\end{codeblock}
+and
+\item
+\tcode{other.required_span_size()} is representable as
+a value of type \tcode{index_type}.
+\end{itemize}
+
+\pnum
+\effects
+Equivalent to \tcode{mapping(other.extents())}.
+\end{itemdescr}
+
+\indexlibraryctor{layout_right_padded::mapping}%
+\begin{itemdecl}
+template<class OtherExtents>
+  constexpr explicit(rank_ > 0)
+    mapping(const layout_stride::mapping<OtherExtents>& other);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{is_constructible_v<extents_type, OtherExtents>} is \tcode{true}.
+
+\pnum
+\expects
+\begin{itemize}
+\item
+If \exposid{rank_} is greater than 1 and
+\tcode{padding_value} does not equal \tcode{dynamic_extent},
+then \tcode{other.\linebreak stride(\exposid{rank_} - 2)} equals
+\begin{codeblock}
+@\exposid{LEAST-MULTIPLE-AT-LEAST}@(padding_value,
+                        extents_type::@\exposid{index-cast}@(other.extents().extent(@\exposid{rank_}@ - 1)))
+\end{codeblock}
+\item
+If \exposid{rank_} is greater than 0,
+then other.stride(\exposid{rank_} - 1) equals 1.
+\item
+If \exposid{rank_} is greater than 2,
+then for all $r$ in the range \range{0}{\exposid{rank_} - 2},
+\tcode{other.stride($r$)} equals
+\begin{codeblock}
+(other.extents().@\exposid{rev-prod-of-extents}@(r) / other.extents().extent(@\exposid{rank_}@ - 1)) *
+  other.stride(@\exposid{rank_}@ - 2)
+\end{codeblock}
+\item
+\tcode{other.required_span_size()} is representable as
+a value of type \tcode{index_type}.
+\end{itemize}
+
+\pnum
+\effects
+\begin{itemize}
+\item
+Direct-non-list-initializes \exposid{extents_} with \tcode{other.extents()}; and
+\item
+if \exposid{rank_} is greater than one,
+direct-non-list-initializes \exposid{stride-rm2}
+with \tcode{other.stride(\exposid{rank_} - 2)}.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibraryctor{layout_right_padded::mapping}%
+\begin{itemdecl}
+template<class LayoutRightPaddedMapping>
+  constexpr explicit( @\seebelow@ )
+    mapping(const LayoutRightPaddedMapping& other);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{\exposid{is-layout-right-padded-mapping-of}<LayoutRightPaddedMapping>}
+is \tcode{true}.
+\item
+\tcode{is_constructible_v<extents_type, typename LayoutRightPaddedMapping::extents_-\newline type>}
+is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+If \exposid{rank_} is greater than 1, then
+\begin{codeblock}
+padding_value == dynamic_extent ||
+LayoutRightPaddedMapping::padding_value == dynamic_extent ||
+padding_value == LayoutRightPaddedMapping::padding_value
+\end{codeblock}
+is \tcode{true}.
+
+\pnum
+\expects
+\begin{itemize}
+\item
+If \exposid{rank_} is greater than 1 and
+\tcode{padding_value} does not equal \tcode{dynamic_extent},
+then \tcode{other.\linebreak stride(\exposid{rank_} - 2)} equals
+\begin{codeblock}
+@\exposid{LEAST-MULTIPLE-AT-LEAST}@(padding_value,
+                        extents_type::@\exposid{index-cast}@(other.extent(@\exposid{rank_}@ - 1)))
+\end{codeblock}
+\item
+\tcode{other.required_span_size()} is representable as
+a value of type \tcode{index_type}.
+\end{itemize}
+
+\pnum
+\effects
+\begin{itemize}
+\item
+Direct-non-list-initializes \exposid{extents_} with \tcode{other.extents()}; and
+\item
+if \exposid{rank_} is greater than one,
+direct-non-list-initializes \exposid{stride-rm2}
+with \tcode{other.stride(rank_ - 2)}.
+\end{itemize}
+
+\pnum
+\remarks
+The expression inside \tcode{explicit} is equivalent to:
+\begin{codeblock}
+@\exposid{rank_}@ > 1 &&
+(padding_value != dynamic_extent ||
+ LayoutRightPaddedMapping::padding_value == dynamic_extent)
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryctor{layout_right_padded::mapping}%
+\begin{itemdecl}
+template<class LayoutLeftPaddedMapping>
+  constexpr explicit( @\seebelow@ )
+    mapping(const LayoutLeftPaddedMapping& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{\exposid{is-layout-left-padded-mapping-of}<LayoutLeftPaddedMapping>}
+is \tcode{true} or\newline
+\tcode{\exposid{is-mapping-of}<layout_left, LayoutLeftPaddedMapping>}
+is \tcode{true}.
+\item
+\exposid{rank_} equals zero or one.
+\item
+\tcode{is_constructible_v<extents_type, typename LayoutLeftPaddedMapping::extents_type>}\newline
+is \tcode{true}.
+\end{itemize}
+
+\pnum
+\expects
+\tcode{other.required_span_size()} is representable as
+a value of type \tcode{index_type}.
+
+\pnum
+\effects
+Direct-non-list-initializes \exposid{extents_} with \tcode{other.extents()}.
+
+\pnum
+\remarks
+The expression inside \tcode{explicit} is equivalent to:
+\begin{codeblock}
+!is_convertible_v<typename LayoutLeftPaddedMapping::extents_type, extents_type>
+\end{codeblock}
+\begin{note}
+Neither the input mapping nor the mapping to be constructed
+uses the padding stride in the rank-0 or rank-1 case,
+so the padding stride affects neither the constraints nor the preconditions.
+\end{note}
+\end{itemdescr}
+
+\rSec5[mdspan.layout.rightpad.obs]{Observers}
+
+\indexlibrarymember{layout_right_padded::mapping}{strides}%
+\begin{itemdecl}
+constexpr array<index_type, @\exposid{rank_}@> strides() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{array<index_type, \exposid{rank_}>({stride(P_rank)...})}.
+\end{itemdescr}
+
+\indexlibrarymember{layout_right_padded::mapping}{required_span_size}%
+\begin{itemdecl}
+constexpr index_type required_span_size() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{0} if the multidimensional index space \exposid{extents_} is empty,
+otherwise \tcode{*this(((\exposid{extents_}(P_rank) - index_type(1))...)) + 1}.
+\end{itemdescr}
+
+\indexlibrarymember{layout_right_padded::mapping}{operator()}%
+\begin{itemdecl}
+template<class... Indices>
+constexpr size_t operator()(Indices... idxs) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{sizeof...(Indices) == \exposid{rank_}} is \tcode{true}.
+\item
+\tcode{(is_convertible_v<Indices, index_type> \&\& ...)} is \tcode{true}.
+\item
+\tcode{(is_nothrow_constructible_v<index_type, Indices> \&\& ...)} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\expects
+\tcode{extents_type::\exposid{index-cast}(idxs)} is
+a multidimensional index in \tcode{extents()}\iref{mdspan.overview}.
+
+\pnum
+\returns
+\tcode{((static_cast<index_type>(idxs) * stride(P_rank)) + ... + 0)}.
+\end{itemdescr}
+
+\indexlibrarymember{layout_right_padded::mapping}{is_always_exhaustive}%
+\begin{itemdecl}
+static constexpr bool is_always_exhaustive() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\begin{itemize}
+\item
+If \exposid{rank_} equals zero or one, then \tcode{true};
+\item
+otherwise,
+if neither \exposid{static-padding-stride} nor \exposid{last-static-extent}
+equal \tcode{dynamic_extent},
+then \tcode{\exposid{static-padding-stride} == \exposid{last-static-extent}};
+\item
+otherwise, \tcode{false}.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibrarymember{layout_right_padded::mapping}{is_exhaustive}%
+\begin{itemdecl}
+constexpr bool is_exhaustive() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if \exposid{rank_} equals zero or one;
+otherwise,
+\begin{codeblock}
+@\exposid{extents_}@.extent(@\exposid{rank_}@ - 1) == stride(@\exposid{rank_}@ - 2)
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr index_type stride(rank_type r) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{r} is smaller than \exposid{rank_}.
+\pnum
+\returns
+\begin{itemize}
+\item
+If \tcode{r} equals \tcode{\exposid{rank_} - 1}: \tcode{1};
+\item
+otherwise, if \tcode{r} equals \tcode{\exposid{rank_} - 2}: \exposid{stride-rm2};
+\item
+otherwise,
+the product of \exposid{stride-rm2} and
+all values \tcode{extents_.extent($k$)}
+with $k$ in the range of \range{r + 1}{\exposid{rank_} - 1}.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibrarymember{layout_right_padded::mapping}{operator==}%
+\begin{itemdecl}
+template<class LayoutRightPaddedMapping>
+  friend constexpr bool operator==(const mapping& x, const LayoutRightPaddedMapping& y) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{\exposid{is-layout-right-padded-mapping-of}<LayoutRightPaddedMapping>}
+is \tcode{true}.
+\item
+\tcode{LayoutRightPaddedMapping::extents_type::rank() == \exposid{rank_}}
+is \tcode{true}.
+\end{itemize}
+
+\pnum
+\returns
+\tcode{true} if \tcode{x.extents() == y.extents()} is \tcode{true} and
+\tcode{\exposid{rank_} < 2 || x.stride(\exposid{rank_} - 2) == y.stride(\exposid{rank_} - 2)} is \tcode{true}.
 Otherwise, \tcode{false}.
 \end{itemdescr}
 
@@ -21577,9 +22998,9 @@ swap(x.@\exposid{acc_}@, y.@\exposid{acc_}@);
 \end{codeblock}
 \end{itemdescr}
 
-\rSec3[mdspan.submdspan]{\tcode{submdspan}}
+\rSec3[mdspan.sub]{\tcode{submdspan}}
 
-\rSec4[mdspan.submdspan.overview]{Overview}
+\rSec4[mdspan.sub.overview]{Overview}
 
 \pnum
 The \tcode{submdspan} facilities create a new \tcode{mdspan}
@@ -21588,7 +23009,7 @@ The subset viewed by the created \tcode{mdspan} is determined by
 the \tcode{SliceSpecifier} arguments.
 
 \pnum
-For each function defined in subclause \ref{mdspan.submdspan} that
+For each function defined in subclause \ref{mdspan.sub} that
 takes a parameter pack named \tcode{slices} as an argument:
 
 \begin{itemize}
@@ -21622,7 +23043,7 @@ for each $k$ in the range \range{0}{rank},
   \end{itemize}
 \end{itemize}
 
-\rSec4[mdspan.submdspan.strided.slice]{\tcode{strided_slice}}
+\rSec4[mdspan.sub.strided.slice]{\tcode{strided_slice}}
 
 \pnum
 \tcode{strided_slice} represents a set of
@@ -21661,7 +23082,7 @@ indicates the indices \tcode{1}, \tcode{4}, \tcode{7}, and \tcode{10}.
 Indices are selected from the half-open interval \range{1}{1 + 10}.
 \end{note}
 
-\rSec4[mdspan.submdspan.submdspan.mapping.result]{\tcode{submdspan_mapping_result}}
+\rSec4[mdspan.sub.map.result]{\tcode{submdspan_mapping_result}}
 
 \pnum
 Specializations of \tcode{submdspan_mapping_result}
@@ -21687,7 +23108,7 @@ It has no base classes or members other than those specified.
 \tcode{LayoutMapping} shall meet
 the layout mapping requirements\iref{mdspan.layout.policy.reqmts}.
 
-\rSec4[mdspan.submdspan.helpers]{Exposition-only helpers}
+\rSec4[mdspan.sub.helpers]{Exposition-only helpers}
 
 \indexlibraryglobal{\exposid{de-ice}}%
 \indexlibraryglobal{\exposid{first_}}%
@@ -21810,7 +23231,7 @@ otherwise,
 \end{itemize}
 \end{itemdescr}
 
-\rSec4[mdspan.submdspan.extents]{\tcode{submdspan_extents} function}
+\rSec4[mdspan.sub.extents]{\tcode{submdspan_extents} function}
 
 \indexlibraryglobal{submdspan_extents}%
 \begin{itemdecl}
@@ -21917,45 +23338,30 @@ otherwise,
 \end{itemize}
 \end{itemdescr}
 
-\rSec4[mdspan.submdspan.mapping]{Layout specializations of \tcode{submdspan_mapping}}
+\rSec4[mdspan.sub.map]{Specializations of \tcode{submdspan_mapping}}
 
-\indexlibrarymemberexpos{layout_stride::mapping}{submdspan-mapping-impl}%
-\indexlibrarymemberexpos{layout_left::mapping}{submdspan-mapping-impl}%
-\indexlibrarymemberexpos{layout_right::mapping}{submdspan-mapping-impl}%
-\begin{itemdecl}
-template<class Extents>
-  template<class... SliceSpecifiers>
-    constexpr auto layout_left::mapping<Extents>::@\exposid{submdspan-mapping-impl}@(   // \expos
-      SliceSpecifiers... slices) const -> @\seebelow@;
+\rSec5[mdspan.sub.map.common]{Common}
 
-template<class Extents>
-  template<class... SliceSpecifiers>
-    constexpr auto layout_right::mapping<Extents>::@\exposid{submdspan-mapping-impl}@(  // \expos
-      SliceSpecifiers... slices) const -> @\seebelow@;
-
-template<class Extents>
-  template<class... SliceSpecifiers>
-    constexpr auto layout_stride::mapping<Extents>::@\exposid{submdspan-mapping-impl}@( // \expos
-      SliceSpecifiers... slices) const -> @\seebelow@;
-\end{itemdecl}
-
-\begin{itemdescr}
 \pnum
-Let \tcode{index_type} be \tcode{typename Extents::index_type}.
+The following elements apply to all functions in \ref{mdspan.sub.map}.
 
 \pnum
 \constraints
-\tcode{sizeof...(slices)} equals \tcode{Extents::rank()}.
+\tcode{sizeof...(slices)} equals \tcode{extents_type::rank()}.
 
 \pnum
 \mandates
 For each rank index $k$ of \tcode{extents()},
 exactly one of the following is true:
 \begin{itemize}
-\item $S_k$ models \tcode{\libconcept{convertible_to}<index_type>},
-\item $S_k$ models \tcode{\exposconcept{index-pair-like}<index_type>},
-\item \tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true}, or
-\item $S_k$ is a specialization of \tcode{strided_slice}.
+\item
+$S_k$ models \tcode{\libconcept{convertible_to}<index_type>},
+\item
+$S_k$ models \tcode{\exposconcept{index-pair-like}<index_type>},
+\item
+\tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true}, or
+\item
+$S_k$ is a specialization of \tcode{strided_slice}.
 \end{itemize}
 
 \pnum
@@ -21964,63 +23370,70 @@ For each rank index $k$ of \tcode{extents()},
 all of the following are \tcode{true}:
 \begin{itemize}
 \item
-if $S_k$ is a specialization of \tcode{strided_slice}
-  \begin{itemize}
-  \item $\tcode{$s_k$.extent} = 0$, or
-  \item $\tcode{$s_k$.stride} > 0$
-  \end{itemize}
+if $S_k$ is a specialization of \tcode{strided_slice},
+\tcode{$s_k$.extent} is equal to zero or
+\tcode{$s_k$.stride} is greater than zero; and
 \item
-$0            \le \tcode{\exposid{first_}<index_type, $k$>(slices...)} \\
-\hphantom{0 } \le \tcode{\exposid{last_}<$k$>(extents(), slices...)} \\
-\hphantom{0 } \le \tcode{extents().extent($k$)}$
+$0            \leq \tcode{\exposid{first_}<index_type, $k$>(slices...)} \\
+\hphantom{0 } \leq \tcode{\exposid{last_}<$k$>(extents(), slices...)} \\
+\hphantom{0 } \leq \tcode{extents().extent($k$)}$
 \end{itemize}
 
 \pnum
-Let \tcode{sub_ext} be the result of
-\tcode{submdspan_extents(extents(), slices...)} and
-let \tcode{SubExtents} be \tcode{decltype(sub_ext)}.
+Let \tcode{sub_ext} be
+the result of \tcode{submdspan_extents(extents(), slices...)} and
+let \tcode{SubExtents} be \tcode{decl\-type(sub_ext)}.
 
 \pnum
 Let \tcode{sub_strides} be
-an \tcode{array<SubExtents::index_type, SubExtents::rank()>} such that
-for each rank index $k$ of \tcode{extents()}
-for which \tcode{\placeholder{map-rank}[$k$]} is not \tcode{dynamic_extent},
-\tcode{sub_strides[\placeholder{map-rank}[\linebreak{}$k$]]} equals:
-
+an \tcode{array<SubExtents::index_type, SubExtents::rank()>}
+such that for each rank index $k$ of \tcode{extents()}
+for which \tcode{\exposid{map-rank}[$k$]} is not \tcode{dynamic_extent},
+\tcode{sub_strides[\exposid{map-rank}[$k$]]} equals:
 \begin{itemize}
 \item
-\tcode{stride($k$) * \exposid{de-ice}($s_k$.stride)}
+\tcode{stride(k) * \exposid{de-ice}($s_k$.stride)}
 if $S_k$ is a specialization of \tcode{strided_slice} and
-\tcode{$s_k$.stride < $s_k$.extent};
-
+\tcode{$s_k$.stride < $s_k$.\linebreak extent} is \tcode{true};
 \item
-otherwise,
-\tcode{stride($k$)}.
+otherwise, \tcode{stride($k$)}.
 \end{itemize}
 
 \pnum
-Let \tcode{P} be a parameter pack such that
-\tcode{is_same_v<make_index_sequence<rank()>, index_sequence<\linebreak{}P...>>}
+Let \tcode{P} be a parameter pack
+such that \tcode{is_same_v<make_index_sequence<rank()>, index_sequence<P...>>}
 is \tcode{true}.
 
 \pnum
-Let \tcode{offset} be a value of type \tcode{size_t}
-equal to \tcode{(*this)(\exposid{first_}<index_type, P>(slices...)...)}.
+Let \tcode{offset} be a value of type \tcode{size_t} equal to
+\tcode{(*this)(\exposid{first_}<index_type, P>(slices...)...)}.
 
+\rSec5[mdspan.sub.map.left]{\tcode{layout_left} specialization of \tcode{submdspan_mapping}}
+
+\indexlibrarymemberexpos{layout_left::mapping}{submdspan-mapping-impl}%
+\begin{itemdecl}
+template<class Extents>
+template<class... SliceSpecifiers>
+constexpr auto layout_left::mapping<Extents>::@\exposid{submdspan-mapping-impl}@(
+      SliceSpecifiers... slices) const -> @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
 \pnum
 \returns
 \begin{itemize}
 \item
 \tcode{submdspan_mapping_result\{*this, 0\}},
 if \tcode{Extents::rank() == 0} is \tcode{true};
-
+\item
+otherwise,
+\tcode{submdspan_mapping_result\{layout_left::mapping(sub_ext), offset\}},
+if \tcode{SubEx\-tents::rank() == 0} is \tcode{true};
 \item
 otherwise,
 \tcode{submdspan_mapping_result\{layout_left::mapping(sub_ext), offset\}},
 if
   \begin{itemize}
-  \item
-  \tcode{layout_type} is \tcode{layout_left}; and
   \item
   for each $k$ in the range \range{0}{SubExtents::rank() - 1)},
   \tcode{is_convertible_v<$S_k$, full_ext\-ent_t>} is \tcode{true}; and
@@ -22034,36 +23447,313 @@ If the above conditions are true,
 all $S_k$ with $k$ larger than \tcode{SubExtents::rank() - 1}
 are convertible to \tcode{index_type}.
 \end{note}
+\item
+otherwise,
+\begin{codeblock}
+submdspan_mapping_result{layout_left_padded<S_static>::mapping(sub_ext, stride(@$u$@ + 1)),
+                         offset}
+\end{codeblock}
+if for a value $u$ for which $u+1$ is
+the smallest value $p$ larger than zero
+for which $S_p$ models
+\tcode{\exposconcept{index-pair-like}<index_type>} or
+\tcode{is_convertible_v<$S_p$, full_extent_t>} is \tcode{true},
+the following conditions are met:
+\begin{itemize}
+\item
+$S_0$ models \tcode{\exposconcept{index-pair-like}<index_type>} or
+\tcode{is_convertible_v<$S_0$, full_extent_t>} is \tcode{true}; and
+\item
+for each $k$ in the range \range{$u$ + 1}{$u$ + SubExtents::rank() - 1},
+\tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true}; and
+\item
+for $k$ equal to \tcode{$u$ + SubExtents::rank() - 1},
+$S_k$ models \tcode{\exposconcept{index-pair-like}<index_type>} or
+\tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true};
+\end{itemize}
+and where \tcode{S_static} is:
+\begin{itemize}
+\item
+\tcode{dynamic_extent},
+if \tcode{static_extent($k$)} is \tcode{dynamic_extent}
+for any $k$ in the range \range{0}{$u$ + 1},
+\item
+otherwise, the product of all values
+\tcode{static_extent($k$)} for $k$ in the range \range{0}{$u$ + 1};
+\end{itemize}
+\item
+otherwise,
+\begin{codeblock}
+submdspan_mapping_result{layout_stride::mapping(sub_ext, sub_strides), offset}
+\end{codeblock}
+\end{itemize}
+\end{itemdescr}
 
+\rSec5[mdspan.sub.map.right]{\tcode{layout_right} specialization of \tcode{submdspan_mapping}}
+
+\indexlibrarymemberexpos{layout_right::mapping}{submdspan-mapping-impl}%
+\begin{itemdecl}
+template<class Extents>
+template<class... SliceSpecifiers>
+constexpr auto layout_right::mapping<Extents>::@\exposid{submdspan-mapping-impl}@(
+      SliceSpecifiers... slices) const -> @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\begin{itemize}
+\item
+\tcode{submdspan_mapping_result\{*this, 0\}},
+if \tcode{Extents::rank() == 0} is \tcode{true};
 \item
 otherwise,
 \tcode{submdspan_mapping_result\{layout_right::mapping(sub_ext), offset\}},
+if \tcode{Sub\-Extents::rank() == 0} is \tcode{true};
+\item
+otherwise,
+\tcode{submdspan_mapping_result\{layout_left::mapping(sub_ext), offset\}},
 if
   \begin{itemize}
   \item
-  \tcode{layout_type} is \tcode{layout_right}; and
-  \item
-  for each $k$ in the range
-  \range{Extents::rank() - SubExtents::rank() + 1}{Extents::rank()},
+  for each $k$ in the range \range{\exposid{rank_} - SubExtents::rank() + 1}{\exposid{rank_}},
   \tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true}; and
   \item
-  for $k$ equal to \tcode{Extents::rank() - SubExtents::rank()},
-  $S_k$ models \tcode{\exposconcept{index-pair-like}<in\-dex_type>} or
+  for $k$ equal to \exposid{_rank} - \tcode{SubExtents::rank()},
+  $S_k$ models \tcode{\exposconcept{index-pair-like}<index_type>} or
   \tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true};
   \end{itemize}
 \begin{note}
 If the above conditions are true,
-all $S_k$ with $k < \tcode{Extents::rank() - SubExtents::rank()}$
+all $S_k$ with $k < \tcode{\exposid{_rank} - SubExtents::rank()}$
 are convertible to \tcode{index_type}.
 \end{note}
-
 \item
 otherwise,
-\tcode{submdspan_mapping_result\{layout_stride::mapping(sub_ext, sub_strides),\linebreak{}offset\}}.
+\begin{codeblock}
+submdspan_mapping_result{layout_right_padded<S_static>::mapping(sub_ext,
+                             stride(@\exposid{rank_}@ - @$u$@ - 2)), offset}
+\end{codeblock}
+if for a value $u$ for which $\exposid{rank_} - u - 2$ is
+the largest value $p$ smaller than \tcode{\exposid{rank_} - 1}
+for which $S_p$ models
+\tcode{\exposconcept{index-pair-like}<index_type>} or
+\tcode{is_convertible_v<$S_p$, full_extent_t>} is \tcode{true},
+the following conditions are met:
+\begin{itemize}
+\item
+for $k$ equal to \tcode{\exposid{rank_} - 1},
+$S_k$ models \tcode{\exposconcept{index-pair-like}<index_type>} or
+\tcode{is_convertible_v<$S_k$, full_extent_t> }is \tcode{true}; and
+\item
+for each $k$ in the range
+\range{\exposid{rank_} - SubExtents::rank() - $u$ + 1}{\exposid{rank_} - $u$ - 1},
+\tcode{is_con\-vertible_v<$S_k$, full_extent_t>} is \tcode{true}; and
+\item
+for $k$ equal to \tcode{\exposid{rank_} - SubExtents::rank() - $u$},
+$S_k$ models \tcode{\exposconcept{index-pair-like}<index_type>} or
+\tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true};
+\end{itemize}
+and where \tcode{S_static} is:
+\begin{itemize}
+\item
+\tcode{dynamic_extent},
+if \tcode{static_extent($k$)} is \tcode{dynamic_extent}
+for any $k$ in the range \range{\exposid{rank_} - $u$ - 1}{\exposid{rank_}},
+\item
+otherwise, the product of all values
+\tcode{static_extent($k$)}
+for $k$ in the range \range{\exposid{rank_} - $u$ - 1}{\exposid{rank_}};
+\end{itemize}
+\item
+otherwise,
+\begin{codeblock}
+submdspan_mapping_result{layout_stride::mapping(sub_ext, sub_strides), offset}
+\end{codeblock}
 \end{itemize}
 \end{itemdescr}
 
-\rSec4[mdspan.submdspan.submdspan]{\tcode{submdspan} function template}
+\rSec5[mdspan.sub.map.stride]{\tcode{layout_stride} specialization of \tcode{submdspan_mapping}}
+
+\indexlibrarymemberexpos{layout_stride::mapping}{submdspan-mapping-impl}%
+\begin{itemdecl}
+template<class Extents>
+template<class... SliceSpecifiers>
+constexpr auto layout_stride::mapping<Extents>::@\exposid{submdspan-mapping-impl}@(
+      SliceSpecifiers... slices) const -> @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\begin{itemize}
+\item
+\tcode{submdspan_mapping_result\{*this, 0\}},
+if \tcode{Extents::rank() == 0} is \tcode{true};
+\item
+otherwise,
+\begin{codeblock}
+submdspan_mapping_result{layout_stride::mapping(sub_ext, sub_strides), offset}
+\end{codeblock}
+\end{itemize}
+\end{itemdescr}
+
+\rSec5[mdspan.sub.map.leftpad]{\tcode{layout_left_padded} specialization of \tcode{submdspan_mapping}}
+
+\indexlibrarymemberexpos{layout_left_padded::mapping}{submdspan-mapping-impl}%
+\begin{itemdecl}
+template<class Extents>
+template<class... SliceSpecifiers>
+constexpr auto layout_left_padded::mapping<Extents>::@\exposid{submdspan-mapping-impl}@(
+    SliceSpecifiers... slices) const -> @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\begin{itemize}
+\item
+\tcode{submdspan_mapping_result\{*this, 0\}},
+if \tcode{Extents::rank() == 0} is \tcode{true};
+\item
+otherwise,
+\tcode{submdspan_mapping_result\{layout_left::mapping(sub_ext), offset\}},
+if \tcode{\exposid{rank_} == 1} is \tcode{true} or
+\tcode{SubExtents::rank() == 0} is \tcode{true};
+\item
+otherwise,
+\tcode{submdspan_mapping_result\{layout_left::mapping(sub_ext), offset\}},
+if
+\begin{itemize}
+\item
+\tcode{SubExtents::rank() == 1} is \tcode{true} and
+\item
+$S_0$ models \tcode{\exposconcept{index-pair-like}<index_type>} or
+\tcode{is_convertible_v<$S_0$ , full_extent_t>} is \tcode{true};
+\end{itemize}
+\item
+otherwise,
+\begin{codeblock}
+submdspan_mapping_result{layout_left_padded<S_static>::mapping(sub_ext, stride(@$u$@ + 1)),
+                         offset}
+\end{codeblock}
+if for a value $u$
+for which \tcode{$u$ + 1} is the smallest value $p$ larger than zero
+for which $S_p$ models \tcode{\exposconcept{index-pair-like}<index_type>} or
+\tcode{is_convertible_v<$S_p$, full_extent_t>} is \tcode{true},
+the following conditions are met:
+\begin{itemize}
+\item
+$S_0$ models \tcode{\exposconcept{index-pair-like}<index_type>} or
+\tcode{is_convertible_v<$S_0$, full_extent_t>} is \tcode{true}; and
+\item
+for each $k$ in the range \range{$u$ + 1}{$u$ + SubExtents::rank() - 1},
+\tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true}; and
+\item
+for $k$ equal to \tcode{$u$ + SubExtents::rank() - 1},
+$S_k$ models \tcode{\exposconcept{index-pair-like}<index_type>} or
+\tcode{is_convertible_v<Sk, full_extent_t>} is \tcode{true};
+\end{itemize}
+where \tcode{S_static} is:
+\begin{itemize}
+\item
+\tcode{dynamic_extent},
+if \exposid{static-padding-stride} is \tcode{dynamic_extent} or
+\tcode{static_extent($k$)} is \tcode{dynamic_extent}
+for any $k$ in the range \range{1}{$u$ + 1},
+\item
+otherwise, the product of \exposid{static-padding-stride} and
+all values \tcode{static_extent($k$)} for $k$ in the range \range{1}{$u$ + 1};
+\end{itemize}
+\item
+otherwise,
+\begin{codeblock}
+submdspan_mapping_result{layout_stride::mapping(sub_ext, sub_strides), offset}
+\end{codeblock}
+\end{itemize}
+\end{itemdescr}
+
+\rSec5[mdspan.sub.map.rightpad]{\tcode{layout_right_padded} specialization of \tcode{submdspan_mapping}}
+
+\indexlibrarymemberexpos{layout_right_padded::mapping}{submdspan-mapping-impl}%
+\begin{itemdecl}
+template<class Extents>
+template<class... SliceSpecifiers>
+constexpr auto layout_right_padded::mapping<Extents>::submdspan-mapping-impl(
+    SliceSpecifiers... slices) const -> @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\begin{itemize}
+\item
+\tcode{submdspan_mapping_result\{*this, 0\}},
+if \tcode{\exposid{rank_} == 0} is \tcode{true};
+\item
+otherwise,
+\tcode{submdspan_mapping_result\{layout_right::mapping(sub_ext), offset\}},\newline
+if \tcode{\exposid{rank_} == 1} is \tcode{true} or
+\tcode{SubExtents::rank() == 0} is \tcode{true};
+\item
+otherwise,
+\tcode{submdspan_mapping_result\{layout_right::mapping(sub_ext), offset\}},
+if
+\begin{itemize}
+\item
+\tcode{SubExtents::rank() == 1} is \tcode{true} and
+\item
+for $k$ equal to \tcode{\exposid{rank_} - 1},
+$S_k$ models \tcode{\exposconcept{index-pair-like}<index_type>} or
+\tcode{is_convertible_v<$S_k$ , full_extent_t>} is \tcode{true};
+\end{itemize}
+\item
+otherwise,
+\begin{codeblock}
+submdspan_mapping_result{layout_right_padded<S_static>::mapping(sub_ext,
+                             stride(@\exposid{rank_}@ - @$u$@ - 2)), offset}
+\end{codeblock}
+if for a value $u$
+for which \tcode{\exposid{rank_} - $u$ - 2}
+is the largest value p smaller than \tcode{\exposid{rank_} - 1}
+for which $S_p$ models \tcode{\exposconcept{index-pair-like}<index_type>} or
+\tcode{is_convertible_v<$S_p$, full_extent_t>} is \tcode{true},
+the following conditions are met:
+\begin{itemize}
+\item
+for $k$ equal to \tcode{\exposid{rank_} - 1},
+$S_k$ models \tcode{\exposconcept{index-pair-like}<index_type>} or
+\tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true}; and
+\item
+for each $k$ in the range
+\range{\exposid{rank_} - SubExtents::rank() - $u$ + 1}{\exposid{rank_} - $u$ - 1)},
+\tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true}; and
+\item
+for $k$ equal to \tcode{\exposid{rank_} - SubExtents::rank() - $u$},
+$S_k$ models \tcode{\exposconcept{index-pair-like}<index_type>} or
+\tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true};
+\end{itemize}
+and where \tcode{S_static} is:
+\begin{itemize}
+\item
+\tcode{dynamic_extent}
+if \exposid{static-padding-stride} is \tcode{dynamic_extent} or
+for any $k$ in the range \range{\exposid{rank_} - $u$ - 1}{\exposid{rank_} - 1}
+\tcode{static_extent($k$)} is \tcode{dynamic_extent},
+\item
+otherwise, the product of \exposid{static-padding-stride} and
+all values \tcode{static_extent($k$)}
+with $k$ in the range \range{\exposid{rank_} - $u$ - 1}{\exposid{rank_} - 1};
+\end{itemize}
+\item
+otherwise,
+\begin{codeblock}
+submdspan_mapping_result{layout_stride::mapping(sub_ext, sub_strides), offset}
+\end{codeblock}
+\end{itemize}
+\end{itemdescr}
+
+\rSec4[mdspan.sub.sub]{\tcode{submdspan} function template}
 
 \indexlibraryglobal{submdspan}%
 \begin{itemdecl}
