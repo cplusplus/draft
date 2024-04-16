@@ -7706,13 +7706,19 @@ template<class... Args>
 \begin{itemdescr}
 \pnum
 \effects
+Let \tcode{locksafe} be
+\tcode{(enable_nonlocking_formatter_optimization<remove_cvref_t<Args>> \&\& ...)}.
 If the ordinary literal encoding\iref{lex.charset} is UTF-8, equivalent to:
 \begin{codeblock}
-vprint_unicode(stream, fmt.@\exposid{str}@, make_format_args(args...));
+locksafe
+  ? vprint_unicode_locking(stream, fmt.str, make_format_args(args...))
+  : vprint_unicode(stream, fmt.str, make_format_args(args...));
 \end{codeblock}
 Otherwise, equivalent to:
 \begin{codeblock}
-vprint_nonunicode(stream, fmt.@\exposid{str}@, make_format_args(args...));
+locksafe
+  ? vprint_nonunicode_locking(stream, fmt.str, make_format_args(args...))
+  : vprint_nonunicode(stream, fmt.str, make_format_args(args...));
 \end{codeblock}
 \end{itemdescr}
 
@@ -7742,7 +7748,7 @@ template<class... Args>
 \effects
 Equivalent to:
 \begin{codeblock}
-print(stream, "{}\n", format(fmt, std::forward<Args>(args)...));
+print(stream, runtime_format(string(fmt.get()) + '\n'), std::forward<Args>(args)...);
 \end{codeblock}
 \end{itemdescr}
 
@@ -7767,15 +7773,30 @@ void vprint_unicode(FILE* stream, string_view fmt, format_args args);
 
 \begin{itemdescr}
 \pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+string out = vformat(fmt, args);
+vprint_unicode_locking(stream, "{}", make_format_args(out));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryglobal{vprint_unicode_locking}%
+\begin{itemdecl}
+void vprint_unicode_locking(FILE* stream, string_view fmt, format_args args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
 \expects
 \tcode{stream} is a valid pointer to an output C stream.
 
 \pnum
 \effects
-The function initializes an automatic variable via
-\begin{codeblock}
-string out = vformat(fmt, args);
-\end{codeblock}
+Locks \tcode{stream}.
+Let \tcode{out} denote the character representation of
+formatting arguments provided by \tcode{args}
+formatted according to specifications given in \tcode{fmt}.
 If \tcode{stream} refers to a terminal capable of displaying Unicode,
 writes \tcode{out} to the terminal using the native Unicode API;
 if \tcode{out} contains invalid code units,
@@ -7785,6 +7806,10 @@ implementations are encouraged to diagnose it.
 Otherwise writes \tcode{out} to \tcode{stream} unchanged.
 If the native Unicode API is used,
 the function flushes \tcode{stream} before writing \tcode{out}.
+Unconditionally unlocks \tcode{stream} on function exit.
+
+\xrefc{7.21.2}.
+
 \begin{note}
 On POSIX and Windows, \tcode{stream} referring to a terminal means that,
 respectively,
@@ -7831,12 +7856,30 @@ void vprint_nonunicode(FILE* stream, string_view fmt, format_args args);
 
 \begin{itemdescr}
 \pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+string out = vformat(fmt, args);
+vprint_nonunicode_locking("{}", make_format_args(out));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryglobal{vprint_nonunicode_locking}%
+\begin{itemdecl}
+void vprint_nonunicode_locking(FILE* stream, string_view fmt, format_args args);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
 \expects
 \tcode{stream} is a valid pointer to an output C stream.
 
 \pnum
 \effects
-Writes the result of \tcode{vformat(fmt, args)} to \tcode{stream}.
+While holding the lock on \tcode{stream},
+writes the character representation of
+formatting arguments provided by \tcode{args}
+formatted according to specifications given in \tcode{fmt} to \tcode{stream}.
 
 \pnum
 \throws
