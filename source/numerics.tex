@@ -1409,6 +1409,10 @@ namespace std {
   template<class Engine, size_t k>
     class shuffle_order_engine;
 
+  // \ref{rand.eng.philox}, class template \tcode{philox_engine}
+  template<class UIntType, size_t w, size_t n, size_t r, UIntType... consts>
+    class philox_engine;
+
   // \ref{rand.predef}, engines and engine adaptors with predefined parameters
   using minstd_rand0  = @\seebelow@;
   using minstd_rand   = @\seebelow@;
@@ -1419,6 +1423,8 @@ namespace std {
   using ranlux24      = @\seebelow@;
   using ranlux48      = @\seebelow@;
   using knuth_b       = @\seebelow@;
+  using philox4x32    = @\seebelow@;
+  using philox4x64    = @\seebelow@;
 
   using default_random_engine = @\seebelow@;
 
@@ -3061,6 +3067,247 @@ template<class Sseq> explicit subtract_with_carry_engine(Sseq& q);
  otherwise sets $c$ to $0$.
 \end{itemdescr}
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% philox_engine engine:
+
+\rSec3[rand.eng.philox]{Class template \tcode{philox_engine}}%
+\indexlibraryglobal{philox_engine}%
+
+\pnum
+A \tcode{philox_engine} random number engine produces
+unsigned integer random numbers in the closed interval \crange{0}{$m$},
+where $m = 2^w - 1$ and
+the template parameter $w$ defines the range of the produced numbers.
+The state of a \tcode{philox_engine} object consists of
+a sequence $X$ of $n$ unsigned integer values of width $w$,
+a sequence $K$ of $n/2$ values of \tcode{result_type},
+a sequence $Y$ of $n$ values of \tcode{result_type}, and
+a scalar $i$, where
+\begin{itemize}
+\item
+$X$ is the interpretation of the unsigned integer \term{counter} value
+$Z \cedef \sum_{j = 0}^{n - 1} X_j \cdot 2^{wj}$ of $n \cdot w$ bits,
+\item
+$K$ are keys,
+\item
+$Y$ is a buffer of produced values, and
+\item
+$i$ is an index in $Y$ buffer.
+\end{itemize}
+
+\pnum
+The generation algorithm returns $Y_i$,
+the value stored in the $i^{th}$ element of $Y$ after applying
+the transition algorithm.
+
+\pnum
+The state transition is performed as if by the following algorithm:
+\begin{codeblock}
+@$i$@ = @$i$@ + 1
+if (@$i$@ == @$n$@) {
+  @$Y$@ = Philox(@$K$@, @$X$@) // \seebelow
+  @$Z$@ = @$Z$@ + 1
+  @$i$@ = 0
+}
+\end{codeblock}
+
+\pnum
+The \tcode{Philox} function maps the $n/2$-length sequence $K$ and
+the $n$-length sequence $X$ into
+an $n$-length output sequence $Y$.
+Philox applies an $r$-round substitution-permutation network to
+the values in $X$.
+A single round of the generation algorithm performs the following steps:
+
+\begin{itemize}
+\item
+The output sequence $X'$ of the previous round
+($X$ in case of the first round)
+is permuted to obtain the intermediate state $V$:
+\begin{codeblock}
+@$V_j = X'_{f(j)}$@
+\end{codeblock}
+where $j = 0, \dotsc, n - 1$ and
+$f(j)$ is defined in \tref{rand.eng.philox.f}.
+
+\begin{floattable}{Values for the word permutation $f(j)$}{rand.eng.philox.f}
+{l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l}
+\topline
+  \multicolumn{2}{|c|}{}
+    & \multicolumn{16}{c|}{$j=$} \\ \cline{3-18}
+  \multicolumn{2}{|c|}{}
+    & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 & 10 & 11 & 12 & 13 & 14 & 15 \\ \hline
+  $n=$ & 2 & 0 & 1 & \multicolumn{14}{c|}{} \\ \cline{2-18}
+  & 4 & 0 & 3 & 2 & 1 & \multicolumn{12}{c|}{} \\ \cline{2-18}
+  & 8 & 2 & 1 & 4 & 7 & 6 & 5 & 0 & 3 & \multicolumn{8}{c|}{} \\ \cline{2-18}
+  & 16 & 0 & 9 & 2 & 13 & 6 & 11 & 4 & 15 & 10 & 7 & 12 & 3 & 14 & 5 & 8 & 1 \\ \cline{2-18}
+\end{floattable}
+\begin{note}
+For $n = 2$ the sequence is not permuted.
+\end{note}
+
+\item
+The following computations are applied to the elements of the $V$ sequence:
+\begin{codeblock}
+@$X_{2k + 0} = \mullo(V_{2k + 1}, M_{k}, w)$@
+@$X_{2k + 1} = \mulhi(V_{2k + 1}, M_{k}, w) \xor \mathit{key}^q_k \xor V_{2k}$@
+\end{codeblock}
+where:
+  \begin{itemize}
+  \item
+  the $\mullo(\tcode{a}, \tcode{b}, \tcode{w})$ function returns
+  the low half of the modular multiplication of \tcode{a} and \tcode{b}: $(\tcode{a} \cdot \tcode{b}) \mod 2^w$,
+
+  \item
+  the $\mulhi(\tcode{a}, \tcode{b}, \tcode{w})$ function returns
+  the high half of the multiplication of \tcode{a} and \tcode{b}: $(\left\lfloor (\tcode{a} \cdot \tcode{b}) / 2^w \right\rfloor)$,
+
+  \item
+  $k = 0, \dotsc, n/2 - 1$ is the index in the sequences,
+
+  \item
+  $q$ is the index of the round: $q = 0, \dotsc, r - 1$,
+
+  \item
+  $\mathit{key}^q_k$ is the $k^\text{th}$ round key for round $q$,
+  $\mathit{key}^q_k \cedef (K_k + q \cdot C_k) \mod 2^w$,
+
+  \item
+  %FIXME: $K_k$ is just one element - do we mean for each possible $k$?
+  %FIXME: Same for the next 2 \items.
+  $K_k$ are the keys generated once with a seed and stay constant
+  unless the \tcode{seed} function is called,
+
+  \item
+  %FIXME: Where did "multipliers" come from?
+  $M_k$ are \tcode{multipliers}, and
+
+  \item
+  %FIXME: Where did "round_consts" come from?
+  $C_k$ are \tcode{round_consts}.
+  \end{itemize}
+\end{itemize}
+
+\pnum
+After $r$ applications of the single-round function,
+\tcode{Philox} returns the sequence $Y = X'$.
+
+\indexlibraryglobal{philox_engine}%
+\indexlibrarymember{result_type}{philox_engine}%
+\begin{codeblock}
+namespace std {
+  template<class UIntType, size_t w, size_t n, size_t r, UIntType... consts>
+  class philox_engine {
+    static constexpr size_t @\exposid{array-size}@ = n / 2;   // \expos
+  public:
+    // types
+    using result_type = UIntType;
+
+    // engine characteristics
+    static constexpr size_t word_size = w;
+    static constexpr size_t word_count = n;
+    static constexpr size_t round_count = r;
+    static constexpr array<result_type, @\exposid{array-size}@> multipliers;
+    static constexpr array<result_type, @\exposid{array-size>}@ round_consts;
+    static constexpr result_type min() { return 0; }
+    static constexpr result_type max() { return m - 1; }
+    static constexpr result_type default_seed = 20111115u;
+
+    // constructors and seeding functions
+    philox_engine() : philox_engine(default_seed) {}
+    explicit philox_engine(result_type value);
+    template<class Sseq> explicit philox_engine(Sseq& q);
+    void seed(result_type value = default_seed);
+    template<class Sseq> void seed(Sseq& q);
+
+    void set_counter(const array<result_type, n>& counter);
+
+    // equality operators
+    friend bool operator==(const philox_engine& x, const philox_engine& y);
+
+    // generating functions
+    result_type operator()();
+    void discard(unsigned long long z);
+
+    // inserters and extractors
+    template<class charT, class traits>
+      friend basic_ostream<charT, traits>&
+        operator<<(basic_ostream<charT, traits>& os, const philox_engine& x);
+    template<class charT, class traits>
+      friend basic_istream<charT, traits>&
+        operator>>(basic_istream<charT, traits>& is, philox_engine& x);
+  };
+}
+\end{codeblock}
+
+\pnum
+\mandates
+\begin{itemize}
+\item \tcode{sizeof...(consts) == n} is \tcode{true}, and
+\item \tcode{n == 2 || n == 4 || n == 8 || n == 16} is \tcode{true}, and
+\item \tcode{0 < r} is \tcode{true}, and
+\item \tcode{0 < w \&\& w <= numeric_limits<UIntType>::digits} is \tcode{true}.
+\end{itemize}
+
+\pnum
+The template parameter pack \tcode{consts} represents
+the $M_k$ and $C_k$ constants which are grouped as follows:
+$[ M_0, C_0, M_1, C_1, M_2, C_2, \dotsc, M_{n/2 - 1}, C_{n/2 - 1} ]$.
+
+\pnum
+The textual representation consists of the values of
+$K_0, \dotsc, K_{n/2 - 1}, X_{0}, \dotsc, X_{n - 1}, i$, in that order.
+\begin{note}
+The stream extraction operator can reconstruct $Y$ from $K$ and $X$, as needed.
+\end{note}
+
+\indexlibraryctor{philox_engine}
+\begin{itemdecl}
+explicit philox_engine(result_type value);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Sets the $K_0$ element of sequence $K$ to $\tcode{value} \mod 2^w$.
+All elements of sequences $X$ and $K$ (except $K_0$) are set to \tcode{0}.
+The value of $i$ is set to $n - 1$.
+\end{itemdescr}
+
+\indexlibraryctor{philox_engine}
+\begin{itemdecl}
+template<class Sseq> explicit philox_engine(Sseq& q);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+With $p = \left\lceil w / 32 \right\rceil$ and
+an array (or equivalent) \tcode{a} of length $(n/2) \cdot p$,
+invokes \tcode{q.generate(a + 0, a + n / 2 * $p$)} and
+then iteratively for $k = 0, \dotsc, n/2 - 1$,
+sets $K_k$ to
+$\left(\sum_{j = 0}^{p - 1} a_{k p + j} \cdot 2^{32j} \right) \mod 2^w$.
+All elements of sequence $X$ are set to \tcode{0}.
+The value of $i$ is set to $n - 1$.
+\end{itemdescr}
+
+\indexlibrarymember{set_counter}{philox_engine}%
+\begin{itemdecl}
+void set_counter(const array<result_type, n>& c);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+For $j = 0, \dotsc, n - 1$ sets $X_j$ to $C_{n - 1 - j} \mod 2^w$.
+The value of $i$ is set to $n - 1$.
+\begin{note}
+%FIXME: What is "Counter"?
+Counter is an unsigned integer value
+$\sum_{j = 0}^{n - 1} X_j \cdot 2^{wj}$ of $n \cdot w$ bits.
+\end{note}
+\end{itemdescr}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -3661,6 +3908,36 @@ is \impldef{type of \tcode{default_random_engine}}.
  code that uses this \keyword{typedef}
  need not generate identical sequences across implementations.
 \end{note}
+\end{itemdescr}%
+
+\indexlibraryglobal{philox4x32}%
+\begin{itemdecl}
+using philox4x32 =
+      philox_engine<uint_fast32_t, 32, 4, 10,
+       0xD2511F53, 0x9E3779B9, 0xCD9E8D57, 0xBB67AE85>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\required
+The $10000^\text{th}$ consecutive invocation
+a default-constructed object of type \tcode{philox4x32}
+produces the value $1955073260$.
+\end{itemdescr}%
+
+\indexlibraryglobal{philox4x64}%
+\begin{itemdecl}
+using philox4x64 =
+      philox_engine<uint_fast64_t, 64, 4, 10,
+       0xD2E7470EE14C6C93, 0x9E3779B97F4A7C15, 0xCA5A826395121157, 0xBB67AE8584CAA73B>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\required
+The $10000^\text{th}$ consecutive invocation
+a default-constructed object of type \tcode{philox4x64}
+produces the value $3409172418970261260$.
 \end{itemdescr}%
 \indextext{random number generation!predefined engines and adaptors|)}%
 \indextext{random number engine adaptor!with predefined parameters|)}%
