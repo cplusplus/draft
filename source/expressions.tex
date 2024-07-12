@@ -1034,16 +1034,26 @@ is an object type, can be converted to a prvalue of type ``pointer to
 The pointer value\iref{basic.compound} is unchanged by this conversion.
 
 \pnum
-A prvalue of type ``pointer to \cv{} \tcode{D}'', where \tcode{D}
+A prvalue \tcode{v} of type ``pointer to \cv{} \tcode{D}'', where \tcode{D}
 is a complete class type, can be converted to a prvalue of type ``pointer to
 \cv{} \tcode{B}'', where \tcode{B} is a base class\iref{class.derived}
 of \tcode{D}. If \tcode{B} is an
 inaccessible\iref{class.access} or
 ambiguous\iref{class.member.lookup} base class of \tcode{D}, a program
-that necessitates this conversion is ill-formed. The result of the
-conversion is a pointer to the base class subobject of the derived class
-object. The null pointer value is converted to the null pointer value of
-the destination type.
+that necessitates this conversion is ill-formed.
+If \tcode{v} is a null pointer value,
+the result is a null pointer value.
+Otherwise,
+if \tcode{B} is a virtual base class of \tcode{D} and
+\tcode{v} does not point to an object
+whose type is similar\iref{conv.qual} to \tcode{D} and
+that is
+within its lifetime or
+within its period of construction or destruction\iref{class.cdtor},
+the behavior is undefined.
+Otherwise,
+the result is a pointer to the base class subobject of
+the derived class object.
 
 \rSec2[conv.mem]{Pointer-to-member conversions}
 
@@ -1155,7 +1165,7 @@ ill-formed.
 the following rules are applied:
 \begin{itemize}
 \item
-If both operands have the same type, no further conversion is needed.
+If both operands have the same type, no further conversion is performed.
 \item
 Otherwise, if one of the operands is of a non-floating-point type,
 that operand is converted to the type of
@@ -1257,8 +1267,8 @@ wherever \tcode{X} is the current class
 between the optional
 \grammarterm{cv-qualifier-seq} and the end of the \grammarterm{function-definition},
 \grammarterm{member-declarator}, or \grammarterm{declarator}. It shall not appear within
-the declaration of either
-a static member function or an explicit object member function
+the declaration of
+a static or explicit object member function
 of the current class (although its type and value category
 are defined within such member functions as they are within an implicit object
 member function).
@@ -1903,8 +1913,9 @@ has any generic parameter type placeholders\iref{dcl.spec.auto}, or
 if the lambda has a \grammarterm{template-parameter-list}.
 \begin{example}
 \begin{codeblock}
-int i = [](int i, auto a) { return i; }(3, 4);                  // OK, a generic lambda
-int j = []<class T>(T t, int i) { return i; }(3, 4);            // OK, a generic lambda
+auto x = [](int i, auto a) { return i; };               // OK, a generic lambda
+auto y = [](this auto self, int i) { return i; };       // OK, a generic lambda
+auto z = []<class T>(int i) { return i; };              // OK, a generic lambda
 \end{codeblock}
 \end{example}
 
@@ -2001,7 +2012,7 @@ shall be either:
 \item
 the closure type,
 \item
-a class type derived from the closure type, or
+a class type publicly and unambiguously derived from the closure type, or
 \item
 a reference to a possibly cv-qualified such type.
 \end{itemize}
@@ -2116,6 +2127,7 @@ auto f = []<typename T1, C1 T2> requires C2<sizeof(T1) + sizeof(T2)>
 \pnum
 The closure type for a non-generic \grammarterm{lambda-expression} with no
 \grammarterm{lambda-capture}
+and no explicit object parameter\iref{dcl.fct}
 whose constraints (if any) are satisfied
 has a conversion function to pointer to
 function with \Cpp{} language linkage\iref{dcl.link} having
@@ -2136,7 +2148,9 @@ and is an immediate function
 if the function call operator is an immediate function.
 
 \pnum
-For a generic lambda with no \grammarterm{lambda-capture}, the closure type has a
+For a generic lambda with no \grammarterm{lambda-capture}
+and no explicit object parameter\iref{dcl.fct},
+the closure type has a
 conversion function template to
 pointer to function. The conversion function template has the same invented
 template parameter list, and the pointer to function has the same
@@ -3860,6 +3874,22 @@ type\iref{class.virtual}.
 If \tcode{v} is a null pointer value, the result is a null pointer value.
 
 \pnum
+If \tcode{v} has type ``pointer to \cv{}~\tcode{U}'' and
+\tcode{v} does not point to an object
+whose type is similar\iref{conv.qual} to \tcode{U} and
+that is
+within its lifetime or
+within its period of construction or destruction\iref{class.cdtor},
+the behavior is undefined.
+If \tcode{v} is a glvalue of type \tcode{U} and
+\tcode{v} does not refer to an object
+whose type is similar to \tcode{U} and
+that is
+within its lifetime or
+within its period of construction or destruction,
+the behavior is undefined.
+
+\pnum
 If \tcode{T} is ``pointer to \cv{} \keyword{void}'', then the result
 is a pointer to the most derived object pointed to by \tcode{v}.
 Otherwise, a runtime check is applied to see if the object pointed or
@@ -4089,7 +4119,22 @@ ambiguous\iref{class.member.lookup} base class of \tcode{T1},
 a program that necessitates such a cast is ill-formed.
 
 \pnum
-An expression $E$ can be explicitly converted to a type \tcode{T}
+Any expression can be explicitly converted to type \cv{}~\keyword{void},
+in which case the operand is a discarded-value expression\iref{expr.prop}.
+\begin{note}
+Such a \keyword{static_cast} has no result
+as it is a prvalue of type \keyword{void}; see~\ref{basic.lval}.
+\end{note}
+\begin{note}
+However, if the value is in a temporary
+object\iref{class.temporary}, the destructor for that
+object is
+not executed until the usual time, and the value of the object is
+preserved for the purpose of executing the destructor.
+\end{note}
+
+\pnum
+Otherwise, an expression $E$ can be explicitly converted to a type \tcode{T}
 if there is an implicit conversion sequence\iref{over.best.ics}
 from $E$ to \tcode{T},
 if overload resolution for a direct-initialization\iref{dcl.init}
@@ -4117,28 +4162,8 @@ this direct-initialization defines the type of the expression as \tcode{U[1]}.
 \end{note}
 
 \pnum
-Otherwise, the \keyword{static_cast} shall perform one of the conversions
-listed below. No other conversion shall be performed explicitly using a
-\keyword{static_cast}.
-
-\pnum
-Any expression can be explicitly converted to type \cv{}~\keyword{void},
-in which case the operand is a discarded-value expression\iref{expr.prop}.
-\begin{note}
-Such a \keyword{static_cast} has no result
-as it is a prvalue of type \keyword{void}; see~\ref{basic.lval}.
-\end{note}
-\begin{note}
-However, if the value is in a temporary
-object\iref{class.temporary}, the destructor for that
-object is
-not executed until the usual time, and the value of the object is
-preserved for the purpose of executing the destructor.
-\end{note}
-
-
-\pnum
-The inverse of any standard conversion sequence\iref{conv} not containing an
+Otherwise,
+the inverse of a standard conversion sequence\iref{conv} not containing an
 lvalue-to-rvalue\iref{conv.lval},
 array-to-pointer\iref{conv.array},
 function-to-pointer\iref{conv.func},
@@ -4281,6 +4306,9 @@ const T* p2 = static_cast<const T*>(static_cast<void*>(p1));
 bool b = p1 == p2;  // \tcode{b} will have the value \tcode{true}.
 \end{codeblock}
 \end{example}
+
+\pnum
+No other conversion can be performed using \keyword{static_cast}.
 
 \rSec3[expr.reinterpret.cast]{Reinterpret cast}
 
@@ -5776,22 +5804,15 @@ if the \grammarterm{lambda-expression} is enclosed in parentheses.
 If the operand is of
 class type, it is contextually implicitly converted\iref{conv}
 to a pointer to object
-type.
-\begin{footnote}
-This implies that an object
-cannot be deleted using a pointer of type
-\tcode{\keyword{void}*} because \keyword{void} is not an object type.
-\end{footnote}
+type
+and the converted operand is used in place of the original operand
+for the remainder of this subclause.
 Otherwise, it shall be a prvalue of pointer to object type.
 The \grammarterm{delete-expression} has type
 \keyword{void}.
 
 \pnum
 \indextext{\idxcode{delete}!single-object}%
-If the operand has a class type, the operand is converted to a pointer
-type by calling the above-mentioned conversion function, and the
-converted operand is used in place of the original operand for the
-remainder of this subclause.
 In a single-object delete expression, the value of the operand of
 \keyword{delete} may be a null pointer value,
 a pointer value
@@ -5834,10 +5855,6 @@ class of the dynamic type of the object to be deleted and the static type shall
 have a virtual destructor or the behavior is undefined. In an array delete
 expression, if the dynamic type of the object to be deleted is not similar to
 its static type, the behavior is undefined.
-
-\pnum
-The \grammarterm{cast-expression} in a \grammarterm{delete-expression} shall
-be evaluated exactly once.
 
 \pnum
 \indextext{type!incomplete}%
@@ -7039,13 +7056,18 @@ if the reference would bind directly.
 formed and at least one of the operands has (possibly cv-qualified) class type:
 \begin{itemize}
 \item if \tcode{T1} and \tcode{T2} are the same class type
-(ignoring cv-qualification) and
-\tcode{T2} is at least as cv-qualified as \tcode{T1},
-the target type is \tcode{T2},
+(ignoring cv-qualification):
+  \begin{itemize}
+  \item
+  if \tcode{T2} is at least as cv-qualified as \tcode{T1},
+  the target type is \tcode{T2},
+  \item
+  otherwise, no conversion sequence is formed for this operand;
+  \end{itemize}
 
 \item otherwise, if \tcode{T2} is a base class of \tcode{T1},
 the target type is \cvqual{cv1} \tcode{T2}, where \cvqual{cv1}
-denotes the cv-qualifiers of \tcode{T1},
+denotes the cv-qualifiers of \tcode{T1};
 
 \item otherwise, the target type is the type that \tcode{E2} would have
 after applying the
