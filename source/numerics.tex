@@ -1409,6 +1409,10 @@ namespace std {
   template<class Engine, size_t k>
     class shuffle_order_engine;
 
+  // \ref{rand.eng.philox}, class template \tcode{philox_engine}
+  template<class UIntType, size_t w, size_t n, size_t r, UIntType... consts>
+    class philox_engine;
+
   // \ref{rand.predef}, engines and engine adaptors with predefined parameters
   using minstd_rand0  = @\seebelow@;
   using minstd_rand   = @\seebelow@;
@@ -1419,6 +1423,8 @@ namespace std {
   using ranlux24      = @\seebelow@;
   using ranlux48      = @\seebelow@;
   using knuth_b       = @\seebelow@;
+  using philox4x32    = @\seebelow@;
+  using philox4x64    = @\seebelow@;
 
   using default_random_engine = @\seebelow@;
 
@@ -1556,7 +1562,7 @@ namespace std {
 \rSec3[rand.req.genl]{General requirements}%
 
 \pnum
-Throughout this subclause \ref{rand},
+Throughout \ref{rand},
 the effect of instantiating a template:
 \begin{itemize}
   \item
@@ -1616,7 +1622,7 @@ the effect of instantiating a template:
 \end{itemize}
 
 \pnum
-Throughout this subclause \ref{rand},
+Throughout \ref{rand},
 phrases of the form ``\tcode{x} is an iterator of a specific kind''
 shall be interpreted as equivalent to the more formal requirement that
 ``\tcode{x} is a value
@@ -1624,7 +1630,7 @@ of a type meeting the requirements
 of the specified iterator type''.
 
 \pnum
-Throughout this subclause \ref{rand},
+Throughout \ref{rand},
 any constructor that can be called with a single argument
 and that meets a requirement specified in this subclause
 shall be declared \keyword{explicit}.
@@ -1659,8 +1665,8 @@ if the expressions shown
 in \tref{rand.req.seedseq}
 are valid and have the indicated semantics,
 and if \tcode{S} also meets all other requirements
-of this subclause \ref{rand.req.seedseq}.
-In that Table and throughout this subclause:
+of \ref{rand.req.seedseq}.
+In \tref{rand.req.seedseq} and throughout this subclause:
 \begin{itemize}
   \item
     \tcode{T} is the type named by
@@ -1875,8 +1881,8 @@ if the expressions shown
 in \tref{rand.req.eng}
 are valid and have the indicated semantics,
 and if \tcode{E} also meets all other requirements
-of this subclause \ref{rand.req.eng}.
-In that Table and throughout this subclause:
+of \ref{rand.req.eng}.
+In \tref{rand.req.eng} and throughout this subclause:
 \begin{itemize}
   \item
     \tcode{T} is the type named by
@@ -2254,8 +2260,8 @@ in \tref{rand.req.dist}
 are valid and have the indicated semantics,
 and if \tcode{D} and its associated types
 also meet all other requirements
-of this subclause \ref{rand.req.dist}.
-In that Table and throughout this subclause,
+of \ref{rand.req.dist}.
+In \tref{rand.req.dist} and throughout this subclause,
 \begin{itemize}
   \item
     \tcode{T} is the type named by
@@ -2465,7 +2471,7 @@ as would repeated invocations of \tcode{x(g)}.
 It is unspecified whether \tcode{D::param_type}
 is declared as a (nested) \keyword{class}
 or via a \keyword{typedef}.
-In this subclause \ref{rand},
+In \ref{rand},
 declarations of \tcode{D::param_type}
 are in the form of \keyword{typedef}s
 for convenience of exposition only.
@@ -2650,7 +2656,7 @@ namespace std {
 If the template parameter
 \tcode{m} is $0$,
 the modulus $m$
-used throughout this subclause~\ref{rand.eng.lcong}
+used throughout \ref{rand.eng.lcong}
 is \tcode{numeric_limits<result_type>::max()} plus $1$.
 \begin{note}
  $m$ need not be representable
@@ -3061,6 +3067,239 @@ template<class Sseq> explicit subtract_with_carry_engine(Sseq& q);
  otherwise sets $c$ to $0$.
 \end{itemdescr}
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% philox_engine engine:
+
+\rSec3[rand.eng.philox]{Class template \tcode{philox_engine}}%
+\indexlibraryglobal{philox_engine}%
+
+\pnum
+A \tcode{philox_engine} random number engine produces
+unsigned integer random numbers in the closed interval \crange{0}{$m$},
+where $m = 2^w - 1$ and
+the template parameter $w$ defines the range of the produced numbers.
+The state of a \tcode{philox_engine} object consists of
+a sequence $X$ of $n$ unsigned integer values of width $w$,
+a sequence $K$ of $n/2$ values of \tcode{result_type},
+a sequence $Y$ of $n$ values of \tcode{result_type}, and
+a scalar $i$, where
+\begin{itemize}
+\item
+$X$ is the interpretation of the unsigned integer \term{counter} value
+$Z \cedef \sum_{j = 0}^{n - 1} X_j \cdot 2^{wj}$ of $n \cdot w$ bits,
+\item
+$K$ are keys, which are generated once from the seed (see constructors below)
+and remain constant unless the \tcode{seed} function\iref{rand.req.eng} is invoked,
+\item
+$Y$ stores a batch of output values, and
+\item
+$i$ is an index for an element of the sequence $Y$.
+\end{itemize}
+
+\pnum
+The generation algorithm returns $Y_i$,
+the value stored in the $i^{th}$ element of $Y$ after applying
+the transition algorithm.
+
+\pnum
+The state transition is performed as if by the following algorithm:
+\begin{codeblock}
+@$i$@ = @$i$@ + 1
+if (@$i$@ == @$n$@) {
+  @$Y$@ = Philox(@$K$@, @$X$@) // \seebelow
+  @$Z$@ = @$Z$@ + 1
+  @$i$@ = 0
+}
+\end{codeblock}
+
+\pnum
+The \tcode{Philox} function maps the length-$n/2$ sequence $K$ and
+the length-$n$ sequence $X$ into a length-$n$ output sequence $Y$.
+Philox applies an $r$-round substitution-permutation network to the values in $X$.
+A single round of the generation algorithm performs the following steps:
+\begin{itemize}
+\item
+The output sequence $X'$ of the previous round
+($X$ in case of the first round)
+is permuted to obtain the intermediate state $V$:
+\begin{codeblock}
+@$V_j = X'_{f_n(j)}$@
+\end{codeblock}
+where $j = 0, \dotsc, n - 1$ and
+$f_n(j)$ is defined in \tref{rand.eng.philox.f}.
+
+\begin{floattable}{Values for the word permutation $\bm{f}_{\bm{n}}\bm{(j)}$}{rand.eng.philox.f}
+{l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l}
+\topline
+  \multicolumn{2}{|c|}{$\bm{f}_{\bm{n}}\bm{(j)}$} & \multicolumn{16}{c|}{$\bm{j}$} \\ \cline{3-18}
+  \multicolumn{2}{|c|}{}
+    & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 & 10 & 11 & 12 & 13 & 14 & 15 \\ \hline
+  $\bm{n} $ & 2 & 0 & 1 & \multicolumn{14}{c|}{} \\ \cline{2-18}
+  & 4 & 0 & 3 & 2 & 1 & \multicolumn{12}{c|}{} \\ \cline{2-18}
+  & 8 & 2 & 1 & 4 & 7 & 6 & 5 & 0 & 3 & \multicolumn{8}{c|}{} \\ \cline{2-18}
+  & 16 & 0 & 9 & 2 & 13 & 6 & 11 & 4 & 15 & 10 & 7 & 12 & 3 & 14 & 5 & 8 & 1 \\ \cline{2-18}
+\end{floattable}
+\begin{note}
+For $n = 2$ the sequence is not permuted.
+\end{note}
+
+\item
+The following computations are applied to the elements of the $V$ sequence:
+\begin{codeblock}
+@$X_{2k + 0} = \mullo(V_{2k + 1}, M_{k}, w)$@
+@$X_{2k + 1} = \mulhi(V_{2k + 1}, M_{k}, w) \xor \mathit{key}^q_k \xor V_{2k}$@
+\end{codeblock}
+where:
+  \begin{itemize}
+  \item
+  $\mullo(\tcode{a}, \tcode{b}, \tcode{w})$ is
+  the low half of the modular multiplication of \tcode{a} and \tcode{b}:
+  $(\tcode{a} \cdot \tcode{b}) \mod 2^w$,
+
+  \item
+  $\mulhi(\tcode{a}, \tcode{b}, \tcode{w})$ is
+  the high half of the modular multiplication of \tcode{a} and \tcode{b}:
+  $(\left\lfloor (\tcode{a} \cdot \tcode{b}) / 2^w \right\rfloor)$,
+
+  \item
+  $k = 0, \dotsc, n/2 - 1$ is the index in the sequences,
+
+  \item
+  $q = 0, \dotsc, r - 1$ is the index of the round,
+
+  \item
+  $\mathit{key}^q_k$ is the $k^\text{th}$ round key for round $q$,
+  $\mathit{key}^q_k \cedef (K_k + q \cdot C_k) \mod 2^w$,
+
+  \item
+  $K_k$ are the elements of the key sequence $K$,
+
+  \item
+  $M_k$ is \tcode{multipliers[$k$]}, and
+
+  \item
+  $C_k$ is \tcode{round_consts[$k$]}.
+  \end{itemize}
+\end{itemize}
+
+\pnum
+After $r$ applications of the single-round function,
+\tcode{Philox} returns the sequence $Y = X'$.
+
+\indexlibraryglobal{philox_engine}%
+\indexlibrarymember{result_type}{philox_engine}%
+\begin{codeblock}
+namespace std {
+  template<class UIntType, size_t w, size_t n, size_t r, UIntType... consts>
+  class philox_engine {
+    static constexpr size_t @\exposid{array-size}@ = n / 2;   // \expos
+  public:
+    // types
+    using result_type = UIntType;
+
+    // engine characteristics
+    static constexpr size_t word_size = w;
+    static constexpr size_t word_count = n;
+    static constexpr size_t round_count = r;
+    static constexpr array<result_type, @\exposid{array-size}@> multipliers;
+    static constexpr array<result_type, @\exposid{array-size>}@ round_consts;
+    static constexpr result_type min() { return 0; }
+    static constexpr result_type max() { return m - 1; }
+    static constexpr result_type default_seed = 20111115u;
+
+    // constructors and seeding functions
+    philox_engine() : philox_engine(default_seed) {}
+    explicit philox_engine(result_type value);
+    template<class Sseq> explicit philox_engine(Sseq& q);
+    void seed(result_type value = default_seed);
+    template<class Sseq> void seed(Sseq& q);
+
+    void set_counter(const array<result_type, n>& counter);
+
+    // equality operators
+    friend bool operator==(const philox_engine& x, const philox_engine& y);
+
+    // generating functions
+    result_type operator()();
+    void discard(unsigned long long z);
+
+    // inserters and extractors
+    template<class charT, class traits>
+      friend basic_ostream<charT, traits>&
+        operator<<(basic_ostream<charT, traits>& os, const philox_engine& x);
+    template<class charT, class traits>
+      friend basic_istream<charT, traits>&
+        operator>>(basic_istream<charT, traits>& is, philox_engine& x);
+  };
+}
+\end{codeblock}
+
+\pnum
+\mandates
+\begin{itemize}
+\item \tcode{sizeof...(consts) == n} is \tcode{true}, and
+\item \tcode{n == 2 || n == 4 || n == 8 || n == 16} is \tcode{true}, and
+\item \tcode{0 < r} is \tcode{true}, and
+\item \tcode{0 < w \&\& w <= numeric_limits<UIntType>::digits} is \tcode{true}.
+\end{itemize}
+
+\pnum
+The template parameter pack \tcode{consts} represents
+the $M_k$ and $C_k$ constants which are grouped as follows:
+$[ M_0, C_0, M_1, C_1, M_2, C_2, \dotsc, M_{n/2 - 1}, C_{n/2 - 1} ]$.
+
+\pnum
+The textual representation consists of the values of
+$K_0, \dotsc, K_{n/2 - 1}, X_{0}, \dotsc, X_{n - 1}, i$, in that order.
+\begin{note}
+The stream extraction operator can reconstruct $Y$ from $K$ and $X$, as needed.
+\end{note}
+
+\indexlibraryctor{philox_engine}
+\begin{itemdecl}
+explicit philox_engine(result_type value);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Sets the $K_0$ element of sequence $K$ to $\tcode{value} \mod 2^w$.
+All elements of sequences $X$ and $K$ (except $K_0$) are set to \tcode{0}.
+The value of $i$ is set to $n - 1$.
+\end{itemdescr}
+
+\indexlibraryctor{philox_engine}
+\begin{itemdecl}
+template<class Sseq> explicit philox_engine(Sseq& q);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+With $p = \left\lceil w / 32 \right\rceil$ and
+an array (or equivalent) \tcode{a} of length $(n/2) \cdot p$,
+invokes \tcode{q.generate(a + 0, a + n / 2 * $p$)} and
+then iteratively for $k = 0, \dotsc, n/2 - 1$,
+sets $K_k$ to
+$\left(\sum_{j = 0}^{p - 1} a_{k p + j} \cdot 2^{32j} \right) \mod 2^w$.
+All elements of sequence $X$ are set to \tcode{0}.
+The value of $i$ is set to $n - 1$.
+\end{itemdescr}
+
+\indexlibrarymember{set_counter}{philox_engine}%
+\begin{itemdecl}
+void set_counter(const array<result_type, n>& c);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+For $j = 0, \dotsc, n - 1$ sets $X_j$ to $C_{n - 1 - j} \mod 2^w$.
+The value of $i$ is set to $n - 1$.
+\begin{note}
+The counter is the value $Z$ introduced at the beginning of this subclause.
+\end{note}
+\end{itemdescr}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -3073,34 +3312,34 @@ template<class Sseq> explicit subtract_with_carry_engine(Sseq& q);
 
 \rSec2[rand.adapt]{Random number engine adaptor class templates}
 
-\rSec3[rand.adapt.general]{In general}
+\rSec3[rand.adapt.general]{General}
 
 \pnum
 Each type instantiated
-from a class template specified in this subclause~\ref{rand.adapt}
+from a class template specified in \ref{rand.adapt}
 meets the requirements
 of a random number engine adaptor\iref{rand.req.adapt} type.
 
 \pnum
 Except where specified otherwise,
 the complexity of each function
-specified in this subclause~\ref{rand.adapt}
+specified in \ref{rand.adapt}
 is constant.
 
 \pnum
 Except where specified otherwise,
-no function described in this subclause~\ref{rand.adapt}
+no function described in \ref{rand.adapt}
 throws an exception.
 
 \pnum
-Every function described in this subclause~\ref{rand.adapt}
+Every function described in \ref{rand.adapt}
 that has a function parameter \tcode{q} of type \tcode{Sseq\&}
 for a template type parameter named \tcode{Sseq}
 that is different from type \tcode{seed_seq}
 throws what and when the invocation of \tcode{q.generate} throws.
 
 \pnum
-Descriptions are provided in this subclause~\ref{rand.adapt}
+Descriptions are provided in \ref{rand.adapt}
 only for adaptor operations
 that are not described in subclause~\ref{rand.req.adapt}
 or for operations where there is additional semantic information.
@@ -3112,7 +3351,7 @@ and for equality and inequality operators
 are not shown in the synopses.
 
 \pnum
-Each template specified in this subclause~\ref{rand.adapt}
+Each template specified in \ref{rand.adapt}
 requires one or more relationships,
 involving the value(s) of its non-type template parameter(s), to hold.
 A program instantiating any of these templates
@@ -3662,6 +3901,36 @@ is \impldef{type of \tcode{default_random_engine}}.
  need not generate identical sequences across implementations.
 \end{note}
 \end{itemdescr}%
+
+\indexlibraryglobal{philox4x32}%
+\begin{itemdecl}
+using philox4x32 =
+      philox_engine<uint_fast32_t, 32, 4, 10,
+       0xD2511F53, 0x9E3779B9, 0xCD9E8D57, 0xBB67AE85>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\required
+The $10000^\text{th}$ consecutive invocation
+a default-constructed object of type \tcode{philox4x32}
+produces the value $1955073260$.
+\end{itemdescr}%
+
+\indexlibraryglobal{philox4x64}%
+\begin{itemdecl}
+using philox4x64 =
+      philox_engine<uint_fast64_t, 64, 4, 10,
+       0xD2E7470EE14C6C93, 0x9E3779B97F4A7C15, 0xCA5A826395121157, 0xBB67AE8584CAA73B>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\required
+The $10000^\text{th}$ consecutive invocation
+a default-constructed object of type \tcode{philox4x64}
+produces the value $3409172418970261260$.
+\end{itemdescr}%
 \indextext{random number generation!predefined engines and adaptors|)}%
 \indextext{random number engine adaptor!with predefined parameters|)}%
 \indextext{random number engine!with predefined parameters|)}
@@ -4074,11 +4343,10 @@ Let
 \end{itemize}
 An \defn{attempt} is $k$ invocations of \tcode{g()}
 to obtain values $g_0, \dotsc, g_{k-1}$, respectively,
-and the calculation of a quantity
- \[
-   S = \sum_{i=0}^{k-1} (g_i - \tcode{g.min()})
-                        \cdot R^i
- \]
+and the calculation of a quantity $S$ given by \eqref{rand.gencanonical}:
+\begin{formula}{rand.gencanonical}
+S = \sum_{i=0}^{k-1} (g_i - \tcode{g.min()}) \cdot R^i
+\end{formula}
 
 \pnum
 \effects
@@ -4138,16 +4406,16 @@ than the output when computing $S$.
 \rSec2[rand.dist]{Random number distribution class templates}%
 \indextext{random number generation!distributions|(}
 
-\rSec3[rand.dist.general]{In general}
+\rSec3[rand.dist.general]{General}
 
 \pnum
 Each type instantiated
-from a class template specified in this subclause~\ref{rand.dist}
+from a class template specified in \ref{rand.dist}
 meets the requirements
 of a random number distribution\iref{rand.req.dist} type.
 
 \pnum
-Descriptions are provided in this subclause~\ref{rand.dist}
+Descriptions are provided in \ref{rand.dist}
 only for distribution operations
 that are not described in \ref{rand.req.dist}
 or for operations where there is additional semantic information.
@@ -4191,8 +4459,11 @@ A \tcode{uniform_int_distribution} random number distribution
 produces random integers $i$,
 $a \leq i \leq b$,
 distributed according to
-the constant discrete probability function%
-\[  P(i\,|\,a,b) = 1 / (b - a + 1) \text{ .} \]
+the constant discrete probability function in \eqref{rand.dist.uni.int}.
+
+\begin{formula}{rand.dist.uni.int}
+P(i\,|\,a,b) = 1 / (b - a + 1)
+\end{formula}
 
 \indexlibraryglobal{uniform_int_distribution}%
 \indexlibrarymember{result_type}{uniform_int_distribution}%
@@ -4291,8 +4562,10 @@ A \tcode{uniform_real_distribution} random number distribution
 produces random numbers $x$,
 $a \leq x < b$,
 distributed according to
-the constant probability density function%
-\[ p(x\,|\,a,b) = 1 / (b - a) \text{ .} \]
+the constant probability density function in \eqref{rand.dist.uni.real}.
+\begin{formula}{rand.dist.uni.real}
+p(x\,|\,a,b) = 1 / (b - a)
+\end{formula}
 \begin{note}
 This implies that $p(x\,|\,a,b)$ is undefined when \tcode{a == b}.
 \end{note}
@@ -4409,12 +4682,13 @@ The value of the \tcode{b} parameter
 A \tcode{bernoulli_distribution} random number distribution
 produces \tcode{bool} values $b$
 distributed according to
-the discrete probability function
-\[  P(b\,|\,p) = \left\{ \begin{array}{ll}
-                          p     & \text{ if $b = \tcode{true}$, or} \\
-                          1 - p & \text{ if $b = \tcode{false}$.}
+the discrete probability function in \eqref{rand.dist.bern.bernoulli}.
+\begin{formula}{rand.dist.bern.bernoulli}
+P(b\,|\,p) = \left\{ \begin{array}{ll}
+                          p     & \text{ if $b = \tcode{true}$} \\
+                          1 - p & \text{ if $b = \tcode{false}$}
                           \end{array}\right.
-\]
+\end{formula}
 
 \indexlibraryglobal{bernoulli_distribution}%
 \indexlibrarymember{result_type}{bernoulli_distribution}%
@@ -4498,8 +4772,11 @@ The value of the \tcode{p} parameter
 A \tcode{binomial_distribution} random number distribution
 produces integer values $i \geq 0$
 distributed according to
-the discrete probability function%
-\[ P(i\,|\,t,p) = \binom{t}{i} \cdot p^i \cdot (1-p)^{t-i} \text{ .} \]
+the discrete probability function in \eqref{rand.dist.bern.bin}.
+
+\begin{formula}{rand.dist.bern.bin}
+P(i\,|\,t,p) = \binom{t}{i} \cdot p^i \cdot (1-p)^{t-i}
+\end{formula}
 
 \indexlibraryglobal{binomial_distribution}%
 \indexlibrarymember{result_type}{binomial_distribution}%
@@ -4596,8 +4873,10 @@ The value of the \tcode{p} parameter
 A \tcode{geometric_distribution} random number distribution
 produces integer values $i \geq 0$
 distributed according to
-the discrete probability function
-\[ P(i\,|\,p) = p \cdot (1-p)^{i} \text{ .} \]
+the discrete probability function in \eqref{rand.dist.bern.geo}.
+\begin{formula}{rand.dist.bern.geo}
+P(i\,|\,p) = p \cdot (1-p)^{i}
+\end{formula}
 
 \indexlibraryglobal{geometric_distribution}%
 \indexlibrarymember{result_type}{geometric_distribution}%
@@ -4683,8 +4962,10 @@ The value of the \tcode{p} parameter
 A \tcode{negative_binomial_distribution} random number distribution
 produces random integers $i \geq 0$
 distributed according to
-the discrete probability function
-\[ P(i\,|\,k,p) = \binom{k+i-1}{i} \cdot p^k \cdot (1-p)^i \text{ .} \]
+the discrete probability function in \eqref{rand.dist.bern.negbin}.
+\begin{formula}{rand.dist.bern.negbin}
+P(i\,|\,k,p) = \binom{k+i-1}{i} \cdot p^k \cdot (1-p)^i
+\end{formula}
 \begin{note}
 This implies that $P(i\,|\,k,p)$ is undefined when \tcode{p == 1}.
 \end{note}
@@ -4800,11 +5081,12 @@ The value of the \tcode{p} parameter
 A \tcode{poisson_distribution} random number distribution
 produces integer values $i \geq 0$
 distributed according to
-the discrete probability function
-\[ P(i\,|\,\mu) = \frac{e^{-\mu} \mu^{i}}{i\,!} \text{ .} \]
+the discrete probability function in \eqref{rand.dist.pois.poisson}.
+\begin{formula}{rand.dist.pois.poisson}
+P(i\,|\,\mu) = \frac{e^{-\mu} \mu^{i}}{i\,!}
+\end{formula}
 The distribution parameter $\mu$
-is also known as this distribution's \term{mean}%
-.
+is also known as this distribution's \term{mean}.
 
 \indexlibraryglobal{poisson_distribution}%
 \indexlibrarymember{result_type}{poisson_distribution}%
@@ -4887,8 +5169,10 @@ The value of the \tcode{mean} parameter
 An \tcode{exponential_distribution} random number distribution
 produces random numbers $x > 0$
 distributed according to
-the probability density function%
-\[ p(x\,|\,\lambda) = \lambda e^{-\lambda x} \text{ .} \]
+the probability density function in \eqref{rand.dist.pois.exp}.
+\begin{formula}{rand.dist.pois.exp}
+p(x\,|\,\lambda) = \lambda e^{-\lambda x}
+\end{formula}
 
 \indexlibraryglobal{exponential_distribution}%
 \indexlibrarymember{result_type}{exponential_distribution}%
@@ -4972,10 +5256,11 @@ The value of the \tcode{lambda} parameter
 A \tcode{gamma_distribution} random number distribution
 produces random numbers $x > 0$
 distributed according to
-the probability density function%
-\[ p(x\,|\,\alpha,\beta) =
+the probability density function in \eqref{rand.dist.pois.gamma}.
+\begin{formula}{rand.dist.pois.gamma}
+p(x\,|\,\alpha,\beta) =
      \frac{e^{-x/\beta}}{\beta^{\alpha} \cdot \Gamma(\alpha)} \, \cdot \, x^{\, \alpha-1}
-     \text{ .} \]
+\end{formula}
 
 \indexlibraryglobal{gamma_distribution}%
 \indexlibrarymember{result_type}{gamma_distribution}%
@@ -5074,11 +5359,12 @@ The value of the \tcode{beta} parameter
 A \tcode{weibull_distribution} random number distribution
 produces random numbers $x \geq 0$
 distributed according to
-the probability density function%
-\[ p(x\,|\,a,b) = \frac{a}{b}
+the probability density function in \eqref{rand.dist.pois.weibull}.
+\begin{formula}{rand.dist.pois.weibull}
+p(x\,|\,a,b) = \frac{a}{b}
      \cdot \left(\frac{x}{b}\right)^{a-1}
      \cdot \, \exp\left( -\left(\frac{x}{b}\right)^a\right)
-     \text{ .} \]
+\end{formula}
 
 \indexlibraryglobal{weibull_distribution}%
 \indexlibrarymember{result_type}{weibull_distribution}%
@@ -5176,7 +5462,7 @@ The value of the \tcode{b} parameter
 An \tcode{extreme_value_distribution} random number distribution
 produces random numbers $x$
 distributed according to
-the probability density function
+the probability density function in \eqref{rand.dist.pois.extreme}.
 \begin{footnote}
 The distribution corresponding to
  this probability density function
@@ -5187,9 +5473,10 @@ The distribution corresponding to
  or the Fisher-Tippett Type I
  distribution.
 \end{footnote}
-\[ p(x\,|\,a,b) = \frac{1}{b}
+\begin{formula}{rand.dist.pois.extreme}
+p(x\,|\,a,b) = \frac{1}{b}
      \cdot \exp\left(\frac{a-x}{b} - \exp\left(\frac{a-x}{b}\right)\right)
-     \text{ .} \]
+\end{formula}
 
 \indexlibraryglobal{extreme_value_distribution}%
 \indexlibrarymember{result_type}{extreme_value_distribution}%
@@ -5301,8 +5588,8 @@ The value of the \tcode{b} parameter
 A \tcode{normal_distribution} random number distribution
 produces random numbers $x$
 distributed according to
-the probability density function%
-\[%
+the probability density function in \eqref{rand.dist.norm.normal}.
+\begin{formula}{rand.dist.norm.normal}
  p(x\,|\,\mu,\sigma)
       = \frac{1}{\sigma \sqrt{2\pi}}
         \cdot
@@ -5311,8 +5598,7 @@ the probability density function%
                              {2 \sigma^2}
              \right)
             }
- \text{ .}
-\]
+\end{formula}
 The distribution parameters $\mu$ and $\sigma$
 are also known as this distribution's \term{mean}
 and \term{standard deviation}.
@@ -5414,10 +5700,11 @@ The value of the \tcode{stddev} parameter
 A \tcode{lognormal_distribution} random number distribution
 produces random numbers $x > 0$
 distributed according to
-the probability density function%
-\[ p(x\,|\,m,s) = \frac{1}{s x \sqrt{2 \pi}}
+the probability density function in \eqref{rand.dist.norm.lognormal}.
+\begin{formula}{rand.dist.norm.lognormal}
+p(x\,|\,m,s) = \frac{1}{s x \sqrt{2 \pi}}
      \cdot \exp{\left(-\frac{(\ln{x} - m)^2}{2 s^2}\right)}
-     \text{ .} \]
+\end{formula}
 
 \indexlibraryglobal{lognormal_distribution}%
 \indexlibrarymember{result_type}{lognormal_distribution}%
@@ -5516,8 +5803,10 @@ The value of the \tcode{s} parameter
 A \tcode{chi_squared_distribution} random number distribution
 produces random numbers $x > 0$
 distributed according to
-the probability density function%
-\[ p(x\,|\,n) = \frac{x^{(n/2)-1} \cdot e^{-x/2}}{\Gamma(n/2) \cdot 2^{n/2}} \text{ .} \]
+the probability density function in \eqref{rand.dist.norm.chisq}.
+\begin{formula}{rand.dist.norm.chisq}
+p(x\,|\,n) = \frac{x^{(n/2)-1} \cdot e^{-x/2}}{\Gamma(n/2) \cdot 2^{n/2}}
+\end{formula}
 
 \indexlibraryglobal{chi_squared_distribution}%
 \indexlibrarymember{result_type}{chi_squared_distribution}%
@@ -5602,8 +5891,10 @@ The value of the \tcode{n} parameter
 A \tcode{cauchy_distribution} random number distribution
 produces random numbers $x$
 distributed according to
-the probability density function%
-\[  p(x\,|\,a,b) = \left(\pi b \left(1 + \left(\frac{x-a}{b} \right)^2 \, \right)\right)^{-1} \text{ .} \]
+the probability density function in \eqref{rand.dist.norm.cauchy}.
+\begin{formula}{rand.dist.norm.cauchy}
+p(x\,|\,a,b) = \left(\pi b \left(1 + \left(\frac{x-a}{b} \right)^2 \, \right)\right)^{-1}
+\end{formula}
 
 \indexlibraryglobal{cauchy_distribution}%
 \indexlibrarymember{result_type}{cauchy_distribution}%
@@ -5702,12 +5993,13 @@ The value of the \tcode{b} parameter
 A \tcode{fisher_f_distribution} random number distribution
 produces random numbers $x \ge 0$
 distributed according to
-the probability density function%
-\[ p(x\,|\,m,n) = \frac{\Gamma\big((m+n)/2\big)}{\Gamma(m/2) \; \Gamma(n/2)}
+the probability density function in \eqref{rand.dist.norm.f}.
+\begin{formula}{rand.dist.norm.f}
+p(x\,|\,m,n) = \frac{\Gamma\big((m+n)/2\big)}{\Gamma(m/2) \; \Gamma(n/2)}
      \cdot \left(\frac{m}{n}\right)^{m/2}
      \cdot x^{(m/2)-1}
      \cdot \left(1 + \frac{m x}{n}\right)^{-(m + n)/2}
-     \text{ .} \]
+\end{formula}
 
 \indexlibraryglobal{fisher_f_distribution}%
 \indexlibrarymember{result_type}{fisher_distribution}%
@@ -5806,11 +6098,12 @@ The value of the \tcode{n} parameter
 A \tcode{student_t_distribution} random number distribution
 produces random numbers $x$
 distributed according to
-the probability density function%
-\[ p(x\,|\,n) = \frac{1}{\sqrt{n \pi}}
+the probability density function in \eqref{rand.dist.norm.t}.
+\begin{formula}{rand.dist.norm.t}
+p(x\,|\,n) = \frac{1}{\sqrt{n \pi}}
      \cdot \frac{\Gamma\big((n+1)/2\big)}{\Gamma(n/2)}
      \cdot \left(1 + \frac{x^2}{n} \right)^{-(n+1)/2}
-     \text{ .} \]
+\end{formula}
 
 \indexlibraryglobal{student_t_distribution}%
 \indexlibrarymember{result_type}{student_t_distribution}%
@@ -5909,8 +6202,10 @@ The value of the \tcode{n} parameter
 A \tcode{discrete_distribution} random number distribution
 produces random integers $i$, $0 \leq i < n$,
 distributed according to
-the discrete probability function%
-\[  P(i \,|\, p_0, \dotsc, p_{n-1}) = p_i \text{ .} \]
+the discrete probability function in \eqref{rand.dist.samp.discrete}.
+\begin{formula}{rand.dist.samp.discrete}
+P(i \,|\, p_0, \dotsc, p_{n-1}) = p_i
+\end{formula}
 
 \pnum
 Unless specified otherwise,
@@ -6011,7 +6306,7 @@ double>} is \tcode{true}.
 \pnum
 \effects
 Constructs a \tcode{discrete_distribution} object
-with probabilities given by the formula above.
+with probabilities given by the \eqref{rand.dist.samp.discrete}.
 \end{itemdescr}
 
 
@@ -6088,9 +6383,11 @@ produces random numbers $x$,
 $b_0 \leq x < b_n$,
 uniformly distributed over each subinterval
 $[ b_i, b_{i+1} )$
-according to the probability density function
-\[ p(x \,|\, b_0, \dotsc, b_n, \; \rho_0, \dotsc, \rho_{n-1}) = \rho_i
-   \text{ , for $b_i \le x < b_{i+1}$.} \]
+according to the probability density function in \eqref{rand.dist.samp.pconst}.
+\begin{formula}{rand.dist.samp.pconst}
+p(x \,|\, b_0, \dotsc, b_n, \; \rho_0, \dotsc, \rho_{n-1}) = \rho_i
+   \text{ , for $b_i \le x < b_{i+1}$}
+\end{formula}
 
 \pnum
 The $n + 1$ distribution parameters $b_i$,
@@ -6324,11 +6621,13 @@ produces random numbers $x$,
 $b_0 \leq x < b_n$,
 distributed over each subinterval
 $[b_i, b_{i+1})$
-according to the probability density function
-\[ p(x \,|\, b_0, \dotsc, b_n, \; \rho_0, \dotsc, \rho_n)
+according to the probability density function in \eqref{rand.dist.samp.plinear}.
+\begin{formula}{rand.dist.samp.plinear}
+p(x \,|\, b_0, \dotsc, b_n, \; \rho_0, \dotsc, \rho_n)
      = \rho_{i}   \cdot {\frac{b_{i+1} - x}{b_{i+1} - b_i}}
      + \rho_{i+1} \cdot {\frac{x - b_i}{b_{i+1} - b_i}}
-     \text{ , for $b_i \le x < b_{i+1}$.} \]
+     \text{ , for $b_i \le x < b_{i+1}$.}
+\end{formula}
 
 \pnum
 The $n + 1$ distribution parameters $b_i$,
@@ -9057,372 +9356,372 @@ namespace std {
 #define math_errhandling @\seebelow@
 
 namespace std {
-  constexpr @\placeholder{floating-point-type}@ acos(@\placeholder{floating-point-type}@ x);
-  constexpr float acosf(float x);
-  constexpr long double acosl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ acos(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               acosf(float x);
+  constexpr long double         acosl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ asin(@\placeholder{floating-point-type}@ x);
-  constexpr float asinf(float x);
-  constexpr long double asinl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ asin(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               asinf(float x);
+  constexpr long double         asinl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ atan(@\placeholder{floating-point-type}@ x);
-  constexpr float atanf(float x);
-  constexpr long double atanl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ atan(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               atanf(float x);
+  constexpr long double         atanl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ atan2(@\placeholder{floating-point-type}@ y, @\placeholder{floating-point-type}@ x);
-  constexpr float atan2f(float y, float x);
-  constexpr long double atan2l(long double y, long double x);
+  constexpr @\placeholdernc{floating-point-type}@ atan2(@\placeholdernc{floating-point-type}@ y, @\placeholdernc{floating-point-type}@ x);
+  constexpr float               atan2f(float y, float x);
+  constexpr long double         atan2l(long double y, long double x);
 
-  constexpr @\placeholder{floating-point-type}@ cos(@\placeholder{floating-point-type}@ x);
-  constexpr float cosf(float x);
-  constexpr long double cosl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ cos(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               cosf(float x);
+  constexpr long double         cosl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ sin(@\placeholder{floating-point-type}@ x);
-  constexpr float sinf(float x);
-  constexpr long double sinl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ sin(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               sinf(float x);
+  constexpr long double         sinl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ tan(@\placeholder{floating-point-type}@ x);
-  constexpr float tanf(float x);
-  constexpr long double tanl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ tan(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               tanf(float x);
+  constexpr long double         tanl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ acosh(@\placeholder{floating-point-type}@ x);
-  constexpr float acoshf(float x);
-  constexpr long double acoshl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ acosh(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               acoshf(float x);
+  constexpr long double         acoshl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ asinh(@\placeholder{floating-point-type}@ x);
-  constexpr float asinhf(float x);
-  constexpr long double asinhl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ asinh(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               asinhf(float x);
+  constexpr long double         asinhl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ atanh(@\placeholder{floating-point-type}@ x);
-  constexpr float atanhf(float x);
-  constexpr long double atanhl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ atanh(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               atanhf(float x);
+  constexpr long double         atanhl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ cosh(@\placeholder{floating-point-type}@ x);
-  constexpr float coshf(float x);
-  constexpr long double coshl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ cosh(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               coshf(float x);
+  constexpr long double         coshl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ sinh(@\placeholder{floating-point-type}@ x);
-  constexpr float sinhf(float x);
-  constexpr long double sinhl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ sinh(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               sinhf(float x);
+  constexpr long double         sinhl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ tanh(@\placeholder{floating-point-type}@ x);
-  constexpr float tanhf(float x);
-  constexpr long double tanhl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ tanh(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               tanhf(float x);
+  constexpr long double         tanhl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ exp(@\placeholder{floating-point-type}@ x);
-  constexpr float expf(float x);
-  constexpr long double expl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ exp(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               expf(float x);
+  constexpr long double         expl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ exp2(@\placeholder{floating-point-type}@ x);
-  constexpr float exp2f(float x);
-  constexpr long double exp2l(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ exp2(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               exp2f(float x);
+  constexpr long double         exp2l(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ expm1(@\placeholder{floating-point-type}@ x);
-  constexpr float expm1f(float x);
-  constexpr long double expm1l(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ expm1(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               expm1f(float x);
+  constexpr long double         expm1l(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ frexp(@\placeholder{floating-point-type}@ value, int* exp);
-  constexpr float frexpf(float value, int* exp);
-  constexpr long double frexpl(long double value, int* exp);
+  constexpr @\placeholdernc{floating-point-type}@ frexp(@\placeholdernc{floating-point-type}@ value, int* exp);
+  constexpr float               frexpf(float value, int* exp);
+  constexpr long double         frexpl(long double value, int* exp);
 
-  constexpr int ilogb(@\placeholder{floating-point-type}@ x);
+  constexpr int ilogb(@\placeholdernc{floating-point-type}@ x);
   constexpr int ilogbf(float x);
   constexpr int ilogbl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ ldexp(@\placeholder{floating-point-type}@ x, int exp);
-  constexpr float ldexpf(float x, int exp);
-  constexpr long double ldexpl(long double x, int exp);
+  constexpr @\placeholdernc{floating-point-type}@ ldexp(@\placeholdernc{floating-point-type}@ x, int exp);
+  constexpr float               ldexpf(float x, int exp);
+  constexpr long double         ldexpl(long double x, int exp);
 
-  constexpr @\placeholder{floating-point-type}@ log(@\placeholder{floating-point-type}@ x);
-  constexpr float logf(float x);
-  constexpr long double logl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ log(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               logf(float x);
+  constexpr long double         logl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ log10(@\placeholder{floating-point-type}@ x);
-  constexpr float log10f(float x);
-  constexpr long double log10l(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ log10(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               log10f(float x);
+  constexpr long double         log10l(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ log1p(@\placeholder{floating-point-type}@ x);
-  constexpr float log1pf(float x);
-  constexpr long double log1pl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ log1p(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               log1pf(float x);
+  constexpr long double         log1pl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ log2(@\placeholder{floating-point-type}@ x);
-  constexpr float log2f(float x);
-  constexpr long double log2l(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ log2(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               log2f(float x);
+  constexpr long double         log2l(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ logb(@\placeholder{floating-point-type}@ x);
-  constexpr float logbf(float x);
-  constexpr long double logbl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ logb(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               logbf(float x);
+  constexpr long double         logbl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ modf(@\placeholder{floating-point-type}@ value, @\placeholder{floating-point-type}@* iptr);
-  constexpr float modff(float value, float* iptr);
-  constexpr long double modfl(long double value, long double* iptr);
+  constexpr @\placeholdernc{floating-point-type}@ modf(@\placeholdernc{floating-point-type}@ value, @\placeholdernc{floating-point-type}@* iptr);
+  constexpr float               modff(float value, float* iptr);
+  constexpr long double         modfl(long double value, long double* iptr);
 
-  constexpr @\placeholder{floating-point-type}@ scalbn(@\placeholder{floating-point-type}@ x, int n);
-  constexpr float scalbnf(float x, int n);
-  constexpr long double scalbnl(long double x, int n);
+  constexpr @\placeholdernc{floating-point-type}@ scalbn(@\placeholdernc{floating-point-type}@ x, int n);
+  constexpr float               scalbnf(float x, int n);
+  constexpr long double         scalbnl(long double x, int n);
 
-  constexpr @\placeholder{floating-point-type}@ scalbln(@\placeholder{floating-point-type}@ x, long int n);
-  constexpr float scalblnf(float x, long int n);
-  constexpr long double scalblnl(long double x, long int n);
+  constexpr @\placeholdernc{floating-point-type}@ scalbln(@\placeholdernc{floating-point-type}@ x, long int n);
+  constexpr float               scalblnf(float x, long int n);
+  constexpr long double         scalblnl(long double x, long int n);
 
-  constexpr @\placeholder{floating-point-type}@ cbrt(@\placeholder{floating-point-type}@ x);
-  constexpr float cbrtf(float x);
-  constexpr long double cbrtl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ cbrt(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               cbrtf(float x);
+  constexpr long double         cbrtl(long double x);
 
   // \ref{c.math.abs}, absolute values
-  constexpr int abs(int j);                                             // freestanding
-  constexpr long int abs(long int j);                                   // freestanding
-  constexpr long long int abs(long long int j);                         // freestanding
-  constexpr @\placeholder{floating-point-type}@ abs(@\placeholder{floating-point-type}@ j);            // freestanding-deleted
+  constexpr int                 abs(int j);                             // freestanding
+  constexpr long int            abs(long int j);                        // freestanding
+  constexpr long long int       abs(long long int j);                   // freestanding
+  constexpr @\placeholdernc{floating-point-type}@ abs(@\placeholdernc{floating-point-type}@ j);             // freestanding-deleted
 
-  constexpr @\placeholder{floating-point-type}@ fabs(@\placeholder{floating-point-type}@ x);
-  constexpr float fabsf(float x);
-  constexpr long double fabsl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ fabs(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               fabsf(float x);
+  constexpr long double         fabsl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ hypot(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y);
-  constexpr float hypotf(float x, float y);
-  constexpr long double hypotl(long double x, long double y);
+  constexpr @\placeholdernc{floating-point-type}@ hypot(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y);
+  constexpr float               hypotf(float x, float y);
+  constexpr long double         hypotl(long double x, long double y);
 
   // \ref{c.math.hypot3}, three-dimensional hypotenuse
-  constexpr @\placeholder{floating-point-type}@ hypot(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y,
-                                      @\placeholder{floating-point-type}@ z);
+  constexpr @\placeholdernc{floating-point-type}@ hypot(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y,
+                                      @\placeholdernc{floating-point-type}@ z);
 
-  constexpr @\placeholder{floating-point-type}@ pow(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y);
-  constexpr float powf(float x, float y);
-  constexpr long double powl(long double x, long double y);
+  constexpr @\placeholdernc{floating-point-type}@ pow(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y);
+  constexpr float               powf(float x, float y);
+  constexpr long double         powl(long double x, long double y);
 
-  constexpr @\placeholder{floating-point-type}@ sqrt(@\placeholder{floating-point-type}@ x);
-  constexpr float sqrtf(float x);
-  constexpr long double sqrtl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ sqrt(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               sqrtf(float x);
+  constexpr long double         sqrtl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ erf(@\placeholder{floating-point-type}@ x);
-  constexpr float erff(float x);
-  constexpr long double erfl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ erf(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               erff(float x);
+  constexpr long double         erfl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ erfc(@\placeholder{floating-point-type}@ x);
-  constexpr float erfcf(float x);
-  constexpr long double erfcl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ erfc(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               erfcf(float x);
+  constexpr long double         erfcl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ lgamma(@\placeholder{floating-point-type}@ x);
-  constexpr float lgammaf(float x);
-  constexpr long double lgammal(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ lgamma(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               lgammaf(float x);
+  constexpr long double         lgammal(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ tgamma(@\placeholder{floating-point-type}@ x);
-  constexpr float tgammaf(float x);
-  constexpr long double tgammal(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ tgamma(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               tgammaf(float x);
+  constexpr long double         tgammal(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ ceil(@\placeholder{floating-point-type}@ x);
-  constexpr float ceilf(float x);
-  constexpr long double ceill(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ ceil(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               ceilf(float x);
+  constexpr long double         ceill(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ floor(@\placeholder{floating-point-type}@ x);
-  constexpr float floorf(float x);
-  constexpr long double floorl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ floor(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               floorf(float x);
+  constexpr long double         floorl(long double x);
 
-  @\placeholder{floating-point-type}@ nearbyint(@\placeholder{floating-point-type}@ x);
-  float nearbyintf(float x);
-  long double nearbyintl(long double x);
+  @\placeholdernc{floating-point-type}@ nearbyint(@\placeholdernc{floating-point-type}@ x);
+  float               nearbyintf(float x);
+  long double         nearbyintl(long double x);
 
-  @\placeholder{floating-point-type}@ rint(@\placeholder{floating-point-type}@ x);
-  float rintf(float x);
-  long double rintl(long double x);
+  @\placeholdernc{floating-point-type}@ rint(@\placeholdernc{floating-point-type}@ x);
+  float               rintf(float x);
+  long double         rintl(long double x);
 
-  long int lrint(@\placeholder{floating-point-type}@ x);
+  long int lrint(@\placeholdernc{floating-point-type}@ x);
   long int lrintf(float x);
   long int lrintl(long double x);
 
-  long long int llrint(@\placeholder{floating-point-type}@ x);
+  long long int llrint(@\placeholdernc{floating-point-type}@ x);
   long long int llrintf(float x);
   long long int llrintl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ round(@\placeholder{floating-point-type}@ x);
-  constexpr float roundf(float x);
-  constexpr long double roundl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ round(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               roundf(float x);
+  constexpr long double         roundl(long double x);
 
-  constexpr long int lround(@\placeholder{floating-point-type}@ x);
+  constexpr long int lround(@\placeholdernc{floating-point-type}@ x);
   constexpr long int lroundf(float x);
   constexpr long int lroundl(long double x);
 
-  constexpr long long int llround(@\placeholder{floating-point-type}@ x);
+  constexpr long long int llround(@\placeholdernc{floating-point-type}@ x);
   constexpr long long int llroundf(float x);
   constexpr long long int llroundl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ trunc(@\placeholder{floating-point-type}@ x);
-  constexpr float truncf(float x);
-  constexpr long double truncl(long double x);
+  constexpr @\placeholdernc{floating-point-type}@ trunc(@\placeholdernc{floating-point-type}@ x);
+  constexpr float               truncf(float x);
+  constexpr long double         truncl(long double x);
 
-  constexpr @\placeholder{floating-point-type}@ fmod(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y);
-  constexpr float fmodf(float x, float y);
-  constexpr long double fmodl(long double x, long double y);
+  constexpr @\placeholdernc{floating-point-type}@ fmod(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y);
+  constexpr float               fmodf(float x, float y);
+  constexpr long double         fmodl(long double x, long double y);
 
-  constexpr @\placeholder{floating-point-type}@ remainder(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y);
-  constexpr float remainderf(float x, float y);
-  constexpr long double remainderl(long double x, long double y);
+  constexpr @\placeholdernc{floating-point-type}@ remainder(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y);
+  constexpr float               remainderf(float x, float y);
+  constexpr long double         remainderl(long double x, long double y);
 
-  constexpr @\placeholder{floating-point-type}@ remquo(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y, int* quo);
-  constexpr float remquof(float x, float y, int* quo);
-  constexpr long double remquol(long double x, long double y, int* quo);
+  constexpr @\placeholdernc{floating-point-type}@ remquo(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y, int* quo);
+  constexpr float               remquof(float x, float y, int* quo);
+  constexpr long double         remquol(long double x, long double y, int* quo);
 
-  constexpr @\placeholder{floating-point-type}@ copysign(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y);
-  constexpr float copysignf(float x, float y);
-  constexpr long double copysignl(long double x, long double y);
+  constexpr @\placeholdernc{floating-point-type}@ copysign(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y);
+  constexpr float               copysignf(float x, float y);
+  constexpr long double         copysignl(long double x, long double y);
 
-  double nan(const char* tagp);
-  float nanf(const char* tagp);
+  double      nan(const char* tagp);
+  float       nanf(const char* tagp);
   long double nanl(const char* tagp);
 
-  constexpr @\placeholder{floating-point-type}@ nextafter(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y);
-  constexpr float nextafterf(float x, float y);
-  constexpr long double nextafterl(long double x, long double y);
+  constexpr @\placeholdernc{floating-point-type}@ nextafter(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y);
+  constexpr float               nextafterf(float x, float y);
+  constexpr long double         nextafterl(long double x, long double y);
 
-  constexpr @\placeholder{floating-point-type}@ nexttoward(@\placeholder{floating-point-type}@ x, long double y);
-  constexpr float nexttowardf(float x, long double y);
-  constexpr long double nexttowardl(long double x, long double y);
+  constexpr @\placeholdernc{floating-point-type}@ nexttoward(@\placeholdernc{floating-point-type}@ x, long double y);
+  constexpr float               nexttowardf(float x, long double y);
+  constexpr long double         nexttowardl(long double x, long double y);
 
-  constexpr @\placeholder{floating-point-type}@ fdim(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y);
-  constexpr float fdimf(float x, float y);
-  constexpr long double fdiml(long double x, long double y);
+  constexpr @\placeholdernc{floating-point-type}@ fdim(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y);
+  constexpr float               fdimf(float x, float y);
+  constexpr long double         fdiml(long double x, long double y);
 
-  constexpr @\placeholder{floating-point-type}@ fmax(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y);
-  constexpr float fmaxf(float x, float y);
-  constexpr long double fmaxl(long double x, long double y);
+  constexpr @\placeholdernc{floating-point-type}@ fmax(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y);
+  constexpr float               fmaxf(float x, float y);
+  constexpr long double         fmaxl(long double x, long double y);
 
-  constexpr @\placeholder{floating-point-type}@ fmin(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y);
-  constexpr float fminf(float x, float y);
-  constexpr long double fminl(long double x, long double y);
+  constexpr @\placeholdernc{floating-point-type}@ fmin(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y);
+  constexpr float               fminf(float x, float y);
+  constexpr long double         fminl(long double x, long double y);
 
-  constexpr @\placeholder{floating-point-type}@ fma(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y,
-                                    @\placeholder{floating-point-type}@ z);
-  constexpr float fmaf(float x, float y, float z);
-  constexpr long double fmal(long double x, long double y, long double z);
+  constexpr @\placeholdernc{floating-point-type}@ fma(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y,
+                                    @\placeholdernc{floating-point-type}@ z);
+  constexpr float               fmaf(float x, float y, float z);
+  constexpr long double         fmal(long double x, long double y, long double z);
 
   // \ref{c.math.lerp}, linear interpolation
-  constexpr @\placeholder{floating-point-type}@ lerp(@\placeholder{floating-point-type}@ a, @\placeholder{floating-point-type}@ b,
-                                     @\placeholder{floating-point-type}@ t) noexcept;
+  constexpr @\placeholdernc{floating-point-type}@ lerp(@\placeholdernc{floating-point-type}@ a, @\placeholdernc{floating-point-type}@ b,
+                                     @\placeholdernc{floating-point-type}@ t) noexcept;
 
   // \ref{c.math.fpclass}, classification / comparison functions
-  constexpr int fpclassify(@\placeholder{floating-point-type}@ x);
-  constexpr bool isfinite(@\placeholder{floating-point-type}@ x);
-  constexpr bool isinf(@\placeholder{floating-point-type}@ x);
-  constexpr bool isnan(@\placeholder{floating-point-type}@ x);
-  constexpr bool isnormal(@\placeholder{floating-point-type}@ x);
-  constexpr bool signbit(@\placeholder{floating-point-type}@ x);
-  constexpr bool isgreater(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y);
-  constexpr bool isgreaterequal(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y);
-  constexpr bool isless(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y);
-  constexpr bool islessequal(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y);
-  constexpr bool islessgreater(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y);
-  constexpr bool isunordered(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y);
+  constexpr int fpclassify(@\placeholdernc{floating-point-type}@ x);
+  constexpr bool isfinite(@\placeholdernc{floating-point-type}@ x);
+  constexpr bool isinf(@\placeholdernc{floating-point-type}@ x);
+  constexpr bool isnan(@\placeholdernc{floating-point-type}@ x);
+  constexpr bool isnormal(@\placeholdernc{floating-point-type}@ x);
+  constexpr bool signbit(@\placeholdernc{floating-point-type}@ x);
+  constexpr bool isgreater(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y);
+  constexpr bool isgreaterequal(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y);
+  constexpr bool isless(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y);
+  constexpr bool islessequal(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y);
+  constexpr bool islessgreater(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y);
+  constexpr bool isunordered(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y);
 
   // \ref{sf.cmath}, mathematical special functions
 
   // \ref{sf.cmath.assoc.laguerre}, associated Laguerre polynomials
-  @\placeholder{floating-point-type}@ assoc_laguerre(unsigned n, unsigned m, @\placeholder{floating-point-type}@ x);
-  float        assoc_laguerref(unsigned n, unsigned m, float x);
-  long double  assoc_laguerrel(unsigned n, unsigned m, long double x);
+  @\placeholdernc{floating-point-type}@ assoc_laguerre(unsigned n, unsigned m, @\placeholdernc{floating-point-type}@ x);
+  float               assoc_laguerref(unsigned n, unsigned m, float x);
+  long double         assoc_laguerrel(unsigned n, unsigned m, long double x);
 
   // \ref{sf.cmath.assoc.legendre}, associated Legendre functions
-  @\placeholder{floating-point-type}@ assoc_legendre(unsigned l, unsigned m, @\placeholder{floating-point-type}@ x);
-  float        assoc_legendref(unsigned l, unsigned m, float x);
-  long double  assoc_legendrel(unsigned l, unsigned m, long double x);
+  @\placeholdernc{floating-point-type}@ assoc_legendre(unsigned l, unsigned m, @\placeholdernc{floating-point-type}@ x);
+  float               assoc_legendref(unsigned l, unsigned m, float x);
+  long double         assoc_legendrel(unsigned l, unsigned m, long double x);
 
   // \ref{sf.cmath.beta}, beta function
-  @\placeholder{floating-point-type}@ beta(@\placeholder{floating-point-type}@ x, @\placeholder{floating-point-type}@ y);
-  float        betaf(float x, float y);
-  long double  betal(long double x, long double y);
+  @\placeholdernc{floating-point-type}@ beta(@\placeholdernc{floating-point-type}@ x, @\placeholdernc{floating-point-type}@ y);
+  float               betaf(float x, float y);
+  long double         betal(long double x, long double y);
 
   // \ref{sf.cmath.comp.ellint.1}, complete elliptic integral of the first kind
-  @\placeholder{floating-point-type}@ comp_ellint_1(@\placeholder{floating-point-type}@ k);
-  float        comp_ellint_1f(float k);
-  long double  comp_ellint_1l(long double k);
+  @\placeholdernc{floating-point-type}@ comp_ellint_1(@\placeholdernc{floating-point-type}@ k);
+  float               comp_ellint_1f(float k);
+  long double         comp_ellint_1l(long double k);
 
   // \ref{sf.cmath.comp.ellint.2}, complete elliptic integral of the second kind
-  @\placeholder{floating-point-type}@ comp_ellint_2(@\placeholder{floating-point-type}@ k);
-  float        comp_ellint_2f(float k);
-  long double  comp_ellint_2l(long double k);
+  @\placeholdernc{floating-point-type}@ comp_ellint_2(@\placeholdernc{floating-point-type}@ k);
+  float               comp_ellint_2f(float k);
+  long double         comp_ellint_2l(long double k);
 
   // \ref{sf.cmath.comp.ellint.3}, complete elliptic integral of the third kind
-  @\placeholder{floating-point-type}@ comp_ellint_3(@\placeholder{floating-point-type}@ k, @\placeholder{floating-point-type}@ nu);
-  float        comp_ellint_3f(float k, float nu);
-  long double  comp_ellint_3l(long double k, long double nu);
+  @\placeholdernc{floating-point-type}@ comp_ellint_3(@\placeholdernc{floating-point-type}@ k, @\placeholdernc{floating-point-type}@ nu);
+  float               comp_ellint_3f(float k, float nu);
+  long double         comp_ellint_3l(long double k, long double nu);
 
   // \ref{sf.cmath.cyl.bessel.i}, regular modified cylindrical Bessel functions
-  @\placeholder{floating-point-type}@ cyl_bessel_i(@\placeholder{floating-point-type}@ nu, @\placeholder{floating-point-type}@ x);
-  float        cyl_bessel_if(float nu, float x);
-  long double  cyl_bessel_il(long double nu, long double x);
+  @\placeholdernc{floating-point-type}@ cyl_bessel_i(@\placeholdernc{floating-point-type}@ nu, @\placeholdernc{floating-point-type}@ x);
+  float               cyl_bessel_if(float nu, float x);
+  long double         cyl_bessel_il(long double nu, long double x);
 
   // \ref{sf.cmath.cyl.bessel.j}, cylindrical Bessel functions of the first kind
-  @\placeholder{floating-point-type}@ cyl_bessel_j(@\placeholder{floating-point-type}@ nu, @\placeholder{floating-point-type}@ x);
-  float        cyl_bessel_jf(float nu, float x);
-  long double  cyl_bessel_jl(long double nu, long double x);
+  @\placeholdernc{floating-point-type}@ cyl_bessel_j(@\placeholdernc{floating-point-type}@ nu, @\placeholdernc{floating-point-type}@ x);
+  float               cyl_bessel_jf(float nu, float x);
+  long double         cyl_bessel_jl(long double nu, long double x);
 
   // \ref{sf.cmath.cyl.bessel.k}, irregular modified cylindrical Bessel functions
-  @\placeholder{floating-point-type}@ cyl_bessel_k(@\placeholder{floating-point-type}@ nu, @\placeholder{floating-point-type}@ x);
-  float        cyl_bessel_kf(float nu, float x);
-  long double  cyl_bessel_kl(long double nu, long double x);
+  @\placeholdernc{floating-point-type}@ cyl_bessel_k(@\placeholdernc{floating-point-type}@ nu, @\placeholdernc{floating-point-type}@ x);
+  float               cyl_bessel_kf(float nu, float x);
+  long double         cyl_bessel_kl(long double nu, long double x);
 
   // \ref{sf.cmath.cyl.neumann}, cylindrical Neumann functions
   // cylindrical Bessel functions of the second kind
-  @\placeholder{floating-point-type}@       cyl_neumann(@\placeholder{floating-point-type}@ nu, @\placeholder{floating-point-type}@ x);
-  float        cyl_neumannf(float nu, float x);
-  long double  cyl_neumannl(long double nu, long double x);
+  @\placeholdernc{floating-point-type}@ cyl_neumann(@\placeholdernc{floating-point-type}@ nu, @\placeholdernc{floating-point-type}@ x);
+  float               cyl_neumannf(float nu, float x);
+  long double         cyl_neumannl(long double nu, long double x);
 
   // \ref{sf.cmath.ellint.1}, incomplete elliptic integral of the first kind
-  @\placeholder{floating-point-type}@ ellint_1(@\placeholder{floating-point-type}@ k, @\placeholder{floating-point-type}@ phi);
-  float        ellint_1f(float k, float phi);
-  long double  ellint_1l(long double k, long double phi);
+  @\placeholdernc{floating-point-type}@ ellint_1(@\placeholdernc{floating-point-type}@ k, @\placeholdernc{floating-point-type}@ phi);
+  float               ellint_1f(float k, float phi);
+  long double         ellint_1l(long double k, long double phi);
 
   // \ref{sf.cmath.ellint.2}, incomplete elliptic integral of the second kind
-  @\placeholder{floating-point-type}@ ellint_2(@\placeholder{floating-point-type}@ k, @\placeholder{floating-point-type}@ phi);
-  float        ellint_2f(float k, float phi);
-  long double  ellint_2l(long double k, long double phi);
+  @\placeholdernc{floating-point-type}@ ellint_2(@\placeholdernc{floating-point-type}@ k, @\placeholdernc{floating-point-type}@ phi);
+  float               ellint_2f(float k, float phi);
+  long double         ellint_2l(long double k, long double phi);
 
   // \ref{sf.cmath.ellint.3}, incomplete elliptic integral of the third kind
-  @\placeholder{floating-point-type}@ ellint_3(@\placeholder{floating-point-type}@ k, @\placeholder{floating-point-type}@ nu,
-                                 @\placeholder{floating-point-type}@ phi);
-  float        ellint_3f(float k, float nu, float phi);
-  long double  ellint_3l(long double k, long double nu, long double phi);
+  @\placeholdernc{floating-point-type}@ ellint_3(@\placeholdernc{floating-point-type}@ k, @\placeholdernc{floating-point-type}@ nu,
+                                 @\placeholdernc{floating-point-type}@ phi);
+  float               ellint_3f(float k, float nu, float phi);
+  long double         ellint_3l(long double k, long double nu, long double phi);
 
   // \ref{sf.cmath.expint}, exponential integral
-  @\placeholder{floating-point-type}@ expint(@\placeholder{floating-point-type}@ x);
-  float        expintf(float x);
-  long double  expintl(long double x);
+  @\placeholdernc{floating-point-type}@ expint(@\placeholdernc{floating-point-type}@ x);
+  float               expintf(float x);
+  long double         expintl(long double x);
 
   // \ref{sf.cmath.hermite}, Hermite polynomials
-  @\placeholder{floating-point-type}@ hermite(unsigned n, @\placeholder{floating-point-type}@ x);
-  float        hermitef(unsigned n, float x);
-  long double  hermitel(unsigned n, long double x);
+  @\placeholdernc{floating-point-type}@ hermite(unsigned n, @\placeholdernc{floating-point-type}@ x);
+  float               hermitef(unsigned n, float x);
+  long double         hermitel(unsigned n, long double x);
 
   // \ref{sf.cmath.laguerre}, Laguerre polynomials
-  @\placeholder{floating-point-type}@ laguerre(unsigned n, @\placeholder{floating-point-type}@ x);
-  float        laguerref(unsigned n, float x);
-  long double  laguerrel(unsigned n, long double x);
+  @\placeholdernc{floating-point-type}@ laguerre(unsigned n, @\placeholdernc{floating-point-type}@ x);
+  float               laguerref(unsigned n, float x);
+  long double         laguerrel(unsigned n, long double x);
 
   // \ref{sf.cmath.legendre}, Legendre polynomials
-  @\placeholder{floating-point-type}@ legendre(unsigned l, @\placeholder{floating-point-type}@ x);
-  float        legendref(unsigned l, float x);
-  long double  legendrel(unsigned l, long double x);
+  @\placeholdernc{floating-point-type}@ legendre(unsigned l, @\placeholdernc{floating-point-type}@ x);
+  float               legendref(unsigned l, float x);
+  long double         legendrel(unsigned l, long double x);
 
   // \ref{sf.cmath.riemann.zeta}, Riemann zeta function
-  @\placeholder{floating-point-type}@ riemann_zeta(@\placeholder{floating-point-type}@ x);
-  float        riemann_zetaf(float x);
-  long double  riemann_zetal(long double x);
+  @\placeholdernc{floating-point-type}@ riemann_zeta(@\placeholdernc{floating-point-type}@ x);
+  float               riemann_zetaf(float x);
+  long double         riemann_zetal(long double x);
 
   // \ref{sf.cmath.sph.bessel}, spherical Bessel functions of the first kind
-  @\placeholder{floating-point-type}@ sph_bessel(unsigned n, @\placeholder{floating-point-type}@ x);
-  float        sph_besself(unsigned n, float x);
-  long double  sph_bessell(unsigned n, long double x);
+  @\placeholdernc{floating-point-type}@ sph_bessel(unsigned n, @\placeholdernc{floating-point-type}@ x);
+  float               sph_besself(unsigned n, float x);
+  long double         sph_bessell(unsigned n, long double x);
 
   // \ref{sf.cmath.sph.legendre}, spherical associated Legendre functions
-  @\placeholder{floating-point-type}@ sph_legendre(unsigned l, unsigned m, @\placeholder{floating-point-type}@ theta);
-  float        sph_legendref(unsigned l, unsigned m, float theta);
-  long double  sph_legendrel(unsigned l, unsigned m, long double theta);
+  @\placeholdernc{floating-point-type}@ sph_legendre(unsigned l, unsigned m, @\placeholdernc{floating-point-type}@ theta);
+  float               sph_legendref(unsigned l, unsigned m, float theta);
+  long double         sph_legendrel(unsigned l, unsigned m, long double theta);
 
   // \ref{sf.cmath.sph.neumann}, spherical Neumann functions;
   // spherical Bessel functions of the second kind
-  @\placeholder{floating-point-type}@ sph_neumann(unsigned n, @\placeholder{floating-point-type}@ x);
-  float        sph_neumannf(unsigned n, float x);
-  long double  sph_neumannl(unsigned n, long double x);
+  @\placeholdernc{floating-point-type}@ sph_neumann(unsigned n, @\placeholdernc{floating-point-type}@ x);
+  float               sph_neumannf(unsigned n, float x);
+  long double         sph_neumannl(unsigned n, long double x);
 }
 \end{codeblock}
 
@@ -9648,13 +9947,16 @@ of their respective arguments
 
 \pnum
 \returns
-\[ \mathsf{L}_n^m(x) =
-   (-1)^m \frac{\mathsf{d} ^ m}{\mathsf{d}x ^ m} \, \mathsf{L}_{n+m}(x)
-   \text{ ,\quad for $x \ge 0$,} \]
-where
+$\mathsf{L}_n^m(x)$,
+where $\mathsf{L}_n^m$ is given by \eqref{sf.cmath.assoc.laguerre},
 $n$ is \tcode{n},
 $m$ is \tcode{m}, and
 $x$ is \tcode{x}.
+\begin{formula}{sf.cmath.assoc.laguerre}
+\mathsf{L}_n^m(x) =
+   (-1)^m \frac{\mathsf{d} ^ m}{\mathsf{d}x ^ m} \, \mathsf{L}_{n+m}(x)
+   \text{ ,\quad for $x \ge 0$}
+\end{formula}
 
 \pnum
 \remarks
@@ -9686,13 +9988,16 @@ of their respective arguments
 
 \pnum
 \returns
-\[ \mathsf{P}_\ell^m(x) = (1 - x^2) ^ {m/2} \:
-   \frac{\mathsf{d} ^ m}{\mathsf{d}x ^ m} \, \mathsf{P}_\ell(x)
-   \text{ ,\quad for $|x| \le 1$,} \]
-where
+$\mathsf{P}_\ell^m(x)$,
+where $\mathsf{P}_\ell^m$ is given by \eqref{sf.cmath.assoc.legendre},
 $l$ is \tcode{l},
 $m$ is \tcode{m}, and
 $x$ is \tcode{x}.
+\begin{formula}{sf.cmath.assoc.legendre}
+\mathsf{P}_\ell^m(x) = (1 - x^2) ^ {m/2} \:
+   \frac{\mathsf{d} ^ m}{\mathsf{d}x ^ m} \, \mathsf{P}_\ell(x)
+   \text{ ,\quad for $|x| \le 1$}
+\end{formula}
 
 \pnum
 \remarks
@@ -9723,11 +10028,14 @@ of their respective arguments
 
 \pnum
 \returns
-\[ \mathsf{B}(x, y) = \frac{\Gamma(x) \, \Gamma(y)}{\Gamma(x + y)}
-   \text{ ,\quad for $x > 0$,\, $y > 0$,} \]
-where
+$\mathsf{B}(x, y)$,
+where $\mathsf{B}$ is given by \eqref{sf.cmath.beta},
 $x$ is \tcode{x} and
 $y$ is \tcode{y}.
+\begin{formula}{sf.cmath.beta}
+\mathsf{B}(x, y) = \frac{\Gamma(x) \, \Gamma(y)}{\Gamma(x + y)}
+   \text{ ,\quad for $x > 0$,\, $y > 0$}
+\end{formula}
 \end{itemdescr}
 
 \rSec3[sf.cmath.comp.ellint.1]{Complete elliptic integral of the first kind}%
@@ -9752,9 +10060,12 @@ of their respective arguments
 
 \pnum
 \returns
-\[ \mathsf{K}(k) = \mathsf{F}(k, \pi / 2) \text{ ,\quad for $|k| \le 1$,} \]
-where
+$\mathsf{K}(k)$,
+where $\mathsf{K}$ is given by \eqref{sf.cmath.comp.ellint.1} and
 $k$ is \tcode{k}.
+\begin{formula}{sf.cmath.comp.ellint.1}
+\mathsf{K}(k) = \mathsf{F}(k, \pi / 2) \text{ ,\quad for $|k| \le 1$}
+\end{formula}
 
 \pnum
 See also \ref{sf.cmath.ellint.1}.
@@ -9782,9 +10093,12 @@ of their respective arguments
 
 \pnum
 \returns
-\[ \mathsf{E}(k) = \mathsf{E}(k, \pi / 2) \text{ ,\quad for $|k| \le 1$,} \]
-where
+$\mathsf{E}(k)$,
+where $\mathsf{E}$ is given by \eqref{sf.cmath.comp.ellint.2} and
 $k$ is \tcode{k}.
+\begin{formula}{sf.cmath.comp.ellint.2}
+\mathsf{E}(k) = \mathsf{E}(k, \pi / 2) \text{ ,\quad for $|k| \le 1$}
+\end{formula}
 
 \pnum
 See also \ref{sf.cmath.ellint.2}.
@@ -9812,10 +10126,13 @@ of their respective arguments
 
 \pnum
 \returns
-\[ \mathsf{\Pi}(\nu, k) = \mathsf{\Pi}(\nu, k, \pi / 2) \text{ ,\quad for $|k| \le 1$,} \]
-where
-$k$ is \tcode{k} and
+$\mathsf{\Pi}(\nu, k)$,
+where $\mathsf{\Pi}$ is given by \eqref{sf.cmath.comp.ellint.3},
+$k$ is \tcode{k}, and
 $\nu$ is \tcode{nu}.
+\begin{formula}{sf.cmath.comp.ellint.3}
+\mathsf{\Pi}(\nu, k) = \mathsf{\Pi}(\nu, k, \pi / 2) \text{ ,\quad for $|k| \le 1$}
+\end{formula}
 
 \pnum
 See also \ref{sf.cmath.ellint.3}.
@@ -9843,13 +10160,16 @@ of their respective arguments
 
 \pnum
 \returns
-\[ \mathsf{I}_\nu(x) =
+$\mathsf{I}_\nu(x)$,
+where $\mathsf{I}_\nu$ is given by \eqref{sf.cmath.cyl.bessel.i},
+$\nu$ is \tcode{nu}, and
+$x$ is \tcode{x}.
+\begin{formula}{sf.cmath.cyl.bessel.i}
+\mathsf{I}_\nu(x) =
      \mathrm{i}^{-\nu} \mathsf{J}_\nu(\mathrm{i}x) =
      \sum_{k=0}^\infty \frac{(x/2)^{\nu+2k}}{k! \: \Gamma(\nu+k+1)}
-     \text{ ,\quad for $x \ge 0$,} \]
-where
-$\nu$ is \tcode{nu} and
-$x$ is \tcode{x}.
+     \text{ ,\quad for $x \ge 0$}
+\end{formula}
 
 \pnum
 \remarks
@@ -9884,12 +10204,15 @@ of their respective arguments
 
 \pnum
 \returns
-\[ \mathsf{J}_\nu(x) =
-   \sum_{k=0}^\infty \frac{(-1)^k (x/2)^{\nu+2k}}{k! \: \Gamma(\nu+k+1)}
-   \text{ ,\quad for $x \ge 0$,} \]
-where
-$\nu$ is \tcode{nu} and
+$\mathsf{J}_\nu(x)$,
+where $\mathsf{J}_\nu$ is given by \eqref{sf.cmath.cyl.bessel.j},
+$\nu$ is \tcode{nu}, and
 $x$ is \tcode{x}.
+\begin{formula}{sf.cmath.cyl.bessel.j}
+\mathsf{J}_\nu(x) =
+   \sum_{k=0}^\infty \frac{(-1)^k (x/2)^{\nu+2k}}{k! \: \Gamma(\nu+k+1)}
+   \text{ ,\quad for $x \ge 0$}
+\end{formula}
 
 \pnum
 \remarks
@@ -9921,7 +10244,11 @@ of their respective arguments
 
 \pnum
 \returns
-\[%
+$\mathsf{K}_\nu(x)$,
+where $\mathsf{K}_\nu$ is given by \eqref{sf.cmath.cyl.bessel.k},
+$\nu$ is \tcode{nu}, and
+$x$ is \tcode{x}.
+\begin{formula}{sf.cmath.cyl.bessel.k}
   \mathsf{K}_\nu(x) =
   (\pi/2)\mathrm{i}^{\nu+1} (            \mathsf{J}_\nu(\mathrm{i}x)
 			    + \mathrm{i} \mathsf{N}_\nu(\mathrm{i}x)
@@ -9943,10 +10270,7 @@ of their respective arguments
   & \mbox{for $x \ge 0$ and integral $\nu$}
   \end{array}
   \right.
-\]
-where
-$\nu$ is \tcode{nu} and
-$x$ is \tcode{x}.
+\end{formula}
 
 \pnum
 \remarks
@@ -9982,7 +10306,11 @@ of their respective arguments
 
 \pnum
 \returns
-\[%
+$\mathsf{N}_\nu(x)$,
+where $\mathsf{N}_\nu$ is given by \eqref{sf.cmath.cyl.neumann},
+$\nu$ is \tcode{nu}, and
+$x$ is \tcode{x}.
+\begin{formula}{sf.cmath.cyl.neumann}
   \mathsf{N}_\nu(x) =
   \left\{
   \begin{array}{cl}
@@ -9998,10 +10326,7 @@ of their respective arguments
   & \mbox{for $x \ge 0$ and integral $\nu$}
   \end{array}
   \right.
-\]
-where
-$\nu$ is \tcode{nu} and
-$x$ is \tcode{x}.
+\end{formula}
 
 \pnum
 \remarks
@@ -10035,12 +10360,15 @@ of their respective arguments
 
 \pnum
 \returns
-\[ \mathsf{F}(k, \phi) =
-     \int_0^\phi \! \frac{\mathsf{d}\theta}{\sqrt{1 - k^2 \sin^2 \theta}}
-     \text{ ,\quad for $|k| \le 1$,} \]
-where
-$k$ is \tcode{k} and
+$\mathsf{F}(k, \phi)$,
+where $\mathsf{F}$ is given by \eqref{sf.cmath.ellint.1},
+$k$ is \tcode{k}, and
 $\phi$ is \tcode{phi}.
+\begin{formula}{sf.cmath.ellint.1}
+\mathsf{F}(k, \phi) =
+     \int_0^\phi \! \frac{\mathsf{d}\theta}{\sqrt{1 - k^2 \sin^2 \theta}}
+     \text{ ,\quad for $|k| \le 1$}
+\end{formula}
 \end{itemdescr}
 
 \rSec3[sf.cmath.ellint.2]{Incomplete elliptic integral of the second kind}%
@@ -10065,11 +10393,14 @@ of their respective arguments
 
 \pnum
 \returns
-\[ \mathsf{E}(k, \phi) = \int_0^\phi \! \sqrt{1 - k^2 \sin^2 \theta} \, \mathsf{d}\theta
-   \text{ ,\quad for $|k| \le 1$,} \]
-where
-$k$ is \tcode{k} and
+$\mathsf{E}(k, \phi)$,
+where $\mathsf{E}$ is given by \eqref{sf.cmath.ellint.2},
+$k$ is \tcode{k}, and
 $\phi$ is \tcode{phi}.
+\begin{formula}{sf.cmath.ellint.2}
+\mathsf{E}(k, \phi) = \int_0^\phi \! \sqrt{1 - k^2 \sin^2 \theta} \, \mathsf{d}\theta
+   \text{ ,\quad for $|k| \le 1$}
+\end{formula}
 \end{itemdescr}
 
 \rSec3[sf.cmath.ellint.3]{Incomplete elliptic integral of the third kind}%
@@ -10096,12 +10427,15 @@ of their respective arguments
 
 \pnum
 \returns
-\[ \mathsf{\Pi}(\nu, k, \phi) = \int_0^\phi \!
-   \frac{ \mathsf{d}\theta }{ (1 - \nu \, \sin^2 \theta) \sqrt{1 - k^2 \sin^2 \theta} } \text{ ,\quad for $|k| \le 1$,} \]
-where
+$\mathsf{\Pi}(\nu, k, \phi)$,
+where $\mathsf{\Pi}$ is given by \eqref{sf.cmath.ellint.3},
 $\nu$ is \tcode{nu},
 $k$ is \tcode{k}, and
 $\phi$ is \tcode{phi}.
+\begin{formula}{sf.cmath.ellint.3}
+\mathsf{\Pi}(\nu, k, \phi) = \int_0^\phi \!
+   \frac{ \mathsf{d}\theta }{ (1 - \nu \, \sin^2 \theta) \sqrt{1 - k^2 \sin^2 \theta} } \text{ ,\quad for $|k| \le 1$}
+\end{formula}
 \end{itemdescr}
 
 \rSec3[sf.cmath.expint]{Exponential integral}%
@@ -10126,15 +10460,14 @@ of their respective arguments
 
 \pnum
 \returns
-\[%
+$\mathsf{Ei}(x)$,
+where $\mathsf{Ei}$  is given by \eqref{sf.cmath.expint} and
+$x$ is \tcode{x}.
+\begin{formula}{sf.cmath.expint}
   \mathsf{Ei}(x) =
   - \int_{-x}^\infty \frac{e^{-t}}
                           {t     } \, \mathsf{d}t
-\;
-\]
-where
-$x$ is \tcode{x}.
-
+\end{formula}
 \end{itemdescr}
 
 \rSec3[sf.cmath.hermite]{Hermite polynomials}%
@@ -10158,15 +10491,15 @@ of their respective arguments
 
 \pnum
 \returns
-\[%
+$\mathsf{H}_n(x)$,
+where $\mathsf{H}_n$ is given by \eqref{sf.cmath.hermite},
+$n$ is \tcode{n}, and
+$x$ is \tcode{x}.
+\begin{formula}{sf.cmath.hermite}
   \mathsf{H}_n(x) =
   (-1)^n e^{x^2} \frac{ \mathsf{d} ^n}
 		      { \mathsf{d}x^n} \, e^{-x^2}
-\;
-\]
-where
-$n$ is \tcode{n} and
-$x$ is \tcode{x}.
+\end{formula}
 
 \pnum
 \remarks
@@ -10196,12 +10529,15 @@ of their respective arguments
 
 \pnum
 \returns
-\[ \mathsf{L}_n(x) =
-     \frac{e^x}{n!} \frac{\mathsf{d}^n}{\mathsf{d}x^n} \, (x^n e^{-x})
-     \text{ ,\quad for $x \ge 0$,} \]
-where
-$n$ is \tcode{n} and
+$\mathsf{L}_n(x)$,
+where $\mathsf{L}_n$ is given by \eqref{sf.cmath.laguerre},
+$n$ is \tcode{n}, and
 $x$ is \tcode{x}.
+\begin{formula}{sf.cmath.laguerre}
+\mathsf{L}_n(x) =
+     \frac{e^x}{n!} \frac{\mathsf{d}^n}{\mathsf{d}x^n} \, (x^n e^{-x})
+     \text{ ,\quad for $x \ge 0$}
+\end{formula}
 
 \pnum
 \remarks
@@ -10231,13 +10567,16 @@ respective arguments
 
 \pnum
 \returns
-\[ \mathsf{P}_\ell(x) =
+$\mathsf{P}_\ell(x)$,
+where $\mathsf{P}_\ell$ is given by \eqref{sf.cmath.legendre},
+$l$ is \tcode{l}, and
+$x$ is \tcode{x}.
+\begin{formula}{sf.cmath.legendre}
+\mathsf{P}_\ell(x) =
      \frac{1}{2^\ell \, \ell!}
      \frac{\mathsf{d}^\ell}{\mathsf{d}x^\ell} \, (x^2 - 1) ^ \ell
-     \text{ ,\quad for $|x| \le 1$,} \]
-where
-$l$ is \tcode{l} and
-$x$ is \tcode{x}.
+     \text{ ,\quad for $|x| \le 1$}
+\end{formula}
 
 \pnum
 \remarks
@@ -10267,7 +10606,10 @@ of their respective arguments
 
 \pnum
 \returns
-\[%
+$\mathsf{\zeta}(x)$,
+where $\mathsf{\zeta}$ is given by \eqref{sf.cmath.riemann.zeta} and
+$x$ is \tcode{x}.
+\begin{formula}{sf.cmath.riemann.zeta}
   \mathsf{\zeta}(x) =
   \left\{
   \begin{array}{cl}
@@ -10288,10 +10630,7 @@ of their respective arguments
   & \mbox{for $x < 0$}
   \end{array}
   \right.
-\;
-\]
-where
-$x$ is \tcode{x}.
+\end{formula}
 \end{itemdescr}
 
 \rSec3[sf.cmath.sph.bessel]{Spherical Bessel functions of the first kind}%
@@ -10316,10 +10655,13 @@ of their respective arguments
 
 \pnum
 \returns
-\[ \mathsf{j}_n(x) = (\pi/2x)^{1\!/\!2} \mathsf{J}_{n + 1\!/\!2}(x) \text{ ,\quad for $x \ge 0$,} \]
-where
-$n$ is \tcode{n} and
+$\mathsf{j}_n(x)$,
+where $\mathsf{j}_n$ is given by \eqref{sf.cmath.sph.bessel},
+$n$ is \tcode{n}, and
 $x$ is \tcode{x}.
+\begin{formula}{sf.cmath.sph.bessel}
+\mathsf{j}_n(x) = (\pi/2x)^{1\!/\!2} \mathsf{J}_{n + 1\!/\!2}(x) \text{ ,\quad for $x \ge 0$}
+\end{formula}
 
 \pnum
 \remarks
@@ -10353,17 +10695,17 @@ of their respective arguments
 
 \pnum
 \returns
-\[ \mathsf{Y}_\ell^m(\theta, 0) \]
-where
-\[ \mathsf{Y}_\ell^m(\theta, \phi) =
-     (-1)^m \left[\frac{(2 \ell + 1)}{4 \pi} \frac{(\ell - m)!}{(\ell + m)!}\right]^{1/2}
-     \mathsf{P}_\ell^m (\cos\theta) e^{i m \phi}
-     \text{ ,\quad for $|m| \le \ell$,}
-\]
-and
+$\mathsf{Y}_\ell^m(\theta, 0)$,
+where $\mathsf{Y}_\ell^m$ is given by \eqref{sf.cmath.sph.legendre},
 $l$ is \tcode{l},
 $m$ is \tcode{m}, and
 $\theta$ is \tcode{theta}.
+\begin{formula}{sf.cmath.sph.legendre}
+\mathsf{Y}_\ell^m(\theta, \phi) =
+     (-1)^m \left[\frac{(2 \ell + 1)}{4 \pi} \frac{(\ell - m)!}{(\ell + m)!}\right]^{1/2}
+     \mathsf{P}_\ell^m (\cos\theta) e^{i m \phi}
+     \text{ ,\quad for $|m| \le \ell$}
+\end{formula}
 
 \pnum
 \remarks
@@ -10398,11 +10740,14 @@ of their respective arguments
 
 \pnum
 \returns
-\[ \mathsf{n}_n(x) = (\pi/2x)^{1\!/\!2} \mathsf{N}_{n + 1\!/\!2}(x)
-   \text{ ,\quad for $x \ge 0$,} \]
-where
-$n$ is \tcode{n} and
+$\mathsf{n}_n(x)$,
+where $\mathsf{n}_n$ is given by \eqref{sf.cmath.sph.neumann},
+$n$ is \tcode{n}, and
 $x$ is \tcode{x}.
+\begin{formula}{sf.cmath.sph.neumann}
+\mathsf{n}_n(x) = (\pi/2x)^{1\!/\!2} \mathsf{N}_{n + 1\!/\!2}(x)
+   \text{ ,\quad for $x \ge 0$}
+\end{formula}
 
 \pnum
 \remarks
