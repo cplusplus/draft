@@ -170,7 +170,7 @@ for f in $texfiles; do
     sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/" |
     awk '{ match($0,"^[-a-z0-9]*[.]tex:[0-9]*:"); n=match(substr($0,RLENGTH+1),"[ ;]//"); if (n % 4 != 0) print "comment starts in column " n ": " $0; }'
 done |
-    fail "comment not aligned" || failed=1
+    fail "comment not aligned to multiple of 4" || failed=1
 
 # Deleted special member function with a parameter name.
 grep -n "&[ 0-9a-z_]\+) = delete" $texfiles |
