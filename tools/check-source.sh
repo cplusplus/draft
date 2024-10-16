@@ -6,7 +6,7 @@ failed=0
 
 # Ignore files where rules may be violated within macro definitions.
 texfiles=$(ls *.tex | grep -v macros.tex | grep -v layout.tex | grep -v tables.tex)
-texlibdesc="support.tex concepts.tex diagnostics.tex memory.tex meta.tex utilities.tex strings.tex containers.tex iterators.tex ranges.tex algorithms.tex numerics.tex time.tex locales.tex iostreams.tex threads.tex"
+texlibdesc="support.tex concepts.tex diagnostics.tex memory.tex meta.tex utilities.tex containers.tex iterators.tex ranges.tex algorithms.tex strings.tex text.tex numerics.tex time.tex iostreams.tex threads.tex exec.tex"
 texlib="lib-intro.tex $texlibdesc"
 
 # Filter that reformats the error message as a "workflow command",
