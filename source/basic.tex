@@ -6760,6 +6760,312 @@ other threads in a finite period of time.%
 \indextext{atomic!operation|)}%
 \indextext{threads!multiple|)}
 
+\rSec2[except.throw]{Throwing an exception}%
+\indextext{exception handling!throwing}%
+\indextext{throwing|see{exception handling, throwing}}
+
+\pnum
+Throwing an exception transfers control to a handler.
+\begin{note}
+An exception can be thrown from one of the following contexts:
+\grammarterm{throw-expression}{s}\iref{expr.throw},
+allocation functions\iref{basic.stc.dynamic.allocation},
+\keyword{dynamic_cast}\iref{expr.dynamic.cast},
+\keyword{typeid}\iref{expr.typeid},
+\grammarterm{new-expression}{s}\iref{expr.new}, and standard library
+functions\iref{structure.specifications}.
+\end{note}
+An object is passed and the type of that object determines which handlers
+can catch it.
+\begin{example}
+\begin{codeblock}
+throw "Help!";
+\end{codeblock}
+can be caught by a
+\grammarterm{handler}
+of
+\keyword{const}
+\tcode{\keyword{char}*}
+type:
+\begin{codeblock}
+try {
+    // ...
+} catch(const char* p) {
+    // handle character string exceptions here
+}
+\end{codeblock}
+and
+\begin{codeblock}
+class Overflow {
+public:
+    Overflow(char,double,double);
+};
+
+void f(double x) {
+    throw Overflow('+',x,3.45e107);
+}
+\end{codeblock}
+can be caught by a handler for exceptions of type
+\tcode{Overflow}:
+\begin{codeblock}
+try {
+    f(1.2);
+} catch(Overflow& oo) {
+    // handle exceptions of type \tcode{Overflow} here
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\indextext{exception handling!throwing}%
+\indextext{exception handling!handler}%
+\indextext{exception handling!nearest handler}%
+When an exception is thrown, control is transferred to the nearest handler with
+a matching type\iref{except.handle}; ``nearest'' means the handler
+for which the
+\grammarterm{compound-statement} or
+\grammarterm{ctor-initializer}
+following the
+\keyword{try}
+keyword was most recently entered by the thread of control and not yet exited.
+
+\pnum
+Throwing an exception
+initializes an object with dynamic storage duration,
+called the
+\defnx{exception object}{exception handling!exception object}.
+If the type of the exception object would be
+an incomplete type\iref{basic.types.general},
+an abstract class type\iref{class.abstract},
+or a pointer to an incomplete type other than
+\cv{}~\keyword{void}\iref{basic.compound},
+the program is ill-formed.
+
+\pnum
+\indextext{exception handling!memory}%
+\indextext{exception handling!rethrowing}%
+\indextext{exception handling!exception object}%
+The memory for the exception object is
+allocated in an unspecified way, except as noted in~\ref{basic.stc.dynamic.allocation}.
+If a handler exits by rethrowing, control is passed to another handler for
+the same exception object.
+The points of potential destruction for the exception object are:
+\begin{itemize}
+\item
+when an active handler for the exception exits by
+any means other than
+rethrowing,
+immediately after the destruction of the object (if any)
+declared in the \grammarterm{exception-declaration} in the handler;
+
+\item
+when an object of type \tcode{std::exception_ptr}\iref{propagation}
+that refers to the exception object is destroyed,
+before the destructor of \tcode{std::exception_ptr} returns.
+\end{itemize}
+
+Among all points of potential destruction for the exception object,
+there is an unspecified last one
+where the exception object is destroyed.
+All other points happen before that last one\iref{intro.races}.
+\begin{note}
+No other thread synchronization is implied in exception handling.
+\end{note}
+The implementation may then
+deallocate the memory for the exception object; any such deallocation
+is done in an unspecified way.
+\begin{note}
+A thrown exception does not
+propagate to other threads unless caught, stored, and rethrown using
+appropriate library functions; see~\ref{propagation} and~\ref{futures}.
+\end{note}
+
+\pnum
+\indextext{exception handling!exception object!constructor}%
+\indextext{exception handling!exception object!destructor}%
+Let \tcode{T} denote the type of the exception object.
+Copy-initialization of an object of type \tcode{T} from
+an lvalue of type \tcode{const T} in a context unrelated to \tcode{T}
+shall be well-formed.
+If \tcode{T} is a class type,
+the selected constructor is odr-used\iref{basic.def.odr} and
+the destructor of \tcode{T} is potentially invoked\iref{class.dtor}.
+
+\pnum
+An exception is considered uncaught
+after completing the initialization of the exception object
+until completing the activation of a handler for the exception\iref{except.handle}.
+\begin{note}
+As a consequence, an exception is considered uncaught
+during any stack unwinding resulting from it being thrown.
+\end{note}
+
+\pnum
+\indextext{exception handling!rethrow}%
+\indextext{rethrow|see{exception handling, rethrow}}%
+An exception is considered caught when a handler for that exception
+becomes active\iref{except.handle}.
+\begin{note}
+An exception can have active handlers and still be considered uncaught if
+it is rethrown.
+\end{note}
+
+\pnum
+\indexlibraryglobal{uncaught_exceptions}%
+If an exception is rethrown\iref{expr.throw,propagation},
+it is considered uncaught from the point of rethrow
+until the rethrown exception is caught.
+\begin{note}
+The function \tcode{std::uncaught_exceptions}\iref{uncaught.exceptions}
+returns the number of uncaught exceptions in the current thread.
+\end{note}
+
+\pnum
+\indextext{exception handling!terminate called@\tcode{terminate} called}%
+\indextext{\idxcode{terminate}!called}%
+If the exception handling mechanism
+handling an uncaught exception
+directly invokes a function that exits via an
+exception, the function \tcode{std::terminate} is invoked\iref{except.terminate}.
+\begin{example}
+\begin{codeblock}
+struct C {
+  C() { }
+  C(const C&) {
+    if (std::uncaught_exceptions()) {
+      throw 0;      // throw during copy to handler's \grammarterm{exception-declaration} object\iref{except.handle}
+    }
+  }
+};
+
+int main() {
+  try {
+    throw C();      // calls \tcode{std::terminate} if construction of the handler's
+                    // \grammarterm{exception-declaration} object is not elided\iref{class.copy.elision}
+  } catch(C) { }
+}
+\end{codeblock}
+\end{example}
+\begin{note}
+If a destructor directly invoked by stack unwinding exits via an exception,
+\tcode{std::terminate} is invoked.
+\end{note}
+
+\rSec2[except.ctor]{Stack unwinding}%
+\indextext{exception handling!constructors and destructors}%
+\indextext{constructor!exception handling|see{exception handling, constructors and destructors}}%
+\indextext{destructor!exception handling|see{exception handling, constructors and destructors}}
+
+\pnum
+\indextext{unwinding!stack}%
+As control passes from the point where an exception is thrown
+to a handler,
+objects are destroyed by a process,
+specified in this subclause, called \defn{stack unwinding}.
+
+\pnum
+Each object with automatic storage duration is destroyed if it has been
+constructed, but not yet destroyed,
+since the try block was entered.
+If an exception is thrown during the destruction of temporaries or
+local variables for a \keyword{return} statement\iref{stmt.return},
+the destructor for the returned object (if any) is also invoked.
+The objects are destroyed in the reverse order of the completion
+of their construction.
+\begin{example}
+\begin{codeblock}
+struct A { };
+
+struct Y { ~Y() noexcept(false) { throw 0; } };
+
+A f() {
+  try {
+    A a;
+    Y y;
+    A b;
+    return {};      // \#1
+  } catch (...) {
+  }
+  return {};        // \#2
+}
+\end{codeblock}
+At \#1, the returned object of type \tcode{A} is constructed.
+Then, the local variable \tcode{b} is destroyed\iref{stmt.jump}.
+Next, the local variable \tcode{y} is destroyed,
+causing stack unwinding,
+resulting in the destruction of the returned object,
+followed by the destruction of the local variable \tcode{a}.
+Finally, the returned object is constructed again at \#2.
+\end{example}
+
+\pnum
+If the initialization of an object
+other than by delegating constructor
+is terminated by an exception,
+the destructor is invoked for
+each of the object's subobjects
+that were known to be initialized by the object's initialization and
+whose initialization has completed\iref{dcl.init}.
+\begin{note}
+If such an object has a reference member
+that extends the lifetime of a temporary object,
+this ends the lifetime of the reference member,
+so the lifetime of the temporary object is effectively not extended.
+\end{note}
+\indextext{subobject!initialized, known to be}%
+A subobject is \defn{known to be initialized}
+if it is not an anonymous union member and
+its initialization is specified
+\begin{itemize}
+\item in \ref{class.base.init} for initialization by constructor,
+\item in \ref{class.copy.ctor} for initialization by defaulted copy/move constructor,
+\item in \ref{class.inhctor.init} for initialization by inherited constructor,
+\item in \ref{dcl.init.aggr} for aggregate initialization,
+\item in \ref{expr.prim.lambda.capture} for the initialization of
+the closure object when evaluating a \grammarterm{lambda-expression},
+\item in \ref{dcl.init.general} for
+default-initialization, value-initialization, or direct-initialization
+of an array.
+\end{itemize}
+\begin{note}
+This includes virtual base class subobjects
+if the initialization
+is for a complete object, and
+can include variant members
+that were nominated explicitly by
+a \grammarterm{mem-initializer} or \grammarterm{designated-initializer-clause} or
+that have a default member initializer.
+\end{note}
+If the destructor of an object is terminated by an exception,
+each destructor invocation
+that would be performed after executing the body of the destructor\iref{class.dtor} and
+that has not yet begun execution
+is performed.
+\begin{note}
+This includes virtual base class subobjects if
+the destructor was invoked for a complete object.
+\end{note}
+The subobjects are destroyed in the reverse order of the completion of
+their construction. Such destruction is sequenced before entering a
+handler of the \grammarterm{function-try-block} of the constructor or destructor,
+if any.
+
+\pnum
+If the \grammarterm{compound-statement}
+of the \grammarterm{function-body}
+of a delegating constructor
+for an object exits via
+an exception, the object's destructor is invoked.
+Such destruction is sequenced before entering a handler of the
+\grammarterm{function-try-block} of a delegating constructor for that object, if any.
+
+\pnum
+\begin{note}
+If the object was allocated by a \grammarterm{new-expression}\iref{expr.new},
+the matching deallocation function\iref{basic.stc.dynamic.deallocation},
+if any, is called to free the storage occupied by the object.
+\end{note}
+
 \rSec2[basic.start]{Start and termination}
 
 \rSec3[basic.start.main]{\tcode{main} function}
