@@ -91,8 +91,8 @@ let \tcode{\exposid{AS-EXCEPT-PTR}(err)} be:
 \item
 \tcode{err} if \tcode{decay_t<Err>} denotes the type \tcode{exception_ptr}.
 
-\mandates
-\tcode{err != exception_ptr()} is \tcode{true}.
+\expects
+\tcode{!err} is \tcode{false}.
 \item
 Otherwise,
 \tcode{make_exception_ptr(system_error(err))}
@@ -229,7 +229,6 @@ An \defn{environment} is a queryable object\iref{exec.queryable}
 representing the execution-time properties of the operation's caller.
 The caller of an asynchronous operation is
 its parent operation or the function that created it.
-An asynchronous operation's operation state owns the operation's environment.
 
 \pnum
 An asynchronous operation has an associated receiver.
@@ -1012,7 +1011,7 @@ namespace std::execution {
               -> @\libconcept{same_as}@<remove_cvref_t<Sch>>;
       } &&
       @\libconcept{equality_comparable}@<remove_cvref_t<Sch>> &&
-      @\libconcept{copy_constructible}@<remove_cvref_t<Sch>>;
+      @\libconcept{copyable}@<remove_cvref_t<Sch>>;
 }
 \end{codeblock}
 
@@ -1025,17 +1024,15 @@ Then \tcode{\exposconcept{sender-in-of}<schedule_result_t<Sch>, Env>}
 shall be modeled.
 
 \pnum
-None of a scheduler's
-copy constructor,
-destructor,
-equality comparison, or
-\tcode{swap} member functions
+No operation required by
+\tcode{\libconcept{copyable}<remove_cvref_t<Sch>>} and
+\tcode{\libconcept{equality_comparable}<remove_cvref_t<Sch>>}
 shall exit via an exception.
-None of these member functions,
+None of these operations,
 nor a scheduler type's \tcode{schedule} function,
 shall introduce data races
 as a result of potentially concurrent\iref{intro.races} invocations
-of those functions from different threads.
+of those operations from different threads.
 
 \pnum
 For any two values \tcode{sch1} and \tcode{sch2}
@@ -1727,10 +1724,16 @@ the initializer of a structured binding declaration\iref{dcl.struct.bind}.
 
 \pnum
 The expression in the \tcode{noexcept} clause of
-the constructor of \exposid{basic-state} is:
+the constructor of \exposid{basic-state} is
 \begin{codeblock}
 is_nothrow_move_constructible_v<Rcvr> &&
-@\exposconcept{nothrow-callable}@<decltype(@\exposid{impls-for}@<tag_of_t<Sndr>>::@\exposid{get-state}@), Sndr, Rcvr&>
+@\exposconcept{nothrow-callable}@<decltype(@\exposid{impls-for}@<tag_of_t<Sndr>>::@\exposid{get-state}@), Sndr, Rcvr&> &&
+(same_as<@\exposid{state-type}@<Sndr, Rcvr>, @\exposid{get-state-result}@> ||
+ is_nothrow_constructible_v<@\exposid{state-type}@<Sndr, Rcvr>, @\exposid{get-state-result}@>)
+\end{codeblock}
+where \exposid{get-state-result} is
+\begin{codeblock}
+@\exposid{call-result-t}@<decltype(@\exposid{impls-for}@<tag_of_t<Sndr>>::@\exposid{get-state}@), Sndr, Rcvr&>.
 \end{codeblock}
 
 \pnum
@@ -1879,11 +1882,24 @@ template<>
 struct @\exposid{impls-for}@<@\exposid{write-env-t}@> : @\exposid{default-impls}@ {
   static constexpr auto @\exposid{get-env}@ =
     [](auto, const auto& state, const auto& rcvr) noexcept {
-      return @\exposid{JOIN-ENV}@(state, get_env(rcvr));
+      return @\seebelow@;
     };
 };
 \end{codeblock}
 \end{itemdescr}
+Invocation of
+\tcode{\exposid{impls-for}<\exposid{write-env-t}>::\exposid{get-env}}
+returns an object \tcode{e} such that
+\begin{itemize}
+\item
+\tcode{decltype(e)} models \exposconcept{queryable} and
+\item
+given a query object \tcode{q},
+the expression \tcode{e.query(q)} is expression-equivalent
+to \tcode{state.query(q)} if that expression is valid,
+otherwise, \tcode{e.query(q)} is expression-equivalent
+to \tcode{get_env(rcvr).query(q)}.
+\end{itemize}
 
 \rSec2[exec.snd.concepts]{Sender concepts}
 
@@ -2455,14 +2471,13 @@ namespace std::execution {
 Let \exposid{operation-state-task} be the following exposition-only class:
 \begin{codeblock}
 namespace std::execution {
-  struct @\exposid{operation-state-task}@ {
+  struct @\exposid{operation-state-task}@ {                              // \expos
     using operation_state_concept = operation_state_t;
     using promise_type = @\exposid{connect-awaitable-promise}@;
 
     explicit @\exposid{operation-state-task}@(coroutine_handle<> h) noexcept : coro(h) {}
-    @\exposid{operation-state-task}@(@\exposid{operation-state-task}@&& o) noexcept
-      : @\exposid{coro}@(exchange(o.@\exposid{coro}@, {})) {}
-    ~@\exposid{operation-state-task}@() { if (@\exposid{coro}@) @\exposid{coro}@.destroy(); }
+    @\exposid{operation-state-task}@(@\exposid{operation-state-task}@&&) = delete;
+    ~@\exposid{operation-state-task}@() { @\exposid{coro}@.destroy(); }
 
     void start() & noexcept {
       @\exposid{coro}@.resume();
@@ -3053,15 +3068,14 @@ is initialized with a callable object equivalent to the following lambda:
   using result_t = @\exposid{decayed-tuple}@<Tag, Args...>;
   constexpr bool nothrow = is_nothrow_constructible_v<result_t, Tag, Args...>;
 
-  @\exposid{TRY-EVAL}@(rcvr, [&]() noexcept(nothrow) {
+  try {
     state.@\exposid{async-result}@.template emplace<result_t>(Tag(), std::forward<Args>(args)...);
-  }());
-
-  if (state.@\exposid{async-result}@.valueless_by_exception())
-    return;
-  if (state.@\exposid{async-result}@.index() == 0)
-    return;
-
+  } catch (...) {
+    if constexpr (!nothrow) {
+      set_error(std::move(rcvr), current_exception());
+      return;
+    }
+  }
   start(state.@\exposid{op-state}@);
 };
 \end{codeblock}
@@ -3448,7 +3462,7 @@ namespace std::execution {
     }
 
     decltype(auto) get_env() const noexcept {
-      return @\exposid{JOIN-ENV}@(@\exposid{env}@, @\exposid{FWD-ENV}@(execution::get_env(@\exposid{rcvr}@)));
+      return @\seebelow@;
     }
 
     Rcvr& @\exposid{rcvr}@;                 // \expos
@@ -3456,6 +3470,18 @@ namespace std::execution {
   };
 }
 \end{codeblock}
+Invocation of the function \tcode{\exposid{receiver2}::get_env}
+returns an object \tcode{e} such that
+\begin{itemize}
+\item
+\tcode{decltype(e)} models \exposconcept{queryable} and
+\item
+given a query object \tcode{q},
+the expression \tcode{e.query(q)} is expression-equivalent
+to \tcode{\exposid{env}.query(q)} if that expression is valid,
+otherwise \tcode{e.query(q)} is expression-equivalent
+to \tcode{get_env(\exposid{rcvr}).query(q)}.
+\end{itemize}
 
 \pnum
 \tcode{\exposid{impls-for}<\exposid{decayed-typeof}<\exposid{let-cpo}>>::\exposid{get-state}}
@@ -3647,7 +3673,7 @@ when started,
 \item
 on a value completion operation,
 invokes \tcode{f(i, args...)}
-for every \tcode{i} of type \tcode{Shape} from \tcode{0} to \tcode{shape},
+for every \tcode{i} of type \tcode{Shape} in \range{\tcode{0}}{\tcode{shape}},
 where \tcode{args} is a pack of lvalue subexpressions
 referring to the value completion result datums of the input sender, and
 \item
@@ -4101,10 +4127,20 @@ is initialized with a callable object
 equivalent to the following lambda expression:
 \begin{codeblock}
 []<class State, class Rcvr>(auto&&, State& state, const Receiver& rcvr) noexcept {
-  return @\exposid{JOIN-ENV}@(
-    @\exposid{MAKE-ENV}@(get_stop_token, state.@\exposid{stop_src}@.get_token()), get_env(rcvr));
+  return @\seebelow@;
 }
 \end{codeblock}
+Returns an object \tcode{e} such that
+\begin{itemize}
+\item
+\tcode{decltype(e)} models \exposconcept{queryable}, and
+\item
+\tcode{e.query(get_stop_token)} is expression-equivalent to
+\tcode{state.\exposid{stop-src}.get_token()}, and
+\item
+given a query object \tcode{q} with type other than \cv{} \tcode{stop_token_t},
+\tcode{e.query(q)} is expression-equivalent to \tcode{get_env(rcvr).query(q)}.
+\end{itemize}
 
 \pnum
 The member \tcode{\exposid{impls-for}<when_all_t>::\exposid{get-state}}
@@ -4957,7 +4993,8 @@ executes them in a loop on the thread of execution that calls \tcode{run}.
 A \tcode{run_loop} instance has an associated \defn{count}
 that corresponds to the number of work items that are in its queue.
 Additionally, a \tcode{run_loop} instance has an associated state
-that can be one of \defn{starting}, \defn{running}, or \defn{finishing}.
+that can be one of
+\defn{starting}, \defn{running}, \defn{finishing}, or \defn{finished}.
 
 \pnum
 Concurrent invocations of the member functions of \tcode{run_loop}
@@ -5146,7 +5183,8 @@ Blocks\iref{defns.block} until one of the following conditions is \tcode{true}:
 \begin{itemize}
 \item
 \exposid{count} is \tcode{0} and \exposid{state} is \exposid{finishing},
-in which case \exposid{pop-front} returns \tcode{nullptr}; or
+in which case \exposid{pop-front} sets \exposid{state} to \exposid{finished}
+and returns \tcode{nullptr}; or
 \item
 \exposid{count} is greater than \tcode{0},
 in which case an item is removed from the front of the queue,
@@ -5191,11 +5229,14 @@ void run();
 \begin{itemdescr}
 \pnum
 \expects
-\exposid{state} is \exposid{starting}.
+\exposid{state} is either \exposid{starting} or \exposid{finishing}.
 
 \pnum
 \effects
-Sets the \exposid{state} to \exposid{running}. Then, equivalent to:
+If \exposid{state} is \exposid{starting},
+sets the \exposid{state} to \exposid{running},
+otherwise leaves \exposid{state} unchanged.
+Then, equivalent to:
 \begin{codeblock}
 while (auto* op = @\exposid{pop-front}@()) {
   op->@\exposid{execute}@();
@@ -5213,6 +5254,10 @@ void finish();
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+\expects
+\exposid{state} is either \exposid{starting} or \exposid{running}.
+
 \pnum
 \effects
 Changes \exposid{state} to \exposid{finishing}.
