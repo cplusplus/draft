@@ -583,6 +583,22 @@ namespace std {
   // \ref{inout.ptr}, function template \tcode{inout_ptr}
   template<class Pointer = void, class Smart, class... Args>
     auto inout_ptr(Smart& s, Args&&... args);                                       // freestanding
+
+  // \ref{indirect}, class template \tcode{indirect}
+  template<class T, class Allocator = allocator<T>>
+    class indirect;
+
+  // \ref{indirect.hash}, hash support
+  template<class T, class Alloc> struct hash<indirect<T, Alloc>>;
+
+  // \ref{polymorphic}, class template \tcode{polymorphic}
+  template<class T, class Allocator = allocator<T>>
+    class polymorphic;
+
+  namespace pmr {
+    template<class T> using indirect = indirect<T, polymorphic_allocator<T>>;
+    template<class T> using polymorphic = polymorphic<T, polymorphic_allocator<T>>;
+  }
 }
 \end{codeblock}
 
@@ -7148,4 +7164,1499 @@ otherwise
 \begin{codeblock}
 a.outer_allocator() == b.outer_allocator() && a.inner_allocator() == b.inner_allocator()
 \end{codeblock}
+\end{itemdescr}
+
+\rSec1[indirect]{Class template \tcode{indirect}}
+
+\rSec2[indirect.general]{General}
+
+\pnum
+An indirect object manages the lifetime of an owned object.
+An indirect object is \defnx{valueless}{valueless!indirect}
+if it has no owned object.
+An indirect object may only become valueless after it has been moved from.
+
+\pnum
+In every specialization \tcode{indirect<T, Allocator>},
+if the type \tcode{allocator_traits<Allocator>::value_type}
+is not the same type as \tcode{T},
+the program is ill-formed.
+Every object of type \tcode{indirect<T, Allocator>}
+uses an object of type \tcode{Allocator}
+to allocate and free storage for the owned object as needed.
+
+\pnum
+Constructing an owned object with \tcode{args...} using the allocator \tcode{a}
+means evaluating \tcode{allocator_traits<Allo\-cator>::construct(a, p, args...)}
+where \tcode{args} is an expression pack,
+\tcode{a} is an allocator, and
+\tcode{p} is a pointer obtained by
+calling \tcode{allocator_traits<Allocator>::allocate}.
+
+\pnum
+The member \exposid{alloc} is used for any memory allocation and
+element construction performed by member functions
+during the lifetime of each indirect object.
+The allocator \exposid{alloc} may only be replaced
+via assignment or \tcode{swap}.
+Allocator replacement is performed by
+copy assignment, move assignment, or swapping of the allocator
+only if
+\begin{itemize}
+\item
+\tcode{allocator_traits<Allocator>::propagate_on_container_copy_assignment::value},
+\item
+\tcode{allocator_traits<Allocator>::propagate_on_container_move_assignment::value}, or
+\item
+\tcode{allocator_traits<Allocator>::propagate_on_container_swap::value}
+\end{itemize}
+is \tcode{true}
+within the implementation of
+the corresponding indirect operation\iref{container.reqmts}.
+
+\pnum
+A program that instantiates
+the definition of the template \tcode{indirect<T, Allocator>}
+with a type for the \tcode{T} parameter that is
+a non-object type,
+an array type,
+\tcode{in_place_t},
+a specialization of \tcode{in_place_type_t}, or
+a cv-qualified type is ill-formed.
+
+\pnum
+The template parameter \tcode{T} of \tcode{indirect} may be an incomplete type.
+
+\pnum
+The template parameter \tcode{Allocator} of \tcode{indirect} shall meet
+the \oldconcept{Allocator} requirements.
+
+\pnum
+If a program declares an explicit or partial specialization of \tcode{indirect},
+the behavior is undefined.
+
+\begin{codeblock}
+namespace std {
+  template<class T, class Allocator = allocator<T>>
+  class @\libglobal{indirect}@ {
+  public:
+    using value_type = T;
+    using allocator_type = Allocator;
+    using pointer = typename allocator_traits<Allocator>::pointer;
+    using const_pointer = typename allocator_traits<Allocator>::const_pointer;
+
+    // \ref{indirect.ctor}, constructors
+    constexpr indirect();
+    constexpr explicit indirect(allocator_arg_t, const Allocator& a);
+    constexpr indirect(const indirect& other);
+    constexpr indirect(allocator_arg_t, const Allocator& a, const indirect& other);
+    constexpr indirect(indirect&& other) noexcept;
+    constexpr indirect(allocator_arg_t, const Allocator& a, indirect&& other)
+      noexcept(@\seebelow@);
+    template<class U = T>
+      constexpr explicit indirect(U&& u);
+    template<class U = T>
+      constexpr explicit indirect(allocator_arg_t, const Allocator& a, U&& u);
+    template<class... Us>
+      constexpr explicit indirect(in_place_t, Us&&... us);
+    template<class... Us>
+      constexpr explicit indirect(allocator_arg_t, const Allocator& a, in_place_t, Us&&... us);
+    template<class I, class... Us>
+      constexpr explicit indirect(in_place_t, initializer_list<I> ilist, Us&&... us);
+    template<class I, class... Us>
+      constexpr explicit indirect(allocator_arg_t, const Allocator& a,
+                                  in_place_t, initializer_list<I> ilist, Us&&... us);
+
+    // \ref{indirect.dtor}, destructor
+    constexpr ~indirect();
+
+    // \ref{indirect.assign}, assignment
+    constexpr indirect& operator=(const indirect& other);
+    constexpr indirect& operator=(indirect&& other) noexcept(@\seebelow@);
+    template<class U = T>
+      constexpr indirect& operator=(U&& u);
+
+    // \ref{indirect.obs}, observers
+    constexpr const T& operator*() const & noexcept;
+    constexpr T& operator*() & noexcept;
+    constexpr const T&& operator*() const && noexcept;
+    constexpr T&& operator*() && noexcept;
+    constexpr const_pointer operator->() const noexcept;
+    constexpr pointer operator->() noexcept;
+    constexpr bool valueless_after_move() const noexcept;
+    constexpr allocator_type get_allocator() const noexcept;
+
+    // \ref{indirect.swap}, swap
+    constexpr void swap(indirect& other) noexcept(@\seebelow@);
+    friend constexpr void swap(indirect& x, indirect& y) noexcept(@\seebelow@);
+
+    // \ref{indirect.cmp}, comparisons
+    template<class U, class AA>
+      friend constexpr bool operator==(const indirect& x, const indirect<U, AA>& y)
+        noexcept(@\seebelow@);
+    template<class U>
+      friend constexpr bool operator==(const indirect& x, const U& y) noexcept(@\seebelow@);
+    template<class U, class AA>
+      friend constexpr auto operator<=>(const indirect& x, const indirect<U, AA>& y)
+        noexcept(@\seebelow@) -> compare_three_way_result_t<T, U>;
+    template<class U>
+      friend constexpr auto operator<=>(const indirect& x, const U& y) noexcept(@\seebelow@)
+        -> compare_three_way_result_t<T, U>;
+  private:
+    pointer @\exposid{p}@;                          // \expos
+    Allocator @\exposid{alloc}@ = Allocator();      // \expos
+  };
+
+  template<class Value>
+    indirect(Value) -> indirect<Value>;
+  template<class Allocator, class Value>
+    indirect(allocator_arg_t, Allocator, Value)
+      -> indirect<Value, typename allocator_traits<Allocator>::template rebind_alloc<Value>>;
+}
+\end{codeblock}
+
+\rSec2[indirect.ctor]{Constructors}
+
+\pnum
+The following element applies to all functions in \ref{indirect.ctor}:
+
+\pnum
+\throws
+Nothing unless \tcode{allocator_traits<Allocator>::allocate} or
+\tcode{allocator_traits<Allocator>::\linebreak construct} throws.
+
+\indexlibraryctor{indirect}%
+\begin{itemdecl}
+constexpr explicit indirect();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_default_constructible_v<T> }is \tcode{true},
+\item \tcode{is_copy_constructible_v<T>} is \tcode{true}, and
+\item \tcode{is_default_constructible_v<Allocator>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+Constructs an owned object of type \tcode{T} with an empty argument list,
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{indirect}%
+\begin{itemdecl}
+constexpr explicit indirect(allocator_arg_t, const Allocator& a);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_default_constructible_v<T>} is \tcode{true} and
+\item \tcode{is_copy_constructible_v<T>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+\exposid{alloc} is direct-non-list-initialized with \tcode{a}.
+Constructs an owned object of type \tcode{T} with an empty argument list,
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{indirect}%
+\begin{itemdecl}
+constexpr indirect(const indirect& other);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{T} is a complete type and
+\tcode{is_copy_constructible_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+\exposid{alloc} is direct-non-list-initialized with
+\tcode{allocator_traits<Allocator>::select_on_contai\-ner_copy_construction(other.\exposid{alloc})}.
+If \tcode{other} is valueless, \tcode{*this} is valueless.
+Otherwise, constructs an owned object of type \tcode{T} with \tcode{*other},
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{indirect}%
+\begin{itemdecl}
+constexpr indirect(allocator_arg_t, const Allocator& a, const indirect& other);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{T} is a complete type and
+\tcode{is_copy_constructible_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+\exposid{alloc} is direct-non-list-initialized with \tcode{a}.
+If other is valueless, \tcode{*this} is valueless.
+Otherwise, constructs an owned object of type \tcode{T} with \tcode{*other},
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{indirect}%
+\begin{itemdecl}
+constexpr indirect(indirect&& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\exposid{alloc} is direct-non-list-initialized
+from \tcode{std::move(other.\exposid{alloc})}.
+If \tcode{other} is valueless, \tcode{*this} is valueless.
+Otherwise \tcode{*this }takes ownership of the owned object of \tcode{other}.
+
+\pnum
+\ensures
+\tcode{other} is valueless.
+\end{itemdescr}
+
+\indexlibraryctor{indirect}%
+\begin{itemdecl}
+constexpr indirect(allocator_arg_t, const Allocator& a, indirect&& other)
+  noexcept(allocator_traits<Allocator>::is_always_equal::value);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+If \tcode{allocator_traits<Allocator>::is_always_equal::value} is \tcode{false},
+then \tcode{T} is a complete type.
+
+\pnum
+\effects
+\exposid{alloc} is direct-non-list-initialized with \tcode{a}.
+If \tcode{other} is valueless, \tcode{*this} is valueless.
+Otherwise, if \tcode{\exposid{alloc} == other.\exposid{alloc}} is \tcode{true},
+constructs an object of type \tcode{indirect}
+that takes ownership of the owned object of \tcode{other}.
+Otherwise, constructs an owned object of type \tcode{T}
+with \tcode{*std::move(other)},
+using the allocator \exposid{alloc}.
+
+\pnum
+\ensures
+\tcode{other} is valueless.
+\end{itemdescr}
+
+\indexlibraryctor{indirect}%
+\begin{itemdecl}
+template<class U = T>
+constexpr explicit indirect(U&& u);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+Where \tcode{UU} is \tcode{remove_cvref_t<U>},
+\begin{itemize}
+\item \tcode{is_same_v<UU, indirect>} is \tcode{false},
+\item \tcode{is_same_v<UU, in_place_t>} is \tcode{false},
+\item \tcode{is_constructible_v<T, U>} is \tcode{true},
+\item \tcode{is_copy_constructible_v<T>} is \tcode{true}, and
+\item \tcode{is_default_constructible_v<Allocator>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+Constructs an owned object of type \tcode{T} with \tcode{std::forward<U>(u)},
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{indirect}%
+\begin{itemdecl}
+template<class U = T>
+constexpr explicit indirect(allocator_arg_t, const Allocator& a, U&& u);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+Where \tcode{UU} is \tcode{remove_cvref_t<U>},
+\begin{itemize}
+\item \tcode{is_same_v<UU, indirect>} is \tcode{false},
+\item \tcode{is_same_v<UU, in_place_t>} is \tcode{false},
+\item \tcode{is_constructible_v<T, U>} is \tcode{true}, and
+\item \tcode{is_copy_constructible_v<T>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+\exposid{alloc} is direct-non-list-initialized with \tcode{a}.
+Constructs an owned object of type \tcode{T} with \tcode{std::forward<U>(u)},
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{indirect}%
+\begin{itemdecl}
+template<class... Us>
+constexpr explicit indirect(in_place_t, Us&&... us);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_constructible_v<T, Us...>} is \tcode{true},
+\item \tcode{is_copy_constructible_v<T> is true}, and
+\item \tcode{is_default_constructible_v<Allocator>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+Constructs an owned object of type \tcode{T}
+with \tcode{std::forward<Us>(us)...},
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{indirect}%
+\begin{itemdecl}
+template<class... Us>
+constexpr explicit indirect(allocator_arg_t, const Allocator& a, in_place_t, Us&& ...us);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_constructible_v<T, Us...>} is \tcode{true} and
+\item \tcode{is_copy_constructible_v<T>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+\exposid{alloc} is direct-non-list-initialized with \tcode{a}.
+Constructs an owned object of type \tcode{T}
+with \tcode{std::forward<Us>(us)...},
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{indirect}%
+\begin{itemdecl}
+template<class I, class... Us>
+constexpr explicit indirect(in_place_t, initializer_list<I> ilist, Us&&... us);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_copy_constructible_v<T>} is \tcode{true},
+\item \tcode{is_constructible_v<T, initializer_list<I>\&, Us...>} is \tcode{true}, and
+\item \tcode{is_default_constructible_v<Allocator>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+Constructs an owned object of type \tcode{T} with
+the arguments \tcode{ilist}, \tcode{std::forward<Us>(us)...},
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{indirect}%
+\begin{itemdecl}
+template<class I, class... Us>
+constexpr explicit indirect(allocator_arg_t, const Allocator& a,
+                            in_place_t, initializer_list<I> ilist, Us&&... us);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_copy_constructible_v<T> }is \tcode{true} and
+\item \tcode{is_constructible_v<T, initializer_list<I>\&, Us...>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+\exposid{alloc} is direct-non-list-initialized with \tcode{a}.
+Constructs an owned object of type \tcode{T} with the arguments
+\tcode{ilist}, \tcode{std::forward<Us>(us)...},
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\rSec2[indirect.dtor]{Destructor}
+
+\indexlibrarydtor{indirect}%
+\begin{itemdecl}
+constexpr ~indirect();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+If \tcode{*this} is not valueless,
+destroys the owned object using \tcode{allocator_traits<Allocator>::de\-stroy}
+and then the storage is deallocated.
+\end{itemdescr}
+
+\rSec2[indirect.assign]{Assignment}
+
+\indexlibrarymember{operator=}{indirect}%
+\begin{itemdecl}
+constexpr indirect& operator=(const indirect& other);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{T} is a complete type,
+\tcode{is_copy_assignable_v<T>} is \tcode{true}, and
+\tcode{is_copy_constructible_v<T>} is \tcode{true}.
+
+\pnum
+\effects
+If \tcode{addressof(other) == this} is \tcode{true}, there are no effects.
+Otherwise:
+\begin{itemize}
+\item
+The allocator needs updating if
+\tcode{allocator_traits<Allocator>::propagate_on_container_copy_assignment::value}
+is \tcode{true}.
+\item
+If \tcode{other} is valueless, \tcode{*this} becomes valueless and
+the owned object in \tcode{*this}, if any, is destroyed
+using \tcode{allocator_traits<Allocator>::destroy} and then
+the storage is deallocated.
+\item
+Otherwise,
+if \tcode{\exposid{alloc} == other.\exposid{alloc}} is \tcode{true} and
+\tcode{*this} is not valueless,
+equivalent to \tcode{**this = *other}.
+\item
+Otherwise a new owned object is constructed in \tcode{*this}
+using \tcode{allocator_traits<Allocator>::\linebreak construct}
+with the owned object from \tcode{other} as the argument,
+using either the allocator in \tcode{*this} or
+the allocator in \tcode{other} if the allocator needs updating.
+\item
+The previously owned object in \tcode{*this}, if any, is destroyed
+using \tcode{allocator_traits<Allocator>::\linebreak destroy}
+and then the storage is deallocated.
+\item
+If the allocator needs updating,
+the allocator in \tcode{*this} is replaced with
+a copy of the allocator in \tcode{other}.
+\end{itemize}
+
+\pnum
+\returns
+A reference to \tcode{*this}.
+
+\pnum
+\remarks
+If any exception is thrown,
+the result of the expression \tcode{this->valueless_after_move()}
+remains unchanged.
+If an exception is thrown
+during the call to \tcode{T}'s selected copy constructor, no effect.
+If an exception is thrown during the call to \tcode{T}'s copy assignment,
+the state of its contained value is as defined by the exception
+safety guarantee of \tcode{T}'s copy assignment.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{indirect}%
+\begin{itemdecl}
+constexpr indirect& operator=(indirect&& other)
+  noexcept(allocator_traits<Allocator>::propagate_on_container_move_assignment::value ||
+           allocator_traits<Allocator>::is_always_equal::value);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{T} is a complete type and
+\tcode{is_copy_constructible_t<T>} is \tcode{true}.
+
+\pnum
+\effects
+If \tcode{addressof(other) == this} is \tcode{true}, there are no effects.
+Otherwise:
+\begin{itemize}
+\item
+The allocator needs updating if
+\tcode{allocator_traits<Allocator>::propagate_on_container_move_assignment::value}
+is \tcode{true}.
+\item
+If \tcode{other} is valueless,
+\tcode{*this} becomes valueless and
+the owned object in \tcode{*this}, if any, is destroyed
+using \tcode{allocator_traits<Allocator>::destroy} and then
+the storage is deallocated.
+\item
+Otherwise, if \tcode{\exposid{alloc} == other.\exposid{alloc}} is \tcode{true},
+swaps the owned objects in \tcode{*this} and \tcode{other};
+the owned object in \tcode{other}, if any, is then destroyed
+using \tcode{allocator_traits<Allocator>::destroy} and then
+the storage is deallocated.
+\item
+Otherwise constructs a new owned object
+with the owned object of \tcode{other} as the argument as an rvalue,
+using either the allocator in \tcode{*this} or
+the allocator in \tcode{other} if the allocator needs updating.
+\item
+The previously owned object in \tcode{*this}, if any, is destroyed
+using \tcode{allocator_traits<Allocator>::\linebreak destroy} and then
+the storage is deallocated.
+\item
+If the allocator needs updating,
+the allocator in \tcode{*this} is replaced with
+a copy of the allocator in \tcode{other}.
+\end{itemize}
+
+\pnum
+\ensures
+\tcode{other} is valueless.
+
+\pnum
+\returns
+A reference to \tcode{*this.}
+
+\pnum
+\remarks
+If any exception is thrown,
+there are no effects on \tcode{*this} or \tcode{other}.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{indirect}%
+\begin{itemdecl}
+template<class U = T>
+constexpr indirect& operator=(U&& u);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+Where \tcode{UU} is \tcode{remove_cvref_t<U>},
+\begin{itemize}
+\item \tcode{is_same_v<UU, indirect>} is \tcode{false},
+\item \tcode{is_constructible_v<T, U>} is \tcode{true}, and
+\item \tcode{is_assignable_v<T\&, U>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type and
+\tcode{is_copy_constructible_t<T>} is \tcode{true}.
+
+\pnum
+\effects
+If \tcode{*this} is valueless, then equivalent to
+\begin{codeblock}
+*this = indirect(allocator_arg, alloc, std::forward<U>(u));
+\end{codeblock}
+Otherwise, equivalent to \tcode{**this = std::forward<U>(u)}.
+
+\pnum
+\returns
+A reference to \tcode{*this}.
+\end{itemdescr}
+
+\rSec2[indirect.obs]{Observers}
+
+\indexlibrarymember{operator*}{indirect}%
+\begin{itemdecl}
+constexpr const T& operator*() const & noexcept;
+constexpr T& operator*() & noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{*this} is not valueless.
+
+\pnum
+\returns
+\tcode{*\exposid{p}}.
+\end{itemdescr}
+
+\indexlibrarymember{operator*}{indirect}%
+\begin{itemdecl}
+constexpr const T&& operator*() const && noexcept;
+constexpr T&& operator*() && noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{*this} is not valueless.
+
+\pnum
+\returns
+\tcode{std::move(*\exposid{p})}.
+\end{itemdescr}
+
+\indexlibrarymember{operator->}{indirect}%
+\begin{itemdecl}
+constexpr const_pointer operator->() const noexcept;
+constexpr pointer operator->() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{*this} is not valueless.
+
+\pnum
+\returns
+\exposid{p}.
+\end{itemdescr}
+
+\indexlibrarymember{valueless_after_move}{indirect}%
+\begin{itemdecl}
+constexpr bool valueless_after_move() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\tcode{true} if \tcode{*this} is valueless, otherwise \tcode{false}.
+\end{itemdescr}
+
+\indexlibrarymember{get_allocator}{indirect}%
+\begin{itemdecl}
+constexpr allocator_type get_allocator() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\exposid{alloc}.
+\end{itemdescr}
+
+\rSec2[indirect.swap]{Swap}
+
+\indexlibrarymember{swap}{indirect}%
+\begin{itemdecl}
+constexpr void swap(indirect& other)
+  noexcept(allocator_traits<Allocator>::propagate_on_container_swap::value ||
+           allocator_traits<Allocator>::is_always_equal::value);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+If
+\tcode{allocator_traits<Allocator>::propagate_on_container_swap::value}
+is \tcode{true},
+then \tcode{Allocator} meets the \oldconcept{Swappable} requirements.
+Otherwise,
+\tcode{get_allocator() == other.\linebreak get_allocator()} is \tcode{true}.
+
+\pnum
+\effects
+Swaps the states of \tcode{*this} and \tcode{other},
+exchanging owned objects or valueless states.
+If \tcode{allocator_traits<Allocator>::propagate_on_container_swap::value}
+is \tcode{true},
+then the allocators of \tcode{*this} and \tcode{other} are exchanged
+by calling \tcode{swap} as described in \ref{swappable.requirements}.
+Otherwise, the allocators are not swapped.
+\begin{note}
+The function \tcode{swap} is not invoked for the owned objects.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarymember{swap}{indirect}%
+\begin{itemdecl}
+constexpr void swap(indirect& x, indirect& y) noexcept(noexcept(x.swap(y)));
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{x.swap(y)}.
+\end{itemdescr}
+
+\rSec2[indirect.cmp]{Comparisons}
+
+\indexlibrarymember{operator==}{indirect}%
+\begin{itemdecl}
+template<class U, class AA>
+constexpr bool operator==(const indirect& x, const indirect<U, AA>& y)
+  noexcept(noexcept(*x == *y));
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{*x == *y} is well-formed and its result is convertible to \tcode{bool}.
+
+\pnum
+\returns
+If \tcode{x} is valueless or \tcode{y} is valueless,
+\tcode{x.valueless_after_move() == y.valueless_after_move()};
+otherwise \tcode{*x == *y}.
+\end{itemdescr}
+
+\indexlibrarymember{operator<=>}{indirect}%
+\begin{itemdecl}
+template<class U, class AA>
+constexpr @\exposid{synth-three-way-result}@<T> operator<=>(const indirect& x, const indirect<U, AA>& y)
+  noexcept(noexcept(@\exposid{synth-three-way}@(*x, *y)));
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{*x <=> *y} is well-formed.
+
+\pnum
+\returns
+If \tcode{x} is valueless or \tcode{y} is valueless,
+\tcode{!x.valueless_after_move() <=> !y.valueless_after_move()};
+otherwise \tcode{\exposid{synth-three-way}(*x, *y)}.
+\end{itemdescr}
+
+\indexlibrarymember{operator==}{indirect}%
+\begin{itemdecl}
+template<class U>
+constexpr bool operator==(const indirect& x, const U& y) noexcept(noexcept(*x == y));
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{*x == y} is well-formed.
+
+\pnum
+\returns
+If \tcode{x} is valueless, \tcode{false}; otherwise \tcode{*x == y}.
+\end{itemdescr}
+
+\indexlibrarymember{operator<=>}{indirect}%
+\begin{itemdecl}
+template<class U>
+constexpr @\exposid{synth-three-way-result}@<T> operator<=>(const indirect& x, const U& y)
+  noexcept(noexcept(@\exposid{synth-three-way}@(*x, y)));
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{*x <=> y} is well-formed.
+
+\pnum
+\returns
+If \tcode{x} is valueless, \tcode{false < true};
+otherwise \tcode{\exposid{synth-three-way}(*x, y)}.
+\end{itemdescr}
+
+\rSec2[indirect.hash]{Hash support}
+
+\indexlibrarymember{hash}{indirect}%
+\begin{itemdecl}
+template<class T, class Allocator>
+struct hash<indirect<T, Allocator>>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The specialization \tcode{hash<indirect<T, Allocator>>}
+is enabled\iref{unord.hash}
+if and only if \tcode{hash<T>} is enabled.
+When enabled for an object \tcode{i} of type \tcode{indirect<T, Allocator>},
+then \tcode{hash<indirect<T, Allocator>>()(i)}
+evaluates to either the same value as \tcode{hash<T>()(*i)},
+if \tcode{i} is not valueless;
+otherwise to
+an \impldef{value of \tcode{hash<indirect<T>>} for valueless object} value.
+The member functions are not guaranteed to be \tcode{noexcept}.
+\end{itemdescr}
+
+\rSec1[polymorphic]{Class template \tcode{polymorphic}}
+
+\rSec2[polymorphic.general]{General}
+
+\pnum
+A polymorphic object manages the lifetime of an owned object.
+A polymorphic object may own objects of different types
+at different points in its lifetime.
+A polymorphic object is \defnx{valueless}{valueless!polymorphic object}
+if it has no owned object.
+A polymorphic object may only become valueless after it has been moved from.
+
+\pnum
+In every specialization \tcode{polymorphic<T, Allocator>},
+if the type \tcode{allocator_traits<Allocator>::value_type}
+is not the same type as \tcode{T}, the program is ill-formed.
+Every object of type \tcode{polymorphic<T, Allocator>}
+uses an object of type \tcode{Allocator}
+to allocate and free storage for the owned object as needed.
+
+\pnum
+Constructing an owned object of type \tcode{U} with \tcode{args...}
+using the allocator \tcode{a} means
+calling \tcode{allocator_traits<Allocator>::construct(p, args...)}
+where \tcode{args} is an expression pack,
+\tcode{a} is an allocator, and
+\tcode{p} points to storage suitable for an owned object of type \tcode{U}.
+
+\pnum
+The member \exposid{alloc} is used for
+any memory allocation and element construction performed by member functions
+during the lifetime of each polymorphic value object, or
+until the allocator is replaced.
+The allocator may only be replaced via assignment or \tcode{swap}.
+Allocator replacement is performed by
+copy assignment, move assignment, or swapping of the allocator
+only if
+\begin{itemize}
+\item
+\tcode{allocator_traits<Allocator>::propagate_on_container_copy_assignment::value},
+\item
+\tcode{allocator_traits<Allocator>::propagate_on_container_move_assignment::value}, or
+\item
+\tcode{allocator_traits<Allocator>::propagate_on_container_swap::value}
+\end{itemize}
+is \tcode{true} within the implementation of
+the corresponding polymorphic operation\iref{container.reqmts}.
+
+\pnum
+A program that instantiates the definition of \tcode{polymorphic} for
+a non-object type,
+an array type,
+\tcode{in_place_t},
+a specialization of \tcode{in_place_type_t}, or
+a cv-qualified type
+is ill-formed.
+
+\pnum
+The template parameter \tcode{T} of polymorphic may be an incomplete type.
+
+\pnum
+The template parameter \tcode{Allocator} of \tcode{polymorphic}
+shall meet the requirements of \oldconcept{Allocator}.
+
+\pnum
+If a program declares
+an explicit or partial specialization of \tcode{polymorphic},
+the behavior is undefined.
+
+\begin{codeblock}
+namespace std {
+  template<class T, class Allocator = allocator<T>>
+  class @\libglobal{polymorphic}@ {
+  public:
+    using value_type = T;
+    using allocator_type = Allocator;
+    using pointer = typename allocator_traits<Allocator>::pointer;
+    using const_pointer = typename allocator_traits<Allocator>::const_pointer;
+
+    // \ref{polymorphic.ctor}, constructors
+    constexpr explicit polymorphic();
+    constexpr explicit polymorphic(allocator_arg_t, const Allocator& a);
+    constexpr polymorphic(const polymorphic& other);
+    constexpr polymorphic(allocator_arg_t, const Allocator& a, const polymorphic& other);
+    constexpr polymorphic(polymorphic&& other) noexcept;
+    constexpr polymorphic(allocator_arg_t, const Allocator& a,
+                          polymorphic&& other) noexcept(@\seebelow@);
+    template<class U = T>
+      constexpr explicit polymorphic(U&& u);
+    template<class U = T>
+      constexpr explicit polymorphic(allocator_arg_t, const Allocator& a, U&& u);
+    template<class U, class... Ts>
+      constexpr explicit polymorphic(in_place_type_t<U>, Ts&&... ts);
+    template<class U, class... Ts>
+      constexpr explicit polymorphic(allocator_arg_t, const Allocator& a,
+                                     in_place_type_t<U>, Ts&&... ts);
+    template<class U, class I, class... Us>
+      constexpr explicit polymorphic(in_place_type_t<U>, initializer_list<I> ilist, Us&&... us);
+    template<class U, class I, class... Us>
+      constexpr explicit polymorphic(allocator_arg_t, const Allocator& a,
+                                     in_place_type_t<U>, initializer_list<I> ilist, Us&&... us);
+
+    // \ref{polymorphic.dtor}, destructor
+    constexpr ~polymorphic();
+
+    // \ref{polymorphic.assign}, assignment
+    constexpr polymorphic& operator=(const polymorphic& other);
+    constexpr polymorphic& operator=(polymorphic&& other) noexcept(@\seebelow@);
+
+    // \ref{polymorphic.obs}, observers
+    constexpr const T& operator*() const noexcept;
+    constexpr T& operator*() noexcept;
+    constexpr const_pointer operator->() const noexcept;
+    constexpr pointer operator->() noexcept;
+    constexpr bool valueless_after_move() const noexcept;
+    constexpr allocator_type get_allocator() const noexcept;
+
+    // \ref{polymorphic.swap}, swap
+    constexpr void swap(polymorphic& other) noexcept(@\seebelow@);
+    friend constexpr void swap(polymorphic& x, polymorphic& y) noexcept(@\seebelow@);
+  private:
+    Allocator alloc = Allocator();      // \expos
+  };
+}
+\end{codeblock}
+
+\rSec2[polymorphic.ctor]{Constructors}
+
+\pnum
+The following element applies to all functions in \ref{polymorphic.ctor}:
+
+\pnum
+\throws
+Nothing unless \tcode{allocator_traits<Allocator>::allocate}
+or \tcode{allocator_traits<Allocator>::\linebreak construct} throws.
+
+\indexlibraryctor{polymorphic}%
+\begin{itemdecl}
+constexpr explicit polymorphic();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_default_constructible_v<T>} is \tcode{true},
+\item \tcode{is_copy_constructible_v<T>} is \tcode{true}, and
+\item \tcode{is_default_constructible_v<Allocator>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+Constructs an owned object of type \tcode{T} with an empty argument list
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{polymorphic}%
+\begin{itemdecl}
+constexpr explicit polymorphic(allocator_arg_t, const Allocator& a);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_default_constructible_v<T>} is \tcode{true} and
+\item \tcode{is_copy_constructible_v<T>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+\exposid{alloc} is direct-non-list-initialized with \tcode{a}.
+Constructs an owned object of type \tcode{T} with an empty argument list
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{polymorphic}%
+\begin{itemdecl}
+constexpr polymorphic(const polymorphic& other);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\exposid{alloc} is direct-non-list-initialized with
+\tcode{allocator_traits<Allocator>::select_on_contai\-ner_copy_construction(other.\exposid{alloc})}.
+If \tcode{other} is valueless, \tcode{*this} is valueless.
+Otherwise, constructs an owned object of type \tcode{U},
+where \tcode{U} is the type of the owned object in \tcode{other},
+with the owned object in \tcode{other}, using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{polymorphic}%
+\begin{itemdecl}
+constexpr polymorphic(allocator_arg_t, const Allocator& a, const polymorphic& other);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\exposid{alloc} is direct-non-list-initialized with \exposid{alloc}.
+If \tcode{other} is valueless, \tcode{*this} is valueless.
+Otherwise, constructs an owned object of type \tcode{U},
+where \tcode{U} is the type of the owned object in \tcode{other},
+with the owned object in \tcode{other}, using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{polymorphic}%
+\begin{itemdecl}
+constexpr polymorphic(polymorphic&& other) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\exposid{alloc} is direct-non-list-initialized with \tcode{std::move(other.alloc)}.
+If \tcode{other} is valueless, \tcode{*this} is valueless.
+Otherwise,
+either \tcode{*this} takes ownership of the owned object of \tcode{other} or
+owns an object of the same type
+constructed from the owned object of \tcode{other}
+considering that owned object as an rvalue,
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{polymorphic}%
+\begin{itemdecl}
+constexpr polymorphic(allocator_arg_t, const Allocator& a, polymorphic&& other)
+  noexcept(allocator_traits<Allocator>::is_always_equal::value);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\exposid{alloc} is direct-non-list-initialized with \tcode{a}.
+If \tcode{other} is valueless, \tcode{*this} is valueless.
+Otherwise, if \tcode{\exposid{alloc} == other.\exposid{alloc} }is \tcode{true},
+either constructs an object of type \tcode{polymorphic}
+that owns the owned object of \tcode{other},
+making \tcode{other} valueless or
+owns an object of the same type constructed from
+the owned object of \tcode{other}
+considering that owned object as an rvalue.
+Otherwise, if \tcode{\exposid{alloc} != other.\exposid{alloc}} is \tcode{true},
+constructs an object of type \tcode{polymorphic},
+considering the owned object in \tcode{other} as an rvalue,
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{polymorphic}%
+\begin{itemdecl}
+template<class U = T>
+constexpr explicit polymorphic(U&& u);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+Where \tcode{UU} is \tcode{remove_cvref_t<U>},
+\begin{itemize}
+\item \tcode{is_same_v<UU, polymorphic>} is \tcode{false},
+\item \tcode{derived_from<UU, T>} is \tcode{true},
+\item \tcode{is_copy_constructible_v<UU>} is \tcode{true},
+\item \tcode{is_constructible_v<UU, U>} is \tcode{true},
+\item \tcode{UU} is not a specialization of \tcode{in_place_type_t}, and
+\item \tcode{is_default_constructible_v<Allocator>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+Constructs an owned object of type \tcode{U} with \tcode{std::forward<U>(u)}
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{polymorphic}%
+\begin{itemdecl}
+template<class U = T>
+constexpr explicit polymorphic(allocator_arg_t, const Allocator& a, U&& u);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+Where \tcode{UU} is \tcode{remove_cvref_t<U>},
+\begin{itemize}
+\item \tcode{is_same_v<UU, polymorphic>} is \tcode{false},
+\item \tcode{derived_from<UU, T}> is \tcode{true},
+\item \tcode{is_copy_constructible_v<UU>} is \tcode{true},
+\item \tcode{is_constructible_v<UU, U>} is \tcode{true}, and
+\item \tcode{UU} is not a specialization of \tcode{in_place_type_t}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+\exposid{alloc} is direct-non-list-initialized with \tcode{a}.
+Constructs an owned object of type \tcode{U} with \tcode{std::forward<U>(u)}
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{polymorphic}%
+\begin{itemdecl}
+template<class U, class... Ts>
+constexpr explicit polymorphic(in_place_type_t<U>, Ts&&... ts);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_same_v<remove_cvref_t<U>, U>} is \tcode{true},
+\item \tcode{derived_from<U, T>} is \tcode{true},
+\item \tcode{is_constructible_v<U, Ts...>} is \tcode{true},
+\item \tcode{is_copy_constructible_v<U>} is \tcode{true}, and
+\item \tcode{is_default_constructible_v<Allocator>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+Constructs an owned object of type \tcode{U}
+with \tcode{std::forward<Ts>(ts)...} using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{polymorphic}%
+\begin{itemdecl}
+template<class U, class... Ts>
+constexpr explicit polymorphic(allocator_arg_t, const Allocator& a,
+                               in_place_type_t<U>, Ts&&... ts);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_same_v<remove_cvref_t<U>, U>} is \tcode{true},
+\item \tcode{derived_from<U, T>} is \tcode{true},
+\item \tcode{is_constructible_v<U, Ts...>} is \tcode{true}, and
+\item \tcode{is_copy_constructible_v<U>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+\exposid{alloc} is direct-non-list-initialized with \tcode{a}.
+Constructs an owned object of type \tcode{U}
+with \tcode{std::forward<Ts>(ts)...} using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{polymorphic}%
+\begin{itemdecl}
+template<class U, class I, class... Us>
+constexpr explicit polymorphic(in_place_type_t<U>, initializer_list<I> ilist, Us&&... us);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_same_v<remove_cvref_t<U>, U>} is \tcode{true},
+\item \tcode{is_same_v<U, polymorphic>} is \tcode{false},
+\item \tcode{derived_from<U, T>} is \tcode{true},
+\item \tcode{is_copy_constructible_v<U>} is \tcode{true},
+\item \tcode{is_constructible_v<U, initializer_list<I>\&, Us...>} is \tcode{true}, and
+\item \tcode{is_default_constructible_v<Allocator>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+Constructs an owned object of type \tcode{U}
+with the arguments \tcode{ilist}, \tcode{std::forward<Us>(us)...}
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\indexlibraryctor{polymorphic}%
+\begin{itemdecl}
+template<class U, class I, class... Us>
+constexpr explicit polymorphic(allocator_arg_t, const Allocator& a,
+                               in_place_type_t<U>, initializer_list<I> ilist, Us&&... us);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_same_v<remove_cvref_t<U>, U>} is \tcode{true},
+\item \tcode{is_same_v<U, polymorphic>} is \tcode{false},
+\item \tcode{derived_from<U, T>} is \tcode{true},
+\item \tcode{is_copy_constructible_v<U>} is \tcode{true}, and
+\item \tcode{is_constructible_v<U, initializer_list<I>\&, Us...>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+\exposid{alloc} is direct-non-list-initialized with \tcode{a}.
+Constructs an owned object of type \tcode{U}
+with the arguments \tcode{ilist}, \tcode{std::forward<Us>(us)...}
+using the allocator \exposid{alloc}.
+\end{itemdescr}
+
+\rSec2[polymorphic.dtor]{Destructor}
+
+\indexlibrarydtor{polymorphic}%
+\begin{itemdecl}
+constexpr ~polymorphic();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+If \tcode{*this} is not valueless,
+destroys the owned object using \tcode{allocator_traits<Allocator>::\linebreak destroy}
+and then the storage is deallocated.
+\end{itemdescr}
+
+\rSec2[polymorphic.assign]{Assignment}
+
+\indexlibrarymember{operator=}{polymorphic}%
+\begin{itemdecl}
+constexpr polymorphic& operator=(const polymorphic& other);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+If \tcode{addressof(other) == this} is \tcode{true}, there are no effects.
+Otherwise:
+\begin{itemize}
+\item
+The allocator needs updating if
+\tcode{allocator_traits<Allocator>::propagate_on_container_copy_assignment::value}
+is \tcode{true}.
+\item
+If \tcode{other} is not valueless,
+a new owned object is constructed in \tcode{*this}
+using \tcode{allocator_traits<Allocator>::construct}
+with the owned object from \tcode{other} as the argument,
+using either the allocator in \tcode{*this} or
+the allocator in \tcode{other} if the allocator needs updating.
+\item
+The previously owned object in \tcode{*this}, if any, is destroyed
+using \tcode{allocator_traits<Allocator>::\linebreak destroy}
+and then the storage is deallocated.
+\item
+If the allocator needs updating,
+the allocator in \tcode{*this} is replaced with
+a copy of the allocator in \tcode{other}.
+\end{itemize}
+
+\pnum
+\returns
+A reference to \tcode{*this}.
+
+\pnum
+\remarks
+If any exception is thrown, there are no effects on \tcode{*this}.
+\end{itemdescr}
+
+\indexlibrarymember{operator=}{polymorphic}%
+\begin{itemdecl}
+constexpr polymorphic& operator=(polymorphic&& other)
+  noexcept(allocator_traits<Allocator>::propagate_on_container_move_assignment::value ||
+           allocator_traits<Allocator>::is_always_equal::value);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+If \tcode{allocator_traits<Allocator>::is_always_equal::value} is \tcode{false},
+\tcode{T} is a complete type.
+
+\pnum
+\effects
+If \tcode{addressof(other) == this} is \tcode{true}, there are no effects.
+Otherwise:
+\begin{itemize}
+\item
+The allocator needs updating if
+\tcode{allocator_traits<Allocator>::propagate_on_container_move_assignment::value}
+is \tcode{true}.
+\item
+If \tcode{\exposid{alloc} == other.\exposid{alloc}} is \tcode{true},
+swaps the owned objects in \tcode{*this} and \tcode{other};
+the owned object in \tcode{other}, if any, is then destroyed
+using \tcode{allocator_traits<Allocator>::destroy} and then
+the storage is deallocated.
+\item
+Otherwise, if \tcode{\exposid{alloc} != other.\exposid{alloc}} is \tcode{true};
+if \tcode{other} is not valueless, a new owned object is constructed in
+\tcode{*this} using \tcode{allocator_traits<Allocator>::construct}
+with the owned object from \tcode{other} as the argument as an rvalue,
+using either the allocator in \tcode{*this} or
+the allocator in \tcode{other} if the allocator needs updating.
+\item
+The previously owned object in \tcode{*this}, if any, is destroyed
+using \tcode{allocator_traits<Allocator>::\linebreak destroy}
+and then the storage is deallocated.
+\item
+If the allocator needs updating,
+the allocator in \tcode{*this} is replaced with
+a copy of the allocator in \tcode{other}.
+\end{itemize}
+
+\pnum
+\returns
+A reference to \tcode{*this}.
+
+\pnum
+\remarks
+If any exception is thrown,
+there are no effects on \tcode{*this} or \tcode{other}.
+\end{itemdescr}
+
+\rSec2[polymorphic.obs]{Observers}
+
+\indexlibrarymember{operator*}{polymorphic}%
+\begin{itemdecl}
+constexpr const T& operator*() const noexcept;
+constexpr T& operator*() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{*this} is not valueless.
+
+\pnum
+\returns
+A reference to the owned object.
+\end{itemdescr}
+
+\indexlibrarymember{operator->}{polymorphic}%
+\begin{itemdecl}
+constexpr const_pointer operator->() const noexcept;
+constexpr pointer operator->() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{*this} is not valueless.
+
+\pnum
+\returns
+A pointer to the owned object.
+\end{itemdescr}
+
+\indexlibrarymember{valueless_after_move}{polymorphic}%
+\begin{itemdecl}
+constexpr bool valueless_after_move() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if \tcode{*this} is valueless, otherwise \tcode{false}.
+\end{itemdescr}
+
+\indexlibrarymember{get_allocator}{polymorphic}%
+\begin{itemdecl}
+constexpr allocator_type get_allocator() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\exposid{alloc}.
+\end{itemdescr}
+
+\rSec2[polymorphic.swap]{Swap}
+
+\indexlibrarymember{swap}{polymorphic}%
+\begin{itemdecl}
+constexpr void swap(polymorphic& other)
+  noexcept(allocator_traits<Allocator>::propagate_on_container_swap::value ||
+           allocator_traits<Allocator>::is_always_equal::value);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+If
+\tcode{allocator_traits<Allocator>::propagate_on_container_swap::value}
+is \tcode{true},
+then \tcode{Allocator} meets the \oldconcept{Swappable} requirements.
+Otherwise,
+\tcode{get_allocator() == other.\linebreak get_allocator()} is \tcode{true}.
+
+\pnum
+\effects
+Swaps the states of \tcode{*this} and \tcode{other},
+exchanging owned objects or valueless states.
+If \tcode{allocator_traits<Allocator>::propagate_on_container_swap::value}
+is \tcode{true},
+then the allocators of \tcode{*this} and other are exchanged
+by calling \tcode{swap} as described in \ref{swappable.requirements}.
+Otherwise, the allocators are not swapped.
+\begin{note}
+The function \tcode{swap} is not invoked for the owned objects.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarymember{swap}{polymorphic}%
+\begin{itemdecl}
+constexpr void swap(polymorphic& x, polymorphic& y) noexcept(noexcept(x.swap(y)));
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{x.swap(y)}.
 \end{itemdescr}
