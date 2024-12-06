@@ -1118,11 +1118,11 @@ Let $R$ be a set of types including
 \begin{itemize}
 \item
 ``lvalue reference to \cvqual{cv2} \tcode{T2}''
-(when initializing an lvalue reference or an rvalue reference to function) and
+(when converting to an lvalue) and
 \item
 ``\cvqual{cv2} \tcode{T2}''
-and ``rvalue reference to \cvqual{cv2} \tcode{T2}'' (when initializing an
-rvalue reference or an lvalue reference to function)
+and ``rvalue reference to \cvqual{cv2} \tcode{T2}''
+(when converting to an rvalue or an lvalue of function type)
 \end{itemize}
 for any \tcode{T2}.
 The permissible types for non-explicit conversion functions are
@@ -1795,19 +1795,8 @@ or, if not that,
 
 \item
 $\tcode{F}_1$ and $\tcode{F}_2$ are non-template functions and
-\begin{itemize}
-\item
-they have the same non-object-parameter-type-lists\iref{dcl.fct}, and
-\item
-if they are member functions, both are direct members of the same class, and
-\item
-if both are non-static member functions,
-they have the same types for their object parameters, and
-\item
-$\tcode{F}_1$ is more constrained than $\tcode{F}_2$
-according to the partial ordering of constraints described in
-\ref{temp.constr.order}
-\end{itemize}
+$\tcode{F}_1$ is more partial-ordering-constrained than
+$\tcode{F}_2$\iref{temp.constr.order}
 \begin{example}
 \begin{codeblock}
 template <typename T = int>
@@ -2329,16 +2318,16 @@ conversion\iref{over.best.ics}.
 
 \item
 Otherwise,
-if \tcode{T} is a function type, or
 if the type of the argument is possibly cv-qualified \tcode{T}, or
 if \tcode{T} is an array type of unknown bound with element type \tcode{U} and
 the argument has an array type of known bound whose
 element type is possibly cv-qualified \tcode{U},
 the implicit conversion sequence is the identity conversion.
-\begin{note}
-When \tcode{T} is a function type,
-the type of the argument can differ only by the presence of \keyword{noexcept}.
-\end{note}
+
+\item
+Otherwise,
+if \tcode{T} is a function type,
+the implicit conversion sequence is a function pointer conversion.
 
 \item
 Otherwise, the implicit conversion sequence is a qualification conversion.
@@ -2351,6 +2340,11 @@ struct B : public A {} b;
 int f(A&);
 int f(B&);
 int i = f(b);       // calls \tcode{f(B\&)}, an exact match, rather than \tcode{f(A\&)}, a conversion
+
+void g() noexcept;
+int h(void (&)() noexcept); // \#1
+int h(void (&)());          // \#2
+int j = h(g);               // calls \#1, an exact match, rather than \#2, a function pointer conversion
 \end{codeblock}
 \end{example}
 If the parameter binds directly to the result of
@@ -2835,15 +2829,11 @@ void g(const X& a, X b) {
   b.f();                        // calls \tcode{X::f()}
 }
 
-int h1(int (&)[]);
-int h1(int (&)[1]);
-int h2(void (&)());
-int h2(void (&)() noexcept);
+int h(int (&)[]);
+int h(int (&)[1]);
 void g2() {
   int a[1];
-  h1(a);                        // calls \tcode{h1(int (\&)[1])}
-  extern void f2() noexcept;
-  h2(f2);                       // calls \tcode{h2(void (\&)() noexcept)}
+  h(a);                         // calls \tcode{h(int (\&)[1])}
 }
 \end{codeblock}
 \end{example}
@@ -3116,6 +3106,9 @@ an explicit type conversion\iref{expr.type.conv,expr.static.cast,expr.cast}, or
 a non-type
 \grammarterm{template-parameter}\iref{temp.arg.nontype}.
 \end{itemize}
+If the target type contains a placeholder type,
+placeholder type deduction is performed\iref{dcl.type.auto.deduct}, and
+the remainder of this subclause uses the target type so deduced.
 The \grammarterm{id-expression} can be preceded by the \tcode{\&} operator.
 \begin{note}
 Any redundant set of parentheses surrounding the function name is
@@ -3168,10 +3161,8 @@ Any given non-template function
 \tcode{F0}
 is eliminated if the set contains a second
 non-template function that
-is more constrained than
-\tcode{F0}
-according to
-the partial ordering rules of \ref{temp.constr.order}.
+is more partial-ordering-constrained than
+\tcode{F0}\iref{temp.constr.order}.
 Any given
 function template specialization
 \tcode{F1}
@@ -3207,8 +3198,9 @@ is ill-formed because no
 with type
 \tcode{int(...)}
 has been declared, and not because of any ambiguity.
-For another example,
+\end{example}
 
+\begin{example}
 \begin{codeblock}
 struct X {
   int f(int);
@@ -3222,6 +3214,21 @@ int (X::*p4)(long) = &X::f;     // error: mismatch
 int (X::*p5)(int)  = &(X::f);   // error: wrong syntax for
                                 // pointer to member
 int    (*p6)(long) = &(X::f);   // OK
+\end{codeblock}
+\end{example}
+
+\begin{example}
+\begin{codeblock}
+template<bool B> struct X {
+  void f(short) requires B;
+  void f(long);
+  template<typename> void g(short) requires B;
+  template<typename> void g(long);
+};
+void test() {
+  &X<true>::f;                  // error: ambiguous; constraints are not considered
+  &X<true>::g<int>;             // error: ambiguous; constraints are not considered
+}
 \end{codeblock}
 \end{example}
 
@@ -3351,15 +3358,10 @@ stated in~\ref{expr.await}.
 \pnum
 \indextext{restriction!overloading}%
 An operator function
-shall either
-\begin{itemize}
-\item
-be a member function or
-\item
-be a non-member function that
-has at least one non-object parameter whose type is a class, a reference to a class, an
+shall have at least one
+function parameter or implicit object parameter whose type is
+a class, a reference to a class, an
 enumeration, or a reference to an enumeration.
-\end{itemize}
 It is not possible to change the precedence, grouping, or number of operands
 of operators.
 The meaning of
