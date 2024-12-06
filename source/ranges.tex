@@ -541,6 +541,13 @@ namespace std::ranges {
   class cartesian_product_view;                                                     // freestanding
 
   namespace views { inline constexpr @\unspecnc@ cartesian_product = @\unspecnc@; } // freestanding
+
+  // \ref{range.cache.latest}, cache latest view
+  template<@\libconcept{input_range}@ V>
+    requires @\libconcept{view}@<V>
+  class cache_latest_view;
+
+  namespace views { inline constexpr @\unspec@ cache_latest = @\unspec@; }
 }
 
 namespace std {
@@ -15684,7 +15691,7 @@ constexpr void operator++(int);
 \begin{itemdescr}
 \pnum
 \effects
-Equivalent to: \tcode{++*this;}
+Equivalent to \tcode{++*this;}
 \end{itemdescr}
 
 \indexlibrarymember{operator++}{stride_view::\exposid{iterator}}%
@@ -16735,6 +16742,346 @@ The exception specification is equivalent to the logical \logop{and} of the foll
 \tcode{noexcept(ranges::iter_swap(std::get<$i$>(l.\exposid{current_}), std::get<$i$>(r.\exposid{current_})))}
 for\newline every integer $0 \le i \le \tcode{sizeof...(Vs)}$.
 \end{itemize}
+\end{itemdescr}
+
+\rSec2[range.cache.latest]{Cache latest view}
+
+\rSec3[range.cache.latest.overview]{Overview}
+
+\pnum
+\tcode{cache_latest_view} caches the last-accessed element of
+its underlying sequence
+so that the element does not have to be recomputed on repeated access.
+\begin{note}
+This is useful if computation of the element to produce is expensive.
+\end{note}
+
+\pnum
+The name \tcode{views::cache_latest} denotes
+a range adaptor object\iref{range.adaptor.object}.
+Let \tcode{E} be an expression.
+The expression \tcode{views::cache_latest(E)} is expression-equivalent to
+\tcode{cache_latest_view(E)}.
+
+\rSec3[range.cache.latest.view]{Class template \tcode{cache_latest_view}}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<@\libconcept{input_range}@ V>
+    requires @\libconcept{view}@<V>
+  class @\libglobal{cache_latest_view}@ : public view_interface<cache_latest_view<V>> {
+    V @\exposid{base_}@ = V();                                                      // \expos
+    using @\exposid{cache_t}@ = conditional_t<is_reference_v<range_reference_t<V>>, // \expos
+                                  add_pointer_t<range_reference_t<V>>,
+                                  range_reference_t<V>>;
+
+    @\exposid{non-propagating-cache}@<cache_t> @\exposid{cache_}@;                              // \expos
+
+    class @\exposid{iterator}@;                                                     // \expos
+    class @\exposid{sentinel}@;                                                     // \expos
+
+  public:
+    cache_latest_view() requires @\libconcept{default_initializable}@<V> = default;
+    constexpr explicit cache_latest_view(V base);
+
+    constexpr V base() const & requires @\libconcept{copy_constructible}@<V> { return @\exposid{base_}@; }
+    constexpr V base() && { return std::move(@\exposid{base_}@); }
+
+    constexpr auto begin();
+    constexpr auto end();
+
+    constexpr auto size() requires @\libconcept{sized_range}@<V>;
+    constexpr auto size() const requires @\libconcept{sized_range}@<const V>;
+  };
+
+  template<class R>
+    cache_latest_view(R&&) -> cache_latest_view<views::all_t<R>>;
+}
+\end{codeblock}
+
+\indexlibraryctor{cache_latest_view}%
+\begin{itemdecl}
+constexpr explicit cache_latest_view(V base);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{base_} with \tcode{std::move(base)}.
+\end{itemdescr}
+
+\indexlibrarymember{begin}{cache_latest_view}%
+\begin{itemdecl}
+constexpr auto begin();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return \exposid{iterator}(*this);}
+\end{itemdescr}
+
+\indexlibrarymember{end}{cache_latest_view}%
+\begin{itemdecl}
+constexpr auto end();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return \exposid{sentinel}(*this);}
+\end{itemdescr}
+
+\indexlibrarymember{size}{cache_latest_view}%
+\begin{itemdecl}
+constexpr auto size() requires sized_range<V>;
+constexpr auto size() const requires sized_range<const V>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return ranges::size(\exposid{base_});}
+\end{itemdescr}
+
+\rSec3[range.cache.latest.iterator]{Class \tcode{cache_latest_view::\exposid{iterator}}}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<@\libconcept{input_range}@ V>
+    requires @\libconcept{view}@<V>
+  class cache_latest_view<V>::@\exposid{iterator}@ {
+    cache_latest_view* @\exposid{parent_}@;                                 // \expos
+    iterator_t<V> @\exposid{current_}@;                                     // \expos
+
+    constexpr explicit @\exposid{iterator}@(cache_latest_view& parent);     // \expos
+
+  public:
+    using difference_type = range_difference_t<V>;
+    using value_type = range_value_t<V>;
+    using iterator_concept = input_iterator_tag;
+
+    @\exposid{iterator}@(@\exposid{iterator}@&&) = default;
+    @\exposid{iterator}@& operator=(@\exposid{iterator}@&&) = default;
+
+    constexpr iterator_t<V> base() &&;
+    constexpr const iterator_t<V>& base() const & noexcept;
+
+    constexpr range_reference_t<V>& operator*() const;
+
+    constexpr @\exposid{iterator}@& operator++();
+    constexpr void operator++(int);
+
+    friend constexpr range_rvalue_reference_t<V> iter_move(const @\exposid{iterator}@& i)
+      noexcept(noexcept(ranges::iter_move(i.@\exposid{current_}@)));
+
+    friend constexpr void iter_swap(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+      noexcept(noexcept(ranges::iter_swap(x.@\exposid{current_}@, y.@\exposid{current_}@)))
+      requires @\libconcept{indirectly_swappable}@<iterator_t<V>>;
+  };
+}
+\end{codeblock}
+
+\indexlibraryctor{cache_latest_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr explicit @\exposid{iterator}@(cache_latest_view& parent);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{current_} with
+\tcode{ranges::begin(parent.\exposid{base_})}
+and \exposid{parent_} with \tcode{addressof(par\-ent)}.
+\end{itemdescr}
+
+\indexlibrarymember{base}{cache_latest_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr iterator_t<V> base() &&;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{std::move(\exposid{current_})}.
+\end{itemdescr}
+
+\indexlibrarymember{base}{cache_latest_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr const iterator_t<V>& base() const & noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\exposid{current_}.
+\end{itemdescr}
+
+\indexlibrarymember{operator++}{cache_latest_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr iterator& operator++();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+@\exposid{parent_}@->@\exposid{cache_}@.reset();
+++@\exposid{current_}@;
+return *this;
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{operator++}{cache_latest_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr void operator++(int);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{++*this}.
+\end{itemdescr}
+
+\indexlibrarymember{operator*}{cache_latest_view::\exposid{iterator}}%
+\begin{itemdecl}
+constexpr range_reference_t<V>& operator*() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if constexpr (is_reference_v<range_reference_t<V>>) {
+  if (!@\exposid{parent_}@->@\exposid{cache_}@) {
+    @\exposid{parent_}@->@\exposid{cache_}@ = addressof(@\exposid{as-lvalue}@(*@\exposid{current_}@));
+  }
+  return **@\exposid{parent_}@->@\exposid{cache_}@;
+} else {
+  if (!@\exposid{parent_}@->c@\exposid{ache_}@) {
+    @\exposid{parent_}@->@\exposid{cache_}@.@\exposid{emplace-deref}@(@\exposid{current_}@);
+  }
+  return *@\exposid{parent_}@->@\exposid{cache_}@;
+}
+\end{codeblock}
+\begin{note}
+Evaluations of \tcode{operator*} on the same iterator object
+can conflict\iref{intro.races}.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarymember{iter_move}{cache_latest_view::\exposid{iterator}}%
+\begin{itemdecl}
+friend constexpr range_rvalue_reference_t<V> iter_move(const @\exposid{iterator}@& i)
+  noexcept(noexcept(ranges::iter_move(i.@\exposid{current_}@)));
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return ranges::iter_move(i.\exposid{current_});}
+\end{itemdescr}
+
+\indexlibrarymember{iter_swap}{cache_latest_view::\exposid{iterator}}%
+\begin{itemdecl}
+friend constexpr void iter_swap(const @\exposid{iterator}@& x, const @\exposid{iterator}@& y)
+  noexcept(noexcept(ranges::iter_swap(x.@\exposid{current_}@, y.@\exposid{current_}@)))
+  requires @\libconcept{indirectly_swappable}@<iterator_t<V>>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to
+\tcode{ranges::iter_swap(x.\exposid{current_}, y.\exposid{current_})}.
+\end{itemdescr}
+
+\rSec3[range.cache.latest.sentinel]{Class \tcode{cache_latest_view::\exposid{sentinel}}}
+
+\begin{codeblock}
+namespace std::ranges {
+  template<@\libconcept{input_range}@ V>
+    requires @\libconcept{view}@<V>
+  class cache_latest_view<V>::@\exposid{sentinel}@ {
+    sentinel_t<V> @\exposid{end_}@ = sentinel_t<V>();                       // \expos
+
+    constexpr explicit @\exposid{sentinel}@(cache_latest_view& parent);     // \expos
+
+  public:
+    @\exposid{sentinel}@() = default;
+
+    constexpr sentinel_t<V> base() const;
+
+    friend constexpr bool operator==(const @\exposid{iterator}@& x, const @\exposid{sentinel}@& y);
+
+    friend constexpr range_difference_t<V> operator-(const @\exposid{iterator}@& x, const @\exposid{sentinel}@& y)
+      requires sized_sentinel_for<sentinel_t<V>, iterator_t<V>>;
+    friend constexpr range_difference_t<V> operator-(const @\exposid{sentinel}@& x, const @\exposid{iterator}@& y)
+      requires sized_sentinel_for<sentinel_t<V>, iterator_t<V>>;
+  };
+}
+\end{codeblock}
+
+\indexlibraryctor{cache_latest_view::\exposid{sentinel}}%
+\begin{itemdecl}
+constexpr explicit @\exposid{sentinel}@(cache_latest_view& parent);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{end_} with \tcode{ranges::end(parent.\exposid{base_})}.
+\end{itemdescr}
+
+\indexlibrarymember{base}{cache_latest_view::\exposid{sentinel}}%
+\begin{itemdecl}
+constexpr sentinel_t<V> base() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\exposid{end_}.
+\end{itemdescr}
+
+\indexlibrarymember{operator==}{cache_latest_view::\exposid{iterator}}%
+\indexlibrarymember{operator==}{cache_latest_view::\exposid{sentinel}}%
+\begin{itemdecl}
+friend constexpr bool operator==(const iterator& x, const sentinel& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{x.\exposid{current_} == y.\exposid{end_}}.
+\end{itemdescr}
+
+\indexlibrarymember{operator-}{cache_latest_view::\exposid{iterator}}%
+\indexlibrarymember{operator-}{cache_latest_view::\exposid{sentinel}}%
+\begin{itemdecl}
+friend constexpr range_difference_t<V> operator-(const @\exposid{iterator}@& x, const @\exposid{sentinel}@& y)
+  requires sized_sentinel_for<sentinel_t<V>, iterator_t<V>>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{x.\exposid{current_} - y.\exposid{end_}}.
+\end{itemdescr}
+
+\indexlibrarymember{operator-}{cache_latest_view::\exposid{iterator}}%
+\indexlibrarymember{operator-}{cache_latest_view::\exposid{sentinel}}%
+\begin{itemdecl}
+friend constexpr range_difference_t<V> operator-(const @\exposid{sentinel}@& x, const @\exposid{iterator}@& y)
+  requires sized_sentinel_for<sentinel_t<V>, iterator_t<V>>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{x.\exposid{end_} - y.\exposid{current_}}.
 \end{itemdescr}
 
 \rSec1[coro.generator]{Range generators}
