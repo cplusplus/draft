@@ -68,19 +68,19 @@ the form
 \end{bnf}
 
 \begin{bnf}
-\nontermdef{attributed-identifier}\br
-    identifier \opt{attribute-specifier-seq}
+\nontermdef{sb-identifier}\br
+    \opt{\terminal{...}} identifier \opt{attribute-specifier-seq}
 \end{bnf}
 
 \begin{bnf}
-\nontermdef{attributed-identifier-list}\br
-    attributed-identifier\br
-    attributed-identifier-list \terminal{,} attributed-identifier
+\nontermdef{sb-identifier-list}\br
+    sb-identifier\br
+    sb-identifier-list \terminal{,} sb-identifier
 \end{bnf}
 
 \begin{bnf}
 \nontermdef{structured-binding-declaration}\br
-    \opt{attribute-specifier-seq} decl-specifier-seq \opt{ref-qualifier} \terminal{[} attributed-identifier-list \terminal{]}
+    \opt{attribute-specifier-seq} decl-specifier-seq \opt{ref-qualifier} \terminal{[} sb-identifier-list \terminal{]}
 \end{bnf}
 
 \begin{bnf}
@@ -218,6 +218,10 @@ shall be
 \tcode{thread_local},
 \tcode{auto}\iref{dcl.spec.auto}, or
 a \grammarterm{cv-qualifier}.
+The declaration shall contain at most one \grammarterm{sb-identifier}
+whose \grammarterm{identifier} is preceded by an ellipsis.
+If the declaration contains any such \grammarterm{sb-identifier},
+it shall declare a templated entity\iref{temp.pre}.
 \begin{example}
 \begin{codeblock}
 template<class T> concept C = true;
@@ -7040,13 +7044,17 @@ shall not be potentially-throwing\iref{except.spec}.
 
 \pnum
 A structured binding declaration introduces the \grammarterm{identifier}{s}
-$\tcode{v}_0$, $\tcode{v}_1$, $\tcode{v}_2, \dotsc$
+$\tcode{v}_0$, $\tcode{v}_1$, $\tcode{v}_2, \dotsc, \tcode{v}_{N-1}$
 of the
-\grammarterm{attributed-identifier-list} as names
-of \defn{structured binding}{s}.
+\grammarterm{sb-identifier-list} as names.
+An \grammarterm{sb-identifier} that contains an ellipsis
+introduces a structured binding pack\iref{temp.variadic}.
+A \defn{structured binding} is either
+an \grammarterm{sb-identifier} that does not contain an ellipsis or
+an element of a structured binding pack.
 The optional \grammarterm{attribute-specifier-seq} of
-an \grammarterm{attributed-identifier}
-appertains to the structured binding so introduced.
+an \grammarterm{sb-identifier}
+appertains to the associated structured bindings.
 Let \cv{} denote the \grammarterm{cv-qualifier}{s} in
 the \grammarterm{decl-specifier-seq} and
 \placeholder{S} consist of
@@ -7081,6 +7089,42 @@ The type of the \grammarterm{id-expression}
 \end{note}
 
 \pnum
+The \defn{structured binding size} of \tcode{E}, as defined below,
+is the number of structured bindings
+that need to be introduced by the structured binding declaration.
+If there is no structured binding pack,
+then the number of elements in the \grammarterm{sb-identifier-list}
+shall be equal to the structured binding size of \tcode{E}.
+Otherwise, the number of non-pack elements shall be no more than
+the structured binding size of \tcode{E};
+the number of elements of the structured binding pack is
+the structured binding size of \tcode{E} less
+the number of non-pack elements in the\grammarterm{sb-identifier-list}.
+
+\pnum
+Let $\textrm{SB}_i$ denote
+the $i^\textrm{th}$ structured binding in the structured binding declaration
+after expanding the structured binding pack, if any.
+\begin{note}
+If there is no structured binding pack,
+then $\textrm{SB}_i$ denotes $\tcode{v}_i$.
+\end{note}
+\begin{example}
+\begin{codeblock}
+struct C { int x, y, z; };
+
+template<class T>
+void now_i_know_my() {
+  auto [a, b, c] = C();     // OK, $\textrm{SB}_0$ is \tcode{a}, $\textrm{SB}_1$ is \tcode{b}, and $\textrm{SB}_2$ is \tcode{c}
+  auto [d, ...e] = C();     // OK, $\textrm{SB}_0$ is \tcode{d}, the pack \tcode{e} $(\tcode{v}_1)$ contains two structured bindings: $\textrm{SB}_1$ and $\textrm{SB}_2$
+  auto [...f, g] = C();     // OK, the pack \tcode{f} $(\tcode{v}_0)$ contains two structured bindings: $\textrm{SB}_0$ and $\textrm{SB}_1$, and $\textrm{SB}_2$ is \tcode{g}
+  auto [h, i, j, ...k] = C();           // OK, the pack \tcode{k} is empty
+  auto [l, m, n, o, ...p] = C();        // error: structured binding size is too small
+}
+\end{codeblock}
+\end{example}
+
+\pnum
 If a structured binding declaration appears as a \grammarterm{condition},
 the decision variable\iref{stmt.pre} of the condition is \exposid{e}.
 
@@ -7090,9 +7134,10 @@ one of the names introduced by the structured binding declaration,
 the program is ill-formed.
 
 \pnum
-If \tcode{E} is an array type with element type \tcode{T}, the number
-of elements in the \grammarterm{attributed-identifier-list} shall be equal to the
-number of elements of \tcode{E}. Each $\tcode{v}_i$ is the name of an
+If \tcode{E} is an array type with element type \tcode{T},
+the structured binding size of \tcode{E} is equal to the
+number of elements of \tcode{E}.
+Each $\textrm{SB}_i$ is the name of an
 lvalue that refers to the element $i$ of the array and whose type
 is \tcode{T}; the referenced type is \tcode{T}.
 \begin{note}
@@ -7103,6 +7148,19 @@ The top-level cv-qualifiers of \tcode{T} are \cv.
 auto f() -> int(&)[2];
 auto [ x, y ] = f();            // \tcode{x} and \tcode{y} refer to elements in a copy of the array return value
 auto& [ xr, yr ] = f();         // \tcode{xr} and \tcode{yr} refer to elements in the array referred to by \tcode{f}'s return value
+
+auto g() -> int(&)[4];
+
+template<size_t N>
+void h(int (&arr)[N]) {
+  auto [a, ...b, c] = arr;  // \tcode{a} names the first element of the array, \tcode{b} is a pack referring to the second and
+                            // third elements, and \tcode{c} names the fourth element
+  auto& [...e] = arr;       // \tcode{e} is a pack referring to the four elements of the array
+}
+
+void call_h() {
+  h(g());
+}
 \end{codeblock}
 \end{example}
 
@@ -7113,8 +7171,7 @@ names a complete class type with a member named \tcode{value},
 the expression \tcode{std::tuple_size<E>::value}
 shall be a well-formed integral constant expression
 and
-the number of elements in
-the \grammarterm{attributed-identifier-list} shall be equal to the value of that
+the structured binding size of \tcode{E} is equal to the value of that
 expression.
 Let \tcode{i} be an index prvalue of type \tcode{std::size_t}
 corresponding to $\tcode{v}_i$.
@@ -7144,7 +7201,7 @@ variables are introduced with unique names $\tcode{r}_i$ as follows:
 \placeholder{S} \terminal{U$_i$ r$_i$ =} initializer \terminal{;}
 \end{ncbnf}
 
-Each $\tcode{v}_i$ is the name of an lvalue of type $\tcode{T}_i$
+Each $\textrm{SB}_i$ is the name of an lvalue of type $\tcode{T}_i$
 that refers to the object bound to $\tcode{r}_i$;
 the referenced type is $\tcode{T}_i$.
 The initialization of \exposid{e} and
@@ -7162,12 +7219,12 @@ of the same base class of \tcode{E},
 well-formed when named as \tcode{\exposidnc{e}.\placeholder{name}}
 in the context of the structured binding,
 \tcode{E} shall not have an anonymous union member, and
-the number of elements in the \grammarterm{attributed-identifier-list} shall be
+the structured binding size of \tcode{E} is
 equal to the number of non-static data members of \tcode{E}.
 Designating the non-static data members of \tcode{E} as
 $\tcode{m}_0$, $\tcode{m}_1$, $\tcode{m}_2, \dotsc$
 (in declaration order),
-each $\tcode{v}_i$ is the
+each $\textrm{SB}_i$ is the
 name of an lvalue that refers to the member \tcode{m}$_i$ of \exposid{e} and
 whose type is
 that of \tcode{\exposidnc{e}.$\tcode{m}_i$}\iref{expr.ref};
