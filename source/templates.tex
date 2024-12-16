@@ -2133,6 +2133,22 @@ g(0);                           // selects \#4
 \end{codeblock}
 \end{example}
 
+\pnum
+A non-template function \tcode{F1} is \defn{more partial-ordering-constrained}
+than a non-template function \tcode{F2} if
+\begin{itemize}
+\item
+they have the same non-object-parameter-type-lists\iref{dcl.fct}, and
+\item
+if they are member functions, both are direct members of the same class, and
+\item
+if both are non-static member functions,
+they have the same types for their object parameters, and
+\item
+the declaration of \tcode{F1} is more constrained than
+the declaration of \tcode{F2}.
+\end{itemize}
+
 \rSec1[temp.type]{Type equivalence}
 
 \pnum
@@ -2518,7 +2534,7 @@ all reachable deduction guides declared for the class template are considered.
 
 \begin{bnf}
 \nontermdef{deduction-guide}\br
-    \opt{explicit-specifier} template-name \terminal{(} parameter-declaration-clause \terminal{)} \opt{requires-clause} \terminal{->} simple-template-id \terminal{;}
+    \opt{explicit-specifier} template-name \terminal{(} parameter-declaration-clause \terminal{)} \terminal{->} simple-template-id \opt{requires-clause} \terminal{;}
 \end{bnf}
 
 \pnum
@@ -4987,13 +5003,16 @@ its \grammarterm{template-head}\iref{temp.arg} enclosed in
 \item
 in the definition of a nested class of a class template,
 the name of the nested class referenced as a member of the
-current instantiation, or
+current instantiation,
 \item
 in the definition of a class template partial specialization
 or a member of a class template partial specialization, the name of
 the class template followed by a template argument list
 equivalent to that of the partial specialization\iref{temp.spec.partial}
-enclosed in \tcode{<>} (or an equivalent template alias specialization).
+enclosed in \tcode{<>} (or an equivalent template alias specialization), or
+\item
+in the definition of a templated function,
+the name of a local class\iref{class.local}.
 \end{itemize}
 
 \pnum
@@ -5446,8 +5465,7 @@ is dependent:
 \keyword{sizeof} \terminal{(} type-id \terminal{)}\br
 \keyword{typeid} \terminal{(} expression \terminal{)}\br
 \keyword{typeid} \terminal{(} type-id \terminal{)}\br
-\keyword{alignof} \terminal{(} type-id \terminal{)}\br
-\keyword{noexcept} \terminal{(} expression \terminal{)}
+\keyword{alignof} \terminal{(} type-id \terminal{)}
 \end{ncsimplebnf}
 
 \begin{note}
@@ -5457,20 +5475,28 @@ see~\ref{support.types}.
 
 \pnum
 Expressions of the following form are value-dependent if either the
-\grammarterm{type-id}
-or
-\grammarterm{simple-type-specifier}
+\grammarterm{type-id},
+\grammarterm{simple-type-specifier}, or
+\grammarterm{typename-specifier}
 is dependent or the
 \grammarterm{expression}
 or
 \grammarterm{cast-expression}
+is value-dependent or
+any \grammarterm{expression} in the \grammarterm{expression-list}
+is value-dependent or
+any \grammarterm{assignment-expression} in the \grammarterm{braced-init-list}
 is value-dependent:
 
 \begin{ncsimplebnf}
 simple-type-specifier \terminal{(} \opt{expression-list} \terminal{)}\br
+typename-specifier \terminal{(} opt{expression-list} \terminal{)}\br
+simple-type-specifier braced-init-list\br
+typename-specifier braced-init-list\br
 \keyword{static_cast} \terminal{<} type-id \terminal{>} \terminal{(} expression \terminal{)}\br
 \keyword{const_cast} \terminal{<} type-id \terminal{>} \terminal{(} expression \terminal{)}\br
 \keyword{reinterpret_cast} \terminal{<} type-id \terminal{>} \terminal{(} expression \terminal{)}\br
+dynamic_cast \terminal{<} type-id \terminal{>} \terminal{(} expression \terminal{)}\br
 \terminal{(} type-id \terminal{)} cast-expression
 \end{ncsimplebnf}
 
@@ -5481,6 +5507,11 @@ Expressions of the following form are value-dependent:
 \keyword{sizeof} \terminal{...} \terminal{(} identifier \terminal{)}\br
 fold-expression
 \end{ncsimplebnf}
+
+\pnum
+A \grammarterm{noexcept-expression}\iref{expr.unary.noexcept}
+is value-dependent if
+its \grammarterm{expression} involves a template parameter.
 
 \pnum
 An expression of the form \tcode{\&}\grammarterm{qualified-id} where the
@@ -7854,10 +7885,11 @@ If the argument is an overload set containing one or more function templates,
 the parameter is treated as a non-deduced context.
 \item
 If the argument is an overload set (not containing function templates), trial
-argument deduction is attempted using each of the members of the set. If
-deduction succeeds for only one of the overload set members, that member is
-used as the argument value for the deduction. If deduction succeeds for more than
-one member of the overload set the parameter is treated as a non-deduced context.
+argument deduction is attempted using each of the members of the set
+whose associated constraints\iref{temp.constr.constr} are satisfied.
+If all successful deductions yield the same deduced \tcode{A},
+that deduced \tcode{A} is the result of deduction;
+otherwise, the parameter is treated as a non-deduced context.
 \end{itemize}
 
 \pnum
@@ -7890,6 +7922,21 @@ template <class T> int f(T, T (*p)(T));
 char g(char);
 template <class T> T g(T);
 int i = f(1, g);    // calls \tcode{f(int, int (*)(int))}
+\end{codeblock}
+\end{example}
+
+\pnum
+\begin{example}
+\begin{codeblock}
+// All arguments for placeholder type deduction\iref{dcl.type.auto.deduct} yield the same deduced type.
+template<bool B> struct X {
+  static void f(short) requires B;  // \#1
+  static void f(short);             // \#2
+};
+void test() {
+  auto x = &X<true>::f;     // OK, deduces \tcode{void(*)(short)}, selects \#1
+  auto y = &X<false>::f;    // OK, deduces \tcode{void(*)(short)}, selects \#2
+}
 \end{codeblock}
 \end{example}
 
@@ -8326,16 +8373,22 @@ has a default argument that is being used in the call for which argument
 deduction is being done.
 \item
 A function parameter for which the associated argument is an
-overload set\iref{over.over}, and one or more of the following apply:
+overload set such that one or more of the following apply:
 \begin{itemize}
 \item
-more than one function matches the function parameter type (resulting in
-an ambiguous deduction), or
+functions whose associated constraints are satisfied and
+that do not all have the same function type
+match the function parameter type (resulting in an ambiguous deduction), or
 \item
-no function matches the function parameter type, or
+no function whose associated constraints are satisfied
+matches the function parameter type, or
 \item
 the overload set supplied as an argument contains one or more function templates.
 \end{itemize}
+\begin{tailnote}
+A particular function from the overload set is selected\iref{over.over}
+after template argument deduction has succeeded\iref{temp.over}.
+\end{tailnote}
 \item A function parameter for which the associated argument is an initializer
 list\iref{dcl.init.list} but the parameter does not have
 a type for which deduction from an initializer list is specified\iref{temp.deduct.call}.
