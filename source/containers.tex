@@ -19779,6 +19779,10 @@ namespace std {
   template<class ElementType>
     class default_accessor;
 
+  // \ref{mdspan.accessor.aligned}, class template \tcode{aligned_accessor}
+  template<class ElementType, size_t ByteAlignment>
+    class aligned_accessor;
+
   // \ref{mdspan.mdspan}, class template \tcode{mdspan}
   template<class ElementType, class Extents, class LayoutPolicy = layout_right,
            class AccessorPolicy = default_accessor<ElementType>>
@@ -23149,6 +23153,195 @@ constexpr data_handle_type offset(data_handle_type p, size_t i) const noexcept;
 \pnum
 \effects
 Equivalent to: \tcode{return p + i;}
+\end{itemdescr}
+
+\rSec4[mdspan.accessor.aligned]{Class template \tcode{aligned_accessor}}
+
+\rSec5[mdspan.accessor.aligned.overview]{Overview}
+
+\begin{codeblock}
+namespace std {
+  template<class ElementType, size_t ByteAlignment>
+  struct @\libglobal{aligned_accessor}@ {
+    using offset_policy = default_accessor<ElementType>;
+    using element_type = ElementType;
+    using reference = ElementType&;
+    using data_handle_type = ElementType*;
+
+    static constexpr size_t byte_alignment = ByteAlignment;
+
+    constexpr aligned_accessor() noexcept = default;
+    template<class OtherElementType, size_t OtherByteAlignment>
+      constexpr aligned_accessor(
+        aligned_accessor<OtherElementType, OtherByteAlignment>) noexcept;
+    template<class OtherElementType>
+      constexpr explicit aligned_accessor(default_accessor<OtherElementType>) noexcept;
+
+    template<class OtherElementType>
+      constexpr operator default_accessor<OtherElementType>() const noexcept;
+
+    constexpr reference access(data_handle_type p, size_t i) const noexcept;
+
+    constexpr typename offset_policy::data_handle_type offset(
+      data_handle_type p, size_t i) const noexcept;
+  };
+}
+\end{codeblock}
+
+\pnum
+\mandates
+\begin{itemize}
+\item \tcode{byte_alignment} is a power of two, and
+\item \tcode{byte_alignment >= alignof(ElementType)} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\tcode{aligned_accessor} meets the accessor policy requirements.
+
+\pnum
+\tcode{ElementType} is required to be a complete object type
+that is neither an abstract class type nor an array type.
+
+\pnum
+Each specialization of \tcode{aligned_accessor} is
+a trivially copyable type that models \libconcept{semiregular}.
+
+\pnum
+\range{0}{$n$} is an accessible range
+for an object \tcode{p} of type \tcode{data_handle_type} and
+an object of type \tcode{aligned_accessor} if and only if
+\begin{itemize}
+\item
+\range{p}{p + $n$} is a valid range, and,
+\item
+if $n$ is greater than zero,
+then \tcode{is_sufficiently_aligned<byte_alignment>(p)} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\begin{example}
+The following function \tcode{compute}
+uses \tcode{is_sufficiently_aligned} to check
+whether a given \tcode{mdspan} with \tcode{default_accessor} has
+a data handle with sufficient alignment
+to be used with \tcode{aligned_accessor<float, 4 * sizeof(float)>}.
+If so, the function dispatches to
+a function \tcode{compute_using_fourfold_overalignment}
+that requires fourfold over-alignment of arrays,
+but can therefore use hardware-specific instructions,
+such as four-wide SIMD (Single Instruction Multiple Data) instructions.
+Otherwise, \tcode{compute} dispatches to a
+possibly less optimized function \tcode{compute_without_requiring_overalignment}
+that has no over-alignment requirement.
+\begin{codeblock}
+void compute_using_fourfold_overalignment(
+  std::mdspan<float, std::dims<1>, std::layout_right,
+    std::aligned_accessor<float, 4 * alignof(float)>> x);
+
+void compute_without_requiring_overalignment(
+  std::mdspan<float, std::dims<1>, std::layout_right> x);
+
+void compute(std::mdspan<float, std::dims<1>> x) {
+  constexpr auto byte_alignment = 4 * sizeof(float);
+  auto accessor = std::aligned_accessor<float, byte_alignment>{};
+  auto x_handle = x.data_handle();
+
+  if (std::is_sufficiently_aligned<byte_alignment>(x_handle)) {
+    compute_using_fourfold_overalignment(std::mdspan{x_handle, x.mapping(), accessor});
+  } else {
+    compute_without_requiring_overalignment(x);
+  }
+}
+\end{codeblock}
+\end{example}
+
+\rSec5[mdspan.accessor.aligned.members]{Members}
+
+\indexlibraryctor{aligned_accessor}%
+\begin{itemdecl}
+template<class OtherElementType, size_t OtherByteAlignment>
+  constexpr aligned_accessor(aligned_accessor<OtherElementType, OtherByteAlignment>) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{is_convertible_v<OtherElementType(*)[], element_type(*)[]>}
+is \tcode{true}.
+\item
+\tcode{OtherByteAlignment >= byte_alignment} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\effects
+None.
+\end{itemdescr}
+
+\indexlibraryctor{aligned_accessor}%
+\begin{itemdecl}
+template<class OtherElementType>
+  constexpr explicit aligned_accessor(default_accessor<OtherElementType>) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{is_convertible_v<OtherElementType(*)[], element_type(*)[]>}
+is \tcode{true}.
+
+\pnum
+\effects
+None.
+\end{itemdescr}
+
+\indexlibrarymember{access}{aligned_accessor}%
+\begin{itemdecl}
+constexpr reference access(data_handle_type p, size_t i) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\range{0}{i + 1} is an accessible range for \tcode{p} and \tcode{*this}.
+
+\pnum
+\effects
+Equivalent to: \tcode{return assume_aligned<byte_alignment>(p)[i];}
+\end{itemdescr}
+
+\indexlibrarymember{operator default_accessor}{aligned_accessor}%
+\begin{itemdecl}
+template<class OtherElementType>
+  constexpr operator default_accessor<OtherElementType>() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{is_convertible_v<element_type(*)[], OtherElementType(*)[]>}
+is \tcode{true}.
+
+\pnum
+\effects
+Equivalent to: \tcode{return \{\};}
+\end{itemdescr}
+
+\indexlibrarymember{offset}{aligned_accessor}%
+\begin{itemdecl}
+constexpr typename offset_policy::data_handle_type
+  offset(data_handle_type p, size_t i) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\range{0}{i + 1} is an accessible range for \tcode{p} and \tcode{*this}.
+
+\pnum
+\effects
+Equivalent to: \tcode{return assume_aligned<byte_alignment>(p) + i;}
 \end{itemdescr}
 
 \rSec3[mdspan.mdspan]{Class template \tcode{mdspan}}
