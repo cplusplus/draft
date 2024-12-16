@@ -7495,26 +7495,139 @@ during translation.
 \end{bnf}
 
 \pnum
-A variable or temporary object \tcode{o} is \defn{constant-initialized} if
+The \defnx{constituent values}{constituent value} of an object $o$ are
 \begin{itemize}
 \item
-  either it has an initializer or
-  its type is const-default-constructible\iref{dcl.init.general}, and
+if $o$ has scalar type, the value of $o$;
 \item
-  the full-expression of its initialization is a constant expression
-  when interpreted as a \grammarterm{constant-expression},
-  except that if \tcode{o} is an object,
-  that full-expression
-  may also invoke constexpr constructors
-  for \tcode{o} and its subobjects
-  even if those objects are of non-literal class types.
-  \begin{note}
-  Such a class can have a non-trivial destructor.
-  Within this evaluation,
-  \tcode{std::is_constant_evaluated()}\iref{meta.const.eval}
-  returns \keyword{true}.
-\end{note}
+otherwise, the constituent values of any direct subobjects of $o$
+other than inactive union members.
 \end{itemize}
+The \defnx{constituent references}{constituent reference} of an object $o$ are
+\begin{itemize}
+\item
+any direct members of $o$ that have reference type, and
+\item
+the constituent references of any direct subobjects of $o$
+other than inactive union members.
+\end{itemize}
+
+\pnum
+The constituent values and constituent references of
+a variable \tcode{x} are defined as follows:
+\begin{itemize}
+\item
+If \tcode{x} declares an object,
+the constituent values and references of that object are
+constituent values and references of \tcode{x}.
+\item
+If \tcode{x} declares a reference,
+that reference is a constituent reference of \tcode{x}.
+\end{itemize}
+For any constituent reference \tcode{r} of a variable \tcode{x},
+if \tcode{r} is bound to a temporary object or subobject thereof
+whose lifetime is extended to that of \tcode{r},
+the constituent values and references of that temporary object
+are also constituent values and references of \tcode{x}, recursively.
+
+\pnum
+An object $o$ is \defn{constexpr-referenceable} from a point $P$ if
+\begin{itemize}
+\item
+$o$ has static storage duration, or
+\item
+$o$ has automatic storage duration, and, letting \tcode{v} denote
+\begin{itemize}
+\item
+the variable corresponding to $o$'s complete object or
+\item
+the variable to whose lifetime that of $o$ is extended,
+\end{itemize}
+the smallest scope enclosing \tcode{v} and the smallest scope enclosing $P$
+that are neither
+\begin{itemize}
+\item
+block scopes nor
+\item
+function parameter scopes associated with
+a \grammarterm{requirement-parameter-list}
+\end{itemize}
+are the same function parameter scope.
+\end{itemize}
+\begin{example}
+\begin{codeblock}
+struct A {
+  int m;
+  const int& r;
+};
+void f() {
+  static int sx;
+  thread_local int tx;                  // \tcode{tx} is never constexpr-referenceable
+  int ax;
+  A aa = {1, 2};
+  static A sa = {3, 4};
+  // The objects \tcode{sx}, \tcode{ax}, and \tcode{aa.m}, \tcode{sa.m}, and the temporaries to which \tcode{aa.r} and \tcode{sa.r} are bound, are constexpr-referenceable.
+  auto lambda = [] {
+    int ay;
+    // The objects \tcode{sx}, \tcode{sa.m}, and \tcode{ay} (but not \tcode{ax} or \tcode{aa}), and the
+    // temporary to which \tcode{sa.r} is bound, are constexpr-referenceable.
+  };
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+An object or reference \tcode{x} is
+\defn{constexpr-representable} at a point $P$ if,
+for each constituent value of \tcode{x} that points to or past an object $o$,
+and for each constituent reference of \tcode{x} that refers to an object $o$,
+$o$ is constexpr-referenceable from $P$.
+
+\pnum
+A variable \tcode{v} is \defn{constant-initializable} if
+\begin{itemize}
+\item
+the full-expression of its initialization is a constant expression
+when interpreted as a \grammarterm{constant-expression},
+\begin{note}
+Within this evaluation,
+\tcode{std::is_constant_evaluated()}\iref{meta.const.eval}
+returns \keyword{true}.
+\end{note}
+and
+\item
+immediately after the initializing declaration of \tcode{v},
+the object or reference \tcode{x} declared by \tcode{v}
+is constexpr-representable, and
+\item
+if \tcode{x} has static or thread storage duration,
+\tcode{x} is constexpr-representable at the nearest point
+whose immediate scope is a namespace scope
+that follows the initializing declaration of \tcode{v}.
+\end{itemize}
+
+\pnum
+A constant-initializable variable is \defn{constant-initialized}
+if either it has an initializer or
+its default-initialization results in some initialization being performed.
+\begin{example}
+\begin{codeblock}
+void f() {
+  int ax = 0;                   // \tcode{ax} is constant-initialized
+  thread_local int tx = 0;      // \tcode{tx} is constant-initialized
+  static int sx;                // \tcode{sx} is not constant-initialized
+  static int& rss = sx;         // \tcode{rss} is constant-initialized
+  static int& rst = tx;         // \tcode{rst} is not constant-initialized
+  static int& rsa = ax;         // \tcode{rsa} is not constant-initialized
+  thread_local int& rts = sx;   // \tcode{rts} is constant-initialized
+  thread_local int& rtt = tx;   // \tcode{rtt} is not constant-initialized
+  thread_local int& rta = ax;   // \tcode{rta} is not constant-initialized
+  int& ras = sx;                // \tcode{ras} is constant-initialized
+  int& rat = tx;                // \tcode{rat} is not constant-initialized
+  int& raa = ax;                // \tcode{raa} is constant-initialized
+}
+\end{codeblock}
+\end{example}
 
 \pnum
 A variable is \defn{potentially-constant} if
@@ -7530,16 +7643,43 @@ $V$'s initializing declaration $D$ is reachable from $P$ and
 \item $V$ is not initialized to a TU-local value, or
 \item $P$ is in the same translation unit as $D$.
 \end{itemize}
-An object or reference is \defn{usable in constant expressions} if it is
+An object or reference is
+\defn{potentially usable in constant expressions} at point $P$ if it is
 \begin{itemize}
-\item a variable that is usable in constant expressions, or
-\item a template parameter object\iref{temp.param}, or
-\item a string literal object\iref{lex.string}, or
-\item a temporary object of non-volatile const-qualified literal type
-  whose lifetime is extended\iref{class.temporary}
-  to that of a variable that is usable in constant expressions, or
-\item a non-mutable subobject or reference member of any of the above.
+\item
+the object or reference declared by a variable
+that is usable in constant expressions at $P$,
+\item
+a temporary object of non-volatile const-qualified literal type
+whose lifetime is extended\iref{class.temporary}
+to that of a variable that is usable in constant expressions at $P$,
+\item
+a template parameter object\iref{temp.param},
+\item
+a string literal object\iref{lex.string},
+\item
+a non-mutable subobject of any of the above, or
+\item
+a reference member of any of the above.
 \end{itemize}
+An object or reference is \defn{usable in constant expressions} at point $P$
+if it is an object or reference
+that is potentially usable in constant expressions at $P$ and
+is constexpr-representable at $P$.
+\begin{example}
+\begin{codeblock}
+struct A {
+  int* const & r;
+};
+void f(int x) {
+  constexpr A a = {&x};
+  static_assert(a.r == &x);             // OK
+  [&] {
+    static_assert(a.r != nullptr);      // error: \tcode{a.r} is not usable in constant expressions at this point
+  }();
+}
+\end{codeblock}
+\end{example}
 
 \pnum
 An expression $E$ is a \defnadj{core constant}{expression}
@@ -7856,6 +7996,45 @@ The copy/move of the active member is trivial.
 \end{note}
 
 \pnum
+For the purposes of determining whether $E$ is a core constant expression,
+the evaluation of an \grammarterm{id-expression}
+that names a structured binding \tcode{v}\iref{dcl.struct.bind} has the
+following semantics:
+\begin{itemize}
+\item
+If \tcode{v} is an lvalue referring to the object bound to an invented reference \tcode{r},
+the behavior is as if \tcode{r} were nominated.
+\item
+Otherwise, if \tcode{v} names an array element or class member,
+the behavior is that of
+evaluating \tcode{$e$[$i$]} or \tcode{$e$.$m$}, respectively,
+where $e$ is the name of the variable
+initialized from the initializer of the structured binding declaration, and
+$i$ is the index of the element referred to by \tcode{v} or
+$m$ is the name of the member referred to by \tcode{v}, respectively.
+\end{itemize}
+\begin{example}
+\begin{codeblock}
+#include <tuple>
+struct S {
+  mutable int m;
+  constexpr S(int m): m(m) {}
+  virtual int g() const;
+};
+void f(std::tuple<S&> t) {
+  auto [r] = t;
+  static_assert(r.g() >= 0);            // error: dynamic type is constexpr-unknown
+  constexpr auto [m] = S(1);
+  static_assert(m == 1);                // error: lvalue-to-rvalue conversion on mutable
+                                        // subobject \tcode{e.m}, where \tcode{e} is a constexpr object of type \tcode{S}
+  using A = int[2];
+  constexpr auto [v0, v1] = A{2, 3};
+  static_assert(v0 + v1 == 5);          // OK, equivalent to \tcode{e[0] + e[1]} where \tcode{e} is a constexpr array
+}
+\end{codeblock}
+\end{example}
+
+\pnum
 During the evaluation of an expression $E$ as a core constant expression,
 all \grammarterm{id-expression}s and uses of \tcode{*\keyword{this}}
 that refer to an object or reference
@@ -8011,40 +8190,20 @@ the conversion sequence contains only the conversions above.
 \pnum
 A \defnadj{constant}{expression} is either
 a glvalue core constant expression that refers to
-an entity that is a permitted result of a constant expression (as defined below), or
+an object or a non-immediate function, or
 a prvalue core constant expression whose value
 satisfies the following constraints:
 \begin{itemize}
-  \item
-  if the value is an object of class type,
-  each non-static data member of reference type refers to
-  an entity that is a permitted result of a constant expression,
-
-  \item
-  if the value is an object of scalar type,
-  it does not have an indeterminate or erroneous value\iref{basic.indet},
-
-  \item
-  if the value is of pointer type, it is
-  a pointer to an object with static storage duration,
-  a pointer past the end of such an object\iref{expr.add},
-  a pointer to a non-immediate function,
-  or a null pointer value,
-
-  \item
-  if the value is of pointer-to-member-function type,
-  it does not designate an immediate function, and
-
-  \item
-  if the value is an object of class or array type,
-  each subobject satisfies these constraints for the value.
+\item
+each constituent reference refers to an object or a non-immediate function,
+\item
+no constituent value of scalar type is an indeterminate value\iref{basic.indet},
+\item
+no constituent value of pointer type is a pointer to an immediate function or
+an invalid pointer value\iref{basic.compound}, and
+\item
+no constituent value of pointer-to-member type designates an immediate function.
 \end{itemize}
-An entity is a
-\defnx{permitted result of a constant expression}{constant expression!permitted result of}
-if it is an
-object with static storage duration that either is not a temporary object or is
-a temporary object whose value satisfies the above constraints, or if
-it is a non-immediate function.
 \begin{note}
 A glvalue core constant expression
 that either refers to or points to an unspecified object
