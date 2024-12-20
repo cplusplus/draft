@@ -48,6 +48,12 @@ cat std-grammarindex.ind |
     sed 's/^\(.*\)$/grammar non-terminal \1 has no definition/' |
     fail || failed=1
 
+# Find header index entries missing a definition
+cat std-headerindex.ind |
+    awk 'BEGIN { def=1 } /^  .item/ { if (def==0) { gsub("[{},]", "", item); print item } i=NF; while (i > 0 && $i !~ "<[a-z_.]*>") { --i; } item=$i; def=0; next } /hyperindexformat/ { def=1 }' |
+    sed 's/^\(.*\)$/header \1 has no definition/' |
+    fail || failed=1
+
 # Find concept index entries missing a definition
 cat std-conceptindex.ind |
     sed 's/.hyperindexformat/\nhyperindexformat/;s/.hyperpage/hyperpage/' |
