@@ -64,13 +64,21 @@ cat std-conceptindex.ind |
 # Find undecorated concept names in code blocks
 patt="`cat std-conceptindex.ind |
        sed 's/.hyperindexformat/\nhyperindexformat/;s/.hyperpage/\nhyperpage/' |
-       sed -n 's/^  .item.*{\([-a-z_]*\)}.*$/\1/p'`"
+       sed -n 's/^  .item.*{\([-a-z_]*\)}.*$/\1/p;s/^  .item.*frenchspacing \([a-z_]*\)}.*$/\1/p'`"
 
 patt="`echo $patt | sed 's/ /\\\\|/g'`"
 # $patt contains all concept names, separated by \| to use as a sed regex
 
 for f in *.tex; do
-    sed -n 's,//.*$,,;s/%.*$//;s/"[^"]*"/""/;/begin{codeblock\(tu\)\?}/,/end{codeblock\(tu\)\?}/{/[^-_{a-z\]\('"$patt"'\)[^-_}a-z();]/{=;p;};}' $f |
+    # handle codeblock
+    sed -n 's,//.*$,,;s/%.*$//;s/"[^"]*"/""/;/begin{codeblock\(tu\)\?}/,/end{codeblock\(tu\)\?}/{/[^-_a-z\]\('"$patt"'\)[^-_}a-z0-9();,]/{=;p;};}' $f |
+	# prefix output with filename and line
+	sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/" |
+	grep -v "@.seebelow" |
+	sed "s/\$/ -- concept name without markup/" |
+	fail || failed=1
+    # handle itemdecl
+    sed -n 's,//.*$,,;s/%.*$//;s/"[^"]*"/""/;/begin{itemdecl}/,/end{itemdecl}/{/[^-_a-z]\('"$patt"'\)[^-_a-z();,]/{/concept{[a-z_-]*}/d;=;p;};}' $f |
 	# prefix output with filename and line
 	sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/" |
 	grep -v "@.seebelow" |
