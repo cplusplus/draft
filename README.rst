@@ -22,7 +22,7 @@ Getting Started on Mac OS X
 Install the `MacTeX distribution <http://tug.org/mactex/>`_.
 
 If you are on a slow network, you'll want to get the `BasicTeX package <http://tug.org/mactex/morepackages.html>`_ instead,
-then run the following command to install the other packages that the draft requires:
+then run the following command to install the other packages that the draft requires::
 
    sudo tlmgr install latexmk isodate substr relsize ulem fixme rsfs extract layouts enumitem l3packages l3kernel imakeidx splitindex xstring
 
@@ -30,7 +30,7 @@ then run the following command to install the other packages that the draft requ
 Getting Started on Debian-based Systems
 ---------------------------------------
 
-Install the following packages:
+Install the following packages::
 
    sudo apt-get install latexmk texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended lmodern
 
@@ -38,7 +38,7 @@ Install the following packages:
 Getting Started on Fedora
 -------------------------
 
-Install the following packages:
+Install the following packages::
 
    dnf install latexmk texlive texlive-isodate texlive-relsize texlive-ulem texlive-fixme texlive-extract texlive-l3kernel texlive-l3packages texlive-splitindex texlive-imakeidx
 
@@ -46,7 +46,7 @@ Install the following packages:
 Getting Started on Arch Linux
 -----------------------------
 
-Install the following packages:
+Install the following packages::
 
    pacman -S make texlive-latexextra texlive-binextra texlive-plaingeneric texlive-fontsrecommended
 
