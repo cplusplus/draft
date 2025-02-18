@@ -16056,12 +16056,17 @@ it is defined in Flynn 1966\supercite{flynn-taxonomy}.
 \end{note}
 
 \pnum
-The set of \defnadjx{vectorizable}{types}{type} comprises all standard integer
-types, character types, and the types \tcode{float} and
-\tcode{double}\iref{basic.fundamental}.
-In addition, \tcode{std::float16_t}, \tcode{std::float32_t}, and
-\tcode{std::float64_t} are vectorizable types if
-defined\iref{basic.extended.fp}.
+The set of \defnadjx{vectorizable}{types}{type} comprises
+\begin{itemize}
+ \item
+   all standard integer types, character types, and the types \tcode{float} and
+   \tcode{double}\iref{basic.fundamental};
+ \item
+   \tcode{std::float16_t}, \tcode{std::float32_t}, and \tcode{std::float64_t}
+   if defined\iref{basic.extended.fp}; and
+ \item
+   \tcode{complex<T>} where \tcode{T} is a vectorizable floating-point type.
+\end{itemize}
 
 \pnum
 The term \defnadj{data-parallel}{type} refers to all enabled specializations of
@@ -16124,9 +16129,20 @@ template<class T> using @\exposidnc{deduced-simd-t} = \seebelownc@;             
 template<class V, class T> using @\exposidnc{make-compatible-simd-t} = \seebelownc@; // \expos
 
 template<class V>
-  concept @\defexposconceptnc{simd-floating-point}@ =                                      // \expos
+  concept @\defexposconceptnc{simd-type}@ =                                                // \expos
     @\libconcept{same_as}@<V, basic_simd<typename V::value_type, typename V::abi_type>> &&
-    is_default_constructible_v<V> && @\libconcept{floating_point}@<typename V::value_type>;
+    is_default_constructible_v<V>;
+
+template<class V>
+  concept @\defexposconceptnc{simd-floating-point}@ =                                      // \expos
+    @\exposconcept{simd-type}@<V> && @\libconcept{floating_point}@<typename V::value_type>;
+
+template<class V>
+  using @\exposidnc{simd-complex-value-type}@ = typename V::value_type::value_type; // \expos
+
+template<class V>
+  concept @\defexposconceptnc{simd-complex}@ =                                             // \expos
+  @\exposconcept{simd-type}@<V> && @\libconcept{same_as}@<typename V::value_type, complex<@\exposid{simd-complex-value-type}@<V>>>;
 
 template<class... Ts>
   concept @\defexposconceptnc{math-floating-point}@ =                                      // \expos
@@ -16370,24 +16386,24 @@ for
 \rSec2[simd.syn]{Header \tcode{<simd>} synopsis}
 \indexheader{simd}%
 \begin{codeblock}
-namespace std {
+namespace std::datapar {
   // \ref{simd.traits}, \tcode{simd} type traits
-  template<class T, class U = typename T::value_type> struct simd_alignment;
+  template<class T, class U = typename T::value_type> struct alignment;
   template<class T, class U = typename T::value_type>
-    constexpr size_t simd_alignment_v = simd_alignment<T, U>::value;
+    constexpr size_t alignment_v = alignment<T, U>::value;
 
-  template<class T, class V> struct rebind_simd { using type = @\seebelow@; };
-  template<class T, class V> using rebind_simd_t = typename rebind_simd<T, V>::type;
-  template<@\exposid{simd-size-type}@ N, class V> struct resize_simd { using type = @\seebelow@; };
-  template<@\exposid{simd-size-type}@ N, class V> using resize_simd_t = typename resize_simd<N, V>::type;
+  template<class T, class V> struct rebind { using type = @\seebelow@; };
+  template<class T, class V> using rebind_t = typename rebind<T, V>::type;
+  template<@\exposid{simd-size-type}@ N, class V> struct resize { using type = @\seebelow@; };
+  template<@\exposid{simd-size-type}@ N, class V> using resize_t = typename resize<N, V>::type;
 
   // \ref{simd.flags}, Load and store flags
-  template<class... Flags> struct simd_flags;
-  inline constexpr simd_flags<> simd_flag_default{};
-  inline constexpr simd_flags<@\exposid{convert-flag}@> simd_flag_convert{};
-  inline constexpr simd_flags<@\exposid{aligned-flag}@> simd_flag_aligned{};
+  template<class... Flags> struct flags;
+  inline constexpr flags<> flag_default{};
+  inline constexpr flags<@\exposid{convert-flag}@> flag_convert{};
+  inline constexpr flags<@\exposid{aligned-flag}@> flag_aligned{};
   template<size_t N> requires (has_single_bit(N))
-    constexpr simd_flags<@\exposid{overaligned-flag}<N>@> simd_flag_overaligned{};
+    constexpr flags<@\exposid{overaligned-flag}<N>@> flag_overaligned{};
 
   // \ref{simd.class}, Class template \tcode{basic_simd}
   template<class T, class Abi = @\exposid{native-abi}@<T>> class basic_simd;
@@ -16402,109 +16418,111 @@ namespace std {
   // \ref{simd.loadstore}, \tcode{basic_simd} load and store functions
   template<class V = @\seebelow@, ranges::@\libconcept{contiguous_range}@ R, class... Flags>
     requires ranges::@\libconcept{sized_range}@<R>
-    constexpr V simd_unchecked_load(R&& r, simd_flags<Flags...> f = {});
+    constexpr V unchecked_load(R&& r, flags<Flags...> f = {});
   template<class V = @\seebelow@, ranges::@\libconcept{contiguous_range}@ R, class... Flags>
     requires ranges::@\libconcept{sized_range}@<R>
-    constexpr V simd_unchecked_load(R&& r, const typename V::mask_type& k,
-                                    simd_flags<Flags...> f = {});
+    constexpr V unchecked_load(R&& r, const typename V::mask_type& k,
+                               flags<Flags...> f = {});
   template<class V = @\seebelow@, @\libconcept{contiguous_iterator}@ I, class... Flags>
-    constexpr V simd_unchecked_load(I first, iter_difference_t<I> n,
-                                    simd_flags<Flags...> f = {});
+    constexpr V unchecked_load(I first, iter_difference_t<I> n,
+                               flags<Flags...> f = {});
   template<class V = @\seebelow@, @\libconcept{contiguous_iterator}@ I, class... Flags>
-    constexpr V simd_unchecked_load(I first, iter_difference_t<I> n,
-                                    const typename V::mask_type& k, simd_flags<Flags...> f = {});
+    constexpr V unchecked_load(I first, iter_difference_t<I> n,
+                               const typename V::mask_type& k, flags<Flags...> f = {});
   template<class V = @\seebelow@, @\libconcept{contiguous_iterator}@ I, @\libconcept{sized_sentinel_for}@<I> S, class... Flags>
-    constexpr V simd_unchecked_load(I first, S last, simd_flags<Flags...> f = {});
+    constexpr V unchecked_load(I first, S last, flags<Flags...> f = {});
   template<class V = @\seebelow@, @\libconcept{contiguous_iterator}@ I, @\libconcept{sized_sentinel_for}@<I> S, class... Flags>
-    constexpr V simd_unchecked_load(I first, S last, const typename V::mask_type& k,
-                                    simd_flags<Flags...> f = {});
+    constexpr V unchecked_load(I first, S last, const typename V::mask_type& k,
+                               flags<Flags...> f = {});
 
   template<class V = @\seebelow@, ranges::@\libconcept{contiguous_range}@ R, class... Flags>
     requires ranges::@\libconcept{sized_range}@<R>
-    constexpr V simd_partial_load(R&& r, simd_flags<Flags...> f = {});
+    constexpr V partial_load(R&& r, flags<Flags...> f = {});
   template<class V = @\seebelow@, ranges::@\libconcept{contiguous_range}@ R, class... Flags>
     requires ranges::@\libconcept{sized_range}@<R>
-    constexpr V simd_partial_load(R&& r, const typename V::mask_type& k,
-                                  simd_flags<Flags...> f = {});
+    constexpr V partial_load(R&& r, const typename V::mask_type& k,
+                             flags<Flags...> f = {});
   template<class V = @\seebelow@, @\libconcept{contiguous_iterator}@ I, class... Flags>
-    constexpr V simd_partial_load(I first, iter_difference_t<I> n, simd_flags<Flags...> f = {});
+    constexpr V partial_load(I first, iter_difference_t<I> n, flags<Flags...> f = {});
   template<class V = @\seebelow@, @\libconcept{contiguous_iterator}@ I, class... Flags>
-    constexpr V simd_partial_load(I first, iter_difference_t<I> n,
-                                  const typename V::mask_type& k, simd_flags<Flags...> f = {});
+    constexpr V partial_load(I first, iter_difference_t<I> n,
+                             const typename V::mask_type& k, flags<Flags...> f = {});
   template<class V = @\seebelow@, @\libconcept{contiguous_iterator}@ I, @\libconcept{sized_sentinel_for}@<I> S, class... Flags>
-    constexpr V simd_partial_load(I first, S last, simd_flags<Flags...> f = {});
+    constexpr V partial_load(I first, S last, flags<Flags...> f = {});
   template<class V = @\seebelow@, @\libconcept{contiguous_iterator}@ I, @\libconcept{sized_sentinel_for}@<I> S, class... Flags>
-    constexpr V simd_partial_load(I first, S last, const typename V::mask_type& k,
-                                  simd_flags<Flags...> f = {});
+    constexpr V partial_load(I first, S last, const typename V::mask_type& k,
+                             flags<Flags...> f = {});
 
   template<class T, class Abi, ranges::@\libconcept{contiguous_range}@ R, class... Flags>
     requires ranges::@\libconcept{sized_range}@<R> && @\libconcept{indirectly_writable}@<ranges::iterator_t<R>, T>
-    constexpr void simd_unchecked_store(const basic_simd<T, Abi>& v, R&& r,
-                                        simd_flags<Flags...> f = {});
+    constexpr void unchecked_store(const basic_simd<T, Abi>& v, R&& r,
+                                   flags<Flags...> f = {});
   template<class T, class Abi, ranges::@\libconcept{contiguous_range}@ R, class... Flags>
     requires ranges::@\libconcept{sized_range}@<R> && @\libconcept{indirectly_writable}@<ranges::iterator_t<R>, T>
-    constexpr void simd_unchecked_store(const basic_simd<T, Abi>& v, R&& r,
-      const typename basic_simd<T, Abi>::mask_type& mask, simd_flags<Flags...> f = {});
+    constexpr void unchecked_store(const basic_simd<T, Abi>& v, R&& r,
+      const typename basic_simd<T, Abi>::mask_type& mask, flags<Flags...> f = {});
   template<class T, class Abi, @\libconcept{contiguous_iterator}@ I, class... Flags>
     requires @\libconcept{indirectly_writable}@<I, T>
-    constexpr void simd_unchecked_store(const basic_simd<T, Abi>& v, I first,
-                                        iter_difference_t<I> n, simd_flags<Flags...> f = {});
+    constexpr void unchecked_store(const basic_simd<T, Abi>& v, I first,
+                                   iter_difference_t<I> n, flags<Flags...> f = {});
   template<class T, class Abi, @\libconcept{contiguous_iterator}@ I, class... Flags>
     requires @\libconcept{indirectly_writable}@<I, T>
-    constexpr void simd_unchecked_store(const basic_simd<T, Abi>& v, I first,
+    constexpr void unchecked_store(const basic_simd<T, Abi>& v, I first,
       iter_difference_t<I> n, const typename basic_simd<T, Abi>::mask_type& mask,
-      simd_flags<Flags...> f = {});
+      flags<Flags...> f = {});
   template<class T, class Abi, @\libconcept{contiguous_iterator}@ I, @\libconcept{sized_sentinel_for}@<I> S, class... Flags>
     requires @\libconcept{indirectly_writable}@<I, T>
-    constexpr void simd_unchecked_store(const basic_simd<T, Abi>& v, I first, S last,
-                                        simd_flags<Flags...> f = {});
+    constexpr void unchecked_store(const basic_simd<T, Abi>& v, I first, S last,
+                                   flags<Flags...> f = {});
   template<class T, class Abi, @\libconcept{contiguous_iterator}@ I, @\libconcept{sized_sentinel_for}@<I> S, class... Flags>
     requires @\libconcept{indirectly_writable}@<I, T>
-    constexpr void simd_unchecked_store(const basic_simd<T, Abi>& v, I first, S last,
-      const typename basic_simd<T, Abi>::mask_type& mask, simd_flags<Flags...> f = {});
+    constexpr void unchecked_store(const basic_simd<T, Abi>& v, I first, S last,
+      const typename basic_simd<T, Abi>::mask_type& mask, flags<Flags...> f = {});
 
   template<class T, class Abi, ranges::@\libconcept{contiguous_range}@ R, class... Flags>
     requires ranges::@\libconcept{sized_range}@<R> && @\libconcept{indirectly_writable}@<ranges::iterator_t<R>, T>
-    constexpr void simd_partial_store(const basic_simd<T, Abi>& v, R&& r,
-                                      simd_flags<Flags...> f = {});
+    constexpr void partial_store(const basic_simd<T, Abi>& v, R&& r,
+                                 flags<Flags...> f = {});
   template<class T, class Abi, ranges::@\libconcept{contiguous_range}@ R, class... Flags>
     requires ranges::@\libconcept{sized_range}@<R> && @\libconcept{indirectly_writable}@<ranges::iterator_t<R>, T>
-    constexpr void simd_partial_store(const basic_simd<T, Abi>& v, R&& r,
-      const typename basic_simd<T, Abi>::mask_type& mask, simd_flags<Flags...> f = {});
+    constexpr void partial_store(const basic_simd<T, Abi>& v, R&& r,
+      const typename basic_simd<T, Abi>::mask_type& mask, flags<Flags...> f = {});
   template<class T, class Abi, @\libconcept{contiguous_iterator}@ I, class... Flags>
     requires @\libconcept{indirectly_writable}@<I, T>
-    constexpr void simd_partial_store(
-      const basic_simd<T, Abi>& v, I first, iter_difference_t<I> n,
-      simd_flags<Flags...> f = {});
+    constexpr void partial_store(
+      const basic_simd<T, Abi>& v, I first, iter_difference_t<I> n, flags<Flags...> f = {});
   template<class T, class Abi, @\libconcept{contiguous_iterator}@ I, class... Flags>
     requires @\libconcept{indirectly_writable}@<I, T>
-    constexpr void simd_partial_store(
+    constexpr void partial_store(
       const basic_simd<T, Abi>& v, I first, iter_difference_t<I> n,
-      const typename basic_simd<T, Abi>::mask_type& mask, simd_flags<Flags...> f = {});
+      const typename basic_simd<T, Abi>::mask_type& mask, flags<Flags...> f = {});
   template<class T, class Abi, @\libconcept{contiguous_iterator}@ I, @\libconcept{sized_sentinel_for}@<I> S, class... Flags>
     requires @\libconcept{indirectly_writable}@<I, T>
-    constexpr void simd_partial_store(const basic_simd<T, Abi>& v, I first, S last,
-      simd_flags<Flags...> f = {});
+    constexpr void partial_store(const basic_simd<T, Abi>& v, I first, S last,
+                                 flags<Flags...> f = {});
   template<class T, class Abi, @\libconcept{contiguous_iterator}@ I, @\libconcept{sized_sentinel_for}@<I> S, class... Flags>
     requires @\libconcept{indirectly_writable}@<I, T>
-    constexpr void simd_partial_store(const basic_simd<T, Abi>& v, I first, S last,
-      const typename basic_simd<T, Abi>::mask_type& mask, simd_flags<Flags...> f = {});
+    constexpr void partial_store(const basic_simd<T, Abi>& v, I first, S last,
+      const typename basic_simd<T, Abi>::mask_type& mask, flags<Flags...> f = {});
 
   // \ref{simd.creation}, \tcode{basic_simd} and \tcode{basic_simd_mask} creation
   template<class T, class Abi>
-    constexpr auto
-      simd_split(const basic_simd<typename T::value_type, Abi>& x) noexcept;
+    constexpr auto chunk(const basic_simd<typename T::value_type, Abi>& x) noexcept;
   template<class T, class Abi>
-    constexpr auto
-      simd_split(const basic_simd_mask<@\exposid{mask-element-size}@<T>, Abi>& x) noexcept;
+    constexpr auto chunk(const basic_simd_mask<@\exposid{mask-element-size}@<T>, Abi>& x) noexcept;
+
+  template<size_t N, class T, class Abi>
+    constexpr auto chunk(const basic_simd<T, Abi>& x) noexcept;
+  template<size_t N, size_t Bytes, class Abi>
+    constexpr auto chunk(const basic_simd_mask<Bytes, Abi>& x) noexcept;
 
   template<class T, class... Abis>
     constexpr basic_simd<T, @\exposid{deduce-abi-t}@<T, (basic_simd<T, Abis>::size() + ...)>>
-      simd_cat(const basic_simd<T, Abis>&...) noexcept;
+      cat(const basic_simd<T, Abis>&...) noexcept;
   template<size_t Bytes, class... Abis>
     constexpr basic_simd_mask<Bytes, @\exposid{deduce-abi-t}@<@\exposid{integer-from}@<Bytes>,
                               (basic_simd_mask<Bytes, Abis>::size() + ...)>>
-      simd_cat(const basic_simd_mask<Bytes, Abis>&...) noexcept;
+      cat(const basic_simd_mask<Bytes, Abis>&...) noexcept;
 
   // \ref{simd.mask.reductions}, \tcode{basic_simd_mask} reductions
   template<size_t Bytes, class Abi>
@@ -16562,10 +16580,10 @@ namespace std {
             const basic_simd<T, Abi>& hi);
 
   template<class T, class U>
-    constexpr auto simd_select(bool c, const T& a, const U& b)
+    constexpr auto select(bool c, const T& a, const U& b)
     -> remove_cvref_t<decltype(c ? a : b)>;
   template<size_t Bytes, class Abi, class T, class U>
-    constexpr auto simd_select(const basic_simd_mask<Bytes, Abi>& c, const T& a, const U& b)
+    constexpr auto select(const basic_simd_mask<Bytes, Abi>& c, const T& a, const U& b)
     noexcept -> decltype(@\exposid{simd-select-impl}@(c, a, b));
 
   // \ref{simd.math}, Mathematical functions
@@ -16588,11 +16606,11 @@ namespace std {
   template<@\exposconcept{math-floating-point}@ V> constexpr @\exposid{deduced-simd-t}@<V> expm1(const V& x);
   template<@\exposconcept{math-floating-point}@ V>
     constexpr @\exposid{deduced-simd-t}@<V>
-      frexp(const V& value, rebind_simd_t<int, @\exposid{deduced-simd-t}@<V>>* exp);
+      frexp(const V& value, rebind_t<int, @\exposid{deduced-simd-t}@<V>>* exp);
   template<@\exposconcept{math-floating-point}@ V>
-    constexpr rebind_simd_t<int, @\exposid{deduced-simd-t}@<V>> ilogb(const V& x);
+    constexpr rebind_t<int, @\exposid{deduced-simd-t}@<V>> ilogb(const V& x);
   template<@\exposconcept{math-floating-point}@ V> constexpr @\exposid{deduced-simd-t}@<V> ldexp(const V& x, const
-  rebind_simd_t<int, @\exposid{deduced-simd-t}@<V>>& exp);
+  rebind_t<int, @\exposid{deduced-simd-t}@<V>>& exp);
   template<@\exposconcept{math-floating-point}@ V> constexpr @\exposid{deduced-simd-t}@<V> log(const V& x);
   template<@\exposconcept{math-floating-point}@ V> constexpr @\exposid{deduced-simd-t}@<V> log10(const V& x);
   template<@\exposconcept{math-floating-point}@ V> constexpr @\exposid{deduced-simd-t}@<V> log1p(const V& x);
@@ -16602,10 +16620,10 @@ namespace std {
     constexpr basic_simd<T, Abi> modf(const type_identity_t<basic_simd<T, Abi>>& value,
                                       basic_simd<T, Abi>* iptr);
   template<@\exposconcept{math-floating-point}@ V> constexpr @\exposid{deduced-simd-t}@<V> scalbn(const V& x, const
-  rebind_simd_t<int, @\exposid{deduced-simd-t}@<V>>& n);
+  rebind_t<int, @\exposid{deduced-simd-t}@<V>>& n);
   template<@\exposconcept{math-floating-point}@ V>
     constexpr @\exposid{deduced-simd-t}@<V> scalbln(
-      const V& x, const rebind_simd_t<long int, @\exposid{deduced-simd-t}@<V>>& n);
+      const V& x, const rebind_t<long int, @\exposid{deduced-simd-t}@<V>>& n);
   template<@\exposconcept{math-floating-point}@ V> constexpr @\exposid{deduced-simd-t}@<V> cbrt(const V& x);
   template<@\libconcept{signed_integral}@ T, class Abi>
     constexpr basic_simd<T, Abi> abs(const basic_simd<T, Abi>& j);
@@ -16627,15 +16645,15 @@ namespace std {
   template<@\exposconcept{math-floating-point}@ V> @\exposid{deduced-simd-t}@<V> nearbyint(const V& x);
   template<@\exposconcept{math-floating-point}@ V> @\exposid{deduced-simd-t}@<V> rint(const V& x);
   template<@\exposconcept{math-floating-point}@ V>
-    rebind_simd_t<long int, @\exposid{deduced-simd-t}@<V>> lrint(const V& x);
+    rebind_t<long int, @\exposid{deduced-simd-t}@<V>> lrint(const V& x);
   template<@\exposconcept{math-floating-point}@ V>
-    rebind_simd_t<long long int, V> llrint(const @\exposid{deduced-simd-t}@<V>& x);
+    rebind_t<long long int, V> llrint(const @\exposid{deduced-simd-t}@<V>& x);
   template<@\exposconcept{math-floating-point}@ V>
     constexpr @\exposid{deduced-simd-t}@<V> round(const V& x);
   template<@\exposconcept{math-floating-point}@ V>
-    constexpr rebind_simd_t<long int, @\exposid{deduced-simd-t}@<V>> lround(const V& x);
+    constexpr rebind_t<long int, @\exposid{deduced-simd-t}@<V>> lround(const V& x);
   template<@\exposconcept{math-floating-point}@ V>
-    constexpr rebind_simd_t<long long int, @\exposid{deduced-simd-t}@<V>> llround(const V& x);
+    constexpr rebind_t<long long int, @\exposid{deduced-simd-t}@<V>> llround(const V& x);
   template<@\exposconcept{math-floating-point}@ V>
     constexpr @\exposid{deduced-simd-t}@<V> trunc(const V& x);
   template<class V0, class V1>
@@ -16644,7 +16662,7 @@ namespace std {
     constexpr @\exposid{math-common-simd-t}@<V0, V1> remainder(const V0& x, const V1& y);
   template<class V0, class V1>
     constexpr @\exposid{math-common-simd-t}@<V0, V1>
-      remquo(const V0& x, const V1& y, rebind_simd_t<int, @\exposid{math-common-simd-t}@<V0, V1>>* quo);
+      remquo(const V0& x, const V1& y, rebind_t<int, @\exposid{math-common-simd-t}@<V0, V1>>* quo);
   template<class V0, class V1>
     constexpr @\exposid{math-common-simd-t}@<V0, V1> copysign(const V0& x, const V1& y);
   template<class V0, class V1>
@@ -16661,7 +16679,7 @@ namespace std {
     constexpr @\exposid{math-common-simd-t}@<V0, V1, V2>
     lerp(const V0& a, const V1& b, const V2& t) noexcept;
   template<@\exposconcept{math-floating-point}@ V>
-    constexpr rebind_simd_t<int, @\exposid{deduced-simd-t}@<V>> fpclassify(const V& x);
+    constexpr rebind_t<int, @\exposid{deduced-simd-t}@<V>> fpclassify(const V& x);
   template<@\exposconcept{math-floating-point}@ V>
     constexpr typename @\exposid{deduced-simd-t}@<V>::mask_type isfinite(const V& x);
   template<@\exposconcept{math-floating-point}@ V>
@@ -16691,12 +16709,12 @@ namespace std {
     constexpr typename @\exposid{math-common-simd-t}@<V0, V1>::mask_type
       isunordered(const V0& x, const V1& y);
   template<@\exposconcept{math-floating-point}@ V>
-    @\exposid{deduced-simd-t}@<V> assoc_laguerre(const rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& n, const
-      rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& m,
+    @\exposid{deduced-simd-t}@<V> assoc_laguerre(const rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& n, const
+      rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& m,
                      const V& x);
   template<@\exposconcept{math-floating-point}@ V>
-    @\exposid{deduced-simd-t}@<V> assoc_legendre(const rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& l, const
-      rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& m,
+    @\exposid{deduced-simd-t}@<V> assoc_legendre(const rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& l, const
+      rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& m,
                      const V& x);
   template<class V0, class V1>
     @\exposid{math-common-simd-t}@<V0, V1> beta(const V0& x, const V1& y);
@@ -16720,34 +16738,232 @@ namespace std {
     @\exposid{math-common-simd-t}@<V0, V1, V2> ellint_3(const V0& k, const V1& nu, const V2& phi);
   template<@\exposconcept{math-floating-point}@ V> @\exposid{deduced-simd-t}@<V> expint(const V& x);
   template<@\exposconcept{math-floating-point}@ V>
-    @\exposid{deduced-simd-t}@<V> hermite(const rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& n, const V& x);
+    @\exposid{deduced-simd-t}@<V> hermite(const rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& n, const V& x);
   template<@\exposconcept{math-floating-point}@ V>
-    @\exposid{deduced-simd-t}@<V> laguerre(const rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& n, const V& x);
+    @\exposid{deduced-simd-t}@<V> laguerre(const rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& n, const V& x);
   template<@\exposconcept{math-floating-point}@ V>
-    @\exposid{deduced-simd-t}@<V> legendre(const rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& l, const V& x);
+    @\exposid{deduced-simd-t}@<V> legendre(const rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& l, const V& x);
   template<@\exposconcept{math-floating-point}@ V>
     @\exposid{deduced-simd-t}@<V> riemann_zeta(const V& x);
   template<@\exposconcept{math-floating-point}@ V>
     @\exposid{deduced-simd-t}@<V> sph_bessel(
-      const rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& n, const V& x);
+      const rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& n, const V& x);
   template<@\exposconcept{math-floating-point}@ V>
-    @\exposid{deduced-simd-t}@<V> sph_legendre(const rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& l,
-      const rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& m, const V& theta);
+    @\exposid{deduced-simd-t}@<V> sph_legendre(const rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& l,
+      const rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& m, const V& theta);
   template<@\exposconcept{math-floating-point}@ V>
     @\exposid{deduced-simd-t}@<V>
-      sph_neumann(const rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& n, const V& x);
+      sph_neumann(const rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& n, const V& x);
+
+  // \ref{simd.bit}, Bit manipulation
+  template<@\exposconcept{simd-type}@ V> constexpr V byteswap(const V& v) noexcept;
+  template<@\exposconcept{simd-type}@ V> constexpr V bit_ceil(const V& v) noexcept;
+  template<@\exposconcept{simd-type}@ V> constexpr V bit_floor(const V& v) noexcept;
+
+  template<@\exposconcept{simd-type}@ V>
+    constexpr typename V::mask_type has_single_bit(const V& v) noexcept;
+
+  template<@\exposconcept{simd-type}@ V0, @\exposconcept{simd-type}@ V1>
+    constexpr V0 rotl(const V0& v, const V1& s) noexcept;
+  template<@\exposconcept{simd-type}@ V>
+    constexpr V  rotl(const V& v, int s) noexcept;
+
+  template<@\exposconcept{simd-type}@ V0, @\exposconcept{simd-type}@ V1>
+    constexpr V0 rotr(const V0& v, const V1& s) noexcept;
+  template<@\exposconcept{simd-type}@ V>
+    constexpr V  rotr(const V& v, int s) noexcept;
+
+  template<@\exposconcept{simd-type}@ V>
+    constexpr rebind_t<make_signed_t<typename V::value_type>, V> bit_width(const V& v) noexcept;
+  template<@\exposconcept{simd-type}@ V>
+    constexpr rebind_t<make_signed_t<typename V::value_type>, V>
+    countl_zero(const V& v) noexcept;
+  template<@\exposconcept{simd-type}@ V>
+    constexpr rebind_t<make_signed_t<typename V::value_type>, V> countl_one(const V& v) noexcept;
+  template<@\exposconcept{simd-type}@ V>
+    constexpr rebind_t<make_signed_t<typename V::value_type>, V>
+    countr_zero(const V& v) noexcept;
+  template<@\exposconcept{simd-type}@ V>
+    constexpr rebind_t<make_signed_t<typename V::value_type>, V> countr_one(const V& v) noexcept;
+  template<@\exposconcept{simd-type}@ V>
+    constexpr rebind_t<make_signed_t<typename V::value_type>, V> popcount(const V& v) noexcept;
+
+  // \ref{simd.complex.math}, simd complex math
+  template<@\exposconcept{simd-complex}@ V>
+    constexpr rebind_t<@\exposid{simd-complex-value-type<V>}@, V> real(const V&) noexcept;
+
+  template<@\exposconcept{simd-complex}@ V>
+    constexpr rebind_t<@\exposid{simd-complex-value-type<V>}@, V> imag(const V&) noexcept;
+
+  template<@\exposconcept{simd-complex}@ V>
+    constexpr rebind_t<@\exposid{simd-complex-value-type<V>}@, V> abs(const V&);
+
+  template<@\exposconcept{simd-complex}@ V>
+    constexpr rebind_t<@\exposid{simd-complex-value-type<V>}@, V> arg(const V&);
+
+  template<@\exposconcept{simd-complex}@ V>
+    constexpr rebind_t<@\exposid{simd-complex-value-type<V>}@, V> norm(const V&);
+
+  template<@\exposconcept{simd-complex}@ V> constexpr V conj(const V&);
+  template<@\exposconcept{simd-complex}@ V> constexpr V proj(const V&);
+  template<@\exposconcept{simd-complex}@ V> constexpr V exp(const V& v);
+  template<@\exposconcept{simd-complex}@ V> constexpr V log(const V& v);
+  template<@\exposconcept{simd-complex}@ V> constexpr V log10(const V& v);
+
+  template<@\exposconcept{simd-complex}@ V> constexpr V sqrt(const V& v);
+  template<@\exposconcept{simd-complex}@ V> constexpr V sin(const V& v);
+  template<@\exposconcept{simd-complex}@ V> constexpr V asin(const V& v);
+  template<@\exposconcept{simd-complex}@ V> constexpr V cos(const V& v);
+  template<@\exposconcept{simd-complex}@ V> constexpr V acos(const V& v);
+  template<@\exposconcept{simd-complex}@ V> constexpr V tan(const V& v);
+  template<@\exposconcept{simd-complex}@ V> constexpr V atan(const V& v);
+  template<@\exposconcept{simd-complex}@ V> constexpr V sinh(const V& v);
+  template<@\exposconcept{simd-complex}@ V> constexpr V asinh(const V& v);
+  template<@\exposconcept{simd-complex}@ V> constexpr V cosh(const V& v);
+  template<@\exposconcept{simd-complex}@ V> constexpr V acosh(const V& v);
+  template<@\exposconcept{simd-complex}@ V> constexpr V tanh(const V& v);
+  template<@\exposconcept{simd-complex}@ V> constexpr V atanh(const V& v);
+
+  template<@\exposconcept{simd-floating-point}@ V>
+    rebind_t<complex<typename V::value_type>, V> polar(const V& x, const V& y = {});
+
+  template<@\exposconcept{simd-complex}@ V> constexpr V pow(const V& x, const V& y);
+}
+
+namespace std {
+  // See \ref{simd.alg}, Algorithms
+  using datapar::min;
+  using datapar::max;
+  using datapar::minmax;
+  using datapar::clamp;
+
+  // See \ref{simd.math}, Mathematical functions
+  using datapar::acos;
+  using datapar::asin;
+  using datapar::atan;
+  using datapar::atan2;
+  using datapar::cos;
+  using datapar::sin;
+  using datapar::tan;
+  using datapar::acosh;
+  using datapar::asinh;
+  using datapar::atanh;
+  using datapar::cosh;
+  using datapar::sinh;
+  using datapar::tanh;
+  using datapar::exp;
+  using datapar::exp2;
+  using datapar::expm1;
+  using datapar::frexp;
+  using datapar::ilogb;
+  using datapar::ldexp;
+  using datapar::log;
+  using datapar::log10;
+  using datapar::log1p;
+  using datapar::log2;
+  using datapar::logb;
+  using datapar::modf;
+  using datapar::scalbn;
+  using datapar::scalbln;
+  using datapar::cbrt;
+  using datapar::abs;
+  using datapar::abs;
+  using datapar::fabs;
+  using datapar::hypot;
+  using datapar::pow;
+  using datapar::sqrt;
+  using datapar::erf;
+  using datapar::erfc;
+  using datapar::lgamma;
+  using datapar::tgamma;
+  using datapar::ceil;
+  using datapar::floor;
+  using datapar::nearbyint;
+  using datapar::rint;
+  using datapar::lrint;
+  using datapar::llrint;
+  using datapar::round;
+  using datapar::lround;
+  using datapar::llround;
+  using datapar::trunc;
+  using datapar::fmod;
+  using datapar::remainder;
+  using datapar::remquo;
+  using datapar::copysign;
+  using datapar::nextafter;
+  using datapar::fdim;
+  using datapar::fmax;
+  using datapar::fmin;
+  using datapar::fma;
+  using datapar::lerp;
+  using datapar::fpclassify;
+  using datapar::isfinite;
+  using datapar::isinf;
+  using datapar::isnan;
+  using datapar::isnormal;
+  using datapar::signbit;
+  using datapar::isgreater;
+  using datapar::isgreaterequal;
+  using datapar::isless;
+  using datapar::islessequal;
+  using datapar::islessgreater;
+  using datapar::isunordered;
+  using datapar::assoc_laguerre;
+  using datapar::assoc_legendre;
+  using datapar::beta;
+  using datapar::comp_ellint_1;
+  using datapar::comp_ellint_2;
+  using datapar::comp_ellint_3;
+  using datapar::cyl_bessel_i;
+  using datapar::cyl_bessel_j;
+  using datapar::cyl_bessel_k;
+  using datapar::cyl_neumann;
+  using datapar::ellint_1;
+  using datapar::ellint_2;
+  using datapar::ellint_3;
+  using datapar::expint;
+  using datapar::hermite;
+  using datapar::laguerre;
+  using datapar::legendre;
+  using datapar::riemann_zeta;
+  using datapar::sph_bessel;
+  using datapar::sph_legendre;
+  using datapar::sph_neumann;
+
+  // See \ref{simd.bit}, Bit manipulation
+  using datapar::byteswap;
+  using datapar::bit_ceil;
+  using datapar::bit_floor;
+  using datapar::has_single_bit;
+  using datapar::rotl;
+  using datapar::rotr;
+  using datapar::bit_width;
+  using datapar::countl_zero;
+  using datapar::countl_one;
+  using datapar::countr_zero;
+  using datapar::countr_one;
+  using datapar::popcount;
+
+  // See \ref{simd.complex.math}, simd complex math
+  using datapar::real;
+  using datapar::imag;
+  using datapar::arg;
+  using datapar::norm;
+  using datapar::conj;
+  using datapar::proj;
+  using datapar::polar;
 }
 \end{codeblock}
 
 \rSec2[simd.traits]{\tcode{simd} type traits}
 
 \begin{itemdecl}
-template<class T, class U = typename T::value_type> struct simd_alignment { @\seebelow@ };
+template<class T, class U = typename T::value_type> struct alignment { @\seebelow@ };
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
-\tcode{simd_alignment<T, U>} has a member \tcode{value} if and only if
+\tcode{alignment<T, U>} has a member \tcode{value} if and only if
 \begin{itemize}
  \item
    \tcode{T} is a specialization of \tcode{basic_simd_mask} and \tcode{U} is
@@ -16758,7 +16974,7 @@ template<class T, class U = typename T::value_type> struct simd_alignment { @\se
 \end{itemize}
 
 \pnum
-If \tcode{value} is present, the type \tcode{simd_alignment<T, U>} is a
+If \tcode{value} is present, the type \tcode{alignment<T, U>} is a
 \tcode{BinaryTypeTrait} with a base characteristic of
 \tcode{integral_constant<size_t, N>} for some unspecified
 \tcode{N}\iref{simd.ctor,simd.loadstore}.
@@ -16769,12 +16985,12 @@ If \tcode{value} is present, the type \tcode{simd_alignment<T, U>} is a
 \end{note}
 
 \pnum
-The behavior of a program that adds specializations for \tcode{simd_alignment}
+The behavior of a program that adds specializations for \tcode{alignment}
 is undefined.
 \end{itemdescr}
 
 \begin{itemdecl}
-template<class T, class V> struct rebind_simd { using type = @\seebelow@; };
+template<class T, class V> struct rebind { using type = @\seebelow@; };
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -16803,7 +17019,7 @@ if \tcode V is a specialization of \tcode{basic_simd} or
 \end{itemdescr}
 
 \begin{itemdecl}
-template<@\exposid{simd-size-type}@ N, class V> struct resize_simd { using type = @\seebelow@; };
+template<@\exposid{simd-size-type}@ N, class V> struct resize { using type = @\seebelow@; };
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -16842,21 +17058,21 @@ if \tcode V is a specialization of \tcode{basic_simd} or
 
 \rSec2[simd.flags]{Load and store flags}
 
-\rSec3[simd.flags.overview]{Class template \tcode{simd_flags} overview}
+\rSec3[simd.flags.overview]{Class template \tcode{flags} overview}
 
 \begin{codeblock}
-namespace std {
-  template<class... Flags> struct simd_flags {
-    // \ref{simd.flags.oper}, \tcode{simd_flags} operators
+namespace std::datapar {
+  template<class... Flags> struct flags {
+    // \ref{simd.flags.oper}, \tcode{flags} operators
     template<class... Other>
-      friend consteval auto operator|(simd_flags, simd_flags<Other...>);
+      friend consteval auto operator|(flags, flags<Other...>);
   };
 }
 \end{codeblock}
 
 \pnum
 \begin{note}
-The class template \tcode{simd_flags} acts like an integer bit-flag for types.
+The class template \tcode{flags} acts like an integer bit-flag for types.
 \end{note}
 
 \pnum
@@ -16864,17 +17080,17 @@ The class template \tcode{simd_flags} acts like an integer bit-flag for types.
 Every type in the parameter pack \tcode{Flags} is one of \tcode{\exposid{convert-flag}},
 \tcode{\exposid{aligned-flag}}, or \tcode{\exposid{over\-aligned-\brk{}flag}<N>}.
 
-\rSec3[simd.flags.oper]{\tcode{simd_flags} operators}
+\rSec3[simd.flags.oper]{\tcode{flags} operators}
 
 \begin{itemdecl}
 template<class... Other>
-  friend consteval auto operator|(simd_flags a, simd_flags<Other...> b);
+  friend consteval auto operator|(flags a, flags<Other...> b);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \returns
-  A default-initialized object of type \tcode{simd_flags<Flags2...>} for some
+  A default-initialized object of type \tcode{flags<Flags2...>} for some
   \tcode{Flags2} where every type in \tcode{Flags2} is present either in template parameter pack
   \tcode{Flags} or in template parameter pack \tcode{Other}, and every type in template parameter
   packs \tcode{Flags} and \tcode{Other} is present in \tcode{Flags2}.
@@ -16889,7 +17105,7 @@ template<class... Other>
 \rSec3[simd.overview]{Class template \tcode{basic_simd} overview}
 
 \begin{codeblock}
-namespace std {
+namespace std::datapar {
   template<class T, class Abi> class basic_simd {
   public:
     using value_type = T;
@@ -16906,9 +17122,11 @@ namespace std {
       constexpr explicit(@\seebelow@) basic_simd(const basic_simd<U, UAbi>&) noexcept;
     template<class G> constexpr explicit basic_simd(G&& gen) noexcept;
     template<class R, class... Flags>
-      constexpr basic_simd(R&& range, simd_flags<Flags...> = {});
+      constexpr basic_simd(R&& range, flags<Flags...> = {});
     template<class R, class... Flags>
-      constexpr basic_simd(R&& range, const mask_type& mask, simd_flags<Flags...> = {});
+      constexpr basic_simd(R&& range, const mask_type& mask, flags<Flags...> = {});
+    template<@\exposid{simd-floating-point}@ V>
+      constexpr explicit(@\seebelow@) basic_simd(const V& reals, const V& imags = {}) noexcept;
 
     // \ref{simd.subscr}, \tcode{basic_simd} subscript operators
     constexpr value_type operator[](@\exposid{simd-size-type}@) const;
@@ -16959,6 +17177,14 @@ namespace std {
     friend constexpr mask_type operator>(const basic_simd&, const basic_simd&) noexcept;
     friend constexpr mask_type operator<(const basic_simd&, const basic_simd&) noexcept;
 
+    // \ref{simd.complex.access}, \tcode{basic_simd} complex-value accessors
+    constexpr auto real() const noexcept;
+    constexpr auto imag() const noexcept;
+    template<@\exposid{simd-floating-point}@ V>
+      constexpr void real(const V& v) noexcept;
+    template<@\exposid{simd-floating-point}@ V>
+      constexpr void imag(const V& v) noexcept;
+
     // \ref{simd.cond}, \tcode{basic_simd} exposition only conditional operators
     friend constexpr basic_simd @\exposid{simd-select-impl}@( // \expos
       const mask_type&, const basic_simd&, const basic_simd&) noexcept;
@@ -16984,14 +17210,16 @@ The specialization of \tcode{basic_simd<T, Abi>} is
    specializations} if such a specialization is enabled.
 \end{itemize}
 
-If \tcode{basic_simd<T, Abi>} is disabled, the specialization has a
+If \tcode{basic_simd<T, Abi>} is disabled, then the specialization has a
 deleted default constructor, deleted destructor, deleted copy constructor, and
 deleted copy assignment.
 In addition only the \tcode{value_type}, \tcode{abi_type}, and
 \tcode{mask_type} members are present.
 
-If \tcode{basic_simd<T, Abi>} is enabled, \tcode{basic_simd<T, Abi>} is
-trivially copyable.
+If \tcode{basic_simd<T, Abi>} is enabled, then \tcode{basic_simd<T, Abi>} is
+trivially copyable, default-initialization of an object of such a type
+default-initializes all elements, and value-initialization value-initializes
+all elements\iref{dcl.init.general}.
 
 \pnum
 \recommended
@@ -17101,9 +17329,9 @@ may not be invoked by \tcode{gen}.
 
 \begin{itemdecl}
 template<class R, class... Flags>
-  constexpr basic_simd(R&& r, simd_flags<Flags...> = {});
+  constexpr basic_simd(R&& r, flags<Flags...> = {});
 template<class R, class... Flags>
-  constexpr basic_simd(R&& r, const mask_type& mask, simd_flags<Flags...> = {});
+  constexpr basic_simd(R&& r, const mask_type& mask, flags<Flags...> = {});
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -17137,7 +17365,7 @@ Let \tcode{mask} be \tcode{mask_type(true)} for the overload with no
  \item
    If the template parameter pack \tcode{Flags} contains
    \tcode{\exposid{aligned-flag}}, \tcode{ranges::data(range)} points to
-   storage aligned by \tcode{simd_alignment_v<basic_simd,
+   storage aligned by \tcode{alignment_v<basic_simd,
    ranges::range_value_t<R>>}.
  \item
    If the template parameter pack \tcode{Flags} contains
@@ -17170,6 +17398,34 @@ template<class R, class... Ts>
 \remarks
 The deduced type is equivalent to \tcode{simd<ranges::range_value_t<R>,
 ranges::size(r)>}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<@\exposconcept{simd-floating-point}@ V>
+  constexpr explicit(@\seebelow@)
+  basic_simd(const V& reals, const V& imags = {}) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+ \item
+   \tcode{\exposconcept{simd-complex}<basic_simd>} is modeled, and
+ \item
+   \tcode{V::size() == size()} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\effects
+Initializes the $i^\text{th}$ element with \tcode{value_type(reals[$i$],
+imags[$i$])} for all $i$ in the range \range{0}{size()}.
+
+\pnum
+\remarks
+The expression inside \tcode{explicit} evaluates to \tcode{false} if and only
+if the floating-point conversion rank of \tcode{T::value_type} is greater than
+or equal to the floating-point conversion rank of \tcode{V::value_type}.
 \end{itemdescr}
 
 \rSec3[simd.subscr]{\tcode{basic_simd} subscript operator}
@@ -17462,6 +17718,55 @@ A \tcode{basic_simd_mask} object initialized with the results of applying
 operation.
 \end{itemdescr}
 
+\rSec3[simd.complex.access]{\tcode{simd} complex accessors}
+
+\begin{itemdecl}
+constexpr auto real() const noexcept;
+constexpr auto imag() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{\exposconcept{simd-complex}<basic_simd>} is modeled.
+
+\pnum
+\returns
+An object of type \tcode{rebind_t<typename T::value_type, basic_simd>}
+where the $i^\text{th}$ element is initialized to the result of
+\tcode{\placeholder{cmplx-func}(operator[]($i$))} for all $i$ in the range
+\range{0}{size()}, where \placeholder{cmplx-func} is the corresponding function
+from \tcode{<complex>}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<@\exposconcept{simd-floating-point}@ V>
+  constexpr void real(const V& v) noexcept;
+template<@\exposconcept{simd-floating-point}@ V>
+  constexpr void imag(const V& v) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+ \item
+   \tcode{\exposconcept{simd-complex}<basic_simd>} is modeled,
+ \item
+   \tcode{\libconcept{same_as}<typename V::value_type, typename T::value_type>}
+   is modeled, and
+ \item
+   \tcode{V::size() == size()} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\effects
+Replaces each element of the \tcode{basic_simd} object such that the
+$i^\text{th}$ element is replaced with \tcode{value_type(v[$i$],
+operator[]($i$).imag())} or \tcode{value_type(operator[]($i$).real(), v[$i$])}
+for \tcode{real} and \tcode{imag} respectively, for all $i$ in the range \range{0}{size()}.
+\end{itemdescr}
+
 \rSec3[simd.cond]{\tcode{basic_simd} exposition only conditional operators}
 
 \begin{itemdecl}
@@ -17635,21 +17940,20 @@ Otherwise, returns the value of a selected element \tcode{x[$j$]} for which
 \begin{itemdecl}
 template<class V = @\seebelow@, ranges::@\libconcept{contiguous_range}@ R, class... Flags>
   requires ranges::@\libconcept{sized_range}@<R>
-  constexpr V simd_unchecked_load(R&& r, simd_flags<Flags...> f = {});
+  constexpr V unchecked_load(R&& r, flags<Flags...> f = {});
 template<class V = @\seebelow@, ranges::@\libconcept{contiguous_range}@ R, class... Flags>
   requires ranges::@\libconcept{sized_range}@<R>
-  constexpr V simd_unchecked_load(R&& r, const typename V::mask_type& mask,
-    simd_flags<Flags...> f = {});
+  constexpr V unchecked_load(R&& r, const typename V::mask_type& mask, flags<Flags...> f = {});
 template<class V = @\seebelow@, @\libconcept{contiguous_iterator}@ I, class... Flags>
-  constexpr V simd_unchecked_load(I first, iter_difference_t<I> n, simd_flags<Flags...> f = {});
+  constexpr V unchecked_load(I first, iter_difference_t<I> n, flags<Flags...> f = {});
 template<class V = @\seebelow@, @\libconcept{contiguous_iterator}@ I, class... Flags>
-  constexpr V simd_unchecked_load(I first, iter_difference_t<I> n,
-    const typename V::mask_type& mask, simd_flags<Flags...> f = {});
+  constexpr V unchecked_load(I first, iter_difference_t<I> n, const typename V::mask_type& mask,
+                             flags<Flags...> f = {});
 template<class V = @\seebelow@, @\libconcept{contiguous_iterator}@ I, @\libconcept{sized_sentinel_for}@<I> S, class... Flags>
-  constexpr V simd_unchecked_load(I first, S last, simd_flags<Flags...> f = {});
+  constexpr V unchecked_load(I first, S last, flags<Flags...> f = {});
 template<class V = @\seebelow@, @\libconcept{contiguous_iterator}@ I, @\libconcept{sized_sentinel_for}@<I> S, class... Flags>
-  constexpr V simd_unchecked_load(I first, S last, const typename V::mask_type& mask,
-    simd_flags<Flags...> f = {});
+  constexpr V unchecked_load(I first, S last, const typename V::mask_type& mask,
+                             flags<Flags...> f = {});
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -17685,7 +17989,7 @@ If \tcode{ranges::size(r)} is a constant expression then
 
 \pnum
 \effects
-Equivalent to: \tcode{return simd_partial_load<V>(r, mask, f);}
+Equivalent to: \tcode{return partial_load<V>(r, mask, f);}
 
 \pnum
 \remarks
@@ -17696,21 +18000,20 @@ The default argument for template parameter \tcode{V} is
 \begin{itemdecl}
 template<class V = @\seebelow@, ranges::@\libconcept{contiguous_range}@ R, class... Flags>
   requires ranges::@\libconcept{sized_range}@<R>
-  constexpr V simd_partial_load(R&& r, simd_flags<Flags...> f = {});
+  constexpr V partial_load(R&& r, flags<Flags...> f = {});
 template<class V = @\seebelow@, ranges::@\libconcept{contiguous_range}@ R, class... Flags>
   requires ranges::@\libconcept{sized_range}@<R>
-  constexpr V simd_partial_load(R&& r, const typename V::mask_type& mask,
-    simd_flags<Flags...> f = {});
+  constexpr V partial_load(R&& r, const typename V::mask_type& mask, flags<Flags...> f = {});
 template<class V = @\seebelow@, @\libconcept{contiguous_iterator}@ I, class... Flags>
-  constexpr V simd_partial_load(I first, iter_difference_t<I> n, simd_flags<Flags...> f = {});
+  constexpr V partial_load(I first, iter_difference_t<I> n, flags<Flags...> f = {});
 template<class V = @\seebelow@, @\libconcept{contiguous_iterator}@ I, class... Flags>
-  constexpr V simd_partial_load(I first, iter_difference_t<I> n, const typename V::mask_type& mask,
-    simd_flags<Flags...> f = {});
+  constexpr V partial_load(I first, iter_difference_t<I> n, const typename V::mask_type& mask,
+                           flags<Flags...> f = {});
 template<class V = @\seebelow@, @\libconcept{contiguous_iterator}@ I, @\libconcept{sized_sentinel_for}@<I> S, class... Flags>
-  constexpr V simd_partial_load(I first, S last, simd_flags<Flags...> f = {});
+  constexpr V partial_load(I first, S last, flags<Flags...> f = {});
 template<class V = @\seebelow@, @\libconcept{contiguous_iterator}@ I, @\libconcept{sized_sentinel_for}@<I> S, class... Flags>
-  constexpr V simd_partial_load(I first, S last, const typename V::mask_type& mask,
-    simd_flags<Flags...> f = {});
+  constexpr V partial_load(I first, S last, const typename V::mask_type& mask,
+                           flags<Flags...> f = {});
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -17757,7 +18060,7 @@ Let
  \item
    If the template parameter pack \tcode{Flags} contains
    \tcode{\exposid{aligned-flag}}, \tcode{ranges::data(r)} points to storage
-   aligned by \tcode{simd_alignment_v<V, ranges::range_value_t<R>>}.
+   aligned by \tcode{alignment_v<V, ranges::range_value_t<R>>}.
  \item
    If the template parameter pack \tcode{Flags} contains
    \tcode{\exposid{overaligned-flag}<N>}, \tcode{ranges::data(r)} points to
@@ -17780,28 +18083,27 @@ The default argument for template parameter \tcode{V} is
 \begin{itemdecl}
 template<class T, class Abi, ranges::@\libconcept{contiguous_range}@ R, class... Flags>
   requires ranges::@\libconcept{sized_range}@<R> && @\libconcept{indirectly_writable}@<ranges::iterator_t<R>, T>
-  constexpr void simd_unchecked_store(const basic_simd<T, Abi>& v, R&& r,
-    simd_flags<Flags...> f = {});
+  constexpr void unchecked_store(const basic_simd<T, Abi>& v, R&& r, flags<Flags...> f = {});
 template<class T, class Abi, ranges::@\libconcept{contiguous_range}@ R, class... Flags>
   requires ranges::@\libconcept{sized_range}@<R> && @\libconcept{indirectly_writable}@<ranges::iterator_t<R>, T>
-  constexpr void simd_unchecked_store(const basic_simd<T, Abi>& v, R&& r,
-    const typename basic_simd<T, Abi>::mask_type& mask, simd_flags<Flags...> f = {});
+  constexpr void unchecked_store(const basic_simd<T, Abi>& v, R&& r,
+    const typename basic_simd<T, Abi>::mask_type& mask, flags<Flags...> f = {});
 template<class T, class Abi, @\libconcept{contiguous_iterator}@ I, class... Flags>
   requires @\libconcept{indirectly_writable}@<I, T>
-  constexpr void simd_unchecked_store(const basic_simd<T, Abi>& v, I first, iter_difference_t<I> n,
-    simd_flags<Flags...> f = {});
+  constexpr void unchecked_store(const basic_simd<T, Abi>& v, I first, iter_difference_t<I> n,
+                                 flags<Flags...> f = {});
 template<class T, class Abi, @\libconcept{contiguous_iterator}@ I, class... Flags>
   requires @\libconcept{indirectly_writable}@<I, T>
-  constexpr void simd_unchecked_store(const basic_simd<T, Abi>& v, I first, iter_difference_t<I> n,
-    const typename basic_simd<T, Abi>::mask_type& mask, simd_flags<Flags...> f = {});
+  constexpr void unchecked_store(const basic_simd<T, Abi>& v, I first, iter_difference_t<I> n,
+    const typename basic_simd<T, Abi>::mask_type& mask, flags<Flags...> f = {});
 template<class T, class Abi, @\libconcept{contiguous_iterator}@ I, @\libconcept{sized_sentinel_for}@<I> S, class... Flags>
   requires @\libconcept{indirectly_writable}@<I, T>
-  constexpr void simd_unchecked_store(const basic_simd<T, Abi>& v, I first, S last,
-    simd_flags<Flags...> f = {});
+  constexpr void unchecked_store(const basic_simd<T, Abi>& v, I first, S last,
+                                 flags<Flags...> f = {});
 template<class T, class Abi, @\libconcept{contiguous_iterator}@ I, @\libconcept{sized_sentinel_for}@<I> S, class... Flags>
   requires @\libconcept{indirectly_writable}@<I, T>
-  constexpr void simd_unchecked_store(const basic_simd<T, Abi>& v, I first, S last,
-    const typename basic_simd<T, Abi>::mask_type& mask, simd_flags<Flags...> f = {});
+  constexpr void unchecked_store(const basic_simd<T, Abi>& v, I first, S last,
+    const typename basic_simd<T, Abi>::mask_type& mask, flags<Flags...> f = {});
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -17840,34 +18142,33 @@ If \tcode{ranges::size(r)} is a constant expression then
 
 \pnum
 \effects
-Equivalent to: \tcode{simd_partial_store(v, r, mask, f)}.
+Equivalent to: \tcode{partial_store(v, r, mask, f)}.
 \end{itemdescr}
 
 \begin{itemdecl}
 template<class T, class Abi, ranges::@\libconcept{contiguous_range}@ R, class... Flags>
   requires ranges::@\libconcept{sized_range}@<R> && @\libconcept{indirectly_writable}@<ranges::iterator_t<R>, T>
-  constexpr void simd_partial_store(const basic_simd<T, Abi>& v, R&& r,
-    simd_flags<Flags...> f = {});
+  constexpr void partial_store(const basic_simd<T, Abi>& v, R&& r, flags<Flags...> f = {});
 template<class T, class Abi, ranges::@\libconcept{contiguous_range}@ R, class... Flags>
   requires ranges::@\libconcept{sized_range}@<R> && @\libconcept{indirectly_writable}@<ranges::iterator_t<R>, T>
-  constexpr void simd_partial_store(const basic_simd<T, Abi>& v, R&& r,
-    const typename basic_simd<T, Abi>::mask_type& mask, simd_flags<Flags...> f = {});
+  constexpr void partial_store(const basic_simd<T, Abi>& v, R&& r,
+    const typename basic_simd<T, Abi>::mask_type& mask, flags<Flags...> f = {});
 template<class T, class Abi, @\libconcept{contiguous_iterator}@ I, class... Flags>
   requires @\libconcept{indirectly_writable}@<I, T>
-  constexpr void simd_partial_store(const basic_simd<T, Abi>& v, I first, iter_difference_t<I> n,
-    simd_flags<Flags...> f = {});
+  constexpr void partial_store(const basic_simd<T, Abi>& v, I first, iter_difference_t<I> n,
+                               flags<Flags...> f = {});
 template<class T, class Abi, @\libconcept{contiguous_iterator}@ I, class... Flags>
   requires @\libconcept{indirectly_writable}@<I, T>
-  constexpr void simd_partial_store(const basic_simd<T, Abi>& v, I first, iter_difference_t<I> n,
-    const typename basic_simd<T, Abi>::mask_type& mask, simd_flags<Flags...> f = {});
+  constexpr void partial_store(const basic_simd<T, Abi>& v, I first, iter_difference_t<I> n,
+    const typename basic_simd<T, Abi>::mask_type& mask, flags<Flags...> f = {});
 template<class T, class Abi, @\libconcept{contiguous_iterator}@ I, @\libconcept{sized_sentinel_for}@<I> S, class... Flags>
   requires @\libconcept{indirectly_writable}@<I, T>
-  constexpr void simd_partial_store(const basic_simd<T, Abi>& v, I first, S last,
-    simd_flags<Flags...> f = {});
+  constexpr void partial_store(const basic_simd<T, Abi>& v, I first, S last,
+                               flags<Flags...> f = {});
 template<class T, class Abi, @\libconcept{contiguous_iterator}@ I, @\libconcept{sized_sentinel_for}@<I> S, class... Flags>
   requires @\libconcept{indirectly_writable}@<I, T>
-  constexpr void simd_partial_store(const basic_simd<T, Abi>& v, I first, S last,
-    const typename basic_simd<T, Abi>::mask_type& mask, simd_flags<Flags...> f = {});
+  constexpr void partial_store(const basic_simd<T, Abi>& v, I first, S last,
+    const typename basic_simd<T, Abi>::mask_type& mask, flags<Flags...> f = {});
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -17909,7 +18210,7 @@ Let
  \item
    If the template parameter pack \tcode{Flags} contains
    \tcode{\exposid{aligned-flag}}, \tcode{ranges::data(r)} points to storage
-   aligned by \tcode{simd_alignment_v<basic_simd<T, Abi>,
+   aligned by \tcode{alignment_v<basic_simd<T, Abi>,
    ranges::range_value_t<R>>}.
  \item
    If the template parameter pack \tcode{Flags} contains
@@ -17928,9 +18229,9 @@ For all $i$ in the range of \range{0}{basic_simd<T, Abi>::size()}, if
 
 \begin{itemdecl}
 template<class T, class Abi>
-  constexpr auto simd_split(const basic_simd<typename T::value_type, Abi>& x) noexcept;
+  constexpr auto chunk(const basic_simd<typename T::value_type, Abi>& x) noexcept;
 template<class T, class Abi>
-  constexpr auto simd_split(const basic_simd_mask<@\exposid{mask-element-size}@<T>, Abi>& x) noexcept;
+  constexpr auto chunk(const basic_simd_mask<@\exposid{mask-element-size}@<T>, Abi>& x) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -17942,7 +18243,7 @@ template<class T, class Abi>
    \tcode{basic_simd}.
    If \tcode{basic_simd<\brk{}typename T::\brk{}value_type, Abi>::size() \%
    T::size()} is not \tcode{0} then
-   \tcode{resize_simd_t<basic_simd<\brk{}typename T::\brk{}value_type, Abi>::size()
+   \tcode{resize_t<basic_simd<\brk{}typename T::\brk{}value_type, Abi>::size()
    \% T::size(), T>} is valid and denotes a type.
 
  \item
@@ -17950,7 +18251,7 @@ template<class T, class Abi>
    \tcode{basic_simd\-_\-mask}.
    If \tcode{basic_simd_mask<\exposid{mask-element-size}<T>, Abi>::size() \%
    T::size()} is not \tcode{0} then
-   \tcode{resize_simd_t<\brk{}ba\-sic\-_\-simd_mask<\brk{}\exposid{mask-element-size}<T>,
+   \tcode{resize_t<\brk{}ba\-sic\-_\-simd_mask<\brk{}\exposid{mask-element-size}<T>,
    Abi>::size() \% T::size(), T>} is valid and denotes a type.
 \end{itemize}
 
@@ -17968,7 +18269,7 @@ Let $N$ be \tcode{x.size() / T::size()}.
 
  \item
    Otherwise, a \tcode{tuple} of $N$ objects of type \tcode{T} and one object
-   of type \tcode{resize_simd_t<x.size() \% T::size(), T>}.
+   of type \tcode{resize_t<x.size() \% T::size(), T>}.
    The $i^\text{th}$ \tcode{basic_simd} or \tcode{basic_simd_mask} element of
    the $j^\text{th}$ \tcode{tuple} element of type \tcode{T} is initialized to
    the value of the element in \tcode{x} with index \tcode{$i$ + $j$ *
@@ -17980,13 +18281,35 @@ Let $N$ be \tcode{x.size() / T::size()}.
 \end{itemdescr}
 
 \begin{itemdecl}
+template<size_t N, class T, class Abi>
+  constexpr auto chunk(const basic_simd<T, Abi>& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return chunk<resize_t<N, basic_simd<T, Abi>>>(x);}
+\end{itemdescr}
+
+\begin{itemdecl}
+template<size_t N, size_t Bytes, class Abi>
+  constexpr auto chunk(const basic_simd_mask<Bytes, Abi>& x) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return chunk<resize_t<N, basic_simd_mask<Bytes, Abi>>>(\brk{}x);}
+\end{itemdescr}
+
+\begin{itemdecl}
 template<class T, class... Abis>
   constexpr simd<T, (basic_simd<T, Abis>::size() + ...)>
-    simd_cat(const basic_simd<T, Abis>&... xs) noexcept;
+    cat(const basic_simd<T, Abis>&... xs) noexcept;
 template<size_t Bytes, class... Abis>
   constexpr basic_simd_mask<Bytes, @\exposid{deduce-abi-t}@<@\exposid{integer-from}@<Bytes>,
                             (basic_simd_mask<Bytes, Abis>::size() + ...)>>
-    simd_cat(const basic_simd_mask<Bytes, Abis>&... xs) noexcept;
+    cat(const basic_simd_mask<Bytes, Abis>&... xs) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -18085,7 +18408,7 @@ hi[$i$])} for all $i$ in the range of \range{0}{basic_simd<T, Abi>::size()}.
 
 \begin{itemdecl}
 template<class T, class U>
-  constexpr auto simd_select(bool c, const T& a, const U& b)
+  constexpr auto select(bool c, const T& a, const U& b)
   -> remove_cvref_t<decltype(c ? a : b)>;
 \end{itemdecl}
 
@@ -18097,7 +18420,7 @@ Equivalent to: \tcode{return c ? a : b;}
 
 \begin{itemdecl}
 template<size_t Bytes, class Abi, class T, class U>
-  constexpr auto simd_select(const basic_simd_mask<Bytes, Abi>& c, const T& a, const U& b)
+  constexpr auto select(const basic_simd_mask<Bytes, Abi>& c, const T& a, const U& b)
   noexcept -> decltype(@\exposid{simd-select-impl}@(c, a, b));
 \end{itemdecl}
 
@@ -18116,14 +18439,14 @@ lookup\iref{basic.lookup.argdep} contrary to \ref{contents}.
 
 \begin{itemdecl}
 template<@\exposconcept{math-floating-point}@ V>
-  constexpr rebind_simd_t<int, @\exposid{deduced-simd-t}@<V>> ilogb(const V& x);
+  constexpr rebind_t<int, @\exposid{deduced-simd-t}@<V>> ilogb(const V& x);
 template<@\exposconcept{math-floating-point}@ V>
-  constexpr @\exposid{deduced-simd-t}@<V> ldexp(const V& x, const rebind_simd_t<int, @\exposid{deduced-simd-t}@<V>>& exp);
+  constexpr @\exposid{deduced-simd-t}@<V> ldexp(const V& x, const rebind_t<int, @\exposid{deduced-simd-t}@<V>>& exp);
 template<@\exposconcept{math-floating-point}@ V>
-  constexpr @\exposid{deduced-simd-t}@<V> scalbn(const V& x, const rebind_simd_t<int, @\exposid{deduced-simd-t}@<V>>& n);
+  constexpr @\exposid{deduced-simd-t}@<V> scalbn(const V& x, const rebind_t<int, @\exposid{deduced-simd-t}@<V>>& n);
 template<@\exposconcept{math-floating-point}@ V>
   constexpr @\exposid{deduced-simd-t}@<V>
-    scalbln(const V& x, const rebind_simd_t<long int, @\exposid{deduced-simd-t}@<V>>& n);
+    scalbln(const V& x, const rebind_t<long int, @\exposid{deduced-simd-t}@<V>>& n);
 template<@\libconcept{signed_integral}@ T, class Abi>
   constexpr basic_simd<T, Abi> abs(const basic_simd<T, Abi>& j);
 template<@\exposconcept{math-floating-point}@ V>
@@ -18139,15 +18462,15 @@ template<@\exposconcept{math-floating-point}@ V>
 template<@\exposconcept{math-floating-point}@ V>
   @\exposid{deduced-simd-t}@<V> rint(const V& x);
 template<@\exposconcept{math-floating-point}@ V>
-  rebind_simd_t<long int, @\exposid{deduced-simd-t}@<V>> lrint(const V& x);
+  rebind_t<long int, @\exposid{deduced-simd-t}@<V>> lrint(const V& x);
 template<@\exposconcept{math-floating-point}@ V>
-  rebind_simd_t<long long int, @\exposid{deduced-simd-t}@<V>> llrint(const V& x);
+  rebind_t<long long int, @\exposid{deduced-simd-t}@<V>> llrint(const V& x);
 template<@\exposconcept{math-floating-point}@ V>
   constexpr @\exposid{deduced-simd-t}@<V> round(const V& x);
 template<@\exposconcept{math-floating-point}@ V>
-  constexpr rebind_simd_t<long int, @\exposid{deduced-simd-t}@<V>> lround(const V& x);
+  constexpr rebind_t<long int, @\exposid{deduced-simd-t}@<V>> lround(const V& x);
 template<@\exposconcept{math-floating-point}@ V>
-  constexpr rebind_simd_t<long long int, @\exposid{deduced-simd-t}@<V>> llround(const V& x);
+  constexpr rebind_t<long long int, @\exposid{deduced-simd-t}@<V>> llround(const V& x);
 template<class V0, class V1>
   constexpr @\exposid{math-common-simd-t}@<V0, V1> fmod(const V0& x, const V1& y);
 template<@\exposconcept{math-floating-point}@ V>
@@ -18167,7 +18490,7 @@ template<class V0, class V1>
 template<class V0, class V1, class V2>
   constexpr @\exposid{math-common-simd-t}@<V0, V1, V2> fma(const V0& x, const V1& y, const V2& z);
 template<@\exposconcept{math-floating-point}@ V>
-  constexpr rebind_simd_t<int, @\exposid{deduced-simd-t}@<V>> fpclassify(const V& x);
+  constexpr rebind_t<int, @\exposid{deduced-simd-t}@<V>> fpclassify(const V& x);
 template<@\exposconcept{math-floating-point}@ V>
   constexpr typename @\exposid{deduced-simd-t}@<V>::mask_type isfinite(const V& x);
 template<@\exposconcept{math-floating-point}@ V>
@@ -18259,12 +18582,12 @@ template<@\exposconcept{math-floating-point}@ V> constexpr @\exposid{deduced-sim
 template<class V0, class V1, class V2>
   constexpr @\exposid{math-common-simd-t}@<V0, V1, V2> lerp(const V0& a, const V1& b, const V2& t) noexcept;
 template<@\exposconcept{math-floating-point}@ V>
-  @\exposid{deduced-simd-t}@<V> assoc_laguerre(const rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& n, const
-    rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& m,
+  @\exposid{deduced-simd-t}@<V> assoc_laguerre(const rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& n, const
+    rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& m,
                    const V& x);
 template<@\exposconcept{math-floating-point}@ V>
-  @\exposid{deduced-simd-t}@<V> assoc_legendre(const rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& l, const
-    rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& m,
+  @\exposid{deduced-simd-t}@<V> assoc_legendre(const rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& l, const
+    rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& m,
                    const V& x);
 template<class V0, class V1>
   @\exposid{math-common-simd-t}@<V0, V1> beta(const V0& x, const V1& y);
@@ -18287,20 +18610,20 @@ template<class V0, class V1>
 template<class V0, class V1, class V2>
   @\exposid{math-common-simd-t}@<V0, V1, V2> ellint_3(const V0& k, const V1& nu, const V2& phi);
 template<@\exposconcept{math-floating-point}@ V> @\exposid{deduced-simd-t}@<V> expint(const V& x);
-template<@\exposconcept{math-floating-point}@ V> @\exposid{deduced-simd-t}@<V> hermite(const rebind_simd_t<unsigned,
+template<@\exposconcept{math-floating-point}@ V> @\exposid{deduced-simd-t}@<V> hermite(const rebind_t<unsigned,
 @\exposid{deduced-simd-t}@<V>>& n, const V& x);
-template<@\exposconcept{math-floating-point}@ V> @\exposid{deduced-simd-t}@<V> laguerre(const rebind_simd_t<unsigned,
+template<@\exposconcept{math-floating-point}@ V> @\exposid{deduced-simd-t}@<V> laguerre(const rebind_t<unsigned,
 @\exposid{deduced-simd-t}@<V>>& n, const V& x);
-template<@\exposconcept{math-floating-point}@ V> @\exposid{deduced-simd-t}@<V> legendre(const rebind_simd_t<unsigned,
+template<@\exposconcept{math-floating-point}@ V> @\exposid{deduced-simd-t}@<V> legendre(const rebind_t<unsigned,
 @\exposid{deduced-simd-t}@<V>>& l, const V& x);
 template<@\exposconcept{math-floating-point}@ V> @\exposid{deduced-simd-t}@<V> riemann_zeta(const V& x);
-template<@\exposconcept{math-floating-point}@ V> @\exposid{deduced-simd-t}@<V> sph_bessel(const rebind_simd_t<unsigned,
+template<@\exposconcept{math-floating-point}@ V> @\exposid{deduced-simd-t}@<V> sph_bessel(const rebind_t<unsigned,
 @\exposid{deduced-simd-t}@<V>>& n, const V& x);
 template<@\exposconcept{math-floating-point}@ V>
-  @\exposid{deduced-simd-t}@<V> sph_legendre(const rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& l,
-                                 const rebind_simd_t<unsigned, @\exposid{deduced-simd-t}@<V>>& m,
+  @\exposid{deduced-simd-t}@<V> sph_legendre(const rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& l,
+                                 const rebind_t<unsigned, @\exposid{deduced-simd-t}@<V>>& m,
                                  const V& theta);
-template<@\exposconcept{math-floating-point}@ V> @\exposid{deduced-simd-t}@<V> sph_neumann(const rebind_simd_t<unsigned,
+template<@\exposconcept{math-floating-point}@ V> @\exposid{deduced-simd-t}@<V> sph_neumann(const rebind_t<unsigned,
 @\exposid{deduced-simd-t}@<V>>& n, const V& x);
 \end{itemdecl}
 
@@ -18334,7 +18657,7 @@ It is unspecified whether \tcode{errno}\iref{errno} is accessed.
 
 \begin{itemdecl}
 template<@\exposconcept{math-floating-point}@ V>
-  constexpr @\exposid{deduced-simd-t}@<V> frexp(const V& value, rebind_simd_t<int, @\exposid{deduced-simd-t}@<V>>* exp);
+  constexpr @\exposid{deduced-simd-t}@<V> frexp(const V& value, rebind_t<int, @\exposid{deduced-simd-t}@<V>>* exp);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -18343,15 +18666,15 @@ Let \tcode{Ret} be \tcode{\exposid{deduced-simd-t}<V>}.
 Let \placeholder{frexp-simd} denote:
 \begin{codeblock}
 template<class V>
-pair<Ret, rebind_simd_t<int, Ret>> @\placeholder{frexp-simd}@(const V& x) {
+pair<Ret, rebind_t<int, Ret>> @\placeholder{frexp-simd}@(const V& x) {
   int r1[Ret::size()];
   Ret r0([&](@\exposid{simd-size-type}@ i) {
     frexp(@\exposid{make-compatible-simd-t}@<Ret, V>(x)[i], &r1[i]);
   });
-  return {r0, rebind_simd_t<int, Ret>(r1)};
+  return {r0, rebind_t<int, Ret>(r1)};
 }
 \end{codeblock}
-Let \tcode{ret} be a value of type \tcode{pair<Ret, rebind_simd_t<int, Ret>>}
+Let \tcode{ret} be a value of type \tcode{pair<Ret, rebind_t<int, Ret>>}
 that is the same value as the result of calling
 \placeholder{frexp-simd}\tcode{(x)}.
 
@@ -18367,7 +18690,7 @@ Sets \tcode{*exp} to \tcode{ret.second}.
 \begin{itemdecl}
 template<class V0, class V1>
   constexpr @\exposid{math-common-simd-t}@<V0, V1> remquo(const V0& x, const V1& y,
-                                              rebind_simd_t<int, @\exposid{math-common-simd-t}@<V0, V1>>* quo);
+                                              rebind_t<int, @\exposid{math-common-simd-t}@<V0, V1>>* quo);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -18376,16 +18699,16 @@ Let \tcode{Ret} be \tcode{\exposid{math-common-simd-t}<V0, V1>}.
 Let \placeholder{remquo-simd} denote:
 \begin{codeblock}
 template<class V0, class V1>
-pair<Ret, rebind_simd_t<int, Ret>> @\placeholder{remquo-simd}@(const V0& x, const V1& y) {
+pair<Ret, rebind_t<int, Ret>> @\placeholder{remquo-simd}@(const V0& x, const V1& y) {
   int r1[Ret::size()];
   Ret r0([&](@\exposid{simd-size-type}@ i) {
     remquo(@\exposid{make-compatible-simd-t}@<Ret, V0>(x)[i],
            @\exposid{make-compatible-simd-t}@<Ret, V1>(y)[i], &r1[i]);
   });
-  return {r0, rebind_simd_t<int, Ret>(r1)};
+  return {r0, rebind_t<int, Ret>(r1)};
 }
 \end{codeblock}
-Let \tcode{ret} be a value of type \tcode{pair<Ret, rebind_simd_t<int, Ret>>}
+Let \tcode{ret} be a value of type \tcode{pair<Ret, rebind_t<int, Ret>>}
 that is the same value as the result of calling
 \placeholder{remquo-simd}\tcode{(x, y)}.
 If in an invocation of a scalar overload of \tcode{remquo} for index \tcode{i}
@@ -18436,12 +18759,239 @@ Sets \tcode{*iptr} to \tcode{ret.second}.
 \tcode{ret.first}.
 \end{itemdescr}
 
+\rSec3[simd.bit]{\tcode{basic_simd} bit library}
+
+\begin{itemdecl}
+template<@\exposconcept{simd-type}@ V> constexpr V byteswap(const V& v) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+The type \tcode{V::value_type} models \tcode{integral}.
+
+\pnum
+\returns
+A \tcode{basic_simd} object where the $i^\text{th}$ element is initialized to
+the result of \tcode{std::byteswap(v[$i$])} for all $i$ in the range
+\range{0}{V::size()}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<@\exposconcept{simd-type}@ V> constexpr V bit_ceil(const V& v) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+The type \tcode{V::value_type} is an unsigned integer type
+\iref{basic.fundamental}.
+
+\pnum
+\expects
+For every $i$ in the range \range{0}{V::size()}, the smallest power of 2
+greater than or equal to \tcode{v[$i$]} is representable as a value of type
+\tcode{V::value_type}.
+
+\pnum
+\returns
+A \tcode{basic_simd} object where the $i^\text{th}$ element is initialized to
+the result of \tcode{std::bit_ceil(v[$i$])} for all $i$ in the range
+\range{0}{V::size()}.
+
+\pnum
+\remarks
+A function call expression that violates the precondition in the \expects
+element is not a core constant expression \iref{expr.const}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<@\exposconcept{simd-type}@ V> constexpr V bit_floor(const V& v) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+The type \tcode{V::value_type} is an unsigned integer type \iref{basic.fundamental}.
+
+\pnum
+\returns
+A \tcode{basic_simd} object where the $i^\text{th}$ element is initialized to
+the result of \tcode{std::bit_floor(v[$i$])} for all $i$ in the range
+\range{0}{V::size()}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<@\exposconcept{simd-type}@ V>
+  constexpr typename V::mask_type has_single_bit(const V& v) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+The type \tcode{V::value_type} is an unsigned integer type \iref{basic.fundamental}.
+
+\pnum
+\returns
+A \tcode{basic_simd_mask} object where the $i^\text{th}$ element is initialized
+to the result of \tcode{std::has_single_bit(v[$i$])} for all $i$ in the range
+\range{0}{V::size()}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<@\exposconcept{simd-type}@ V0, @\exposconcept{simd-type}@ V1>
+  constexpr V0 rotl(const V0& v0, const V1& v1) noexcept;
+template<@\exposconcept{simd-type}@ V0, @\exposconcept{simd-type}@ V1>
+  constexpr V0 rotr(const V0& v0, const V1& v1) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+ \item
+   The type \tcode{V0::value_type} is an unsigned integer type \iref{basic.fundamental},
+ \item
+   the type \tcode{V1::value_type} models \tcode{integral},
+ \item
+   \tcode{V0::size() == V1::size()} is \tcode{true}, and
+ \item
+   \tcode{sizeof(typename V0::value_type) == sizeof(typename V1::value_type)} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\returns
+A \tcode{basic_simd} object where the $i^\text{th}$ element is initialized to
+the result of \tcode{\placeholder{bit-func}(v0[$i$],
+static_cast<int>(v1[$i$]))} for all $i$ in the range \range{0}{V0::size()},
+where \placeholder{bit-func} is the corresponding scalar function from \tcode{<bit>}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<@\exposconcept{simd-type}@ V> constexpr V rotl(const V& v, int s) noexcept;
+template<@\exposconcept{simd-type}@ V> constexpr V rotr(const V& v, int s) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+The type \tcode{V::value_type} is an unsigned integer type \iref{basic.fundamental}
+
+\pnum
+\returns
+A \tcode{basic_simd} object where the $i^\text{th}$ element is initialized to
+the result of \tcode{\placeholder{bit-func}(v[$i$], s)} for all $i$ in the
+range \range{0}{V::size()}, where \placeholder{bit-func} is the corresponding
+scalar function from \tcode{<bit>}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<@\exposconcept{simd-type}@ V>
+  constexpr rebind_t<make_signed_t<typename V::value_type>, V> bit_width(const V& v) noexcept;
+template<@\exposconcept{simd-type}@ V>
+  constexpr rebind_t<make_signed_t<typename V::value_type>, V> countl_zero(const V& v) noexcept;
+template<@\exposconcept{simd-type}@ V>
+  constexpr rebind_t<make_signed_t<typename V::value_type>, V> countl_one(const V& v) noexcept;
+template<@\exposconcept{simd-type}@ V>
+  constexpr rebind_t<make_signed_t<typename V::value_type>, V> countr_zero(const V& v) noexcept;
+template<@\exposconcept{simd-type}@ V>
+  constexpr rebind_t<make_signed_t<typename V::value_type>, V> countr_one(const V& v) noexcept;
+template<@\exposconcept{simd-type}@ V>
+  constexpr rebind_t<make_signed_t<typename V::value_type>, V> popcount(const V& v) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+The type \tcode{V::value_type} is an unsigned integer type \iref{basic.fundamental}
+
+\pnum
+\returns
+A \tcode{basic_simd} object where the $i^\text{th}$ element is initialized to
+the result of \tcode{\placeholder{bit-func}(v[$i$])} for all $i$ in the range
+\range{0}{V::size()}, where \placeholder{bit-func} is the corresponding scalar
+function from \tcode{<bit>}.
+\end{itemdescr}
+
+\rSec3[simd.complex.math]{\tcode{simd} complex math}
+
+\begin{itemdecl}
+template<@\exposconcept{simd-complex}@ V>
+  constexpr rebind_t<@\exposid{simd-complex-value-type<V>}@, V> real(const V&) noexcept;
+template<@\exposconcept{simd-complex}@ V>
+  constexpr rebind_t<@\exposid{simd-complex-value-type<V>}@, V> imag(const V&) noexcept;
+
+template<@\exposconcept{simd-complex}@ V>
+  constexpr rebind_t<@\exposid{simd-complex-value-type<V>}@, V> abs(const V&);
+template<@\exposconcept{simd-complex}@ V>
+  constexpr rebind_t<@\exposid{simd-complex-value-type<V>}@, V> arg(const V&);
+template<@\exposconcept{simd-complex}@ V>
+  constexpr rebind_t<@\exposid{simd-complex-value-type<V>}@, V> norm(const V&);
+template<@\exposconcept{simd-complex}@ V> constexpr V conj(const V&);
+template<@\exposconcept{simd-complex}@ V> constexpr V proj(const V&);
+
+template<@\exposconcept{simd-complex}@ V> constexpr V exp(const V& v);
+template<@\exposconcept{simd-complex}@ V> constexpr V log(const V& v);
+template<@\exposconcept{simd-complex}@ V> constexpr V log10(const V& v);
+
+template<@\exposconcept{simd-complex}@ V> constexpr V sqrt(const V& v);
+template<@\exposconcept{simd-complex}@ V> constexpr V sin(const V& v);
+template<@\exposconcept{simd-complex}@ V> constexpr V asin(const V& v);
+template<@\exposconcept{simd-complex}@ V> constexpr V cos(const V& v);
+template<@\exposconcept{simd-complex}@ V> constexpr V acos(const V& v);
+template<@\exposconcept{simd-complex}@ V> constexpr V tan(const V& v);
+template<@\exposconcept{simd-complex}@ V> constexpr V atan(const V& v);
+template<@\exposconcept{simd-complex}@ V> constexpr V sinh(const V& v);
+template<@\exposconcept{simd-complex}@ V> constexpr V asinh(const V& v);
+template<@\exposconcept{simd-complex}@ V> constexpr V cosh(const V& v);
+template<@\exposconcept{simd-complex}@ V> constexpr V acosh(const V& v);
+template<@\exposconcept{simd-complex}@ V> constexpr V tanh(const V& v);
+template<@\exposconcept{simd-complex}@ V> constexpr V atanh(const V& v);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+A \tcode{basic_simd} object \tcode{ret} where the $i^\text{th}$ element is
+initialized to the result of \tcode{\placeholder{cmplx-func}(v[$i$])} for all
+$i$ in the range \range{0}{V::size()}, where \placeholder{cmplx-func} is the
+corresponding function from \tcode{<complex>}. If in an invocation of
+\placeholder{cmplx-func} for index $i$ a domain, pole, or range error would
+occur, the value of \tcode{ret[$i$]} is unspecified.
+
+\pnum
+\remarks
+It is unspecified whether \tcode{errno}\iref{errno} is accessed.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<@\exposconcept{simd-floating-point}@ V>
+  rebind_t<complex<typename V::value_type>, V> polar(const V& x, const V& y = {});
+
+template<@\exposconcept{simd-complex}@ V> constexpr V pow(const V& x, const V& y);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+A \tcode{basic_simd} object \tcode{ret} where the $i^\text{th}$ element is
+initialized to the result of \tcode{\placeholder{cmplx-func}(x[$i$], y[$i$])}
+for all $i$ in the range \range{0}{V::size()}, where \placeholder{cmplx-func}
+is the corresponding function from \tcode{<complex>}. If in an invocation of
+\placeholder{cmplx-func} for index $i$ a domain, pole, or range error would
+occur, the value of \tcode{ret[$i$]} is unspecified.
+
+\pnum
+\remarks
+It is unspecified whether \tcode{errno}\iref{errno} is accessed.
+\end{itemdescr}
+
 \rSec2[simd.mask.class]{Class template \tcode{basic_simd_mask}}
 
 \rSec3[simd.mask.overview]{Class template \tcode{basic_simd_mask} overview}
 
 \begin{codeblock}
-namespace std {
+namespace std::datapar {
   template<size_t Bytes, class Abi> class basic_simd_mask {
   public:
     using value_type = bool;
