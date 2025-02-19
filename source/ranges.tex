@@ -45,6 +45,7 @@ namespace std::ranges {
     inline constexpr @\unspec@ crend = @\unspec@;
 
     inline constexpr @\unspec@ size = @\unspec@;
+    inline constexpr @\unspec@ reserve_hint = @\unspec@;
     inline constexpr @\unspec@ ssize = @\unspec@;
     inline constexpr @\unspec@ empty = @\unspec@;
     inline constexpr @\unspec@ data = @\unspec@;
@@ -87,6 +88,9 @@ namespace std::ranges {
   // \ref{range.sized}, sized ranges
   template<class>
     constexpr bool disable_sized_range = false;
+
+  template<class T>
+    concept approximately_sized_range = @\seebelow@;
 
   template<class T>
     concept sized_range = @\seebelow@;
@@ -1098,6 +1102,90 @@ Otherwise let \tcode{D} be
 \tcode{ranges::ssize(E)} is expression-equivalent to
 \tcode{static_cast<D>(ranges::size(t))}.
 
+\rSec2[range.prim.size.hint]{\tcode{ranges::reserve_hint}}
+\indexlibraryglobal{reserve_hint}%
+
+\pnum
+The name \tcode{ranges::reserve_hint} denotes
+a customization point object\iref{customization.point.object}.
+
+\pnum
+Given a subexpression \tcode{E} with type \tcode{T},
+let \tcode{t} be an lvalue that denotes the reified object for \tcode{E}.
+Then:
+\begin{itemize}
+\item
+If \tcode{ranges::size(E)} is a valid expression,
+\tcode{ranges::reserve_hint(E)} is expression-equivalent to
+\tcode{ranges::size(E)}.
+\item
+Otherwise,
+if \tcode{auto(t.reserve_hint())} is a valid expression of
+integer-like type\iref{iterator.concept.winc},
+\tcode{ranges::re\-serve_hint(E)} is expression-equivalent to
+\tcode{auto(t.reserve_hint())}.
+\item
+Otherwise,
+if \tcode{T} is a class or enumeration type and
+\tcode{auto(reserve_hint(t))} is a valid expression of
+integer-like type where
+the meaning of \tcode{reserve_hint} is established as-if by
+performing argument-dependent lookup only\iref{basic.lookup.argdep}, then
+\tcode{ranges::reserve_hint(E)} is expression-equivalent to that expression.
+\item
+Otherwise,
+\tcode{ranges::reserve_hint(E)} is ill-formed.
+\end{itemize}
+\begin{note}
+Diagnosable ill-formed cases above result in substitution failure when
+\tcode{ranges::reserve_hint(E)} appears in the immediate context of
+a template instantiation.
+\end{note}
+\begin{note}
+Whenever \tcode{ranges::reserve_hint(E)} is a valid expression,
+its type is integer-like.
+\end{note}
+
+\rSec2[range.approximately.sized]{Approximately sized ranges}
+
+\pnum
+The \libconcept{approximately_sized_range} concept refines \libconcept{range}
+with the requirement that
+an approximation of the number of elements in the range
+can be determined in amortized constant time using \tcode{ranges::reserve_hint}.
+
+\begin{itemdecl}
+template<class T>
+  concept @\deflibconcept{approximately_sized_range}@ =
+    @\libconcept{range}@<T> && requires(T& t) { ranges::reserve_hint(t); };
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Given an lvalue \tcode{t} of type \tcode{remove_reference_t<T>},
+\tcode{T} models \libconcept{approximately_sized_range} only if
+\begin{itemize}
+\item
+\tcode{ranges::reserve_hint(t)} is amortized \bigoh{1},
+does not modify \tcode{t}, and
+has a value that
+is not negative and is representable in \tcode{range_difference_t<T>}, and
+\item
+if \tcode{iterator_t<T>} models \libconcept{forward_iterator},
+\tcode{ranges::reserve_hint(t)} is well-defined
+regardless of the evaluation of \tcode{ranges::begin(t)}.
+\begin{note}
+\tcode{ranges::reserve_hint(t)} is otherwise not required to be well-defined
+after evaluating \tcode{ranges::\linebreak begin(t)}.
+For example,
+it is possible for \tcode{ranges::reserve_hint(t)} to be well-defined for
+an \libconceptx{approximate\-ly_sized_range}{approximately_sized_range} whose
+iterator type does not model \libconcept{forward_iterator}
+only if evaluated before the first call to \tcode{ranges::begin(t)}.
+\end{note}
+\end{itemize}
+\end{itemdescr}
+
 \rSec2[range.prim.empty]{\tcode{ranges::empty}}
 \indexlibraryglobal{empty}%
 
@@ -1378,14 +1466,15 @@ because they are ``borrowed'' from some other range.
 \rSec2[range.sized]{Sized ranges}
 
 \pnum
-The \libconcept{sized_range} concept refines \libconcept{range} with
+The \libconcept{sized_range} concept
+refines \libconcept{approximately_sized_range} with
 the requirement that the number of elements in the range can be determined
 in amortized constant time using \tcode{ranges::size}.
 
 \begin{itemdecl}
 template<class T>
   concept @\deflibconcept{sized_range}@ =
-    @\libconcept{range}@<T> && requires(T& t) { ranges::size(t); };
+    @\libconcept{approximately_sized_range}@<T> && requires(T& t) { ranges::size(t); };
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -2363,8 +2452,8 @@ Otherwise, if
 \end{itemize}
 \begin{codeblock}
 C c(std::forward<Args>(args)...);
-if constexpr (@\libconcept{sized_range}@<R> && @\exposid{reservable-container}@<C>)
-  c.reserve(static_cast<range_size_t<C>>(ranges::size(r)));
+if constexpr (@\libconcept{approximately_sized_range}@<R> && @\exposid{reservable-container}@<C>)
+  c.reserve(static_cast<range_size_t<C>>(ranges::reserve_hint(r)));
 ranges::for_each(r, @\exposid{container-append}@(c));
 \end{codeblock}
 \item
@@ -4421,6 +4510,9 @@ namespace std::ranges {
     constexpr auto size() const requires @\libconcept{sized_range}@<R>
     { return ranges::size(*@\exposid{r_}@); }
 
+    constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<R>
+    { return ranges::reserve_hint(*@\exposid{r_}@); }
+
     constexpr auto data() const requires @\libconcept{contiguous_range}@<R>
     { return ranges::data(*@\exposid{r_}@); }
   };
@@ -4498,6 +4590,11 @@ namespace std::ranges {
     { return ranges::size(@\exposid{r_}@); }
     constexpr auto size() const requires @\libconcept{sized_range}@<const R>
     { return ranges::size(@\exposid{r_}@); }
+
+    constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<R>
+    { return ranges::reserve_hint(@\exposid{r_}@); }
+    constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const R>
+    { return ranges::reserve_hint(@\exposid{r_}@); }
 
     constexpr auto data() requires @\libconcept{contiguous_range}@<R>
     { return ranges::data(@\exposid{r_}@); }
@@ -4591,6 +4688,11 @@ namespace std::ranges {
 
     constexpr auto size() requires @\libconcept{sized_range}@<V> { return ranges::size(@\exposid{base_}@); }
     constexpr auto size() const requires @\libconcept{sized_range}@<const V> { return ranges::size(@\exposid{base_}@); }
+
+    constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V>
+    { return ranges::reserve_hint(@\exposid{base_}@); }
+    constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V>
+    { return ranges::reserve_hint(@\exposid{base_}@); }
   };
 
   template<class R>
@@ -5106,6 +5208,11 @@ namespace std::ranges {
     constexpr auto size() requires @\libconcept{sized_range}@<V> { return ranges::size(@\exposid{base_}@); }
     constexpr auto size() const requires @\libconcept{sized_range}@<const V>
     { return ranges::size(@\exposid{base_}@); }
+
+    constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V>
+    { return ranges::reserve_hint(@\exposid{base_}@); }
+    constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V>
+    { return ranges::reserve_hint(@\exposid{base_}@); }
   };
 
   template<class R, class F>
@@ -5896,6 +6003,22 @@ namespace std::ranges {
       auto n = ranges::size(@\exposid{base_}@);
       return ranges::min(n, static_cast<decltype(n)>(@\exposid{count_}@));
     }
+
+    constexpr auto reserve_hint() {
+      if constexpr (@\libconcept{approximately_sized_range}@<V>) {
+        auto n = static_cast<range_difference_t<V>>(ranges::reserve_hint(@\exposid{base_}@));
+        return @\exposid{to-unsigned-like}@(ranges::min(n, @\exposid{count_}@));
+      }
+      return @\exposid{to-unsigned-like}@(@\exposid{count_}@);
+    }
+
+    constexpr auto reserve_hint() const {
+      if constexpr (@\libconcept{approximately_sized_range}@<const V>) {
+        auto n = static_cast<range_difference_t<const V>>(ranges::reserve_hint(@\exposid{base_}@));
+        return @\exposid{to-unsigned-like}@(ranges::min(n, @\exposid{count_}@));
+      }
+      return @\exposid{to-unsigned-like}@(@\exposid{count_}@);
+    }
   };
 
   template<class R>
@@ -6304,6 +6427,16 @@ namespace std::ranges {
       const auto s = ranges::size(@\exposid{base_}@);
       const auto c = static_cast<decltype(s)>(@\exposid{count_}@);
       return s < c ? 0 : s - c;
+    }
+
+    constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V> {
+      const auto s = static_cast<range_difference_t<cV>>(ranges::reserve_hint(@\exposid{base_}@));
+      return @\exposid{to-unsigned-like}@(s < @\exposid{count_}@ ? 0 : s - @\exposid{count_}@);
+    }
+
+    constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V> {
+      const auto s = static_cast<range_difference_t<const V>>(ranges::reserve_hint(@\exposid{base_}@));
+      return @\exposid{to-unsigned-like}@(s < @\exposid{count_}@ ? 0 : s - @\exposid{count_}@);
     }
 
   private:
@@ -9643,6 +9776,13 @@ namespace std::ranges {
     constexpr auto size() const requires @\libconcept{sized_range}@<const V> {
       return ranges::size(@\exposid{base_}@);
     }
+
+    constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V> {
+      return ranges::reserve_hint(@\exposid{base_}@);
+    }
+    constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V> {
+      return ranges::reserve_hint(@\exposid{base_}@);
+    }
   };
 
   template<class R>
@@ -9739,6 +9879,13 @@ namespace std::ranges {
 
     constexpr auto size() const requires @\libconcept{sized_range}@<const V> {
       return ranges::size(@\exposid{base_}@);
+    }
+
+    constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V> {
+      return ranges::reserve_hint(@\exposid{base_}@);
+    }
+    constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V> {
+      return ranges::reserve_hint(@\exposid{base_}@);
     }
   };
 
@@ -9880,6 +10027,11 @@ namespace std::ranges {
 
     constexpr auto size() requires @\libconcept{sized_range}@<V> { return ranges::size(@\exposid{base_}@); }
     constexpr auto size() const requires @\libconcept{sized_range}@<const V> { return ranges::size(@\exposid{base_}@); }
+
+    constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V>
+    { return ranges::reserve_hint(@\exposid{base_}@); }
+    constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V>
+    { return ranges::reserve_hint(@\exposid{base_}@); }
   };
 
   template<class R>
@@ -10012,6 +10164,12 @@ namespace std::ranges {
 
     constexpr auto size() const requires @\libconcept{sized_range}@<const V>
     { return ranges::size(@\exposid{base_}@); }
+
+    constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V>
+    { return ranges::reserve_hint(@\exposid{base_}@); }
+
+    constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V>
+    { return ranges::reserve_hint(@\exposid{base_}@); }
 
   private:
     // \ref{range.elements.iterator}, class template \tcode{elements_view::\exposid{iterator}}
@@ -10617,6 +10775,11 @@ namespace std::ranges {
     { return ranges::size(@\exposid{base_}@); }
     constexpr auto size() const requires @\libconcept{sized_range}@<const V>
     { return ranges::size(@\exposid{base_}@); }
+
+    constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V>
+    { return ranges::reserve_hint(@\exposid{base_}@); }
+    constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V>
+    { return ranges::reserve_hint(@\exposid{base_}@); }
 
     constexpr V base() const & requires @\libconcept{copy_constructible}@<V> { return @\exposid{base_}@; }
     constexpr V base() && { return std::move(@\exposid{base_}@); }
@@ -12334,6 +12497,9 @@ namespace std::ranges {
 
     constexpr auto size() requires @\libconcept{sized_range}@<V>;
     constexpr auto size() const requires @\libconcept{sized_range}@<const V>;
+
+    constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V>;
+    constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V>;
   };
 }
 \end{codeblock}
@@ -12363,6 +12529,25 @@ using CT = common_type_t<ST, size_t>;
 auto sz = static_cast<CT>(ranges::size(@\exposid{base_}@));
 sz -= std::min<CT>(sz, N - 1);
 return static_cast<ST>(sz);
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{reserve_hint}{adjacent_view}%
+\begin{itemdecl}
+constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V>;
+constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+using DT = range_difference_t<decltype((@\exposid{base_}@))>;
+using CT = common_type_t<DT, size_t>;
+auto sz = static_cast<CT>(ranges::reserve_hint(@\exposid{base_}@));
+sz -= std::min<CT>(sz, N - 1);
+return @\exposid{to-unsigned-like}@(sz);
 \end{codeblock}
 \end{itemdescr}
 
@@ -12988,6 +13173,14 @@ namespace std::ranges {
     constexpr auto size() const requires @\libconcept{sized_range}@<const @\exposid{InnerView}@> {
       return @\exposid{inner_}@.size();
     }
+
+    constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<@\exposid{InnerView}@> {
+      return @\exposid{inner_}@.reserve_hint();
+    }
+
+    constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const @\exposid{InnerView}@> {
+      return @\exposid{inner_}@.reserve_hint();
+    }
   };
 }
 \end{codeblock}
@@ -13468,6 +13661,9 @@ namespace std::ranges {
 
     constexpr auto size() requires @\libconcept{sized_range}@<V>;
     constexpr auto size() const requires @\libconcept{sized_range}@<const V>;
+
+    constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V>;
+    constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V>;
   };
 
   template<class R>
@@ -13526,6 +13722,22 @@ constexpr auto size() const requires @\libconcept{sized_range}@<const V>;
 Equivalent to:
 \begin{codeblock}
 return @\exposid{to-unsigned-like}@(@\exposidnc{div-ceil}@(ranges::distance(@\exposid{base_}@), @\exposid{n_}@));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{reserve_hint}{chunk_view}%
+\begin{itemdecl}
+constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V>;
+constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto s = static_cast<range_difference_t<decltype((@\exposidnc{base_}@))>>(ranges::reserve_hint(@\exposidnc{base_}@));
+return @\exposidnc{to-unsigned-like}@(@\exposidnc{div-ceil}@(s, @\exposidnc{n_}@));
 \end{codeblock}
 \end{itemdescr}
 
@@ -13950,6 +14162,9 @@ namespace std::ranges {
 
     constexpr auto size() requires @\libconcept{sized_range}@<V>;
     constexpr auto size() const requires @\libconcept{sized_range}@<const V>;
+
+    constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V>;
+    constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V>;
   };
 }
 \end{codeblock}
@@ -13980,6 +14195,22 @@ constexpr auto size() const requires @\libconcept{sized_range}@<const V>;
 Equivalent to:
 \begin{codeblock}
 return @\exposid{to-unsigned-like}@(@\exposid{div-ceil}@(ranges::distance(@\exposid{base_}@), @\exposid{n_}@));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{reserve_hint}{chunk_view}%
+\begin{itemdecl}
+constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V>;
+constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto s = static_cast<range_difference_t<decltype((@\exposid{base_}@))>>(ranges::reserve_hint(@\exposid{base_}@));
+return @\exposid{to-unsigned-like}@(@\exposid{div-ceil}@(s, @\exposid{n_}@));
 \end{codeblock}
 \end{itemdescr}
 
@@ -14463,6 +14694,9 @@ namespace std::ranges {
 
     constexpr auto size() requires @\libconcept{sized_range}@<V>;
     constexpr auto size() const requires @\libconcept{sized_range}@<const V>;
+
+    constexpr auto reserve_hintsize() requires @\libconcept{approximately_sized_range}@<V>;
+    constexpr auto reserve_hintsize() const requires @\libconcept{approximately_sized_range}@<const V>;
   };
 
   template<class R>
@@ -14581,6 +14815,24 @@ constexpr auto size() const requires @\libconcept{sized_range}@<const V>;
 Equivalent to:
 \begin{codeblock}
 auto sz = ranges::distance(@\exposid{base_}@) - @\exposid{n_}@ + 1;
+if (sz < 0) sz = 0;
+return @\exposid{to-unsigned-like}@(sz);
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{reserve_hint}{slide_view}%
+\begin{itemdecl}
+constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V>;
+constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto sz = static_cast<range_difference_t<decltype((@\exposid{base_}@))>>(ranges::reserve_hint(@\exposid{base_}@)) -
+                                                             @\exposid{n_}@ + 1;
 if (sz < 0) sz = 0;
 return @\exposid{to-unsigned-like}@(sz);
 \end{codeblock}
@@ -15449,6 +15701,9 @@ namespace std::ranges {
 
     constexpr auto size() requires @\libconcept{sized_range}@<V>;
     constexpr auto size() const requires @\libconcept{sized_range}@<const V>;
+
+    constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V>;
+    constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V>;
   };
 
   template<class R>
@@ -15495,6 +15750,22 @@ constexpr auto size() const requires @\libconcept{sized_range}@<const V>;
 Equivalent to:
 \begin{codeblock}
 return @\exposid{to-unsigned-like}@(@\exposid{div-ceil}@(ranges::distance(@\exposid{base_}@), @\exposid{stride_}@));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{reserve_hint}{stride_view}%
+\begin{itemdecl}
+constexpr auto reserve_hint() requires @\libconcept{approximately_sized_range}@<V>;
+constexpr auto reserve_hint() const requires @\libconcept{approximately_sized_range}@<const V>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto s = static_cast<range_difference_t<decltype((@\exposid{base_}@))>>(ranges::reserve_hint(@\exposid{base_}@));
+return @\exposid{to-unsigned-like}@(@\exposid{div-ceil}@(s, @\exposid{stride_}@));
 \end{codeblock}
 \end{itemdescr}
 
@@ -16346,7 +16617,6 @@ that is sufficiently wide to store
 the product of the maximum sizes of all underlying ranges
 if such a type exists.
 
-\pnum
 \begin{itemdecl}
 template<size_t N = sizeof...(Vs)>
   constexpr void @\exposid{next}@();
