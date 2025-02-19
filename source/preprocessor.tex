@@ -49,6 +49,7 @@
 \nontermdef{control-line}\br
     \terminal{\# include} pp-tokens new-line\br
     pp-import\br
+    \terminal{\# embed  } pp-tokens new-line\br
     \terminal{\# define } identifier replacement-list new-line\br
     \terminal{\# define } identifier lparen \opt{identifier-list} \terminal{)} replacement-list new-line\br
     \terminal{\# define } identifier lparen \terminal{... )} replacement-list new-line\br
@@ -124,6 +125,47 @@
 \begin{bnf}
 \nontermdef{pp-tokens}\br
     preprocessing-token \opt{pp-tokens}
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{embed-parameter-seq}\br
+    embed-parameter \opt{embed-parameter-seq}
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{embed-parameter}\br
+    embed-standard-parameter\br
+    embed-prefixed-parameter
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{embed-standard-parameter}\br
+    \terminal{limit} \terminal{(} pp-balanced-token-seq \terminal{)}\br
+    \terminal{prefix} \terminal{(} \opt{pp-balanced-token-seq} \terminal{)}\br
+    \terminal{suffix} \terminal{(} \opt{pp-balanced-token-seq} \terminal{)}\br
+    \terminal{if_empty} \terminal{(} \opt{pp-balanced-token-seq} \terminal{)}
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{embed-prefixed-parameter}\br
+    identifier :: identifier\br
+    identifier :: identifier \terminal{(} \opt{pp-balanced-token-seq} \terminal{)}
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{pp-balanced-token-seq}\br
+    pp-balanced-token \opt{pp-balanced-token-seq}
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{pp-balanced-token}\br
+    \terminal{(} \opt{pp-balanced-token-seq} \terminal{)}\br
+    \terminal{[} \opt{pp-balanced-token-seq} \terminal{]}\br
+    \terminal{\{} \opt{pp-balanced-token-seq} \terminal{\}}\br
+    \textnormal{any} pp-token \textnormal{except:}\br
+    \bnfindent\textnormal{parenthesis (\unicode{0028}{left parenthesis} and \unicode{0029}{right parenthesis}),}\br
+    \bnfindent\textnormal{bracket (\unicode{005b}{left square bracket} and \unicode{005d}{right square bracket}), or}\br
+    \bnfindent\textnormal{brace (\unicode{007b}{left curly bracket} and \unicode{007d}{right curly bracket}).}
 \end{bnf}
 
 \begin{bnf}
@@ -233,6 +275,10 @@ conditionally-supported with
 semantics.
 
 \pnum
+Any \grammarterm{embed-prefixed-parameter} is conditionally-supported,
+with \impldef{supported forms of \#embed prefix parameters} semantics.
+
+\pnum
 At the start of phase 4 of translation,
 the \grammarterm{group} of a \grammarterm{pp-global-module-fragment} shall
 contain neither a \grammarterm{text-line} nor a \grammarterm{pp-import}.
@@ -314,6 +360,12 @@ has been replaced.
     \terminal{\xname{has_include}} \terminal{(} header-name-tokens \terminal{)}
 \end{bnf}
 
+\indextext{\idxxname{has_embed}}%
+\begin{bnf}
+\nontermdef{has-embed-expression}\br
+    \terminal{\xname{has_embed}} \terminal{(} pp-balanced-token-seq \terminal{)}
+\end{bnf}
+
 \indextext{\idxxname{has_cpp_attribute}}%
 \begin{bnf}
 \nontermdef{has-attribute-expression}\br
@@ -332,9 +384,12 @@ during translation phase 4,
 all identifiers either are or are not macro names ---
 there simply are no keywords, enumeration constants, etc.
 \end{footnote}
-and it may contain zero or more \grammarterm{defined-macro-expression}{s} and/or
-\grammarterm{has-include-expression}{s} and/or
-\grammarterm{has-attribute-expression}{s} as unary operator expressions.
+and it may contain zero or more
+\grammarterm{defined-macro-expression}{s},
+\grammarterm{has-include-expression}{s},
+\grammarterm{has-attribute-expression}{s},
+and/or \grammarterm{has-embed-expression}{s}
+as unary operator expressions.
 
 \pnum
 A \grammarterm{defined-macro-expression} evaluates to \tcode{1}
@@ -367,6 +422,31 @@ of a \tcode{\#include} directive, the program is ill-formed.
 The \grammarterm{has-include-expression} evaluates
 to \tcode{1} if the search for the source file succeeds, and
 to \tcode{0} if the search fails.
+
+\pnum
+The parenthesized \grammarterm{pp-balanced-token-seq} in each contained
+\grammarterm{has-embed-expression} is processed as if that
+\grammarterm{pp-balanced-token-seq} were the \grammarterm{pp-tokens} in the
+third form of a \tcode{\#embed} directive\iref{cpp.embed}.
+If such a directive would not satisfy the syntactic requirements of a
+\tcode{\#embed} directive, the program is ill-formed.
+The \grammarterm{has-embed-expression} evaluates to:
+\begin{itemize}
+\item
+\mname{STDC_EMBED_FOUND} if the search for the resource succeeds,
+all the given \grammarterm{embed-parameter}s in the \grammarterm{embed-parameter-seq}
+are supported, and the resource is not empty.
+\item
+Otherwise, \mname{STDC_EMBED_EMPTY} if the search for the resource succeeds,
+all the given \grammarterm{embed-parameter}s in the \grammarterm{embed-parameter-seq}
+are supported, and the resource is empty.
+\item
+Otherwise, \mname{STDC_EMBED_NOT_FOUND}.
+\end{itemize}
+\begin{note}
+An unrecognized \grammarterm{embed-parameter} in an \grammarterm{has-embed-expression}
+is not ill-formed and is instead treated as not supported.
+\end{note}
 
 \pnum
 Each \grammarterm{has-attribute-expression} is replaced by
@@ -415,9 +495,9 @@ The
 \tcode{\#ifdef}, \tcode{\#ifndef}, \tcode{\#elifdef}, and \tcode{\#elifndef}
 directives, and
 the \tcode{defined} conditional inclusion operator,
-shall treat \xname{has_include} and \xname{has_cpp_attribute}
+shall treat \xname{has_include}, \xname{has_embed}, and \xname{has_cpp_attribute}
 as if they were the names of defined macros.
-The identifiers \xname{has_include} and \xname{has_cpp_attribute}
+The identifiers \xname{has_include}, \xname{has_embed}, and \xname{has_cpp_attribute}
 shall not appear in any context not mentioned in this subclause.
 
 \pnum
@@ -748,6 +828,356 @@ directives:
     #define INCFILE  "versN.h"
 #endif
 #include INCFILE
+\end{codeblock}
+\end{example}
+
+\rSec1[cpp.embed]{Resource inclusion}
+\indextext{preprocessing directive!embed a resource}
+\indextext{\idxcode{\#embed}}%
+
+\rSec2[cpp.embed.gen]{General}
+
+\pnum
+A preprocessing directive of the form
+\begin{ncsimplebnf}
+\terminal{\# embed <} h-char-sequence \terminal{>} \opt{pp-tokens} new-line
+\end{ncsimplebnf}
+searches a sequence of
+\impldef{sequence of places searched for an embedded resource}
+places for a resource identified uniquely by the specified sequence between
+the \tcode{<} and \tcode{>} delimiters.
+How the places are specified or the resource identified is
+\impldef{search locations for embedded resources specified with \tcode{<>}}.
+
+\pnum
+A preprocessing directive of the form
+\begin{ncsimplebnf}
+\terminal{\# embed "} q-char-sequence \terminal{"} \opt{pp-tokens} new-line
+\end{ncsimplebnf}
+searches for a resource identified by the specified sequence between the
+\tcode{"} delimiters.
+The named resource is searched for in an
+\impldef{manner of search for named resource}
+manner.
+If this search is not supported, or if the search fails, the directive is
+reprocessed as if it read
+\begin{ncsimplebnf}
+\terminal{\# embed <} h-char-sequence \terminal{>} \opt{pp-tokens} new-line
+\end{ncsimplebnf}
+with the identical contained sequence (including \tcode{>} characters, if any)
+from the original directive.
+
+\pnum
+\recommended A mechanism similar to, but distinct from, the
+\impldef{sequence of places searched for a header}
+search paths used for \tcode{\#include} \iref{cpp.include}
+is encouraged.
+
+\pnum
+Either form of the \tcode{\#embed} directive processes the
+\grammarterm{pp-tokens}, if present, just as in normal text.
+The \grammarterm{pp-tokens} shall then have the form
+\grammarterm{embed-parameter-seq}.
+
+\pnum
+A resource is a source of data accessible from the translation environment.
+A resource has an \gterm{implementation-resource-width}, which is the
+\impldef{size in bits of a resource}
+size in bits of the resource.
+If the \gterm{implementation-resource-width} is not an integral multiple of
+\libmacro{CHAR_BIT}, the program is ill-formed.
+Let \defn{implementation-resource-count} be
+\gterm{implementation-resource-width} divided by \libmacro{CHAR_BIT}.
+Every resource also has a \defn{resource-count}, which is
+
+\begin{itemize}
+\item
+  the value as computed from the optionally-provided \tcode{limit}
+  \grammarterm{embed-parameter}\iref{cpp.embed.param.limit}, if present;
+\item
+  otherwise, the implementation-resource-count.
+\end{itemize}
+
+A resource is empty if the resource-count is zero.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+// ill-formed if the implementation-resource-width is 6 bits
+#embed "6_bits.bin"
+\end{codeblock}
+\end{example}
+
+\pnum
+The \tcode{\#embed} directive is replaced by a comma-delimited list of integer
+literals of type \tcode{int}, unless otherwise modified by embed
+parameters\iref{cpp.embed.param}.
+
+\pnum
+The integer literals in the comma-delimited list correspond to
+resource-count consecutive calls to \tcode{std::fgetc} \iref{cstdio.syn}
+from the resource, as a binary file.
+If any call to \tcode{std::fgetc} returns \tcode{EOF}, the program is
+ill-formed.
+
+\pnum
+\recommended The value of each integer literal should closely represent
+the bit stream of the resource unmodified.
+This can require an implementation to consider potential differences between
+translation and execution environments, as well as any other applicable
+sources of mismatch.
+
+\begin{example}
+\begin{codeblock}
+#include <cstring>
+#include <cstddef>
+#include <fstream>
+#include <vector>
+#include <cassert>
+
+int main() {
+  // If the file is the same as the resource in the translation environment, no assert in this program should fail.
+  constexpr unsigned char d[] = {
+#embed <data.dat>
+  };
+  const std::vector<unsigned char> vec_d = {
+#embed <data.dat>
+  };
+
+  constexpr std::size_t expected_size = sizeof(d);
+
+  // same file in execution environment as was embedded
+  std::ifstream f_source("data.dat", std::ios::binary | std::ios::in);
+  unsigned char runtime_d[expected_size];
+  char* ifstream_ptr = reinterpret_cast<char*>(runtime_d);
+  assert(!f_source.read(ifstream_ptr, expected_size));
+  std::size_t ifstream_size = f_source.gcount();
+  assert (ifstream_size == expected_size);
+  int is_same = std::memcmp(&d[0], ifstream_ptr, ifstream_size);
+  assert(is_same == 0);
+  int is_same_vec = std::memcmp(vec_d.data(), ifstream_ptr, ifstream_size);
+  assert(is_same_vec == 0);
+}
+\end{codeblock}
+\end{example}
+
+\begin{example}
+\begin{codeblock}
+int i = {
+#embed "i.dat"
+};  // well-formed if \tcode{i.dat} produces a single value
+int i2 =
+#embed "i.dat"
+;   // also well-formed if \tcode{i.dat} produces a single value
+struct s {
+  double a, b, c;
+  struct { double e, f, g; } x;
+  double h, i, j;
+};
+is x = {
+// well-formed if the directive produces nine or fewer values
+#embed "s.dat"
+};
+\end{codeblock}
+\end{example}
+
+\pnum
+A preprocessing directive of the form
+\begin{ncsimplebnf}
+\terminal{\# embed} pp-tokens new-line
+\end{ncsimplebnf}
+(that does not match one of the two previous forms) is permitted.
+The preprocessing tokens after \tcode{embed} in the directive are processed
+just as in normal text (i.e., each identifier currently defined as a macro
+name is replaced by its replacement list of preprocessing tokens).
+The directive resulting after all replacements of the third form shall match
+one of the two previous forms.
+\begin{note}
+Adjacent \grammarterm{string-literal}{s} are not concatenated into a single
+\grammarterm{string-literal} (see the translation phases in \iref{lex.phases});
+thus, an expansion that results in two \grammarterm{string-literal}{s} is an
+invalid directive.
+\end{note}
+
+Any further processing as in normal text described for the two previous
+forms is not performed.
+\begin{note}
+That is, processing as in normal text happens once and only once for the entire
+directive.
+\end{note}
+
+\begin{example}
+If the directive matches the third form, the whole directive is replaced.
+If the directive matches the first two forms, everything after the name is
+replaced.
+
+\begin{codeblock}
+#define prefix(ARG) suffix(ARG)
+#define THE_ADDITION "teehee"
+#define THE_RESOURCE ":3c"
+#embed ":3c"        prefix(THE_ADDITION)
+#embed THE_RESOURCE prefix(THE_ADDITION)
+\end{codeblock}
+
+is equivalent to:
+
+\begin{codeblock}
+#embed ":3c" suffix("teehee")
+#embed ":3c" suffix("teehee")
+\end{codeblock}
+\end{example}
+
+\pnum
+The method by which a sequence of preprocessing tokens between a \tcode{<} and
+a \tcode{>} preprocessing token pair or a pair of \tcode{"} characters is
+combined into a single resource name preprocessing token is
+\impldef{search locations for \tcode{""""} resource}.
+
+\rSec2[cpp.embed.param]{Embed parameters}
+\rSec3[cpp.embed.param.limit]{limit parameter}
+\pnum
+An \grammarterm{embed-parameter} of the form
+\tcode{limit (} \grammarterm{pp-balanced-token-seq} \tcode{)}
+specifies the
+maximum possible number of elements in the comma-delimited list.
+It shall appear at most once in the \grammarterm{embed-parameter-seq}.
+The token \tcode{defined} shall not appear in the
+\grammarterm{constant-expression}.
+
+\pnum
+The \grammarterm{pp-balanced-token-seq} is evaluated as a
+\grammarterm{constant-expression} using the rules as described in conditional
+inclusion\iref{cpp.cond}, but without being processed as in normal text an
+additional time.
+
+\begin{example}
+\begin{codeblock}
+#undef DATA_LIMIT
+#if __has_embed(<data.dat> limit(DATA_LIMIT))
+#endif
+\end{codeblock}
+
+is equivalent to:
+
+\begin{codeblock}
+#if __has_embed(<data.dat> limit(0))
+#endif
+\end{codeblock}
+\end{example}
+
+\begin{example}
+\begin{codeblock}
+#embed <data.dat> limit(__has_include("a.h"))
+
+#if __has_embed(<data.dat> limit(__has_include("a.h")))
+// ill-formed: \tcode{__has_include}\iref{cpp.cond} cannot appear here
+#endif
+\end{codeblock}
+\end{example}
+
+\pnum
+The \grammarterm{constant-expression} shall be an integral constant expression
+whose value is greater than or equal to zero.
+The resource-count\iref{cpp.embed.gen} becomes
+implementation-resource-count, if the value of the
+\grammarterm{constant-expression} is greater than
+implementation-resource-count; otherwise, the value of the
+\grammarterm{constant-expression}.
+\begin{example}
+\begin{codeblock}
+constexpr unsigned char sound_signature[] = {
+  // a hypothetical resource capable of expanding to four or more elements
+#embed <sdk/jump.wav> limit(2+2)
+};
+
+static_assert(sizeof(sound_signature) == 4);    // OK
+\end{codeblock}
+\end{example}
+
+\rSec3[cpp.embed.param.prefix]{prefix parameter}
+\pnum
+An \grammarterm{embed-parameter} of the form
+\begin{ncsimplebnf}
+\terminal{prefix (} \opt{pp-balanced-token-seq} \terminal{)}
+\end{ncsimplebnf}
+shall appear at most once in the \grammarterm{embed-parameter-seq}.
+
+\pnum
+If the resource is empty, this \grammarterm{embed-parameter} is ignored.
+Otherwise, the \grammarterm{pp-balanced-token-seq} is placed immediately
+before the comma-delimited list of integral literals.
+
+\rSec3[cpp.embed.param.suffix]{suffix parameter}
+\pnum
+An \grammarterm{embed-parameter} of the form
+\begin{ncsimplebnf}
+\terminal{suffix (} \opt{pp-balanced-token-seq} \terminal{)}
+\end{ncsimplebnf}
+shall appear at most once in the \grammarterm{embed-parameter-seq}.
+
+\pnum
+If the resource is empty, this \grammarterm{embed-parameter} is ignored.
+Otherwise, the \grammarterm{pp-balanced-token-seq} is placed immediately after
+the comma-delimited list of the integral constant expressions.
+
+\begin{example}
+\begin{codeblock}
+constexpr unsigned char whl[] = {
+#embed "ches.glsl" \
+  prefix(0xEF, 0xBB, 0xBF, ) /* a sequence of bytes */ \
+  suffix(,)
+  0
+};
+// always null-terminated, contains the sequence if not empty
+constexpr bool is_empty = sizeof(whl) == 1 && whl[0] == '\0';
+constexpr bool is_not_empty = sizeof(whl) >= 4
+  && whl[sizeof(whl) - 1] == '\0'
+  && whl[0] == '\xEF' && whl[1] == '\xBB' && whl[2] == '\xBF';
+static_assert(is_empty || is_not_empty);
+\end{codeblock}
+\end{example}
+
+\rSec3[cpp.embed.param.if.empty]{\tcode{if_empty} parameter}
+\pnum
+An embed-parameter of the form
+\begin{ncsimplebnf}
+\terminal{if_empty (} \opt{pp-balanced-token-seq} \terminal{)}
+\end{ncsimplebnf}
+shall appear at most once in the \grammarterm{embed-parameter-seq}.
+
+\pnum
+If the resource is not empty, this \grammarterm{embed-parameter} is ignored.
+Otherwise, the \tcode{\#embed} directive is replaced by the
+\grammarterm{pp-balanced-token-seq}.
+
+\begin{example}
+\tcode{limit(0)} affects when a resource is considered empty.
+Therefore, the following program:
+
+\begin{codeblock}
+#embed </owo/uwurandom> \
+  if_empty(42203) limit(0)
+\end{codeblock}
+expands to
+\begin{codeblock}
+42203
+\end{codeblock}
+\end{example}
+
+\begin{example}
+This resource is considered empty due to the \tcode{limit(0)} \grammarterm{embed-parameter},
+always, including in \tcode{__has_embed} clauses.
+
+\begin{codeblock}
+int infinity_zero () {
+#if __has_embed(</owo/uwurandom> limit(0) prefix(some tokens)) == __STDC_EMBED_EMPTY__
+  // if \tcode{</owo/uwurandom>} exists, this conditional inclusion branch is taken and the function returns \tcode{0}.
+  return 0;
+#else
+  // otherwise, the resource does not exist
+#error "The resource does not exist"
+#endif
+}
 \end{codeblock}
 \end{example}
 
@@ -1896,6 +2326,7 @@ an \impldef{text of \mname{TIME} when time of translation is not available} vali
 \defnxname{cpp_nsdmi}                             & \tcode{200809L} \\ \rowsep
 \defnxname{cpp_pack_indexing}                     & \tcode{202311L} \\ \rowsep
 \defnxname{cpp_placeholder_variables}             & \tcode{202306L} \\ \rowsep
+\defnxname{cpp_pp_embed}                          & \tcode{202502L} \\ \rowsep
 \defnxname{cpp_range_based_for}                   & \tcode{202211L} \\ \rowsep
 \defnxname{cpp_raw_strings}                       & \tcode{200710L} \\ \rowsep
 \defnxname{cpp_ref_qualifiers}                    & \tcode{200710L} \\ \rowsep
@@ -1930,6 +2361,16 @@ The following macro names are conditionally defined by the implementation:
 \mname{STDC}\\
 Whether \mname{STDC} is predefined and if so, what its value is,
 are \impldef{definition and meaning of \mname{STDC}}.
+
+\item
+\indextext{stdc__embed_not_found__@\mname{STDC_EMBED_NOT_FOUND}}%
+\indextext{stdc__embed_found__@\mname{STDC_EMBED_FOUND}}%
+\indextext{stdc__embed_empty__@\mname{STDC_EMBED_EMPTY}}%
+\mname{STDC_EMBED_NOT_FOUND}, \mname{STDC_EMBED_FOUND}, and \mname{STDC_EMBED_EMPTY}\\
+The integer literals \tcode{0}, \tcode{1}, and \tcode{2}, respectively.
+\begin{note}
+These represent values replaced from \grammarterm{has-embed-expression}{s}\iref{cpp.cond}.
+\end{note}
 
 \item
 \indextext{__stdc_mb_might_neq_wc__@\mname{STDC_MB_MIGHT_NEQ_WC}}%
