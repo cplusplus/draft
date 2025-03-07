@@ -62,6 +62,10 @@ Every name is introduced by a \defn{declaration}, which is a
 \grammarterm{identifier}
 in a structured binding declaration\iref{dcl.struct.bind},
 \item
+\grammarterm{identifier}
+in a \grammarterm{result-name-introducer}
+in a postcondition assertion\iref{dcl.contract.res},
+\item
 \grammarterm{init-capture}\iref{expr.prim.lambda.capture},
 \item
 \grammarterm{condition} with a \grammarterm{declarator}\iref{stmt.pre},
@@ -109,6 +113,7 @@ an object. The variable's name, if any, denotes the reference or object.
 \pnum
 An \defn{entity} is a value, object, reference,
 structured binding,
+result binding,
 function, enumerator, type,
 class member, bit-field, template, template specialization, namespace, or
 pack. An entity $E$ is denoted by the name (if any)
@@ -120,6 +125,7 @@ A \defnadj{local}{entity} is a variable with
 automatic storage duration\iref{basic.stc.auto},
 a structured binding\iref{dcl.struct.bind}
 whose corresponding variable is such an entity,
+a result binding\iref{dcl.contract.res},
 or the \tcode{*\keyword{this}} object\iref{expr.prim.this}.
 
 \pnum
@@ -143,7 +149,8 @@ If so, the
 declaration specifies the interpretation and semantic properties of these names.
 A declaration of an entity or \grammarterm{typedef-name} $X$ is
 a redeclaration of $X$
-if another declaration of $X$ is reachable from it\iref{module.reach}.
+if another declaration of $X$ is reachable from it\iref{module.reach};
+otherwise, it is a \defnadj{first}{declaration}.
 A declaration may also have effects including:
 \begin{itemize}
 \item a static assertion\iref{dcl.pre},
@@ -544,9 +551,10 @@ for each intervening scope\iref{basic.scope.scope}
 between the point at which the entity is introduced and the scope
 (where \tcode{*\keyword{this}} is considered to be introduced
 within the innermost enclosing class or non-lambda function definition scope),
-either:
+either
 \begin{itemize}
-\item the intervening scope is a block scope, or
+\item the intervening scope is a block scope,
+\item the intervening scope is a contract-assertion scope\iref{basic.scope.contract},
 \item the intervening scope is the function parameter scope of
 a \grammarterm{lambda-expression} or \grammarterm{requires-expression}, or
 \item the intervening scope is the lambda scope of
@@ -883,9 +891,11 @@ The \defnadj{global}{scope} contains the entire program;
 every other scope $S$ is introduced by a
 declaration,
 \grammarterm{parameter-declaration-clause},
-\grammarterm{statement}, or \grammarterm{handler}
+\grammarterm{statement},
+\grammarterm{handler}, or
+contract assertion
 (as described in the following subclauses of \ref{basic.scope})
-appearing in another scope which thereby contains $S$.
+appearing in another scope, which thereby contains $S$.
 An \defnadj{enclosing}{scope} at a program point is any scope that contains it;
 the smallest such scope is said to be the \defnadj{immediate}{scope}
 at that point.
@@ -1069,6 +1079,8 @@ a structured binding
 %FIXME:  that is not inhabiting a namespace scope,"
 with no \grammarterm{storage-class-specifier} and
 not inhabiting a namespace scope,
+\item
+a result binding\iref{dcl.contract.res},
 \item
 the variable introduced by an \grammarterm{init-capture}, or
 \item
@@ -1274,6 +1286,10 @@ template<class T
     N = 0> struct A { };
 \end{codeblock}
 \end{example}
+
+\pnum
+The locus of a \grammarterm{result-name-introducer}\iref{dcl.contract.res}
+is immediately after it.
 
 \pnum
 The locus of a \grammarterm{concept-definition}
@@ -1509,6 +1525,30 @@ Therefore, only template parameters belong to a template parameter scope, and
 only template parameter scopes have
 a template parameter scope as a parent scope.
 \end{note}
+
+\rSec2[basic.scope.contract]{Contract-assertion scope}%
+
+\pnum
+Each contract assertion\iref{basic.contract}
+$C$ introduces a \defnadj{contract-assertion}{scope}
+that includes $C$.
+
+\pnum
+If a \grammarterm{result-name-introducer}\iref{dcl.contract.res}
+that is not name-independent\iref{basic.scope.scope}
+and whose enclosing postcondition assertion
+is associated with a function \tcode{F}
+potentially conflicts with
+a declaration whose target scope is
+\begin{itemize}
+\item
+the function parameter scope of \tcode{F} or
+\item
+if associated with a \grammarterm{lambda-declarator},
+the nearest enclosing lambda scope
+of the precondition assertion\iref{expr.prim.lambda},
+\end{itemize}
+the program is ill-formed.
 
 \indextext{scope|)}
 
@@ -4152,13 +4192,8 @@ do not perform allocation or deallocation.
 \pnum
 The library provides default definitions for the global allocation and
 deallocation functions. Some global allocation and deallocation
-functions are replaceable\iref{new.delete};
-these are attached to the global module\iref{module.unit}.
-A \Cpp{} program shall
-provide at most one definition of a replaceable allocation or
-deallocation function. Any such function definition replaces the default
-version provided in the library\iref{replacement.functions}. The
-following allocation and deallocation functions\iref{support.dynamic}
+functions are replaceable\iref{dcl.fct.def.replace}.
+The following allocation and deallocation functions\iref{support.dynamic}
 are implicitly declared in global scope in each translation unit of a
 program.
 
@@ -4309,11 +4344,13 @@ or called indirectly through calls to the
 functions in the \Cpp{} standard library.
 \begin{note}
 In particular, a
-global allocation function is not called to allocate storage for objects
-with static storage duration\iref{basic.stc.static}, for objects or references
-with thread storage duration\iref{basic.stc.thread}, for objects of
-type \tcode{std::type_info}\iref{expr.typeid}, or for an
-exception object\iref{except.throw}.
+global allocation function is not called to allocate storage
+for objects with static storage duration\iref{basic.stc.static},
+for objects or references with thread storage duration\iref{basic.stc.thread},
+for objects of type \tcode{std::type_info}\iref{expr.typeid},
+for an object of type \tcode{std::contracts::contract_violation}
+when a contract violation occurs\iref{basic.contract.eval}, or
+for an exception object\iref{except.throw}.
 \end{note}
 
 \rSec4[basic.stc.dynamic.deallocation]{Deallocation functions}
@@ -4396,7 +4433,7 @@ Temporary objects are created
 \item
 when a prvalue is converted to an xvalue\iref{conv.rval} and
 \item
-when needed by the implementation to pass or return an object of trivially copyable type (see below).
+when needed by the implementation to pass or return an object of suitable type (see below).
 \end{itemize}
 Even when the creation of the temporary object is
 unevaluated\iref{expr.context},
@@ -4481,22 +4518,42 @@ of \tcode{X::operator=(const X\&)} can bind to it.
 \pnum
 When an object of class type \tcode{X}
 is passed to or returned from a potentially-evaluated function call,
-if \tcode{X} has at least one eligible copy or move constructor\iref{special},
-each such constructor is trivial,
+if \tcode{X} is
+\begin{itemize}
+\item
+a scalar type or
+\item
+a class type that
+has at least one eligible copy or move constructor\iref{special},
+where each such constructor is trivial,
 and the destructor of \tcode{X} is either trivial or deleted,
+\end{itemize}
 implementations are permitted
-to create a temporary object
-to hold the function parameter or result object.
-The temporary object is constructed
-from the function argument or return value, respectively,
-and the function's parameter or return object
-is initialized as if by
-using the eligible trivial constructor to copy the temporary
-(even if that constructor is inaccessible
+to create temporary objects
+to hold the function parameter or result object,
+as follows:
+\begin{itemize}
+\item
+The first such temporary object
+is constructed from the function argument or return value, respectively.
+\item
+Each successive temporary object
+is initialized from the previous one
+as if by direct-initialization if \tcode{X} is a scalar type,
+otherwise by using an eligible trivial constructor.
+\item
+The function parameter or return object is initialized
+from the final temporary
+as if by direct-initialization if \tcode{X} is a scalar type,
+otherwise by using an eligible trivial constructor.
+\end{itemize}
+(In all cases, the eligible constructor is used
+even if that constructor is inaccessible
 or would not be selected by overload resolution
 to perform a copy or move of the object).
 \begin{note}
-This latitude is granted to allow objects of class type to be passed to or returned from functions in registers.
+This latitude is granted to allow objects
+to be passed to or returned from functions in registers.
 \end{note}
 
 \pnum
@@ -5944,7 +6001,9 @@ including the constituent expressions of the initializer,
 \item
 an invocation of a destructor generated at the end of the lifetime
 of an object other than a temporary object\iref{class.temporary}
-whose lifetime has not been extended, or
+whose lifetime has not been extended,
+\item
+the predicate of a contract assertion\iref{basic.contract}, or
 \item
 an expression that is not a subexpression of another expression and
 that is not otherwise part of a full-expression.
@@ -6115,11 +6174,18 @@ void g(int i) {
 \end{example}
 
 \pnum
-When invoking a function (whether or not the function is inline),
+When invoking a function \placeholder{f} (whether or not the function is inline),
 every argument expression and
-the postfix expression designating the called function
-are sequenced before every expression or statement
-in the body of the called function.
+the postfix expression designating \placeholder{f}
+are sequenced before
+every precondition assertion of \placeholder{f}\iref{dcl.contract.func},
+which in turn are sequenced before
+every expression or statement
+in the body of \placeholder{f},
+which in turn are sequenced before
+every postcondition assertion of \placeholder{f}.
+
+\pnum
 For each
 \begin{itemize}
 \item function invocation,
@@ -6127,8 +6193,8 @@ For each
 \item evaluation of a \grammarterm{throw-expression}\iref{expr.throw}
 \end{itemize}
 \placeholder{F},
-each evaluation that does not occur within \placeholder{F} but
-is evaluated on the same thread and as part of the same signal handler (if any)
+each evaluation that does not occur within \placeholder{F}
+but is evaluated on the same thread and as part of the same signal handler (if any)
 is either sequenced before all evaluations that occur within \placeholder{F}
 or sequenced after all evaluations that occur within \placeholder{F};
 \begin{footnote}
@@ -6141,6 +6207,7 @@ subsequent to the previous suspension (if any) and
 prior to the next suspension (if any)
 are considered to occur within \placeholder{F}.
 
+\pnum
 Several contexts in \Cpp{} cause evaluation of a function call, even
 though no corresponding function call syntax appears in the translation
 unit.
@@ -6150,6 +6217,8 @@ and constructor functions; see~\ref{expr.new}. For another example,
 invocation of a conversion function\iref{class.conv.fct} can arise in
 contexts in which no function call syntax appears.
 \end{example}
+
+\pnum
 The sequencing constraints on the execution of the called function (as
 described above) are features of the function calls as evaluated,
 regardless of the syntax of the expression that calls the function.%
@@ -6935,9 +7004,10 @@ behavior.
 \pnum
 \indextext{termination!program}%
 \indextext{\idxcode{main} function!return from}%
-A \keyword{return} statement\iref{stmt.return} in \tcode{main} has the effect of leaving the main
-function (destroying any objects with automatic storage duration) and
-calling \tcode{std::exit} with the return value as the argument.
+A \keyword{return} statement\iref{stmt.return} in \tcode{main} has the effect of leaving the \tcode{main}
+function (destroying any objects with automatic storage duration
+and evaluating any postcondition assertions of \tcode{main})
+and calling \tcode{std::exit} with the return value as the argument.
 If control flows off the end of
 the \grammarterm{compound-statement} of \tcode{main},
 the effect is equivalent to a \keyword{return} with operand \tcode{0}
@@ -7269,3 +7339,442 @@ and without calling
 the functions passed to \tcode{std::atexit()} or \tcode{std::at_quick_exit()}.%
 \indextext{program!termination|)}
 \indextext{program execution|)}
+
+\rSec1[basic.contract]{Contract assertions}%
+\indextext{contract assertion|(}%
+
+\rSec2[basic.contract.general]{General}%
+
+\pnum
+\defnx{Contract assertions}{contract assertion}
+allow the programmer to specify
+properties of the state of the program
+that are expected to hold at
+certain points during execution.
+Contract assertions are introduced by
+\grammarterm{precondition-specifier}s,
+\grammarterm{postcondition-specifier}s\iref{dcl.contract.func}, and
+\grammarterm{assertion-statement}s\iref{stmt.contract.assert}.
+
+\pnum
+Each contract assertion has a \defnadjx{contract-assertion}{predicate}{predicate},
+which is an expression of type \tcode{bool}.
+
+\begin{note}
+The value of the predicate is used to identify program states that are
+expected.
+\end{note}
+
+\pnum
+An invocation of the macro \tcode{va_start}\iref{cstdarg.syn}
+shall not be a subexpression
+of the predicate of a contract assertion,
+no diagnostic required.
+
+\pnum
+\begin{note}
+Within the predicate of a contract assertion,
+\grammarterm{id-expression}s referring to
+variables declared outside the contract assertion
+are \keyword{const}\iref{expr.prim.id.unqual},
+\tcode{this} is a pointer to \keyword{const}\iref{expr.prim.this},
+and the result object can be named
+if a \grammarterm{result-name-introducer}\iref{dcl.contract.res} has been specified.
+\end{note}
+
+\rSec2[basic.contract.eval]{Evaluation}
+
+\pnum
+\indexdefn{evaluation semantics|see{contract evaluation semantics}}%
+\indexdefn{checking semantics|see{contract evaluation semantics!checking}}%
+\indexdefn{terminating semantics|see{contract evaluation semantics!terminating}}%
+An evaluation of a contract assertion
+uses one of the following four \defn{evaluation semantics}:
+\defnx{ignore}{contract evaluation semantics!ignore},
+\defnx{observe}{contract evaluation semantics!observe},
+\defnx{enforce}{contract evaluation semantics!enforce}, or
+\defnx{quick-enforce}{contract evaluation semantics!quick-enforce}.
+Observe, enforce, and quick-enforce are \defnx{checking semantics}{contract evaluation semantics!checking};
+enforce and quick-enforce are \defnx{terminating semantics}{contract evaluation semantics!terminating}.
+
+\pnum
+It is
+\impldef{evaluation semantic used for the evaluation of a contract assertion}
+which evaluation semantic is used
+for any given evaluation of a contract assertion.
+\begin{note}
+The range and flexibility of available choices of
+evaluation semantics depends on the implementation
+and need not allow all four evaluation semantics as possibilities.
+The evaluation semantics can differ
+for different evaluations of the same contract assertion,
+including evaluations during constant evaluation.
+\end{note}
+
+\pnum
+\recommended
+An implementation should provide
+the option to translate a program
+such that all evaluations of contract assertions use the ignore semantic
+as well as
+the option to translate a program
+such that all evaluations of contract assertions use the enforce semantic.
+By default,
+evaluations of contract assertions should use the enforce semantic.
+
+\pnum
+The evaluation of a contract assertion using the ignore semantic has no effect.
+\begin{note}
+The predicate is potentially evaluated\iref{basic.def.odr},
+but not evaluated.
+\end{note}
+
+\pnum
+The evaluation $A$ of a contract assertion
+using a checking semantic
+determines the value of the predicate.
+It is unspecified
+whether the predicate is evaluated.
+Let $B$ be the value that would result from evaluating the predicate.
+\begin{note}
+To determine whether a predicate would evaluate
+to \keyword{true} or \keyword{false},
+an alternative evaluation
+that produces the same value as the predicate
+but has no side effects
+can occur.
+\begin{example}
+\begin{codeblock}
+struct S {
+  mutable int g = 5;
+} s;
+void f()
+  pre(( s.g++, false ));    // \#1
+void g()
+{
+  f();  // Increment of \tcode{s.g} might not occur, even if \#1 uses a checking semantic.
+}
+\end{codeblock}
+\end{example}
+\end{note}
+
+\pnum
+There is an observablecheckpoint\iref{intro.abstract} $C$
+that happens before $A$
+such that any other operation $O$
+that happens before $A$
+also happens before $C$.
+
+\pnum
+A \defn{contract violation} occurs when
+\begin{itemize}
+\item
+$B$ is \keyword{false},
+\item
+the evaluation of the predicate
+exits via an exception, or
+\item
+the evaluation of the predicate
+is performed in a context that is
+manifestly constant-evaluated\iref{expr.const}
+and the predicate
+is not a core constant expression.
+\end{itemize}
+
+\begin{note}
+If $B$ is \keyword{true},
+no contract violation occurs and
+control flow continues normally
+after the point of evaluation of the contract assertion.
+The evaluation of the predicate
+can fail to produce a value
+without causing a contract violation,
+for example,
+by calling \tcode{longjmp}\iref{csetjmp.syn}
+or terminating the program.
+\end{note}
+
+\pnum
+\indexdefn{contract evaluation semantics!terminating}%
+If a contract violation occurs
+in a context that is manifestly constant-evaluate\iref{expr.const},
+and the evaluation semantic is
+a terminating semantic,
+the program is ill-formed.
+
+\begin{note}
+A diagnostic is produced
+if the evaluation semantic is observe\iref{intro.compliance}.
+\end{note}
+
+\begin{note}
+Different evaluation semantics
+chosen for the same contract assertion
+in different translation units
+can result in
+violations of the one-definition rule\iref{basic.def.odr}
+when a contract assertion has side effects
+that alter the value produced by a constant expression.
+\begin{example}
+\begin{codeblock}
+constexpr int f(int i)
+{
+  contract_assert((++const_cast<int&>(i), true));
+  return i;
+}
+inline void g()
+{
+  int a[f(1)];  // size dependent on the evaluation semantic of \tcode{contract_assert} above
+}
+\end{codeblock}
+\end{example}
+\end{note}
+
+\pnum
+When the program is \defn{contract-terminated},
+it is
+\impldef{method by which contract termination occurs}
+(depending on context) whether
+\begin{itemize}
+\item
+\tcode{std::terminate} is called,
+\item
+\tcode{std::abort} is called, or
+\item
+execution is terminated.
+
+\begin{note}
+No further execution steps occur\iref{intro.progress}.
+\end{note}
+\end{itemize}
+
+\begin{note}
+Performing the actions of
+\tcode{std::terminate} or \tcode{std::abort}
+without actually making a library call
+is a conforming implementation of
+contract-termination\iref{intro.abstract}.
+\end{note}
+
+\pnum
+\indextext{contract evaluation semantics!enforce}%
+\indextext{contract evaluation semantics!quick-enforce}%
+If a contract violation occurs
+in a context that is not manifestly constant-evaluated
+and the evaluation semantic is quick-enforce,
+the program is contract-terminated.
+
+\pnum
+\indextext{\idxcode{contract_violation}}%
+\indextext{contract evaluation semantics!enforce}%
+\indextext{contract evaluation semantics!observe}%
+\indexlibraryglobal{contract_violation}%
+If a contract violation occurs
+in a context that is not manifestly constant-evaluated
+and the evaluation semantic is enforce or observe,
+the contract-violation handler\iref{basic.contract.handler}
+is invoked with an lvalue referring to
+an object \tcode{v}
+of type \tcode{const std::contracts::contract_violation}\iref{support.contract.violation}
+containing information about the contract violation.
+Storage for \tcode{v}
+is allocated in an unspecified manner
+except as noted in \ref{basic.stc.dynamic.allocation}.
+The lifetime of \tcode{v}
+persists for the duration
+of the invocation of the contract-violation handler.
+
+\pnum
+If the contract violation occurred
+because the evaluation of the predicate
+exited via an exception,
+the contract-violation handler is invoked
+from within an active implicit handler
+for that exception\iref{except.handle}.
+If the contract-violation handler
+returns normally
+and the evaluation semantic is observe,
+that implicit handler
+is no longer considered active.
+
+\begin{note}
+The exception can be inspected or rethrown within the contract-violation handler.
+\end{note}
+
+\pnum
+\indextext{contract evaluation semantics!enforce}%
+If the contract-violation handler
+returns normally
+and the evaluation semantic is enforce,
+the program is contract-terminated;
+if violation occurred
+as the result of an uncaught exception
+from the evaluation of the predicate,
+the implicit handler
+remains active when contract termination occurs.
+
+\pnum
+\indextext{contract evaluation semantics!observe}%
+\begin{note}
+If the contract-violation handler
+returns normally
+and the evaluation semantic is observe,
+control flow continues normally
+after the point of evaluation of the contract assertion.
+\end{note}
+
+\pnum
+There is an observable checkpoint\iref{intro.abstract} $C$
+that happens after the contract-violation handler returns normally
+such that any other operation $O$
+that happens after the contract-violation handler returns
+also happens after $C$.
+
+\pnum
+\begin{note}
+The terminating semantics terminate the program
+if execution would otherwise continue normally
+past a contract violation:
+the enforce semantic provides the opportunity to
+log information about the contract violation
+before terminating the program
+or to throw an exception to avoid termination,
+and the quick-enforce semantic is intended
+to terminate the program as soon as possible
+as well as
+to minimize the impact of contract checks
+on the generated code size.
+Conversely,
+the observe semantic
+provides the opportunity to
+log information about the contract violation
+without having to terminate the program.
+\end{note}
+
+\pnum
+If a contract-violation handler
+invoked from the evaluation of a function contract assertion\iref{dcl.contract.func}
+exits via an exception,
+the behavior is as if
+the function body exits via that same exception.
+\begin{note}
+A \grammarterm{function-try-block}\iref{except.pre}
+is the function body when present
+and thus does not
+have an opportunity to catch the exception.
+If the function
+has a non-throwing exception specification,
+the function \tcode{std::terminate} is invoked\iref{except.terminate}.
+\end{note}
+
+\begin{note}
+If a contract-violation handler
+invoked from an \grammarterm{assertion-statement}\iref{stmt.contract.assert})
+exits via an exception,
+the search for a handler
+continues from the execution of that statement.
+\end{note}
+
+\pnum
+To \defn{evaluate in sequence} a list $R$ of contract assertions:
+\begin{itemize}
+\item
+Construct a list of contract assertions $S$ such that
+\begin{itemize}
+\item
+all elements of $R$ are in $S$,
+\item
+each element of $R$
+may be repeated an
+\impldef{maximum number of repeated evaluations of a contract assertion}
+number of times
+within $S$, and
+\item
+if a contract assertion $A$
+precedes another contract assertion $B$
+in $R$,
+then the
+first occurrence of $A$
+precedes the first occurrence of $B$
+in $S$.
+\end{itemize}
+\item
+Evaluate each element of $S$ such that,
+if a contract assertion $A$
+precedes a contract assertion $B$
+in $S$,
+then the evaluation of $A$
+is sequenced before
+the evaluation of $B$.
+\end{itemize}
+
+\begin{example}
+\begin{codeblock}
+void f(int i)
+{
+  contract_assert(i > 0);   // \#1
+  contract_assert(i < 10);  // \#2
+    // valid sequence of evaluations: \#1 \#2
+    // valid sequence of evaluations: \#1 \#1 \#2 \#2
+    // valid sequence of evaluations: \#1 \#2 \#1 \#2
+    // valid sequence of evaluations: \#1 \#2 \#2 \#1
+    // invalid sequence of evaluations: \#2 \#1
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\recommended
+An implementation should
+provide an option to perform
+a specified number of repeated evaluations
+for contract assertions.
+By default,
+no repeated evaluations should be performed.
+
+\rSec2[basic.contract.handler]{Contract-violation handler}
+
+\pnum
+\indextext{\idxcode{contract_violation}}%
+\indexlibraryglobal{contract_violation}%
+The \defn{contract-violation handler}
+of a program is a function named
+\tcode{::handle_contract_violation}.
+The contract-violation handler
+shall have a single parameter
+of type
+``lvalue reference to \keyword{const} \tcode{std::\-contracts::\-contract_violation}''
+and shall return \tcode{void}.
+The contract-violation handler
+may have a non-throwing exception specification.
+The implementation
+shall provide a definition of the contract-violation handler,
+called the \defnadj{default}{contract-violation handler}.
+\begin{note}
+No declaration
+for the default contract-violation handler
+is provided by
+any standard library header.
+\end{note}
+
+\pnum
+\recommended
+The default contract-violation handler
+should produce diagnostic output
+that suitably formats the most relevant contents
+of the \tcode{std::contracts::contract_violation} object,
+rate-limited for potentially repeated violations
+of observed contract assertions,
+and then return normally.
+
+\pnum
+It is
+\impldef{replaceability of the contract-violation handler}
+whether the contract-violation handler
+is replaceable\iref{dcl.fct.def.replace}.
+If the contract-violation handler
+is not replaceable,
+a declaration of a replacement function for the contract-violation handler
+is ill-formed, no diagnostic required.
+
+\indextext{contract assertion|)}
