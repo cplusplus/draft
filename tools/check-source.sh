@@ -22,6 +22,9 @@ function fail() {
 }
 
 
+# We require GNU tools.
+sed --version | grep -Fqe "GNU sed" || { echo "sed is not GNU sed"; exit 1; }
+
 # Find non-ASCII (Unicode) characters in the source
 LC_ALL=C grep -ne '[^ -~	]' *.tex |
     fail 'non-ASCII character' || failed=1
