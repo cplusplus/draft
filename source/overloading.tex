@@ -185,7 +185,7 @@ without a \grammarterm{ref-qualifier} or with the
 \end{itemize}
 where
 \tcode{X}
-is the class of which the function is a member and
+is the class of which the function is a direct member and
 \cv{}
 is the cv-qualification on the
 member function declaration.
@@ -464,11 +464,28 @@ in the call augmented by the addition of an implied object
 argument as in a qualified function call.
 If the current class is, or is derived from, \tcode{T}, and the keyword
 \keyword{this}\iref{expr.prim.this} refers to it,
-then the implied object argument is \tcode{(*this)}.
+\begin{itemize}
+\item
+if the unqualified function call
+appears in a precondition assertion of a constructor
+or a postcondition assertion of a destructor
+and overload resolution selects a non-static member function,
+the call is ill-formed;
+\item
+otherwise,
+the implied object argument is
+\tcode{(*\keyword{this})}.
+\end{itemize}
 Otherwise,
+\begin{itemize}
+\item
+if overload resolution selects a non-static member function,
+the call is ill-formed;
+\item
+otherwise,
 a contrived object of type
 \tcode{T}
-becomes the implied object argument;
+becomes the implied object argument.
 \begin{footnote}
 An implied object argument is contrived to
 correspond to the implicit object
@@ -482,12 +499,12 @@ object parameter, the contrived object will not be the cause to select or
 reject a
 function.
 \end{footnote}
-if overload resolution selects a non-static member function,
-the call is ill-formed.
+\end{itemize}
+
 \begin{example}
 \begin{codeblock}
 struct C {
-  void a();
+  bool a();
   void b() {
     a();                // OK, \tcode{(*this).a()}
   }
@@ -524,6 +541,15 @@ struct C {
   void m(this const C& c) {
     c.k();              // OK
   }
+
+  C()
+    pre(a())            // error: implied \keyword{this} in constructor precondition
+    pre(this->a())      // OK
+    post(a());          // OK
+  ~C()
+    pre(a())            // OK
+    post(a())           // error: implied \keyword{this} in destructor postcondition
+    post(this->a());    // OK
 };
 \end{codeblock}
 \end{example}
@@ -676,7 +702,7 @@ for the built-in operator\iref{expr.compound}.
 \hdstyle{Subclause} &   \hdstyle{Expression} &   \hdstyle{As member function} &   \hdstyle{As non-member function} \\ \capsep
 \ref{over.unary}    &   \tcode{@a}   &   \tcode{(a).\keyword{operator}@ (\,)}  &   \tcode{\keyword{operator}@(a)}    \\
 \ref{over.binary}   &   \tcode{a@b}  &   \tcode{(a).\keyword{operator}@ (b)}   &   \tcode{\keyword{operator}@(a, b)} \\
-\ref{over.ass}      &   \tcode{a=b}  &   \tcode{(a).\keyword{operator}= (b)}   &                           \\
+\ref{over.assign}   &   \tcode{a=b}  &   \tcode{(a).\keyword{operator}= (b)}   &                           \\
 \ref{over.sub}      &   \tcode{a[b]} &   \tcode{(a).\keyword{operator}[](b)}   &                           \\
 \ref{over.ref}      &   \tcode{a->}  &   \tcode{(a).\keyword{operator}->(\,)}  &                           \\
 \ref{over.inc}      &   \tcode{a@}   &   \tcode{(a).\keyword{operator}@ (0)}   &   \tcode{\keyword{operator}@(a, 0)} \\
@@ -1001,17 +1027,18 @@ derived class type\iref{dcl.init},
 or default-initialized\iref{dcl.init},
 overload resolution selects the constructor.
 For direct-initialization or default-initialization
-that is not in the context of copy-initialization, the
-candidate functions are
+(including default-initialization in the context of copy-list-initialization),
+the candidate functions are
 all the constructors of the class of the object being
 initialized.
-For copy-initialization (including default initialization
-in the context of copy-initialization), the candidate functions are all
-the converting constructors\iref{class.conv.ctor} of that
+Otherwise, the candidate functions are all
+the non-explicit constructors\iref{class.conv.ctor} of that
 class.
 The argument list is the
 \grammarterm{expression-list} or \grammarterm{assignment-expression}
 of the \grammarterm{initializer}.
+For default-initialization in the context of copy-list-initialization,
+if an explicit constructor is chosen, the initialization is ill-formed.
 
 \rSec3[over.match.copy]{Copy-initialization of class by user-defined conversion}%
 \indextext{overloading!resolution!initialization}
@@ -1036,7 +1063,7 @@ the candidate functions are selected as follows:
 
 \begin{itemize}
 \item
-The converting constructors\iref{class.conv.ctor} of
+The non-explicit constructors\iref{class.conv.ctor} of
 \tcode{T}
 are candidate functions.
 \item
@@ -1117,11 +1144,11 @@ Let $R$ be a set of types including
 \begin{itemize}
 \item
 ``lvalue reference to \cvqual{cv2} \tcode{T2}''
-(when initializing an lvalue reference or an rvalue reference to function) and
+(when converting to an lvalue) and
 \item
 ``\cvqual{cv2} \tcode{T2}''
-and ``rvalue reference to \cvqual{cv2} \tcode{T2}'' (when initializing an
-rvalue reference or an lvalue reference to function)
+and ``rvalue reference to \cvqual{cv2} \tcode{T2}''
+(when converting to an rvalue or an lvalue of function type)
 \end{itemize}
 for any \tcode{T2}.
 The permissible types for non-explicit conversion functions are
@@ -1172,7 +1199,7 @@ In copy-list-initialization, if an explicit constructor is
 chosen, the initialization is ill-formed.
 \begin{note}
 This differs from other situations\iref{over.match.ctor,over.match.copy},
-where only converting constructors are considered for copy-initialization.
+where only non-explicit constructors are considered for copy-initialization.
 This restriction only
 applies if this initialization is part of the final result of overload
 resolution.
@@ -1198,7 +1225,18 @@ followed
 by the template parameters (including default template arguments) of the constructor,
 if any.
 \item
-The types of the function parameters are those of the constructor.
+The associated constraints\iref{temp.constr.decl} are the conjunction of
+the associated constraints of \tcode{C} and
+the associated constraints of the constructor, if any.
+\begin{note}
+A \grammarterm{constraint-expression} in
+the \grammarterm{template-head} of \tcode{C}
+is checked for satisfaction before any constraints from
+the \grammarterm{template-head} or trailing \grammarterm{requires-clause}
+of the constructor.
+\end{note}
+\item
+The \grammarterm{parameter-declaration-clause} is that of the constructor.
 \item
 The return type is the class template specialization
 designated by \tcode{C}
@@ -1224,8 +1262,8 @@ with the following properties:
 
 \begin{itemize}
 \item
-The template parameters, if any,
-and function parameters
+The \grammarterm{template-head}, if any,
+and \grammarterm{parameter-declaration-clause}
 are those of the \grammarterm{deduction-guide}.
 \item
 The return type
@@ -1722,10 +1760,10 @@ the context is an initialization by user-defined conversion
 (see~\ref{dcl.init},
 \ref{over.match.conv}, and~\ref{over.match.ref})
 and the standard conversion sequence
-from the return type of $\tcode{F}_1$ to the destination type
+from the result of $\tcode{F}_1$ to the destination type
 (i.e., the type of the entity being initialized)
 is a better conversion sequence than the standard conversion sequence
-from the return type of $\tcode{F}_2$ to the destination type
+from the result of $\tcode{F}_2$ to the destination type
 \begin{example}
 \begin{codeblock}
 struct A {
@@ -1743,8 +1781,8 @@ or, if not that,
 
 \item the context is an initialization by conversion function for direct
 reference binding\iref{over.match.ref} of a reference to function type, the
-return type of \tcode{F1} is the same kind of reference (lvalue or rvalue)
-as the reference being initialized, and the return type of \tcode{F2} is not
+return type of $\tcode{F}_1$ is the same kind of reference (lvalue or rvalue)
+as the reference being initialized, and the return type of $\tcode{F}_2$ is not
 \begin{example}
 \begin{codeblock}
 template <class T> struct A {
@@ -1760,38 +1798,52 @@ Fn&& rf = a;        // calls \#2
 or, if not that,
 
 \item
-\tcode{F1}
+$\tcode{F}_1$
 is not a function template specialization and
-\tcode{F2}
+$\tcode{F}_2$
 is a
 function template
 specialization, or, if not that,
 
 \item
-\tcode{F1}
+$\tcode{F}_1$
 and
-\tcode{F2}
+$\tcode{F}_2$
 are
 function template specializations,
 and the function template
 for
-\tcode{F1}
+$\tcode{F}_1$
 is more specialized than the template for
-\tcode{F2}
+$\tcode{F}_2$
 according to the partial ordering rules described in~\ref{temp.func.order},
 or, if not that,
 
 \item
-\tcode{F1} and \tcode{F2} are non-template functions with the same
-parameter-type-lists, and  \tcode{F1} is more constrained than \tcode{F2}
-according to the partial ordering of constraints described in
-\ref{temp.constr.order}, or if not that,
+$\tcode{F}_1$ and $\tcode{F}_2$ are non-template functions and
+$\tcode{F}_1$ is more partial-ordering-constrained than
+$\tcode{F}_2$\iref{temp.constr.order}
+\begin{example}
+\begin{codeblock}
+template <typename T = int>
+struct S {
+  constexpr void f();                       // \#1
+  constexpr void f(this S&) requires true;  // \#2
+};
+
+void test() {
+  S<> s;
+  s.f();                // calls \#2
+}
+\end{codeblock}
+\end{example}
+or, if not that,
 
 \item
-\tcode{F1} is a constructor for a class \tcode{D},
-\tcode{F2} is a constructor for a base class \tcode{B} of \tcode{D}, and
+$\tcode{F}_1$ is a constructor for a class \tcode{D},
+$\tcode{F}_2$ is a constructor for a base class \tcode{B} of \tcode{D}, and
 for all arguments
-the corresponding parameters of \tcode{F1} and \tcode{F2} have the same type
+the corresponding parameters of $\tcode{F}_1$ and $\tcode{F}_2$ have the same type
 \begin{example}
 \begin{codeblock}
 struct A {
@@ -1811,8 +1863,8 @@ int main() {
 or, if not that,
 
 \item
-\tcode{F2} is a rewritten candidate\iref{over.match.oper} and
-\tcode{F1} is not
+$\tcode{F}_2$ is a rewritten candidate\iref{over.match.oper} and
+$\tcode{F}_1$ is not
 \begin{example}
 \begin{codeblock}
 struct S {
@@ -1825,10 +1877,10 @@ bool b = S() < S();                                             // calls \#2
 or, if not that,
 
 \item
-\tcode{F1} and \tcode{F2} are rewritten candidates, and
-\tcode{F2} is a synthesized candidate
+$\tcode{F}_1$ and $\tcode{F}_2$ are rewritten candidates, and
+$\tcode{F}_2$ is a synthesized candidate
 with reversed order of parameters
-and \tcode{F1} is not
+and $\tcode{F}_1$ is not
 \begin{example}
 \begin{codeblock}
 struct S {
@@ -1838,32 +1890,32 @@ struct S {
 bool b = 1 < S();                                               // calls \#2
 \end{codeblock}
 \end{example}
-or, if not that
+or, if not that,
 
 \item
-\tcode{F1} and \tcode{F2} are generated
+$\tcode{F}_1$ and $\tcode{F}_2$ are generated
 from class template argument deduction\iref{over.match.class.deduct}
 for a class \tcode{D}, and
-\tcode{F2} is generated
+$\tcode{F}_2$ is generated
 from inheriting constructors from a base class of \tcode{D}
-while \tcode{F1} is not, and
+while $\tcode{F}_1$ is not, and
 for each explicit function argument,
-the corresponding parameters of \tcode{F1} and \tcode{F2}
+the corresponding parameters of $\tcode{F}_1$ and $\tcode{F}_2$
 are either both ellipses or have the same type,
 or, if not that,
 
 \item
-\tcode{F1} is generated from a
+$\tcode{F}_1$ is generated from a
 \grammarterm{deduction-guide}\iref{over.match.class.deduct}
-and \tcode{F2} is not, or, if not that,
+and $\tcode{F}_2$ is not, or, if not that,
 
 \item
-\tcode{F1} is the copy deduction candidate\iref{over.match.class.deduct}
-and \tcode{F2} is not, or, if not that,
+$\tcode{F}_1$ is the copy deduction candidate\iref{over.match.class.deduct}
+and $\tcode{F}_2$ is not, or, if not that,
 
 \item
-\tcode{F1} is generated from a non-template constructor
-and \tcode{F2} is generated from a constructor template.
+$\tcode{F}_1$ is generated from a non-template constructor
+and $\tcode{F}_2$ is generated from a constructor template.
 \begin{example}
 \begin{codeblock}
 template <class T> struct A {
@@ -2001,7 +2053,7 @@ cv-qualification, and value category of the argument and how these
 are converted to match the corresponding properties of the
 parameter.
 \begin{note}
-Other properties, such as the lifetime, storage class,
+Other properties, such as the lifetime, storage duration, linkage,
 alignment, accessibility of the argument, whether the argument is a bit-field,
 and whether a function is deleted\iref{dcl.fct.def.delete}, are ignored.
 So, although an implicit
@@ -2112,8 +2164,8 @@ In all contexts, when converting to the implicit object parameter
 or when converting to the left operand of an assignment operation
 only standard conversion sequences are allowed.
 \begin{note}
-When converting to the explicit object parameter, if any,
-user-defined conversion sequences are allowed.
+When a conversion to the explicit object parameter occurs,
+it can include user-defined conversion sequences.
 \end{note}
 
 \pnum
@@ -2259,7 +2311,7 @@ user-defined conversion sequence (see~\ref{over.match.best} and~\ref{over.best.i
 \pnum
 If the user-defined conversion is specified by a
 specialization of a conversion function template,
-the second standard conversion sequence shall have exact match rank.
+the second standard conversion sequence shall have Exact Match rank.
 
 \pnum
 A conversion of an expression of class type
@@ -2281,11 +2333,32 @@ specification of the function called (see~\ref{expr.call}).
 \rSec4[over.ics.ref]{Reference binding}
 
 \pnum
-When a parameter of reference type binds directly\iref{dcl.init.ref} to an
-argument expression, the implicit conversion sequence is the identity conversion,
-unless the argument expression has a type that is a derived class of the parameter
-type, in which case the implicit conversion sequence is a derived-to-base
+When a parameter of type ``reference to \cv~\tcode{T}''
+binds directly\iref{dcl.init.ref} to an argument expression:
+\begin{itemize}
+\item
+If the argument expression has a type that
+is a derived class of the parameter type,
+the implicit conversion sequence is a derived-to-base
 conversion\iref{over.best.ics}.
+
+\item
+Otherwise,
+if the type of the argument is possibly cv-qualified \tcode{T}, or
+if \tcode{T} is an array type of unknown bound with element type \tcode{U} and
+the argument has an array type of known bound whose
+element type is possibly cv-qualified \tcode{U},
+the implicit conversion sequence is the identity conversion.
+
+\item
+Otherwise,
+if \tcode{T} is a function type,
+the implicit conversion sequence is a function pointer conversion.
+
+\item
+Otherwise, the implicit conversion sequence is a qualification conversion.
+\end{itemize}
+
 \begin{example}
 \begin{codeblock}
 struct A {};
@@ -2293,14 +2366,18 @@ struct B : public A {} b;
 int f(A&);
 int f(B&);
 int i = f(b);       // calls \tcode{f(B\&)}, an exact match, rather than \tcode{f(A\&)}, a conversion
+
+void g() noexcept;
+int h(void (&)() noexcept); // \#1
+int h(void (&)());          // \#2
+int j = h(g);               // calls \#1, an exact match, rather than \#2, a function pointer conversion
 \end{codeblock}
 \end{example}
 If the parameter binds directly to the result of
 applying a conversion function to the argument expression, the implicit
 conversion sequence is a user-defined conversion sequence\iref{over.ics.user}
-whose second standard conversion sequence is either an identity conversion or,
-if the conversion function returns an entity of a type that is a derived class
-of the parameter type, a derived-to-base conversion.
+whose second standard conversion sequence is
+determined by the above rules.
 
 \pnum
 When a parameter of reference type is not bound directly to an argument
@@ -2318,7 +2395,7 @@ an implicit conversion sequence cannot be formed if it requires
 binding an lvalue reference
 other than a reference to a non-volatile \keyword{const} type
 to an rvalue
-or binding an rvalue reference to an lvalue other than a function lvalue.
+or binding an rvalue reference to an lvalue of object type.
 \begin{note}
 This means, for example, that a candidate function cannot be a viable
 function if it has a non-\keyword{const} lvalue reference parameter (other than
@@ -2716,8 +2793,8 @@ or, if not that,
 
 \item
 \tcode{S1} and \tcode{S2} include reference bindings\iref{dcl.init.ref} and
-\tcode{S1} binds an lvalue reference to a function lvalue and \tcode{S2} binds
-an rvalue reference to a function lvalue
+\tcode{S1} binds an lvalue reference to an lvalue of function type and
+\tcode{S2} binds an rvalue reference to an lvalue of function type
 \begin{example}
 \begin{codeblock}
 int f(void(&)());               // \#1
@@ -2731,28 +2808,33 @@ or, if not that,
 \item
 \tcode{S1} and \tcode{S2} differ only
 in their qualification conversion\iref{conv.qual} and
-yield similar types \tcode{T1} and \tcode{T2}, respectively,
-where \tcode{T1} can be converted to \tcode{T2} by a qualification conversion.
+yield similar types \tcode{T1} and \tcode{T2}, respectively
+(where a standard conversion sequence that is a reference binding
+is considered to yield the cv-unqualified referenced type),
+where \tcode{T1} and \tcode{T2} are not the same type, and
+\tcode{const T2} is reference-compatible with \tcode{T1}\iref{dcl.init.ref}
 \begin{example}
 \begin{codeblock}
 int f(const volatile int *);
 int f(const int *);
 int i;
 int j = f(&i);                  // calls \tcode{f(const int*)}
+int g(const int*);
+int g(const volatile int* const&);
+int* p;
+int k = g(p);                   // calls \tcode{g(const int*)}
 \end{codeblock}
 \end{example}
 or, if not that,
+
 \item
 \tcode{S1}
 and
 \tcode{S2}
-include reference bindings\iref{dcl.init.ref}, and the types to which the references
-refer are the same type except for top-level cv-qualifiers, and the type to
-which the reference initialized by
-\tcode{S2}
-refers is more cv-qualified than the type to which the reference initialized by
-\tcode{S1}
-refers.
+bind ``reference to \tcode{T1}'' and ``reference to \tcode{T2}'',
+respectively\iref{dcl.init.ref},
+where \tcode{T1} and \tcode{T2} are not the same type, and
+\tcode{T2} is reference-compatible with \tcode{T1}
 \begin{example}
 \begin{codeblock}
 int f(const int &);
@@ -2772,6 +2854,39 @@ void g(const X& a, X b) {
   a.f();                        // calls \tcode{X::f() const}
   b.f();                        // calls \tcode{X::f()}
 }
+
+int h(int (&)[]);
+int h(int (&)[1]);
+void g2() {
+  int a[1];
+  h(a);                         // calls \tcode{h(int (\&)[1])}
+}
+\end{codeblock}
+\end{example}
+or, if not that,
+
+\item
+\tcode{S1} and \tcode{S2}
+bind the same reference type ``reference to \tcode{T}'' and
+have source types \tcode{V1} and \tcode{V2}, respectively,
+where the standard conversion sequence from \tcode{V1*} to \tcode{T*}
+is better than the standard conversion sequence from \tcode{V2*} to \tcode{T*}.
+\begin{example}
+\begin{codeblock}
+struct Z {};
+
+struct A {
+  operator Z&();
+  operator const Z&();          // \#1
+};
+
+struct B {
+  operator Z();
+  operator const Z&&();         // \#2
+};
+
+const Z& r1 = A();              // OK, uses \#1
+const Z&& r2 = B();             // OK, uses \#2
 \end{codeblock}
 \end{example}
 \end{itemize}
@@ -3004,7 +3119,7 @@ The target can be
 \item
 an object or reference being initialized\iref{dcl.init,dcl.init.ref,dcl.init.list},
 \item
-the left side of an assignment\iref{expr.ass},
+the left side of an assignment\iref{expr.assign},
 \item
 a parameter of a function\iref{expr.call},
 \item
@@ -3014,9 +3129,11 @@ the return value of a function, operator function, or conversion\iref{stmt.retur
 \item
 an explicit type conversion\iref{expr.type.conv,expr.static.cast,expr.cast}, or
 \item
-a non-type
-\grammarterm{template-parameter}\iref{temp.arg.nontype}.
+a constant template parameter\iref{temp.arg.nontype}.
 \end{itemize}
+If the target type contains a placeholder type,
+placeholder type deduction is performed\iref{dcl.type.auto.deduct}, and
+the remainder of this subclause uses the target type so deduced.
 The \grammarterm{id-expression} can be preceded by the \tcode{\&} operator.
 \begin{note}
 Any redundant set of parentheses surrounding the function name is
@@ -3069,10 +3186,8 @@ Any given non-template function
 \tcode{F0}
 is eliminated if the set contains a second
 non-template function that
-is more constrained than
-\tcode{F0}
-according to
-the partial ordering rules of \ref{temp.constr.order}.
+is more partial-ordering-constrained than
+\tcode{F0}\iref{temp.constr.order}.
 Any given
 function template specialization
 \tcode{F1}
@@ -3108,8 +3223,9 @@ is ill-formed because no
 with type
 \tcode{int(...)}
 has been declared, and not because of any ambiguity.
-For another example,
+\end{example}
 
+\begin{example}
 \begin{codeblock}
 struct X {
   int f(int);
@@ -3123,6 +3239,21 @@ int (X::*p4)(long) = &X::f;     // error: mismatch
 int (X::*p5)(int)  = &(X::f);   // error: wrong syntax for
                                 // pointer to member
 int    (*p6)(long) = &(X::f);   // OK
+\end{codeblock}
+\end{example}
+
+\begin{example}
+\begin{codeblock}
+template<bool B> struct X {
+  void f(short) requires B;
+  void f(long);
+  template<typename> void g(short) requires B;
+  template<typename> void g(long);
+};
+void test() {
+  &X<true>::f;                  // error: ambiguous; constraints are not considered
+  &X<true>::g<int>;             // error: ambiguous; constraints are not considered
+}
 \end{codeblock}
 \end{example}
 
@@ -3176,13 +3307,13 @@ the operator named in its
 
 \begin{bnf}
 %% Ed. note: character protrusion would misalign various operators.
-\microtypesetup{protrusion=false}\obeyspaces
+\microtypesetup{protrusion=false}
 \nontermdef{operator} \textnormal{one of}\br
-    \terminal{new      delete   new[]    delete[] co_await (\rlap{\,)}        [\rlap{\,]}        ->       ->*}\br
-    \terminal{\~        !        +        -        *        /        \%        \caret{}        \&}\br
-    \terminal{|        =        +=       -=       *=       /=       \%=       \caret{}=       \&=}\br
-    \terminal{|=       ==       !=       <        >        <=       >=       <=>      \&\&}\br
-    \terminal{||       <<       >>       <<=      >>=      ++       --       ,}\br
+    \terminal{new \ \ \ \ \ delete \ \ new[] \ \ \ delete[] co_await (\rlap{\,)} \ \ \ \ \ \ \ [\rlap{\,]} \ \ \ \ \ \ \ -> \ \ \ \ \ \ ->*}\br
+    \terminal{\~ \ \ \ \ \ \ \ ! \ \ \ \ \ \ \ + \ \ \ \ \ \ \ - \ \ \ \ \ \ \ * \ \ \ \ \ \ \ / \ \ \ \ \ \ \ \% \ \ \ \ \ \ \ \caret{} \ \ \ \ \ \ \ \&}\br
+    \terminal{| \ \ \ \ \ \ \ = \ \ \ \ \ \ \ += \ \ \ \ \ \ -= \ \ \ \ \ \ *= \ \ \ \ \ \ /= \ \ \ \ \ \ \%= \ \ \ \ \ \ \caret{}= \ \ \ \ \ \ \&=}\br
+    \terminal{|= \ \ \ \ \ \ == \ \ \ \ \ \ != \ \ \ \ \ \ < \ \ \ \ \ \ \ > \ \ \ \ \ \ \ <= \ \ \ \ \ \ >= \ \ \ \ \ \ <=> \ \ \ \ \ \&\&}\br
+    \terminal{|| \ \ \ \ \ \ << \ \ \ \ \ \ >> \ \ \ \ \ \ <<= \ \ \ \ \ >>= \ \ \ \ \ ++ \ \ \ \ \ \ -- \ \ \ \ \ \ ,}\br
 \end{bnf}
 \begin{note}
 The operators
@@ -3200,8 +3331,8 @@ and subscripting\iref{expr.sub}.
 
 \pnum
 Both the unary and binary forms of
-\begin{ncsimplebnf}\obeyspaces
-\terminal{+      -      *      \&}
+\begin{ncsimplebnf}
+\terminal{+ \ \ \ \ \ - \ \ \ \ \ * \ \ \ \ \ \&}
 \end{ncsimplebnf}
 can be overloaded.
 
@@ -3209,8 +3340,8 @@ can be overloaded.
 \begin{note}
 \indextext{restriction!operator overloading}%
 The following operators cannot be overloaded:
-\begin{ncsimplebnf}\obeyspaces
-\terminal{.      .*     ::     ?:}
+\begin{ncsimplebnf}
+\terminal{. \ \ \ \ \ .* \ \ \ \ :: \ \ \ \ ?:}
 \end{ncsimplebnf}
 nor can the preprocessing symbols
 \tcode{\#}\iref{cpp.stringize}
@@ -3252,15 +3383,10 @@ stated in~\ref{expr.await}.
 \pnum
 \indextext{restriction!overloading}%
 An operator function
-shall either
-\begin{itemize}
-\item
-be a member function or
-\item
-be a non-member function that
-has at least one non-object parameter whose type is a class, a reference to a class, an
+shall have at least one
+function parameter or implicit object parameter whose type is
+a class, a reference to a class, an
 enumeration, or a reference to an enumeration.
-\end{itemize}
 It is not possible to change the precedence, grouping, or number of operands
 of operators.
 The meaning of
@@ -3281,14 +3407,14 @@ operator function.
 \pnum
 \indextext{operator}%
 \begin{note}
-The identities among certain predefined operators applied to basic types
+The identities among certain predefined operators applied to fundamental types
 (for example,
 \tcode{++a} $\equiv$
 \tcode{a+=1})
 need not hold for operator functions.
 Some predefined operators, such as
 \tcode{+=},
-require an operand to be an lvalue when applied to basic types;
+require an operand to be an lvalue when applied to fundamental types;
 this is not required by operator functions.
 \end{note}
 
@@ -3302,7 +3428,7 @@ number required for the corresponding operator, as
 described in the rest of \ref{over.oper}.
 
 \pnum
-Operators not mentioned explicitly in subclauses~\ref{over.ass} through~\ref{over.inc}
+Operators not mentioned explicitly in subclauses~\ref{over.assign} through~\ref{over.inc}
 act as ordinary unary and binary
 operators obeying the rules of~\ref{over.unary} or~\ref{over.binary}.%
 \indextext{overloading!resolution!best viable function|)}%
@@ -3383,7 +3509,7 @@ an equality operator function,
 a relational operator function, or
 a three-way comparison operator function.
 
-\rSec3[over.ass]{Simple assignment}
+\rSec3[over.assign]{Simple assignment}
 \indextext{assignment operator!overloaded}%
 \indextext{overloading!assignment operator}
 
@@ -3994,12 +4120,13 @@ whose type is \tcode{const char*}.
 A \defnx{numeric literal operator template}{literal!operator!template numeric}
 is a literal operator template whose \grammarterm{template-parameter-list}
 has a single \grammarterm{template-parameter}
-that is a non-type template parameter pack\iref{temp.variadic}
+that is a constant template parameter pack\iref{temp.variadic}
 with element type \tcode{char}.
 A \defnx{string literal operator template}{literal!operator!template string}
 is a literal operator template whose \grammarterm{template-parameter-list}
 comprises
-a single non-type \grammarterm{template-parameter} of class type.
+a single \grammarterm{parameter-declaration} that declares a
+constant template parameter of class type.
 The declaration of a literal operator template
 shall have an empty \grammarterm{parameter-declaration-clause}
 and shall declare either a numeric literal operator template
