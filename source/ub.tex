@@ -1,0 +1,1760 @@
+%!TEX root = std.tex
+\infannex{ub}{Enumeration of Core Undefined Behavior}
+
+This Annex documents undefined behavior explicitly called out in the main standard text using the
+following phrases: the behavior of the program is undefined, has undefined behavior, results in
+undefined behavior, the behavior is undefined, have undefined behavior, is undefined, result has
+undefined behavior. Undefined behavior that is implicit is not covered by this annex. Each entry contains
+a title, a numeric cross reference to the main standard text, a summary of the issue and a code example
+demonstrating the issue. The code examples are there to clarify the undefined behavior and will not
+exhaustively cover all possible ways of invoking that case.
+
+\rSec1[ub.basic]{\ref{basic}: Basics}
+
+\rSec2[ub.intro.object]{Implicitly creating object and undefined behavior}
+
+\pnum
+\ubxref{intro.object.implicit.create}
+For each
+operation that is specified as implicitly creating objects, that operation implicitly creates and starts the
+lifetime of zero or more objects of implicit-lifetime types \iref{basic.types} in its specified region of storage if doing so
+would result in the program having defined behavior. If no such set of objects would give the program defined
+behavior, the behavior of the program is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include <cstdlib>
+struct X {
+  int a, b;
+  ~X() = delete;  // deleted destructor makes X
+                  // a non-implicit-lifetime class
+};
+
+X* make_x() {
+  // The call to std::malloc can not implicitly create an object of type X
+  // because X is not an implicit-lifetime class.
+  X* p = (X*)std::malloc(sizeof(struct X));
+  p->a = 1;  // Undefined behavior, no set of objects give us defined behavior
+  return p;
+}
+\end{codeblock}
+\end{example}
+\begin{example}
+\begin{codeblock}
+#include <cstdlib>
+
+struct X {
+  int a;
+};
+
+struct Y {
+  int x;
+};
+
+*make_y() {
+  X* p1 = (X*)std::malloc(sizeof(struct X));
+  p1->a = 1;
+  Y* p2 = (Y*)p1;
+  p2->x = 2;  // Undefined behavior, lifetime of p1 was started but not
+              // ended and lifetime of p2 was not started.
+  return p2;
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[ub.basic.life]{Object lifetime}
+
+\pnum
+\ubxref{lifetime.outside.pointer} \\
+The behavior of some uses of a pointer
+pointing to an object outside its lifetime
+are not defined:
+\begin{itemize}
+\item
+  the object will be or was of a class type with a non-trivial destructor
+  and the pointer is used as the operand of a \grammarterm{delete-expression},
+\item
+  the pointer is used to access a non-static data member or call a
+  non-static member function of the object, or
+\item
+  the pointer is implicitly converted\iref{conv.ptr} to a pointer
+  to a virtual base class, or
+\item
+  the pointer is used as the operand of a
+  \tcode{static_cast}\iref{expr.static.cast}, except when the conversion
+  is to pointer to \cv{}~\tcode{void}, or to pointer to \cv{}~\tcode{void}
+  and subsequently to pointer to
+  \cv{}~\tcode{char},
+  \cv{}~\tcode{unsigned char}, or
+  \cv{}~\tcode{std::byte}\iref{cstddef.syn}, or
+\item
+  the pointer is used as the operand of a
+  \tcode{dynamic_cast}\iref{expr.dynamic.cast}.
+\end{itemize}
+
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct S {
+  float f = 0;
+  ~S() {}
+};
+
+float f() {
+  S s;
+  S* p1 = &s;
+  S* p2 = new S;
+  s.~S();
+  p2->~S();
+  delete p2;  // Undefined behavior, operand of delete, lifetime has ended and S
+              // has a non-trivial destructor
+  return p1->f;  // Undefined behavior, accessing non-static data member after
+                 // end of lifetime
+}
+\end{codeblock}
+\end{example}
+\begin{example}
+\begin{codeblock}
+#include <cstdlib>
+#include <new>
+
+struct B {
+  virtual void f();
+  void mutate();
+  virtual ~B();
+};
+
+struct D1 : B {
+  void f();
+};
+struct D2 : B {
+  void f();
+};
+
+void B::mutate() {
+  new (this) D2;  // reuses storage — ends the lifetime of *this
+  f();            // undefined behavior
+  B *b = this;    // OK, this points to valid memory
+}
+
+void g() {
+  void* p = std::malloc(sizeof(D1) + sizeof(D2));
+  B* pb = new (p) D1;
+  pb->mutate();
+  *pb;           // OK: pb points to valid memory
+  void* q = pb;  // OK: pb points to valid memory
+  pb->f();       // undefined behavior: lifetime of *pb has ended
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{lifetime.outside.glvalue} \\
+The behavior of some uses of a glvalue
+that refers to an object outside its lifetime
+are not defined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct A{void f(){} };
+
+void f() {
+  int x = int{10};
+  A a;
+  using T = int;
+  x.~T();
+  a.~A();
+  a.f();      // Undefined behavior, glvalue used to access a
+              // non-static member function after the lifetime has ended
+  int y = x;  // Undefined behavior, glvalue used to access the
+              // object after the lifetime has ended
+}
+\end{codeblock}
+\end{example}
+
+
+\pnum
+\ubxref{original.type.implicit.destructor} \\
+The behavior of an implicit destructor call when the type that is not
+the original type occupies the storage.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+class T {};
+
+struct B {
+  ~B();
+};
+
+void h() {
+  B b;
+  new (&b) T;
+}  // undefined behavior at block exit
+\end{codeblock}
+\end{example}
+
+
+\pnum
+\ubxref{creating.within.const.complete.obj} \\
+Creating a new object within the storage that a const complete object with static, thread, or automatic
+storage duration occupies, or within the storage that such a const object used to occupy before its lifetime
+ended, results in undefined behavior
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct B {
+  B();
+  ~B();
+};
+
+const B b;
+
+void h() {
+  b.~B();
+  new (const_cast<B*>(&b)) const B; // undefined behavior
+}
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.basic.stc.dynamic]{Dyanmic storage Duration}
+
+\pnum
+\ubxref{basic.stc.alloc.dealloc.constraint} \\
+If the behavior of an allocation or deallocation function does not satisfy the semantic constraints specified
+in \iref{basic.stc.dynamic.allocation} and \iref{basic.stc.dynamic.deallocation}, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include <new>
+void* operator new(std::size_t sz) {
+  if (sz == 0)
+    return nullptr;  // undefined behavior,  should return non-null pointer
+
+  return std::malloc(
+      1);  // undefined behavior, if successful should reutrn allocation with
+           // length in bytes is at least as large as the requested size
+}
+void operator delete(void* ptr) noexcept {
+  throw 0;  // undefined behavior, terminates by throwing an exception
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[ub.intro.execution]{Sequential execution}
+
+\pnum
+\ubxref{intro.execution.unsequenced.modification} \\
+If a side effect on a
+memory location \iref{intro.memory} is unsequenced relative to either another side effect on the same memory location or
+a value computation using the value of any object in the same memory location, and they are not potentially
+concurrent \iref{intro.multithread}, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+void g(int i) {
+  i = 7, i++, i++;  // i becomes 9
+
+  i = i++ + 1;  // the value of i is incremented
+  i = i++ + i;  // undefined behavior
+  i = i + 1;    // the value of i is incremented
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[ub.intro.races]{Data races}
+
+\pnum
+\ubxref{intro.races.data} \\
+The execution of a program contains a data race if it contains two potentially concurrent conflicting actions,
+at least one of which is not atomic, and neither happens before the other, except for the special case for
+signal handlers described in \iref{intro.races}. Any such data race results in undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+int count = 0;
+auto f = [&] { count++; };
+std::thread t1{f}, t2{f}, t3{f};
+// Undefined behavior t1, t2 and t3 have a data race on access of variable count
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.basic.start.main]{main function}
+
+\pnum
+\ubxref{basic.start.main.exit.during.destruction} \\
+If std::exit is called to
+end a program during the destruction of an object with static or thread storage duration, the program has
+undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include <cstdlib>
+
+struct Exiter {
+  ~Exiter() { std::exit(0); }
+};
+
+Exiter ex;  //
+
+int main() {}
+// Undefined behavior when destructor of static variable ex is called it will call std::exit
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.basic.start.term]{Termination}
+
+\pnum
+\ubxref{basic.start.term.use.after.destruction} \\
+If a function contains a block-scope object of static or thread storage duration that has been destroyed and the
+function is called during the destruction of an object with static or thread storage duration, the program has
+undefined behavior if the flow of control passes through the definition of the previously destroyed block-scope
+object. Likewise, the behavior is undefined if the block-scope object is used indirectly (i.e., through a pointer)
+after its destruction.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct A {};
+void f() {
+  static A a;
+}
+
+struct B {
+  B() { f(); }
+};
+struct C {
+  ~C() { f(); }
+};
+
+C c;
+B b;
+
+int main() {}
+// Undefined behavior, static objects are destructed in reverse order, in this case a then b and
+// finally c. When the destructor of c is call it calls f() which passes through definition of
+// previously destroyed block-scope object
+\end{codeblock}
+\end{example}
+
+
+\pnum
+\ubxref{basic.start.term.signal.handler} \\
+If there is a use of a standard library object or function not permitted within signal handlers \iref{support.runtime} that
+does not happen before \iref{intro.multithread} completion of destruction of objects with static storage duration and execution
+of std::atexit registered functions \iref{support.start.term}, the program has undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+\end{codeblock}
+\end{example}
+
+
+\rSec1[ub.expr]{\ref{expr}: Expressions}
+\rSec2[ub.expr.eval]{Result of Expression not Mathematically Defined/out of Range}
+
+\pnum
+\ubxref{expr.expr.eval} \\
+If during the evaluation of an expression, the result is not mathematically defined or not in the range of
+representable values for its type, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include <limits>
+int main() {
+  // Assuming 32-bit int the range of values are: -2,147,483,648 to 2,147,483,647
+  int x1 = std::numeric_limits<int>::max() + 1;  // Undefined behavior, 2,147,483,647 + 1 is not representable as an int
+  int x2 = std::numeric_limits<int>::min() / -1; // Undefined behavior, -2,147,483,648 / -1 is not representable as an int
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[ub.basic.lval]{Value category}
+
+\pnum
+\ubxref{expr.basic.lvalue.strict.aliasing.violation} \\
+If a program attempts to access \iref{defns.access} the stored value of an object through a glvalue whose type is not
+similar \iref{conv.rval} to one of the following types the behavior is undefined
+
+\pnum
+\begin{example}
+\begin{codeblock}
+int foo(float* f, int* i) {
+  *i = 1;
+  *f = 0.f;  // undefined behavior, glvalue is not similar to int
+
+  return *i;
+}
+
+int main() {
+  int x = 0;
+
+  x = foo(reinterpret_cast<float*>(&x), &x);
+}
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.conv.double]{Floating-point conversions}
+
+\pnum
+\ubxref{conv.double.out.of.range} \\
+Converting a floating point value to a type that cannot represent the value is undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include <limits>
+
+int main() {
+  // Assuming 32-bit int, 32-bit float and 64-bit double
+  double d2 = std::numeric_limits<double>::max();
+  float f = d2; // Undefined behavior on systems where the range of
+                // representable values of float is [-max,+max] on system where
+                // represetable values are [-inf,+inf] this would not be UB
+  int i = d2; // Undefined behavior, the max value of double is not
+              // representable as int
+}
+
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.conv.fpint]{Floating-integral conversions}
+
+\pnum
+\ubxref{conv.fpint.not.represented} \\
+When converting a floating-point value to an integer type and vice versa if
+the value is not representable in the destination type it is undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include <limits>
+
+int main() {
+  // Assuming 32-bit int the range of values are: -2,147,483,648 to
+  // 2,147,483,647 Assuming 32-bit float and 64-bit double
+  double d = (double)std::numeric_limits<int>::max() + 1;
+  int x1 =
+      d; // Undefined behavior 2,147,483,647 + 1 is not representable as int
+
+  __uint128_t x2 = -1;
+  float f = x2; // Undefined behavior on systems where the range of
+                // representable values of float is [-max,+max] on system where
+                // represetable values are [-inf,+inf] this would not be UB
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[ub.expr.call]{Function call}
+
+\pnum
+\ubxref{expr.call.different.type} \\
+Calling a function through an expression whose function type is different from the function type of the called
+function’s definition results in undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+using f_float = int (*)(float);
+using f_int = int (*)(int);
+
+int f1(float) { return 10; }
+
+int f2(int) { return 20; }
+
+int main() {
+  return reinterpret_cast<f_int>(f1)(20); // Undefined behavior, the function type of the expression
+                                          // is different from the called functions definition
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[ub.expr.ref]{Class member access}
+
+\pnum
+\ubxref{expr.ref.not.similar} \\
+If \tcode{E2} is a non-static member and the result of \tcode{E1} is an object whose type
+is not similar\iref{conv.qual} to the type of \tcode{E1}, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct A { int i; };
+struct B { int j; };
+struct D : A, B {};
+void f() {
+  D d;
+  reinterpret_cast<B&>(d).j; // undefined behavior
+}
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.expr.static.cast]{Static cast}
+
+\pnum
+\ubxref{expr.static.cast.base.class} \\
+We can cast a base class B to a reference to derived class D (with certain restrictions wrt to cv qualifiers)
+as long B is a base class subobject of type D, otherwise the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+truct B {};
+struct D1 : B {};
+struct D2 : B {};
+
+void f() {
+  D1 d;
+  B &b = d;
+  static_cast<D2 &>(b); // Undefined behavior, base class
+                        // object of type D1 not D2
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{expr.static.cast.enum.outside.range} \\
+If the enumeration type does not have a fixed underlying
+type, the value is unchanged if the original value is within the range of the enumeration values \iref{dcl.enum}, and
+otherwise, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+enum A { e1 = 1, e2 };
+
+void f() {
+  enum A a =
+      static_cast<A>(4); // Undefined behavior, 4 is not with the range of enumeration values.
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{expr.static.cast.downcast.wrong.derived.type} \\
+Down-casting to the wrong derived type is undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct B {};
+struct D1 : B {};
+struct D2 : B {};
+
+void f() {
+  B *bp = new D1;
+  static_cast<D2 *>(bp); // Undefined behavior, base class object of type D1 not D2
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{expr.static.cast.does.not.contain.orignal.member} \\
+We can cast a pointer to mamber of dervied class D to a pointer to memeber of base class D (with certain restrictions wrt to cv qualifiers)
+as long B contains the original member, is a base or derived class of the class containing the original member, otherwise the behavior is undefined.
+
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct A {
+  char c;
+};
+
+struct B {
+  int i;
+};
+
+struct D : A, B {};
+
+int main() {
+  char D::*p1 = &D::c;
+  char B::*p2 =
+      static_cast<char B::*>(p1);  // undefined behavior
+                                   // B does not contain the original member c
+}
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.expr.new]{New}
+
+\pnum
+\ubxref{expr.new.non.allocating.null} \\
+If the allocation
+function is a non-allocating form \iref{new.delete.placement} that returns null, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include <new>
+[[nodiscard]] void* operator new(std::size_t size, void* ptr) noexcept {
+  return nullptr;  // undefined behavior,  should return non-null pointer
+}
+\end{codeblock}
+\end{example}
+\begin{example}
+\begin{codeblock}
+#include <new>
+
+struct A {
+  int x;
+};
+
+int main() {
+  char *buffer = nullptr;
+  A *a = new (buffer) A; // Undefined behavior, non-allocting new returning nullptr
+}
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.expr.delete]{Delete}
+
+\pnum
+\ubxref{expr.delete.mismatch} \\
+Using array delete on the result of a single object new expression and vice versa is undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+int* x = new int;
+delete[] x;  // undefined behavior, allocated using single object new expression
+\end{codeblock}
+\end{example}
+
+
+\pnum
+\ubxref{expr.delete.dynamic.type.differ} \\
+If the static type of the object to be deleted is different from its dynamic
+type and the selected deallocation function (see below) is not a destroying operator delete, the static type
+shall be a base class of the dynamic type of the object to be deleted and the static type shall have a virtual
+destructor or the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct B {
+  int a;
+};
+
+struct D : public B {
+  int b;
+};
+
+void f() {
+  B* b = new D;
+  delete b;  // undefined behavior, no virtual destructor
+}
+\end{codeblock}
+\end{example}
+
+
+\pnum
+\ubxref{expr.delete.dynamic.array.dynamic.type.differ} \\
+In an array delete expression, if the dynamic type of the object to be deleted differs from its static type, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct B {
+  virtual ~B();
+  void operator delete[](void*, std::size_t);
+};
+
+struct D : B {
+  void operator delete[](void*, std::size_t);
+};
+
+void f(int i) {
+  D* dp = new D[i];
+  delete[] dp;  // uses D::operator delete[](void*, std::size_t)
+  B* bp = new D[i];
+  delete[] bp;  // undefined behavior
+}
+\end{codeblock}
+\end{example}
+
+
+
+
+\rSec2[ub.expr.mptr.oper]{Pointer-to-member operators}
+
+\pnum
+\ubxref{expr.mptr.oper.not.contain.member} \\
+Abbreviating \grammarterm{pm-expression}.*\grammarterm{cast-expression} as \tcode{E1.*E2}, \tcode{E1} is called the object expression. If the dynamic type
+of \tcode{E1} does not contain the member to which \tcode{E2} refers, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct B {};
+struct D : B {
+  int x;
+};
+
+void f() {
+  B *b = new B;
+  D *d = static_cast<D *>(b);
+  int D::*p = &D::x;
+  (*d).*p = 1; // undefined behavior, dynamic type B does not contain x
+}
+\end{codeblock}
+\end{example}
+
+
+\pnum
+\ubxref{expr.mptr.oper.member.func.null} \\
+If the second operand is the null
+member pointer value \iref{conv.mem}, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct S {
+  int f();
+};
+
+void f() {
+  S cs;
+  int (S::*pm)() = nullptr;
+  (cs.*pm)(); // Undefined behavior, the second operand is null
+}
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.expr.mul]{Multiplicative operators}
+
+\pnum
+\ubxref{expr.mul.div.by.zero} \\
+Division by zero is undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+int main() {
+  int x = 1 / 0;        // Undefined behavior, division by zero
+  double d = 1.0 / 0.0; // Undefined behavior on systems where the range of
+                        // representable values of float is [-max,+max] on system where
+                        // represetable values are [-inf,+inf] this would not be UB
+}
+\end{codeblock}
+\end{example}
+
+
+\pnum
+\ubxref{expr.mul.representable.type.result} \\
+If the
+quotient a/b is representable in the type of the result, (a/b)*b + a\%b is equal to a; otherwise, the behavior
+of both a/b and a\%b is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include <limits>
+
+int main() {
+  int x =
+      std::numeric_limits<int>::min() / -1; // Assuming LP64 -2147483648 which when divided by -1
+                                            // gives us 2147483648 which is not representable by int
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[ub.expr.add]{Additive operators}
+
+\pnum
+\ubxref{expr.add.out.of.bounds} \\
+Creating an out of bounds pointer is undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+static const int arrs[10]{};
+
+int main() {
+  const int *y = arrs + 11; // Undefined behavior, creating an out of bounds pointer
+}
+\end{codeblock}
+\end{example}
+\begin{example}
+\begin{codeblock}
+static const int arrs[10][10]{};
+
+int main() {
+  const int(*y)[10] = arrs + 11; // Undefined behavior, creating an out of bounds pointer.
+                                 // We can't treat arrs as-if it was a pointer to 100 int,
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{expr.add.sub.diff.pointers} \\
+Subtracting pointers that are not part of the same array is undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include <cstddef>
+void f() {
+  int x[2];
+  int y[2];
+  int* p1 = x;
+  int* p2 = y;
+  std::ptrdiff_t off = p1 - p2; // Undefined behavior, p1 and p2 point to different arrays
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{expr.add.polymorphic} \\
+For addition or subtraction, if the expressions P or Q have type “pointer to cv T”, where T and the array
+element type are not similar \iref{conv.rval}, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct S {
+  int i;
+};
+
+struct T : S {
+  double d;
+};
+
+void f(const S* s, std::size_t count) {
+  for (const S* end = s + count; s != end; ++s) {
+    ...
+  }
+}
+
+int main() {
+  T test[5];
+  f(test, 5);
+}
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.expr.shift]{Shift operators}
+
+\pnum
+\ubxref{expr.shift.neg.and.width} \\
+Shifting by a negative amount or equal or greater than the bit-width of a type is undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+int y = 1 << -1;  // undefined behavior, shift is negative
+
+static_assert(sizeof(int) == 4 && CHAR_BIT == 8);
+int y1 = 1 << 32;  // undefined behavior, shift is equal to the bit width of int
+int y2 = 1 >> 32;  // undefined behavior, shift is equal to the bit width of int
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.expr.ass]{Assignment and compound assignment operators}
+
+\pnum
+\ubxref{expr.ass.overlap} \\
+Overlap in the storage between the source and destination may result in undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+int x = 1;
+char* c = reinterpret_cast<char*>(&x);
+x = *c;  // Undefined behavior, source overlaps storage of destination
+\end{codeblock}
+\end{example}
+
+
+
+\rSec1[ub.stmt.stmt]{\ref{stmt}: Statements}
+
+\rSec2[ub.stmt.return]{The return statement}
+
+\pnum
+\ubxref{stmt.return.flow.off} \\
+Flowing off the end of a function other
+than main or a coroutine results in undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+int f(int x) {
+  if (x)
+    return 1;
+  // Undefined behavior if we reach this point and flow off the end
+}
+
+void b() {
+  int x = f(0); // Undefined behavior, using 0 as an argument will cause f(...) to flow off the end
+                // with a return statement
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[ub.return.coroutine]{The co_return statement}
+
+\pnum
+\ubxref{stmt.return.coroutine.flow.off} \\
+Falling off the end of a coroutine function body that does not return void is undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include <cassert>
+#include <experimental/coroutine>
+#include <iostream>
+#include <vector>
+
+class resumable {
+ public:
+  struct promise_type;
+  using coro_handle = std::experimental::coroutine_handle<promise_type>;
+  resumable(coro_handle handle) : handle_(handle) { assert(handle); }
+  resumable(resumable&) = delete;
+  resumable(resumable&&) = delete;
+  bool resume() {
+    if (not handle_.done())
+      handle_.resume();
+    return not handle_.done();
+  }
+  ~resumable() { handle_.destroy(); }
+  const char* return_val();
+
+ private:
+  coro_handle handle_;
+};
+
+struct resumable::promise_type {
+  using coro_handle = std::experimental::coroutine_handle<promise_type>;
+  const char* string_;
+  auto get_return_object() { return coro_handle::from_promise(*this); }
+  auto initial_suspend() { return std::experimental::suspend_always(); }
+  auto final_suspend() noexcept { return std::experimental::suspend_always(); }
+  void unhandled_exception() { std::terminate(); }
+  void return_value(const char* string) { string_ = string; }
+};
+
+const char* resumable::return_val() {
+  return handle_.promise().string_;
+}
+
+resumable foo() {
+  std::cout << "Hello" << std::endl;
+  co_await std::experimental::suspend_always();
+  // co_return "Coroutine" ; // Undefined behavior, falling off the end of
+  // coroutine that does not return void
+}
+
+int main() {
+  resumable res = foo();
+  while (res.resume())
+    ;
+  std::cout << res.return_val() << std::endl;
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[ub.stmt.dcl]{Declaration statement}
+
+\pnum
+\ubxref{stmt.dcl.local.static.init.recursive} \\
+If control re-enters the declaration recursively while the
+variable is being initialized, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+int foo(int i) {
+  static int s = foo(2 * i);  // recursive call - undefined
+  return i + 1;
+}
+\end{codeblock}
+\end{example}
+
+
+
+
+\rSec1[ub.dcl.dcl]{\ref{dcl}: Declarations}
+
+\rSec2[ub.dcl.type.cv]{The cv-qualifiers}
+
+\pnum
+\ubxref{dcl.type.cv.modify.const.obj} \\
+Any attempt to modify a const object during its lifetime results in
+undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+const int* ciq = new const int(3);  // initialized as required
+int* iq = const_cast<int*>(ciq);    // cast required
+*iq = 4;                            // undefined: modifies a const object
+\end{codeblock}
+\end{example}
+
+
+\pnum
+\ubxref{dcl.type.cv.access.volatile} \\
+If an attempt is made to
+access an object defined with a volatile-qualified type through the use of a non-volatile glvalue, the behavior
+is undefined
+
+\pnum
+\begin{example}
+\begin{codeblock}
+volatile int x = 0;
+int& y = const_cast<int&>(x);
+std::cout << y;  // undefined behavior, accessing volatile through non-volatile
+                 // glvalue
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.dcl.fct.def.coroutine]{Coroutine definitions}
+
+\pnum
+\ubxref{dcl.fct.def.coroutine.resume.not.suspended} \\
+Invoking a resumption member function for a coroutine that is not suspended results in undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include <experimental/coroutine>
+
+using namespace std::experimental;
+
+struct minig {
+  struct promise_type {
+    int val;
+    minig get_return_object() { return {*this}; }
+    constexpr suspend_always initial_suspend() noexcept { return {}; }
+    constexpr suspend_always final_suspend() noexcept { return {}; }
+    constexpr void return_void() noexcept {}
+    [[noreturn]] void unhandled_exception() noexcept { throw; }
+    suspend_always yield_value(int v) noexcept {
+      val = v;
+      return {};
+    }
+  };
+  using HDL = coroutine_handle<promise_type>;
+  HDL coro;
+  minig(promise_type& p) : coro(HDL::from_promise(p)) {}
+  ~minig() { coro.destroy(); }
+  bool move_next() {
+    coro.resume();
+    return !coro.done();
+  }
+  int current_value() { return coro.promise().val; }
+};
+
+static minig f(int n) {
+  for (int i = 0; i < n; ++i)
+    co_yield i;
+}
+
+int main() {
+  auto g = f(10);
+  int sum = 0;
+  while (g.move_next())
+    sum += g.current_value();
+#if 0
+  // undefined behavior to call move_next(), because coro.resume() is
+  // UB after final_suspend returns, even when it returns
+  // suspend_always
+  g.move_next();
+#endif
+  return sum;
+}
+\end{codeblock}
+\end{example}
+
+
+\pnum
+\ubxref{dcl.fct.def.coroutine.destroy.not.suspended} \\
+Invoking destroy() on a coroutine that is not suspended is undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include <experimental/coroutine>
+
+using namespace std::experimental;
+
+struct minig {
+  struct promise_type {
+    int val;
+    minig get_return_object() { return {*this}; }
+    constexpr suspend_always initial_suspend() noexcept { return {}; }
+    constexpr suspend_always final_suspend() noexcept { return {}; }
+    constexpr void return_void() noexcept {}
+    [[noreturn]] void unhandled_exception() { throw; }
+    suspend_always yield_value(int v) noexcept {
+      val = v;
+      return {};
+    }
+  };
+  using HDL = coroutine_handle<promise_type>;
+  HDL coro;
+  minig(promise_type& p) : coro(HDL::from_promise(p)) {}
+  ~minig() { coro.destroy(); }
+  bool move_next() {
+    coro.resume();
+    return !coro.done();
+  }
+  int current_value() {
+    // this coroutine is not suspended therefore a call to destroy is undefined
+    // behaviour
+    coro.destroy();
+    return coro.promise().val;
+  }
+};
+
+static minig f(int n) {
+  for (int i = 0; i < n; ++i)
+    co_yield i;
+}
+
+int main() {
+  auto g = f(10);
+  int sum = 0;
+  while (g.move_next())
+    sum += g.current_value();
+
+  return sum;
+}
+\end{codeblock}
+\end{example}
+
+
+
+\rSec2[ub.dcl.attr.assume]{Assumption attribute}
+
+\pnum
+\ubxref{dcl.attr.assume.false} \\
+If am assumption expression would not evaluate to true at the point where it
+appears the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+int divide_by_32(int x) {
+  [[assume(x >= 0)]];
+  return x/32;
+}
+
+int f() {
+    return divide_by_32(-10); // Undefined behavior, assumption in divide_by_32()
+                              // if evaluated would be false
+}
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.dcl.attr.noreturn]{Noreturn attribute}
+
+\pnum
+\ubxref{dcl.attr.noreturn.eventually.returns} \\
+If a function f is called where f was previously declared with the noreturn attribute and f eventually returns,
+the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+[[noreturn]] void f(int i) {
+  if (i > 0)
+    throw "positive";
+}
+
+int main() {
+  f(0); // Undefined behavior, we will return from a [[noreturn]] function
+}
+\end{codeblock}
+\end{example}
+
+
+
+\rSec1[ub.class]{\ref{class}: Classes}
+
+\rSec2[ub.class.dtor]{Destructors}
+
+\pnum
+\ubxref{class.dtor.not.class.type} \\
+The invocation of a destructor is subject to the usual rules for
+member functions \iref{class.mfct}; that is, if the object is not of the destructor’s class type and not of a class derived
+from the destructor’s class type (including when the destructor is invoked via a null pointer value), the
+program has undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include <new>
+
+struct X {};
+
+void f() {
+  X *x = nullptr;
+  x->~X(); // undefined behavior, invoked using a nullptr
+}
+
+struct Y {};
+void h() {
+  alignas(X) char buf[sizeof(X)];
+  X *p = new (buf) X(); // use buf[] and initialize
+
+  Y *yp = reinterpret_cast<Y *>(p);
+  yp->Y::~Y(); // undefined behavior, destructor of Y called for object of type
+               // X
+}
+
+struct Base {
+  virtual ~Base();
+};
+struct Derived : Base {};
+
+int k() {
+  Base *b = new Base;
+  Derived *d = static_cast<Derived *>(b);
+  d->~Derived(); // undefined behavior, destructor of Derived call for object of
+                 // type Base
+  // elided code
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{class.dtor.no.longer.exists} \\
+Once a destructor is invoked for an object, the object no longer exists; the behavior is undefined if the
+destructor is invoked for an object whose lifetime has ended.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct A {
+  ~A() {}
+};
+
+int main() {
+  A a;
+  a.~A(); // undefined behavior, destructor will be invoked again at scope exit
+}
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.class.union]{Unions}
+
+\pnum
+\ubxref{class.union.assignment.not.start.lifetime} \\
+Assigning to a union member may not start its lifetime, in that case using it will result in undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct X {
+  const int a;
+  int b;
+};
+
+union Y {
+  X x;
+  int k;
+};
+
+void g() {
+  Y y = {{1, 2}}; // OK, y.x is active union member (11.4)
+  int n = y.x.a;
+  y.k = 4;   // OK: ends lifetime of y.x, y.k is active member of union
+  y.x.b = n; // undefined behavior: y.x.b modified outside its lifetime,
+             // S(y.x.b) is empty because X’s default constructor is deleted,
+             // so union member y.x’s lifetime does not implicitly start
+}
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.class.abstract]{Abstract classes}
+
+\pnum
+\ubxref{class.abstract.pure.virtual} \\
+Calling a pure virtual function from a constructor or destructor in an abstract class is undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct B {
+  virtual void f() = 0;
+  B() {
+    f(); // undefined behavior, f is pure virtual and we are calling from the
+         // constructor
+  }
+};
+
+struct D : B {
+  void f() override;
+};
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.class.base.init]{Initializing bases and members}
+
+\pnum
+\ubxref{class.base.init.mem.fun} \\
+It is undefined behavior to call a member function before all the mem-initializers for base classes have completed.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+class A {
+public:
+  A(int);
+};
+
+class B : public A {
+  int j;
+
+public:
+  int f();
+  B()
+      : A(f()),   // undefined: calls member function but base A not yet
+                  // initialized
+        j(f()) {} // well-defined: bases are all initialized
+};
+
+class C {
+public:
+  C(int);
+};
+
+class D : public B, C {
+  int i;
+
+public:
+  D()
+      : C(f()),   // undefined: calls member function but base C not yet
+                  // initialized
+        i(f()) {} // well-defined: bases are all initialized
+};
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.class.cdtor]{Construction and destruction}
+
+\pnum
+\ubxref{class.cdtor.before.ctor.after.dtor} \\
+For an object with a non-trivial constructor, referring to any non-static member or base class of the object
+before the constructor begins execution results in undefined behavior. For an object with a non-trivial
+destructor, referring to any non-static member or base class of the object after the destructor finishes execution
+results in undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct X {
+  int i;
+};
+struct Y : X {
+  Y();
+}; // non-trivial
+struct A {
+  int a;
+};
+struct B : public A {
+  int j;
+  Y y;
+}; // non-trivial
+
+extern B bobj;
+B *pb = &bobj;       // OK
+int *p1 = &bobj.a;   // undefined, refers to base class member
+int *p2 = &bobj.y.i; // undefined, refers to member’s member
+
+A *pa = &bobj; // undefined, upcast to a base class type
+B bobj;        // definition of bobj
+
+extern X xobj;
+int *p3 = &xobj.i; // OK, X is a trivial class
+X xobj;
+
+struct W {
+  int j;
+};
+struct X : public virtual W {};
+struct Y {
+  int *p;
+  X x;
+  Y() : p(&x.j) { // undefined, x is not yet constructed
+  }
+};
+\end{codeblock}
+\end{example}
+
+
+\pnum
+\ubxref{class.cdtor.convert.or.form.pointer} \\
+When converting a pointer to a base class of an object or forming a pointer to a direct non-static
+member of a class, construction must have started and destruction must not have finished otherwise
+this is undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct A {};
+struct B : virtual A {};
+struct C : B {};
+struct D : virtual A {
+  D(A *);
+};
+struct X {
+  X(A *);
+};
+struct E : C, D, X {
+
+  E()
+      : D(this), // undefined: upcast from E* to A* might use path E->D->A
+                 // but D is not constructed
+                 // “D((C*)this)” would be defined: E->C is defined because
+                 // E() has started, and C->A is defined because C is fully
+                 // constructed
+        X(this) {
+  } // defined: upon construction of X, C/B/D/A sublattice is fully constructed
+};
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{class.cdtor.virtual.not.x} \\
+When a virtual function is called directly or indirectly from a constructor or from a destructor,
+including during the construction or destruction of the class’s non-static data members, and the object to
+which the call applies is the object (call it \tcode{x}) under construction or destruction, the function called is the
+final overrider in the constructor’s or destructor’s class and not one overriding it in a more-derived class.
+If the virtual function call uses an explicit class member access \iref{expr.ref} and the object expression refers
+to the complete object of \tcode{x} or one of that object’s base class subobjects but not \tcode{x} or one of its base class
+subobjects, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct V {
+  virtual void f();
+  virtual void g();
+};
+
+struct A : virtual V {
+  virtual void f();
+};
+
+struct B : virtual V {
+  virtual void g();
+  B(V *, A *);
+};
+
+struct D : A, B {
+  virtual void f();
+  virtual void g();
+  D() : B((A *)this, this) {}
+};
+
+B::B(V *v, A *a) {
+  f();    // calls V::f, not A::f
+  g();    // calls B::g, not D::g
+  v->g(); // v is base of B, the call is well-defined, calls B::g
+  a->f(); // undefined behavior, a’s type not a base of B
+}
+\end{codeblock}
+\end{example}
+
+
+\pnum
+\ubxref{class.cdtor.typeid} \\
+If the operand of \tcode{typeid} refers to
+the object under construction or destruction and the static type of the operand is neither the constructor or
+destructor’s class nor one of its bases, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct V {
+  virtual void f();
+};
+
+struct A : virtual V {};
+struct B : virtual V {
+  B(V *, A *);
+};
+
+struct D : A, B {
+  D() : B((A *)this, this) {}
+};
+
+B::B(V *v, A *a) {
+  typeid(*this); // type_info for B
+  typeid(*v); // well-defined: *v has type V, a base of B yields type_info for B
+  typeid(*a); // undefined behavior: type A not a base of B
+}
+\end{codeblock}
+\end{example}
+
+
+\pnum
+\ubxref{class.cdtor.dynamic.cast} \\
+If the operand of the
+\tcode{dynamic_cast} refers to the object under construction or destruction and the static type of the operand is
+not a pointer to or object of the constructor or destructor’s own class or one of its bases, the \tcode{dynamic_cast}
+results in undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct V {
+  virtual void f();
+};
+
+struct A : virtual V {};
+struct B : virtual V {
+  B(V *, A *);
+};
+
+struct D : A, B {
+  D() : B((A *)this, this) {}
+};
+
+B::B(V *v, A *a) {
+  dynamic_cast<B *>(v); // well-defined: v of type V*, V base of B results in B*
+  dynamic_cast<B *>(a); // undefined behavior: a has type A*, A not a base of B
+}
+\end{codeblock}
+\end{example}
+
+
+
+\rSec1[ub.temp]{\ref{temp}: Templates}
+\rSec2[ub.temp.inst]{Implicit instantiation}
+
+\pnum
+\ubxref{temp.inst.inf.recursion} \\
+The result of an infinite recursion in template instantiation is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+template <class T> class X {
+  X<T> *p;  // OK
+  X<T *> a; // implicit generation of X<T> requires
+            // the implicit instantiation of X<T*> which requires
+            // the implicit instantiation of X<T**> which . . .
+};
+
+int main() {
+  X<int> x; // Undefined behavior, instantiation will kick off infinite recursion
+}
+\end{codeblock}
+\end{example}
+
+
+\rSec1[ub.except]{\ref{except}: Exception handling}
+
+\rSec2[ub.except.handle]{Handling an exception}
+
+\pnum
+\ubxref{except.handle.handler.ctor.dtor} \\
+Referring to any non-static member or base class of an object in the handler for a  \grammarterm{function-try-block} of a
+constructor or destructor for that object results in undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include <iostream>
+
+struct A {
+  A() try : x(0 ? 1 : throw 1) {
+  } catch (int) {
+    std::cout << "y: " << y << std::endl; // Undefined behavior, referring to non-static member y in
+                                          // the handler of function-try-block
+  }
+  int x;
+  int y = 42;
+};
+\end{codeblock}
+\end{example}
+
+
+\rSec1[ub.cpp]{\ref{cpp}: Preprocessing directives}
+
+\rSec2[ub.cpp.cond]{Conditional inclusion}
+
+\pnum
+\ubxref{cpp.cond.defined} \\
+If the token defined is generated as a result of this replacement process or use of
+the defined unary operator does not match one of the two specified forms prior to macro replacement, the
+behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#define A
+#define B defined(A)
+#if B // Undefined behavior, defined is generated by macro replacement for controlling expression
+#endif
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.cpp.include]{Source file inclusion}
+
+\pnum
+\ubxref{cpp.include.one.of.two.forms} \\
+If the an include directive after replacement does not match one of the two forms
+outlined [cpp.indlude]\iref{cpp.include} then the behavior is undefined
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#include "  // Undefined behavior, does not match one of the two allowable forms
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.cpp.replace]{Macro replacement}
+
+\pnum
+\ubxref{cpp.replace.macro.pptoken} \\
+If there are sequences of preprocessing tokens within the list of arguments to a function-like macro
+that would otherwise act as preprocessing directives, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#define M(d, n) d = n
+
+void f(int x) {
+  M(x,
+#ifdef D // Undefined behavior, preprocessing directive
+    16
+#else    // Undefined behavior, preprocessing directive
+    32
+#endif   // Undefined behavior, preprocessing directive
+  );
+}
+
+int main() {
+  int x;
+  f(x);
+}
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.cpp.stringize]{The \# operator}
+
+\pnum
+\ubxref{cpp.stringize.invalid.char} \\
+If an invalid character results from using the stringize operator the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#define s_lit(x) #x
+s_lit( \ ) // Stringizes to "\tcode{\textbackslash}"", which is not a valid token.
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.cpp.concat]{The \#\# operator}
+
+\pnum
+\ubxref{cpp.concat.universal.char} \\
+If a character sequence that matches the syntax of a \grammarterm{universal-character-name}
+is produced by token concatenation \iref{cpp.concat}, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#define GUARD_NAME ï ## _GUARD // Undefined behavior, character sequence produced contains
+                               // a universal-character-name
+#define COLUMN ï ##_column // Undefined behavior, character sequence produced contains
+                           // a universal-character-name
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{cpp.concat.invalid.preprocessing.token} \\
+If an invalid preprocessing token results from using the concat operator the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#define cat(x, y) x##y
+
+void f() {
+  cat(/, /) // Undefined behavior // is not a valid preprocessing token
+}
+\end{codeblock}
+\end{example}
+
+
+\rSec2[ub.cpp.line]{Line control}
+
+\pnum
+\ubxref{cpp.line.zero.or.overflow} \\
+When using the \tcode{\#line} directive, if the digit sequence
+specifies zero or a number greater than 2147483647, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#line 4294967295 // Undefined behavior, number greater than 2147483647
+
+int main() { return notdefined; }
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{cpp.line.pptoken.not.match} \\
+When using the \grammarterm{pp-token} variant of the \tcode{\#line} directive, if the directive resulting after all replacements does not match
+one of the two previous forms, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#define cat(a, b) a##b
+#line cat(10, e20)
+\end{codeblock}
+\end{example}
+
+\rSec2[ub.cpp.predefined]{Predefined macro names}
+
+\pnum
+\ubxref{cpp.predefined.define.undef} \\
+If any of the pre-defined macro names in [cpp.predefined], or the identifier defined, is the subject of a \tcode{\#define}
+or a \tcode{\#undef} preprocessing directive, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+#define __cplusplus 300012L
+\end{codeblock}
+\end{example}
