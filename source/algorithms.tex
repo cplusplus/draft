@@ -12,20 +12,20 @@ The following subclauses describe components for
 non-modifying sequence operations,
 mutating sequence operations,
 sorting and related operations,
-and algorithms from the ISO C library,
+and algorithms from the C library,
 as summarized in \tref{algorithms.summary}.
 
 \begin{libsumtab}{Algorithms library summary}{algorithms.summary}
 \ref{algorithms.requirements}  & Algorithms requirements           & \\
-\ref{algorithms.parallel}      & Parallel algorithms               & \\ \rowsep
-\ref{algorithms.results}       & Algorithm result types            & \tcode{<algorithm>} \\
+\ref{algorithms.parallel}      & Parallel algorithms               & \tcode{<execution>}    \\ \rowsep
+\ref{algorithms.results}       & Algorithm result types            & \tcode{<algorithm>}    \\
 \ref{alg.nonmodifying}         & Non-modifying sequence operations & \\
 \ref{alg.modifying.operations} & Mutating sequence operations      & \\
 \ref{alg.sorting}              & Sorting and related operations    & \\ \rowsep
-\ref{numeric.ops}              & Generalized numeric operations    & \tcode{<numeric>} \\ \rowsep
+\ref{numeric.ops}              & Generalized numeric operations    & \tcode{<numeric>}      \\ \rowsep
 \ref{specialized.algorithms}   & Specialized \tcode{<memory>} algorithms & \tcode{<memory>} \\ \rowsep
 \ref{alg.rand}                 & Specialized \tcode{<random>} algorithms & \tcode{<random>} \\ \rowsep
-\ref{alg.c.library}            & C library algorithms              & \tcode{<cstdlib>} \\
+\ref{alg.c.library}            & C library algorithms              & \tcode{<cstdlib>}      \\
 \end{libsumtab}
 
 \rSec1[algorithms.requirements]{Algorithms requirements}
@@ -38,28 +38,9 @@ as long as these data structures have iterator types
 satisfying the assumptions on the algorithms.
 
 \pnum
-The entities defined in the \tcode{std::ranges} namespace in this Clause
-are not found by argument-dependent name lookup\iref{basic.lookup.argdep}.
-When found by unqualified\iref{basic.lookup.unqual} name lookup
-for the \grammarterm{postfix-expression} in a function call\iref{expr.call},
-they inhibit argument-dependent name lookup.
-
-\begin{example}
-\begin{codeblock}
-void foo() {
-  using namespace std::ranges;
-  std::vector<int> vec{1,2,3};
-  find(begin(vec), end(vec), 2);        // \#1
-}
-\end{codeblock}
-The function call expression at \tcode{\#1} invokes \tcode{std::ranges::find},
-not \tcode{std::find}, despite that
-(a) the iterator type returned from \tcode{begin(vec)} and \tcode{end(vec)}
-may be associated with namespace \tcode{std} and
-(b) \tcode{std::find} is more specialized\iref{temp.func.order} than
-\tcode{std::ranges::find} since the former requires
-its first two parameters to have the same type.
-\end{example}
+The entities defined in the \tcode{std::ranges} namespace in this Clause and
+specified as function templates are
+algorithm function objects\iref{alg.func.obj}.
 
 \pnum
 For purposes of determining the existence of data races,
@@ -620,10 +601,178 @@ the complexity of the algorithm shall be \bigoh{\placeholder{expr}}.
 Parallel algorithms shall not participate in overload resolution unless
 \tcode{is_execution_policy_v<remove_cvref_t<ExecutionPolicy>>} is \tcode{true}.
 
+\rSec2[execpol]{Execution policies}
+
+\rSec3[execpol.general]{General}
+
+\pnum
+Subclause~\ref{execpol} describes classes that are \defn{execution policy} types. An
+object of an execution policy type indicates the kinds of parallelism allowed
+in the execution of an algorithm and expresses the consequent requirements on
+the element access functions.
+Execution policy types are declared in header \libheaderref{execution}.
+\begin{example}
+\begin{codeblock}
+using namespace std;
+vector<int> v = @\commentellip@;
+
+// standard sequential sort
+sort(v.begin(), v.end());
+
+// explicitly sequential sort
+sort(execution::seq, v.begin(), v.end());
+
+// permitting parallel execution
+sort(execution::par, v.begin(), v.end());
+
+// permitting vectorization as well
+sort(execution::par_unseq, v.begin(), v.end());
+\end{codeblock}
+\end{example}
+\begin{note}
+Implementations can provide additional execution policies
+to those described in this document as extensions
+to address parallel architectures that require idiosyncratic
+parameters for efficient execution.
+\end{note}
+
+\rSec3[execpol.type]{Execution policy type trait}
+
+\indexlibraryglobal{is_execution_policy}%
+\begin{itemdecl}
+template<class T> struct is_execution_policy { @\seebelow@ };
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\tcode{is_execution_policy} can be used to detect execution policies for the
+purpose of excluding function signatures from otherwise ambiguous overload
+resolution participation.
+
+\pnum
+\tcode{is_execution_policy<T>} is a \oldconcept{UnaryTypeTrait} with a
+base characteristic of \tcode{true_type} if \tcode{T} is the type of a standard
+or \impldef{additional execution policies supported by parallel algorithms}
+execution policy, otherwise \tcode{false_type}.
+
+\begin{note}
+This provision reserves the privilege of creating non-standard execution
+policies to the library implementation.
+\end{note}
+
+\pnum
+The behavior of a program that adds specializations for
+\tcode{is_execution_policy} is undefined.
+\end{itemdescr}
+
+\rSec3[execpol.seq]{Sequenced execution policy}
+
+\indexlibraryglobal{execution::sequenced_policy}%
+\begin{itemdecl}
+class execution::sequenced_policy { @\unspec@ };
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The class \tcode{execution::sequenced_policy} is an execution policy type used
+as a unique type to disambiguate parallel algorithm overloading and require
+that a parallel algorithm's execution may not be parallelized.
+
+\pnum
+During the execution of a parallel algorithm with
+the \tcode{execution::sequenced_policy} policy,
+if the invocation of an element access function exits via an exception,
+\tcode{terminate} is invoked\iref{except.terminate}.
+\end{itemdescr}
+
+\rSec3[execpol.par]{Parallel execution policy}
+
+\indexlibraryglobal{execution::parallel_policy}%
+\begin{itemdecl}
+class execution::parallel_policy { @\unspec@ };
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The class \tcode{execution::parallel_policy} is an execution policy type used as
+a unique type to disambiguate parallel algorithm overloading and indicate that
+a parallel algorithm's execution may be parallelized.
+
+\pnum
+During the execution of a parallel algorithm with
+the \tcode{execution::parallel_policy} policy,
+if the invocation of an element access function exits via an exception,
+\tcode{terminate} is invoked\iref{except.terminate}.
+\end{itemdescr}
+
+\rSec3[execpol.parunseq]{Parallel and unsequenced execution policy}
+
+\indexlibraryglobal{execution::parallel_unsequenced_policy}%
+\begin{itemdecl}
+class execution::parallel_unsequenced_policy { @\unspec@ };
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The class \tcode{execution::parallel_unsequenced_policy} is an execution policy type
+used as a unique type to disambiguate parallel algorithm overloading and
+indicate that a parallel algorithm's execution may be parallelized and
+vectorized.
+
+\pnum
+During the execution of a parallel algorithm with
+the \tcode{execution::parallel_unsequenced_policy} policy,
+if the invocation of an element access function exits via an exception,
+\tcode{terminate} is invoked\iref{except.terminate}.
+\end{itemdescr}
+
+\rSec3[execpol.unseq]{Unsequenced execution policy}
+
+\indexlibraryglobal{execution::unsequenced_policy}%
+\begin{itemdecl}
+class execution::unsequenced_policy { @\unspec@ };
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The class \tcode{unsequenced_policy} is an execution policy type
+used as a unique type to disambiguate parallel algorithm overloading and
+indicate that a parallel algorithm's execution may be vectorized,
+e.g., executed on a single thread using instructions
+that operate on multiple data items.
+
+\pnum
+During the execution of a parallel algorithm with
+the \tcode{execution::unsequenced_policy} policy,
+if the invocation of an element access function exits via an exception,
+\tcode{terminate} is invoked\iref{except.terminate}.
+\end{itemdescr}
+
+\rSec3[execpol.objects]{Execution policy objects}
+
+\indexlibraryglobal{seq}%
+\indexlibraryglobal{par}%
+\indexlibraryglobal{par_unseq}%
+\indexlibrarymember{execution}{seq}%
+\indexlibrarymember{execution}{par}%
+\indexlibrarymember{execution}{par_unseq}%
+\begin{itemdecl}
+inline constexpr execution::sequenced_policy            execution::seq{ @\unspec@ };
+inline constexpr execution::parallel_policy             execution::par{ @\unspec@ };
+inline constexpr execution::parallel_unsequenced_policy execution::par_unseq{ @\unspec@ };
+inline constexpr execution::unsequenced_policy          execution::unseq{ @\unspec@ };
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The header \libheaderref{execution} declares global objects associated with each type of execution policy.
+\end{itemdescr}
+
 \rSec1[algorithm.syn]{Header \tcode{<algorithm>} synopsis}
 \indexheader{algorithm}%
 
 \begin{codeblock}
+// mostly freestanding
 #include <initializer_list>     // see \ref{initializer.list.syn}
 
 namespace std {
@@ -662,7 +811,7 @@ namespace std {
   template<class InputIterator, class Predicate>
     constexpr bool all_of(InputIterator first, InputIterator last, Predicate pred);
   template<class ExecutionPolicy, class ForwardIterator, class Predicate>
-    bool all_of(ExecutionPolicy&& exec,                         // see \ref{algorithms.parallel.overloads}
+    bool all_of(ExecutionPolicy&& exec,                         // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                 ForwardIterator first, ForwardIterator last, Predicate pred);
 
   namespace ranges {
@@ -678,7 +827,7 @@ namespace std {
   template<class InputIterator, class Predicate>
     constexpr bool any_of(InputIterator first, InputIterator last, Predicate pred);
   template<class ExecutionPolicy, class ForwardIterator, class Predicate>
-    bool any_of(ExecutionPolicy&& exec,                         // see \ref{algorithms.parallel.overloads}
+    bool any_of(ExecutionPolicy&& exec,                         // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                 ForwardIterator first, ForwardIterator last, Predicate pred);
 
   namespace ranges {
@@ -694,7 +843,7 @@ namespace std {
   template<class InputIterator, class Predicate>
     constexpr bool none_of(InputIterator first, InputIterator last, Predicate pred);
   template<class ExecutionPolicy, class ForwardIterator, class Predicate>
-    bool none_of(ExecutionPolicy&& exec,                        // see \ref{algorithms.parallel.overloads}
+    bool none_of(ExecutionPolicy&& exec,                        // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                  ForwardIterator first, ForwardIterator last, Predicate pred);
 
   namespace ranges {
@@ -735,7 +884,7 @@ namespace std {
   template<class InputIterator, class Function>
     constexpr Function for_each(InputIterator first, InputIterator last, Function f);
   template<class ExecutionPolicy, class ForwardIterator, class Function>
-    void for_each(ExecutionPolicy&& exec,                       // see \ref{algorithms.parallel.overloads}
+    void for_each(ExecutionPolicy&& exec,                       // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                   ForwardIterator first, ForwardIterator last, Function f);
 
   namespace ranges {
@@ -755,7 +904,7 @@ namespace std {
   template<class InputIterator, class Size, class Function>
     constexpr InputIterator for_each_n(InputIterator first, Size n, Function f);
   template<class ExecutionPolicy, class ForwardIterator, class Size, class Function>
-    ForwardIterator for_each_n(ExecutionPolicy&& exec,          // see \ref{algorithms.parallel.overloads}
+    ForwardIterator for_each_n(ExecutionPolicy&& exec,          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                                ForwardIterator first, Size n, Function f);
 
   namespace ranges {
@@ -774,21 +923,21 @@ namespace std {
                                  const T& value);
   template<class ExecutionPolicy, class ForwardIterator,
            class T = iterator_traits<ForwardIterator>::value_type>
-    ForwardIterator find(ExecutionPolicy&& exec,                // see \ref{algorithms.parallel.overloads}
+    ForwardIterator find(ExecutionPolicy&& exec,                // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                          ForwardIterator first, ForwardIterator last,
                          const T& value);
   template<class InputIterator, class Predicate>
     constexpr InputIterator find_if(InputIterator first, InputIterator last,
                                     Predicate pred);
   template<class ExecutionPolicy, class ForwardIterator, class Predicate>
-    ForwardIterator find_if(ExecutionPolicy&& exec,             // see \ref{algorithms.parallel.overloads}
+    ForwardIterator find_if(ExecutionPolicy&& exec,             // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                             ForwardIterator first, ForwardIterator last,
                             Predicate pred);
   template<class InputIterator, class Predicate>
     constexpr InputIterator find_if_not(InputIterator first, InputIterator last,
                                         Predicate pred);
   template<class ExecutionPolicy, class ForwardIterator, class Predicate>
-    ForwardIterator find_if_not(ExecutionPolicy&& exec,         // see \ref{algorithms.parallel.overloads}
+    ForwardIterator find_if_not(ExecutionPolicy&& exec,         // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                                 ForwardIterator first, ForwardIterator last,
                                 Predicate pred);
 
@@ -854,13 +1003,13 @@ namespace std {
                BinaryPredicate pred);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
     ForwardIterator1
-      find_end(ExecutionPolicy&& exec,                          // see \ref{algorithms.parallel.overloads}
+      find_end(ExecutionPolicy&& exec,                          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                ForwardIterator1 first1, ForwardIterator1 last1,
                ForwardIterator2 first2, ForwardIterator2 last2);
   template<class ExecutionPolicy, class ForwardIterator1,
            class ForwardIterator2, class BinaryPredicate>
     ForwardIterator1
-      find_end(ExecutionPolicy&& exec,                          // see \ref{algorithms.parallel.overloads}
+      find_end(ExecutionPolicy&& exec,                          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                ForwardIterator1 first1, ForwardIterator1 last1,
                ForwardIterator2 first2, ForwardIterator2 last2,
                BinaryPredicate pred);
@@ -892,13 +1041,13 @@ namespace std {
                     BinaryPredicate pred);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
     ForwardIterator1
-      find_first_of(ExecutionPolicy&& exec,                     // see \ref{algorithms.parallel.overloads}
+      find_first_of(ExecutionPolicy&& exec,                     // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                     ForwardIterator1 first1, ForwardIterator1 last1,
                     ForwardIterator2 first2, ForwardIterator2 last2);
   template<class ExecutionPolicy, class ForwardIterator1,
            class ForwardIterator2, class BinaryPredicate>
     ForwardIterator1
-      find_first_of(ExecutionPolicy&& exec,                     // see \ref{algorithms.parallel.overloads}
+      find_first_of(ExecutionPolicy&& exec,                     // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                     ForwardIterator1 first1, ForwardIterator1 last1,
                     ForwardIterator2 first2, ForwardIterator2 last2,
                     BinaryPredicate pred);
@@ -927,11 +1076,11 @@ namespace std {
                     BinaryPredicate pred);
   template<class ExecutionPolicy, class ForwardIterator>
     ForwardIterator
-      adjacent_find(ExecutionPolicy&& exec,                     // see \ref{algorithms.parallel.overloads}
+      adjacent_find(ExecutionPolicy&& exec,                     // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                     ForwardIterator first, ForwardIterator last);
   template<class ExecutionPolicy, class ForwardIterator, class BinaryPredicate>
     ForwardIterator
-      adjacent_find(ExecutionPolicy&& exec,                     // see \ref{algorithms.parallel.overloads}
+      adjacent_find(ExecutionPolicy&& exec,                     // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                     ForwardIterator first, ForwardIterator last,
                     BinaryPredicate pred);
 
@@ -955,14 +1104,14 @@ namespace std {
   template<class ExecutionPolicy, class ForwardIterator,
            class T = iterator_traits<InputIterator>::value_type>
     typename iterator_traits<ForwardIterator>::difference_type
-      count(ExecutionPolicy&& exec,                             // see \ref{algorithms.parallel.overloads}
+      count(ExecutionPolicy&& exec,                             // freestanding-deleted, see \ref{algorithms.parallel.overloads}
             ForwardIterator first, ForwardIterator last, const T& value);
   template<class InputIterator, class Predicate>
     constexpr typename iterator_traits<InputIterator>::difference_type
       count_if(InputIterator first, InputIterator last, Predicate pred);
   template<class ExecutionPolicy, class ForwardIterator, class Predicate>
     typename iterator_traits<ForwardIterator>::difference_type
-      count_if(ExecutionPolicy&& exec,                          // see \ref{algorithms.parallel.overloads}
+      count_if(ExecutionPolicy&& exec,                          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                ForwardIterator first, ForwardIterator last, Predicate pred);
 
   namespace ranges {
@@ -1007,24 +1156,24 @@ namespace std {
                BinaryPredicate pred);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
     pair<ForwardIterator1, ForwardIterator2>
-      mismatch(ExecutionPolicy&& exec,                          // see \ref{algorithms.parallel.overloads}
+      mismatch(ExecutionPolicy&& exec,                          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                ForwardIterator1 first1, ForwardIterator1 last1,
                ForwardIterator2 first2);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class BinaryPredicate>
     pair<ForwardIterator1, ForwardIterator2>
-      mismatch(ExecutionPolicy&& exec,                          // see \ref{algorithms.parallel.overloads}
+      mismatch(ExecutionPolicy&& exec,                          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                ForwardIterator1 first1, ForwardIterator1 last1,
                ForwardIterator2 first2, BinaryPredicate pred);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
     pair<ForwardIterator1, ForwardIterator2>
-      mismatch(ExecutionPolicy&& exec,                          // see \ref{algorithms.parallel.overloads}
+      mismatch(ExecutionPolicy&& exec,                          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                ForwardIterator1 first1, ForwardIterator1 last1,
                ForwardIterator2 first2, ForwardIterator2 last2);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class BinaryPredicate>
     pair<ForwardIterator1, ForwardIterator2>
-      mismatch(ExecutionPolicy&& exec,                          // see \ref{algorithms.parallel.overloads}
+      mismatch(ExecutionPolicy&& exec,                          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                ForwardIterator1 first1, ForwardIterator1 last1,
                ForwardIterator2 first2, ForwardIterator2 last2,
                BinaryPredicate pred);
@@ -1062,21 +1211,21 @@ namespace std {
                          InputIterator2 first2, InputIterator2 last2,
                          BinaryPredicate pred);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
-    bool equal(ExecutionPolicy&& exec,                          // see \ref{algorithms.parallel.overloads}
+    bool equal(ExecutionPolicy&& exec,                          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                ForwardIterator1 first1, ForwardIterator1 last1,
                ForwardIterator2 first2);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class BinaryPredicate>
-    bool equal(ExecutionPolicy&& exec,                          // see \ref{algorithms.parallel.overloads}
+    bool equal(ExecutionPolicy&& exec,                          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                ForwardIterator1 first1, ForwardIterator1 last1,
                ForwardIterator2 first2, BinaryPredicate pred);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
-    bool equal(ExecutionPolicy&& exec,                          // see \ref{algorithms.parallel.overloads}
+    bool equal(ExecutionPolicy&& exec,                          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                ForwardIterator1 first1, ForwardIterator1 last1,
                ForwardIterator2 first2, ForwardIterator2 last2);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class BinaryPredicate>
-    bool equal(ExecutionPolicy&& exec,                          // see \ref{algorithms.parallel.overloads}
+    bool equal(ExecutionPolicy&& exec,                          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                ForwardIterator1 first1, ForwardIterator1 last1,
                ForwardIterator2 first2, ForwardIterator2 last2,
                BinaryPredicate pred);
@@ -1139,13 +1288,13 @@ namespace std {
              BinaryPredicate pred);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
     ForwardIterator1
-      search(ExecutionPolicy&& exec,                            // see \ref{algorithms.parallel.overloads}
+      search(ExecutionPolicy&& exec,                            // freestanding-deleted, see \ref{algorithms.parallel.overloads}
              ForwardIterator1 first1, ForwardIterator1 last1,
              ForwardIterator2 first2, ForwardIterator2 last2);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class BinaryPredicate>
     ForwardIterator1
-      search(ExecutionPolicy&& exec,                            // see \ref{algorithms.parallel.overloads}
+      search(ExecutionPolicy&& exec,                            // freestanding-deleted, see \ref{algorithms.parallel.overloads}
              ForwardIterator1 first1, ForwardIterator1 last1,
              ForwardIterator2 first2, ForwardIterator2 last2,
              BinaryPredicate pred);
@@ -1179,13 +1328,13 @@ namespace std {
   template<class ExecutionPolicy, class ForwardIterator, class Size,
            class T = iterator_traits<ForwardIterator>::value_type>
     ForwardIterator
-      search_n(ExecutionPolicy&& exec,                          // see \ref{algorithms.parallel.overloads}
+      search_n(ExecutionPolicy&& exec,                          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                ForwardIterator first, ForwardIterator last,
                Size count, const T& value);
   template<class ExecutionPolicy, class ForwardIterator, class Size,
            class T = iterator_traits<ForwardIterator>::value_type, class BinaryPredicate>
     ForwardIterator
-      search_n(ExecutionPolicy&& exec,                          // see \ref{algorithms.parallel.overloads}
+      search_n(ExecutionPolicy&& exec,                          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                ForwardIterator first, ForwardIterator last,
                Size count, const T& value,
                BinaryPredicate pred);
@@ -1296,7 +1445,7 @@ namespace std {
     template<@\libconcept{bidirectional_iterator}@ I, @\libconcept{sentinel_for}@<I> S,
              @\exposconcept{indirectly-binary-right-foldable}@<iter_value_t<I>, I> F>
       requires @\libconcept{constructible_from}@<iter_value_t<I>, iter_reference_t<I>>
-    constexpr auto fold_right_last(I first, S last, F f);
+      constexpr auto fold_right_last(I first, S last, F f);
 
     template<@\libconcept{bidirectional_range}@ R,
              @\exposconcept{indirectly-binary-right-foldable}@<range_value_t<R>, iterator_t<R>> F>
@@ -1333,7 +1482,7 @@ namespace std {
     constexpr OutputIterator copy(InputIterator first, InputIterator last,
                                   OutputIterator result);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
-    ForwardIterator2 copy(ExecutionPolicy&& exec,               // see \ref{algorithms.parallel.overloads}
+    ForwardIterator2 copy(ExecutionPolicy&& exec,               // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                           ForwardIterator1 first, ForwardIterator1 last,
                           ForwardIterator2 result);
 
@@ -1356,7 +1505,7 @@ namespace std {
                                     OutputIterator result);
   template<class ExecutionPolicy, class ForwardIterator1, class Size,
            class ForwardIterator2>
-    ForwardIterator2 copy_n(ExecutionPolicy&& exec,             // see \ref{algorithms.parallel.overloads}
+    ForwardIterator2 copy_n(ExecutionPolicy&& exec,             // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                             ForwardIterator1 first, Size n,
                             ForwardIterator2 result);
 
@@ -1375,7 +1524,7 @@ namespace std {
                                      OutputIterator result, Predicate pred);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class Predicate>
-    ForwardIterator2 copy_if(ExecutionPolicy&& exec,            // see \ref{algorithms.parallel.overloads}
+    ForwardIterator2 copy_if(ExecutionPolicy&& exec,            // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                              ForwardIterator1 first, ForwardIterator1 last,
                              ForwardIterator2 result, Predicate pred);
 
@@ -1420,7 +1569,7 @@ namespace std {
                                   OutputIterator result);
   template<class ExecutionPolicy, class ForwardIterator1,
            class ForwardIterator2>
-    ForwardIterator2 move(ExecutionPolicy&& exec,               // see \ref{algorithms.parallel.overloads}
+    ForwardIterator2 move(ExecutionPolicy&& exec,               // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                           ForwardIterator1 first, ForwardIterator1 last,
                           ForwardIterator2 result);
 
@@ -1462,7 +1611,7 @@ namespace std {
     constexpr ForwardIterator2 swap_ranges(ForwardIterator1 first1, ForwardIterator1 last1,
                                            ForwardIterator2 first2);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
-    ForwardIterator2 swap_ranges(ExecutionPolicy&& exec,        // see \ref{algorithms.parallel.overloads}
+    ForwardIterator2 swap_ranges(ExecutionPolicy&& exec,        // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                                  ForwardIterator1 first1, ForwardIterator1 last1,
                                  ForwardIterator2 first2);
 
@@ -1497,13 +1646,13 @@ namespace std {
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class UnaryOperation>
     ForwardIterator2
-      transform(ExecutionPolicy&& exec,                         // see \ref{algorithms.parallel.overloads}
+      transform(ExecutionPolicy&& exec,                         // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                 ForwardIterator1 first1, ForwardIterator1 last1,
                 ForwardIterator2 result, UnaryOperation op);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class ForwardIterator, class BinaryOperation>
     ForwardIterator
-      transform(ExecutionPolicy&& exec,                         // see \ref{algorithms.parallel.overloads}
+      transform(ExecutionPolicy&& exec,                         // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                 ForwardIterator1 first1, ForwardIterator1 last1,
                 ForwardIterator2 first2, ForwardIterator result,
                 BinaryOperation binary_op);
@@ -1530,14 +1679,14 @@ namespace std {
              @\libconcept{weakly_incrementable}@ O, @\libconcept{copy_constructible}@ F, class Proj1 = identity,
              class Proj2 = identity>
       requires @\libconcept{indirectly_writable}@<O, indirect_result_t<F&, projected<I1, Proj1>,
-                                             projected<I2, Proj2>>>
+                                   projected<I2, Proj2>>>
       constexpr binary_transform_result<I1, I2, O>
         transform(I1 first1, S1 last1, I2 first2, S2 last2, O result,
                   F binary_op, Proj1 proj1 = {}, Proj2 proj2 = {});
     template<@\libconcept{input_range}@ R1, @\libconcept{input_range}@ R2, @\libconcept{weakly_incrementable}@ O,
              @\libconcept{copy_constructible}@ F, class Proj1 = identity, class Proj2 = identity>
       requires @\libconcept{indirectly_writable}@<O, indirect_result_t<F&, projected<iterator_t<R1>, Proj1>,
-                                             projected<iterator_t<R2>, Proj2>>>
+                                   projected<iterator_t<R2>, Proj2>>>
       constexpr binary_transform_result<borrowed_iterator_t<R1>, borrowed_iterator_t<R2>, O>
         transform(R1&& r1, R2&& r2, O result,
                   F binary_op, Proj1 proj1 = {}, Proj2 proj2 = {});
@@ -1549,7 +1698,7 @@ namespace std {
                            const T& old_value, const T& new_value);
   template<class ExecutionPolicy, class ForwardIterator,
            class T = iterator_traits<ForwardIterator>::value_type>
-    void replace(ExecutionPolicy&& exec,                        // see \ref{algorithms.parallel.overloads}
+    void replace(ExecutionPolicy&& exec,                        // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                  ForwardIterator first, ForwardIterator last,
                  const T& old_value, const T& new_value);
   template<class ForwardIterator, class Predicate,
@@ -1558,7 +1707,7 @@ namespace std {
                               Predicate pred, const T& new_value);
   template<class ExecutionPolicy, class ForwardIterator, class Predicate,
            class T = iterator_traits<ForwardIterator>::value_type>
-    void replace_if(ExecutionPolicy&& exec,                     // see \ref{algorithms.parallel.overloads}
+    void replace_if(ExecutionPolicy&& exec,                     // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                     ForwardIterator first, ForwardIterator last,
                     Predicate pred, const T& new_value);
 
@@ -1593,7 +1742,7 @@ namespace std {
                                           OutputIterator result,
                                           const T& old_value, const T& new_value);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2, class T>
-    ForwardIterator2 replace_copy(ExecutionPolicy&& exec,       // see \ref{algorithms.parallel.overloads}
+    ForwardIterator2 replace_copy(ExecutionPolicy&& exec,       // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                                   ForwardIterator1 first, ForwardIterator1 last,
                                   ForwardIterator2 result,
                                   const T& old_value, const T& new_value);
@@ -1604,7 +1753,7 @@ namespace std {
                                              Predicate pred, const T& new_value);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class Predicate, class T = iterator_traits<ForwardIterator2>::value_type>
-    ForwardIterator2 replace_copy_if(ExecutionPolicy&& exec,    // see \ref{algorithms.parallel.overloads}
+    ForwardIterator2 replace_copy_if(ExecutionPolicy&& exec,    // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                                      ForwardIterator1 first, ForwardIterator1 last,
                                      ForwardIterator2 result,
                                      Predicate pred, const T& new_value);
@@ -1654,14 +1803,14 @@ namespace std {
     constexpr void fill(ForwardIterator first, ForwardIterator last, const T& value);
   template<class ExecutionPolicy, class ForwardIterator,
            class T = iterator_traits<ForwardIterator>::value_type>
-    void fill(ExecutionPolicy&& exec,                           // see \ref{algorithms.parallel.overloads}
+    void fill(ExecutionPolicy&& exec,                           // freestanding-deleted, see \ref{algorithms.parallel.overloads}
               ForwardIterator first, ForwardIterator last, const T& value);
   template<class OutputIterator, class Size,
            class T = iterator_traits<OutputIterator>::value_type>
-    constexpr OutputIterator fill_n(OutputIterator first, Size n, const T& value);  // freestanding
+    constexpr OutputIterator fill_n(OutputIterator first, Size n, const T& value)
   template<class ExecutionPolicy, class ForwardIterator,
            class Size, class T = iterator_traits<ForwardIterator>::value_type>
-    ForwardIterator fill_n(ExecutionPolicy&& exec,              // see \ref{algorithms.parallel.overloads}
+    ForwardIterator fill_n(ExecutionPolicy&& exec,              // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                            ForwardIterator first, Size n, const T& value);
 
   namespace ranges {
@@ -1681,13 +1830,13 @@ namespace std {
     constexpr void generate(ForwardIterator first, ForwardIterator last,
                             Generator gen);
   template<class ExecutionPolicy, class ForwardIterator, class Generator>
-    void generate(ExecutionPolicy&& exec,                       // see \ref{algorithms.parallel.overloads}
+    void generate(ExecutionPolicy&& exec,                       // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                   ForwardIterator first, ForwardIterator last,
                   Generator gen);
   template<class OutputIterator, class Size, class Generator>
     constexpr OutputIterator generate_n(OutputIterator first, Size n, Generator gen);
   template<class ExecutionPolicy, class ForwardIterator, class Size, class Generator>
-    ForwardIterator generate_n(ExecutionPolicy&& exec,          // see \ref{algorithms.parallel.overloads}
+    ForwardIterator generate_n(ExecutionPolicy&& exec,          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                                ForwardIterator first, Size n, Generator gen);
 
   namespace ranges {
@@ -1708,14 +1857,14 @@ namespace std {
                                      const T& value);
   template<class ExecutionPolicy, class ForwardIterator,
            class T = iterator_traits<ForwardIterator>::value_type>
-    ForwardIterator remove(ExecutionPolicy&& exec,              // see \ref{algorithms.parallel.overloads}
+    ForwardIterator remove(ExecutionPolicy&& exec,              // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                            ForwardIterator first, ForwardIterator last,
                            const T& value);
   template<class ForwardIterator, class Predicate>
     constexpr ForwardIterator remove_if(ForwardIterator first, ForwardIterator last,
                                         Predicate pred);
   template<class ExecutionPolicy, class ForwardIterator, class Predicate>
-    ForwardIterator remove_if(ExecutionPolicy&& exec,           // see \ref{algorithms.parallel.overloads}
+    ForwardIterator remove_if(ExecutionPolicy&& exec,           // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                               ForwardIterator first, ForwardIterator last,
                               Predicate pred);
 
@@ -1749,7 +1898,7 @@ namespace std {
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class T = iterator_traits<ForwardIterator1>::value_type>
     ForwardIterator2
-      remove_copy(ExecutionPolicy&& exec,                       // see \ref{algorithms.parallel.overloads}
+      remove_copy(ExecutionPolicy&& exec,                       // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                   ForwardIterator1 first, ForwardIterator1 last,
                   ForwardIterator2 result, const T& value);
   template<class InputIterator, class OutputIterator, class Predicate>
@@ -1759,7 +1908,7 @@ namespace std {
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class Predicate>
     ForwardIterator2
-      remove_copy_if(ExecutionPolicy&& exec,                    // see \ref{algorithms.parallel.overloads}
+      remove_copy_if(ExecutionPolicy&& exec,                    // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                      ForwardIterator1 first, ForwardIterator1 last,
                      ForwardIterator2 result, Predicate pred);
 
@@ -1803,10 +1952,10 @@ namespace std {
     constexpr ForwardIterator unique(ForwardIterator first, ForwardIterator last,
                                      BinaryPredicate pred);
   template<class ExecutionPolicy, class ForwardIterator>
-    ForwardIterator unique(ExecutionPolicy&& exec,              // see \ref{algorithms.parallel.overloads}
+    ForwardIterator unique(ExecutionPolicy&& exec,              // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                            ForwardIterator first, ForwardIterator last);
   template<class ExecutionPolicy, class ForwardIterator, class BinaryPredicate>
-    ForwardIterator unique(ExecutionPolicy&& exec,              // see \ref{algorithms.parallel.overloads}
+    ForwardIterator unique(ExecutionPolicy&& exec,              // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                            ForwardIterator first, ForwardIterator last,
                            BinaryPredicate pred);
 
@@ -1831,13 +1980,13 @@ namespace std {
                   OutputIterator result, BinaryPredicate pred);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
     ForwardIterator2
-      unique_copy(ExecutionPolicy&& exec,                       // see \ref{algorithms.parallel.overloads}
+      unique_copy(ExecutionPolicy&& exec,                       // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                   ForwardIterator1 first, ForwardIterator1 last,
                   ForwardIterator2 result);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class BinaryPredicate>
     ForwardIterator2
-      unique_copy(ExecutionPolicy&& exec,                       // see \ref{algorithms.parallel.overloads}
+      unique_copy(ExecutionPolicy&& exec,                       // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                   ForwardIterator1 first, ForwardIterator1 last,
                   ForwardIterator2 result, BinaryPredicate pred);
 
@@ -1867,7 +2016,7 @@ namespace std {
   template<class BidirectionalIterator>
     constexpr void reverse(BidirectionalIterator first, BidirectionalIterator last);
   template<class ExecutionPolicy, class BidirectionalIterator>
-    void reverse(ExecutionPolicy&& exec,                        // see \ref{algorithms.parallel.overloads}
+    void reverse(ExecutionPolicy&& exec,                        // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                  BidirectionalIterator first, BidirectionalIterator last);
 
   namespace ranges {
@@ -1885,7 +2034,7 @@ namespace std {
                    OutputIterator result);
   template<class ExecutionPolicy, class BidirectionalIterator, class ForwardIterator>
     ForwardIterator
-      reverse_copy(ExecutionPolicy&& exec,                      // see \ref{algorithms.parallel.overloads}
+      reverse_copy(ExecutionPolicy&& exec,                      // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                    BidirectionalIterator first, BidirectionalIterator last,
                    ForwardIterator result);
 
@@ -1909,7 +2058,7 @@ namespace std {
                                      ForwardIterator middle,
                                      ForwardIterator last);
   template<class ExecutionPolicy, class ForwardIterator>
-    ForwardIterator rotate(ExecutionPolicy&& exec,              // see \ref{algorithms.parallel.overloads}
+    ForwardIterator rotate(ExecutionPolicy&& exec,              // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                            ForwardIterator first,
                            ForwardIterator middle,
                            ForwardIterator last);
@@ -1928,7 +2077,7 @@ namespace std {
                   ForwardIterator last, OutputIterator result);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
     ForwardIterator2
-      rotate_copy(ExecutionPolicy&& exec,                       // see \ref{algorithms.parallel.overloads}
+      rotate_copy(ExecutionPolicy&& exec,                       // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                   ForwardIterator1 first, ForwardIterator1 middle,
                   ForwardIterator1 last, ForwardIterator2 result);
 
@@ -1991,7 +2140,7 @@ namespace std {
                  typename iterator_traits<ForwardIterator>::difference_type n);
   template<class ExecutionPolicy, class ForwardIterator>
     ForwardIterator
-      shift_left(ExecutionPolicy&& exec,                        // see \ref{algorithms.parallel.overloads}
+      shift_left(ExecutionPolicy&& exec,                        // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                  ForwardIterator first, ForwardIterator last,
                  typename iterator_traits<ForwardIterator>::difference_type n);
 
@@ -2009,7 +2158,7 @@ namespace std {
                   typename iterator_traits<ForwardIterator>::difference_type n);
   template<class ExecutionPolicy, class ForwardIterator>
     ForwardIterator
-      shift_right(ExecutionPolicy&& exec,                       // see \ref{algorithms.parallel.overloads}
+      shift_right(ExecutionPolicy&& exec,                       // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                   ForwardIterator first, ForwardIterator last,
                   typename iterator_traits<ForwardIterator>::difference_type n);
 
@@ -2029,10 +2178,10 @@ namespace std {
     constexpr void sort(RandomAccessIterator first, RandomAccessIterator last,
                         Compare comp);
   template<class ExecutionPolicy, class RandomAccessIterator>
-    void sort(ExecutionPolicy&& exec,                           // see \ref{algorithms.parallel.overloads}
+    void sort(ExecutionPolicy&& exec,                           // freestanding-deleted, see \ref{algorithms.parallel.overloads}
               RandomAccessIterator first, RandomAccessIterator last);
   template<class ExecutionPolicy, class RandomAccessIterator, class Compare>
-    void sort(ExecutionPolicy&& exec,                           // see \ref{algorithms.parallel.overloads}
+    void sort(ExecutionPolicy&& exec,                           // freestanding-deleted, see \ref{algorithms.parallel.overloads}
               RandomAccessIterator first, RandomAccessIterator last,
               Compare comp);
 
@@ -2049,15 +2198,15 @@ namespace std {
   }
 
   template<class RandomAccessIterator>
-    constexpr void stable_sort(RandomAccessIterator first, RandomAccessIterator last);
+    constexpr void stable_sort(RandomAccessIterator first, RandomAccessIterator last);  // hosted
   template<class RandomAccessIterator, class Compare>
-    constexpr void stable_sort(RandomAccessIterator first, RandomAccessIterator last,
-                     Compare comp);
+    constexpr void stable_sort(RandomAccessIterator first, RandomAccessIterator last,   // hosted
+                               Compare comp);
   template<class ExecutionPolicy, class RandomAccessIterator>
-    void stable_sort(ExecutionPolicy&& exec,                    // see \ref{algorithms.parallel.overloads}
+    void stable_sort(ExecutionPolicy&& exec,                    // hosted, see \ref{algorithms.parallel.overloads}
                      RandomAccessIterator first, RandomAccessIterator last);
   template<class ExecutionPolicy, class RandomAccessIterator, class Compare>
-    void stable_sort(ExecutionPolicy&& exec,                    // see \ref{algorithms.parallel.overloads}
+    void stable_sort(ExecutionPolicy&& exec,                    // hosted, see \ref{algorithms.parallel.overloads}
                      RandomAccessIterator first, RandomAccessIterator last,
                      Compare comp);
 
@@ -2065,11 +2214,11 @@ namespace std {
     template<@\libconcept{random_access_iterator}@ I, @\libconcept{sentinel_for}@<I> S, class Comp = ranges::less,
              class Proj = identity>
       requires @\libconcept{sortable}@<I, Comp, Proj>
-      constexpr I stable_sort(I first, S last, Comp comp = {}, Proj proj = {});
+      constexpr I stable_sort(I first, S last, Comp comp = {}, Proj proj = {});         // hosted
     template<@\libconcept{random_access_range}@ R, class Comp = ranges::less, class Proj = identity>
       requires @\libconcept{sortable}@<iterator_t<R>, Comp, Proj>
       constexpr borrowed_iterator_t<R>
-        stable_sort(R&& r, Comp comp = {}, Proj proj = {});
+        stable_sort(R&& r, Comp comp = {}, Proj proj = {});                             // hosted
   }
 
   template<class RandomAccessIterator>
@@ -2079,11 +2228,11 @@ namespace std {
     constexpr void partial_sort(RandomAccessIterator first, RandomAccessIterator middle,
                                 RandomAccessIterator last, Compare comp);
   template<class ExecutionPolicy, class RandomAccessIterator>
-    void partial_sort(ExecutionPolicy&& exec,                   // see \ref{algorithms.parallel.overloads}
+    void partial_sort(ExecutionPolicy&& exec,                   // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                       RandomAccessIterator first, RandomAccessIterator middle,
                       RandomAccessIterator last);
   template<class ExecutionPolicy, class RandomAccessIterator, class Compare>
-    void partial_sort(ExecutionPolicy&& exec,                   // see \ref{algorithms.parallel.overloads}
+    void partial_sort(ExecutionPolicy&& exec,                   // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                       RandomAccessIterator first, RandomAccessIterator middle,
                       RandomAccessIterator last, Compare comp);
 
@@ -2113,14 +2262,14 @@ namespace std {
                         Compare comp);
   template<class ExecutionPolicy, class ForwardIterator, class RandomAccessIterator>
     RandomAccessIterator
-      partial_sort_copy(ExecutionPolicy&& exec,                 // see \ref{algorithms.parallel.overloads}
+      partial_sort_copy(ExecutionPolicy&& exec,                 // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                         ForwardIterator first, ForwardIterator last,
                         RandomAccessIterator result_first,
                         RandomAccessIterator result_last);
   template<class ExecutionPolicy, class ForwardIterator, class RandomAccessIterator,
            class Compare>
     RandomAccessIterator
-      partial_sort_copy(ExecutionPolicy&& exec,                 // see \ref{algorithms.parallel.overloads}
+      partial_sort_copy(ExecutionPolicy&& exec,                 // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                         ForwardIterator first, ForwardIterator last,
                         RandomAccessIterator result_first,
                         RandomAccessIterator result_last,
@@ -2155,10 +2304,10 @@ namespace std {
     constexpr bool is_sorted(ForwardIterator first, ForwardIterator last,
                              Compare comp);
   template<class ExecutionPolicy, class ForwardIterator>
-    bool is_sorted(ExecutionPolicy&& exec,                      // see \ref{algorithms.parallel.overloads}
+    bool is_sorted(ExecutionPolicy&& exec,                      // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                    ForwardIterator first, ForwardIterator last);
   template<class ExecutionPolicy, class ForwardIterator, class Compare>
-    bool is_sorted(ExecutionPolicy&& exec,                      // see \ref{algorithms.parallel.overloads}
+    bool is_sorted(ExecutionPolicy&& exec,                      // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                    ForwardIterator first, ForwardIterator last,
                    Compare comp);
 
@@ -2180,11 +2329,11 @@ namespace std {
                       Compare comp);
   template<class ExecutionPolicy, class ForwardIterator>
     ForwardIterator
-      is_sorted_until(ExecutionPolicy&& exec,                   // see \ref{algorithms.parallel.overloads}
+      is_sorted_until(ExecutionPolicy&& exec,                   // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                       ForwardIterator first, ForwardIterator last);
   template<class ExecutionPolicy, class ForwardIterator, class Compare>
     ForwardIterator
-      is_sorted_until(ExecutionPolicy&& exec,                   // see \ref{algorithms.parallel.overloads}
+      is_sorted_until(ExecutionPolicy&& exec,                   // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                       ForwardIterator first, ForwardIterator last,
                       Compare comp);
 
@@ -2206,11 +2355,11 @@ namespace std {
     constexpr void nth_element(RandomAccessIterator first, RandomAccessIterator nth,
                                RandomAccessIterator last, Compare comp);
   template<class ExecutionPolicy, class RandomAccessIterator>
-    void nth_element(ExecutionPolicy&& exec,                    // see \ref{algorithms.parallel.overloads}
+    void nth_element(ExecutionPolicy&& exec,                    // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                      RandomAccessIterator first, RandomAccessIterator nth,
                      RandomAccessIterator last);
   template<class ExecutionPolicy, class RandomAccessIterator, class Compare>
-    void nth_element(ExecutionPolicy&& exec,                    // see \ref{algorithms.parallel.overloads}
+    void nth_element(ExecutionPolicy&& exec,                    // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                      RandomAccessIterator first, RandomAccessIterator nth,
                      RandomAccessIterator last, Compare comp);
 
@@ -2326,7 +2475,7 @@ namespace std {
   template<class InputIterator, class Predicate>
     constexpr bool is_partitioned(InputIterator first, InputIterator last, Predicate pred);
   template<class ExecutionPolicy, class ForwardIterator, class Predicate>
-    bool is_partitioned(ExecutionPolicy&& exec,                 // see \ref{algorithms.parallel.overloads}
+    bool is_partitioned(ExecutionPolicy&& exec,                 // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                         ForwardIterator first, ForwardIterator last, Predicate pred);
 
   namespace ranges {
@@ -2343,7 +2492,7 @@ namespace std {
                                         ForwardIterator last,
                                         Predicate pred);
   template<class ExecutionPolicy, class ForwardIterator, class Predicate>
-    ForwardIterator partition(ExecutionPolicy&& exec,           // see \ref{algorithms.parallel.overloads}
+    ForwardIterator partition(ExecutionPolicy&& exec,           // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                               ForwardIterator first,
                               ForwardIterator last,
                               Predicate pred);
@@ -2361,12 +2510,12 @@ namespace std {
   }
 
   template<class BidirectionalIterator, class Predicate>
-    constexpr BidirectionalIterator stable_partition(BidirectionalIterator first,
+    constexpr BidirectionalIterator stable_partition(BidirectionalIterator first,   // hosted
                                                      BidirectionalIterator last,
                                                      Predicate pred);
   template<class ExecutionPolicy, class BidirectionalIterator, class Predicate>
-    BidirectionalIterator stable_partition(ExecutionPolicy&& exec,  // see \ref{algorithms.parallel.overloads}
-                                           BidirectionalIterator first,
+    BidirectionalIterator stable_partition(ExecutionPolicy&& exec,                  // hosted,
+                                           BidirectionalIterator first,             // see \ref{algorithms.parallel.overloads}
                                            BidirectionalIterator last,
                                            Predicate pred);
 
@@ -2374,11 +2523,13 @@ namespace std {
     template<@\libconcept{bidirectional_iterator}@ I, @\libconcept{sentinel_for}@<I> S, class Proj = identity,
              @\libconcept{indirect_unary_predicate}@<projected<I, Proj>> Pred>
       requires @\libconcept{permutable}@<I>
-      constexpr subrange<I> stable_partition(I first, S last, Pred pred, Proj proj = {});
+      constexpr subrange<I> stable_partition(I first, S last, Pred pred,            // hosted
+                                             Proj proj = {});
     template<@\libconcept{bidirectional_range}@ R, class Proj = identity,
              @\libconcept{indirect_unary_predicate}@<projected<iterator_t<R>, Proj>> Pred>
       requires @\libconcept{permutable}@<iterator_t<R>>
-      constexpr borrowed_subrange_t<R> stable_partition(R&& r, Pred pred, Proj proj = {});
+      constexpr borrowed_subrange_t<R> stable_partition(R&& r, Pred pred,           // hosted
+                                                        Proj proj = {});
   }
 
   template<class InputIterator, class OutputIterator1,
@@ -2390,7 +2541,7 @@ namespace std {
   template<class ExecutionPolicy, class ForwardIterator, class ForwardIterator1,
            class ForwardIterator2, class Predicate>
     pair<ForwardIterator1, ForwardIterator2>
-      partition_copy(ExecutionPolicy&& exec,                    // see \ref{algorithms.parallel.overloads}
+      partition_copy(ExecutionPolicy&& exec,                    // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                      ForwardIterator first, ForwardIterator last,
                      ForwardIterator1 out_true, ForwardIterator2 out_false,
                      Predicate pred);
@@ -2445,14 +2596,14 @@ namespace std {
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class ForwardIterator>
     ForwardIterator
-      merge(ExecutionPolicy&& exec,                             // see \ref{algorithms.parallel.overloads}
+      merge(ExecutionPolicy&& exec,                             // freestanding-deleted, see \ref{algorithms.parallel.overloads}
             ForwardIterator1 first1, ForwardIterator1 last1,
             ForwardIterator2 first2, ForwardIterator2 last2,
             ForwardIterator result);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class ForwardIterator, class Compare>
     ForwardIterator
-      merge(ExecutionPolicy&& exec,                             // see \ref{algorithms.parallel.overloads}
+      merge(ExecutionPolicy&& exec,                             // freestanding-deleted, see \ref{algorithms.parallel.overloads}
             ForwardIterator1 first1, ForwardIterator1 last1,
             ForwardIterator2 first2, ForwardIterator2 last2,
             ForwardIterator result, Compare comp);
@@ -2477,20 +2628,20 @@ namespace std {
   }
 
   template<class BidirectionalIterator>
-    constexpr void inplace_merge(BidirectionalIterator first,
+    constexpr void inplace_merge(BidirectionalIterator first,   // hosted
                                  BidirectionalIterator middle,
                                  BidirectionalIterator last);
   template<class BidirectionalIterator, class Compare>
-    constexpr void inplace_merge(BidirectionalIterator first,
+    constexpr void inplace_merge(BidirectionalIterator first,   // hosted
                                  BidirectionalIterator middle,
                                  BidirectionalIterator last, Compare comp);
   template<class ExecutionPolicy, class BidirectionalIterator>
-    void inplace_merge(ExecutionPolicy&& exec,                  // see \ref{algorithms.parallel.overloads}
+    void inplace_merge(ExecutionPolicy&& exec,                  // hosted, see \ref{algorithms.parallel.overloads}
                        BidirectionalIterator first,
                        BidirectionalIterator middle,
                        BidirectionalIterator last);
   template<class ExecutionPolicy, class BidirectionalIterator, class Compare>
-    void inplace_merge(ExecutionPolicy&& exec,                  // see \ref{algorithms.parallel.overloads}
+    void inplace_merge(ExecutionPolicy&& exec,                  // hosted, see \ref{algorithms.parallel.overloads}
                        BidirectionalIterator first,
                        BidirectionalIterator middle,
                        BidirectionalIterator last, Compare comp);
@@ -2499,12 +2650,12 @@ namespace std {
     template<@\libconcept{bidirectional_iterator}@ I, @\libconcept{sentinel_for}@<I> S, class Comp = ranges::less,
              class Proj = identity>
       requires @\libconcept{sortable}@<I, Comp, Proj>
-      constexpr I inplace_merge(I first, I middle, S last, Comp comp = {}, Proj proj = {});
+      constexpr I
+        inplace_merge(I first, I middle, S last, Comp comp = {}, Proj proj = {});       // hosted
     template<@\libconcept{bidirectional_range}@ R, class Comp = ranges::less, class Proj = identity>
       requires @\libconcept{sortable}@<iterator_t<R>, Comp, Proj>
       constexpr borrowed_iterator_t<R>
-        inplace_merge(R&& r, iterator_t<R> middle, Comp comp = {},
-                      Proj proj = {});
+        inplace_merge(R&& r, iterator_t<R> middle, Comp comp = {}, Proj proj = {});     // hosted
   }
 
   // \ref{alg.set.operations}, set operations
@@ -2516,12 +2667,12 @@ namespace std {
                             InputIterator2 first2, InputIterator2 last2,
                             Compare comp);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
-    bool includes(ExecutionPolicy&& exec,                       // see \ref{algorithms.parallel.overloads}
+    bool includes(ExecutionPolicy&& exec,                       // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                   ForwardIterator1 first1, ForwardIterator1 last1,
                   ForwardIterator2 first2, ForwardIterator2 last2);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class Compare>
-    bool includes(ExecutionPolicy&& exec,                       // see \ref{algorithms.parallel.overloads}
+    bool includes(ExecutionPolicy&& exec,                       // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                   ForwardIterator1 first1, ForwardIterator1 last1,
                   ForwardIterator2 first2, ForwardIterator2 last2,
                   Compare comp);
@@ -2548,20 +2699,20 @@ namespace std {
                 OutputIterator result);
   template<class InputIterator1, class InputIterator2, class OutputIterator, class Compare>
     constexpr OutputIterator
-                set_union(InputIterator1 first1, InputIterator1 last1,
+      set_union(InputIterator1 first1, InputIterator1 last1,
                 InputIterator2 first2, InputIterator2 last2,
                 OutputIterator result, Compare comp);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class ForwardIterator>
     ForwardIterator
-      set_union(ExecutionPolicy&& exec,                         // see \ref{algorithms.parallel.overloads}
+      set_union(ExecutionPolicy&& exec,                         // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                 ForwardIterator1 first1, ForwardIterator1 last1,
                 ForwardIterator2 first2, ForwardIterator2 last2,
                 ForwardIterator result);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class ForwardIterator, class Compare>
     ForwardIterator
-      set_union(ExecutionPolicy&& exec,                         // see \ref{algorithms.parallel.overloads}
+      set_union(ExecutionPolicy&& exec,                         // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                 ForwardIterator1 first1, ForwardIterator1 last1,
                 ForwardIterator2 first2, ForwardIterator2 last2,
                 ForwardIterator result, Compare comp);
@@ -2598,14 +2749,14 @@ namespace std {
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class ForwardIterator>
     ForwardIterator
-      set_intersection(ExecutionPolicy&& exec,                  // see \ref{algorithms.parallel.overloads}
+      set_intersection(ExecutionPolicy&& exec,                  // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                        ForwardIterator1 first1, ForwardIterator1 last1,
                        ForwardIterator2 first2, ForwardIterator2 last2,
                        ForwardIterator result);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class ForwardIterator, class Compare>
     ForwardIterator
-      set_intersection(ExecutionPolicy&& exec,                  // see \ref{algorithms.parallel.overloads}
+      set_intersection(ExecutionPolicy&& exec,                  // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                        ForwardIterator1 first1, ForwardIterator1 last1,
                        ForwardIterator2 first2, ForwardIterator2 last2,
                        ForwardIterator result, Compare comp);
@@ -2642,14 +2793,14 @@ namespace std {
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class ForwardIterator>
     ForwardIterator
-      set_difference(ExecutionPolicy&& exec,                    // see \ref{algorithms.parallel.overloads}
+      set_difference(ExecutionPolicy&& exec,                    // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                      ForwardIterator1 first1, ForwardIterator1 last1,
                      ForwardIterator2 first2, ForwardIterator2 last2,
                      ForwardIterator result);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class ForwardIterator, class Compare>
     ForwardIterator
-      set_difference(ExecutionPolicy&& exec,                    // see \ref{algorithms.parallel.overloads}
+      set_difference(ExecutionPolicy&& exec,                    // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                      ForwardIterator1 first1, ForwardIterator1 last1,
                      ForwardIterator2 first2, ForwardIterator2 last2,
                      ForwardIterator result, Compare comp);
@@ -2686,14 +2837,14 @@ namespace std {
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class ForwardIterator>
     ForwardIterator
-      set_symmetric_difference(ExecutionPolicy&& exec,          // see \ref{algorithms.parallel.overloads}
+      set_symmetric_difference(ExecutionPolicy&& exec,          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                                ForwardIterator1 first1, ForwardIterator1 last1,
                                ForwardIterator2 first2, ForwardIterator2 last2,
                                ForwardIterator result);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class ForwardIterator, class Compare>
     ForwardIterator
-      set_symmetric_difference(ExecutionPolicy&& exec,          // see \ref{algorithms.parallel.overloads}
+      set_symmetric_difference(ExecutionPolicy&& exec,          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                                ForwardIterator1 first1, ForwardIterator1 last1,
                                ForwardIterator2 first2, ForwardIterator2 last2,
                                ForwardIterator result, Compare comp);
@@ -2798,10 +2949,10 @@ namespace std {
     constexpr bool is_heap(RandomAccessIterator first, RandomAccessIterator last,
                            Compare comp);
   template<class ExecutionPolicy, class RandomAccessIterator>
-    bool is_heap(ExecutionPolicy&& exec,                        // see \ref{algorithms.parallel.overloads}
+    bool is_heap(ExecutionPolicy&& exec,                        // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                  RandomAccessIterator first, RandomAccessIterator last);
   template<class ExecutionPolicy, class RandomAccessIterator, class Compare>
-    bool is_heap(ExecutionPolicy&& exec,                        // see \ref{algorithms.parallel.overloads}
+    bool is_heap(ExecutionPolicy&& exec,                        // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                  RandomAccessIterator first, RandomAccessIterator last,
                  Compare comp);
 
@@ -2823,11 +2974,11 @@ namespace std {
                     Compare comp);
   template<class ExecutionPolicy, class RandomAccessIterator>
     RandomAccessIterator
-      is_heap_until(ExecutionPolicy&& exec,                     // see \ref{algorithms.parallel.overloads}
+      is_heap_until(ExecutionPolicy&& exec,                     // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                     RandomAccessIterator first, RandomAccessIterator last);
   template<class ExecutionPolicy, class RandomAccessIterator, class Compare>
     RandomAccessIterator
-      is_heap_until(ExecutionPolicy&& exec,                     // see \ref{algorithms.parallel.overloads}
+      is_heap_until(ExecutionPolicy&& exec,                     // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                     RandomAccessIterator first, RandomAccessIterator last,
                     Compare comp);
 
@@ -2919,10 +3070,10 @@ namespace std {
     constexpr ForwardIterator min_element(ForwardIterator first, ForwardIterator last,
                                           Compare comp);
   template<class ExecutionPolicy, class ForwardIterator>
-    ForwardIterator min_element(ExecutionPolicy&& exec,         // see \ref{algorithms.parallel.overloads}
+    ForwardIterator min_element(ExecutionPolicy&& exec,         // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                                 ForwardIterator first, ForwardIterator last);
   template<class ExecutionPolicy, class ForwardIterator, class Compare>
-    ForwardIterator min_element(ExecutionPolicy&& exec,         // see \ref{algorithms.parallel.overloads}
+    ForwardIterator min_element(ExecutionPolicy&& exec,         // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                                 ForwardIterator first, ForwardIterator last,
                                 Compare comp);
 
@@ -2942,10 +3093,10 @@ namespace std {
     constexpr ForwardIterator max_element(ForwardIterator first, ForwardIterator last,
                                           Compare comp);
   template<class ExecutionPolicy, class ForwardIterator>
-    ForwardIterator max_element(ExecutionPolicy&& exec,         // see \ref{algorithms.parallel.overloads}
+    ForwardIterator max_element(ExecutionPolicy&& exec,         // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                                 ForwardIterator first, ForwardIterator last);
   template<class ExecutionPolicy, class ForwardIterator, class Compare>
-    ForwardIterator max_element(ExecutionPolicy&& exec,         // see \ref{algorithms.parallel.overloads}
+    ForwardIterator max_element(ExecutionPolicy&& exec,         // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                                 ForwardIterator first, ForwardIterator last,
                                 Compare comp);
 
@@ -2967,11 +3118,11 @@ namespace std {
       minmax_element(ForwardIterator first, ForwardIterator last, Compare comp);
   template<class ExecutionPolicy, class ForwardIterator>
     pair<ForwardIterator, ForwardIterator>
-      minmax_element(ExecutionPolicy&& exec,                    // see \ref{algorithms.parallel.overloads}
+      minmax_element(ExecutionPolicy&& exec,                    // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                      ForwardIterator first, ForwardIterator last);
   template<class ExecutionPolicy, class ForwardIterator, class Compare>
     pair<ForwardIterator, ForwardIterator>
-      minmax_element(ExecutionPolicy&& exec,                    // see \ref{algorithms.parallel.overloads}
+      minmax_element(ExecutionPolicy&& exec,                    // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                      ForwardIterator first, ForwardIterator last, Compare comp);
 
   namespace ranges {
@@ -3013,13 +3164,13 @@ namespace std {
                               Compare comp);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
     bool
-      lexicographical_compare(ExecutionPolicy&& exec,           // see \ref{algorithms.parallel.overloads}
+      lexicographical_compare(ExecutionPolicy&& exec,           // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                               ForwardIterator1 first1, ForwardIterator1 last1,
                               ForwardIterator2 first2, ForwardIterator2 last2);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class Compare>
     bool
-      lexicographical_compare(ExecutionPolicy&& exec,           // see \ref{algorithms.parallel.overloads}
+      lexicographical_compare(ExecutionPolicy&& exec,           // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                               ForwardIterator1 first1, ForwardIterator1 last1,
                               ForwardIterator2 first2, ForwardIterator2 last2,
                               Compare comp);
@@ -3766,10 +3917,12 @@ of the corresponding predicate and any projection.
 
 \indexlibraryglobal{find_last}%
 \begin{itemdecl}
-template<@\libconcept{forward_iterator}@ I, @\libconcept{sentinel_for}@<I> S, class T, class Proj = identity>
+template<@\libconcept{forward_iterator}@ I, @\libconcept{sentinel_for}@<I> S, class Proj = identity,
+         class T = projected_value_t<I, Proj>>
   requires @\libconcept{indirect_binary_predicate}@<ranges::equal_to, projected<I, Proj>, const T*>
   constexpr subrange<I> ranges::find_last(I first, S last, const T& value, Proj proj = {});
-template<@\libconcept{forward_range}@ R, class T, class Proj = identity>
+template<@\libconcept{forward_range}@ R, class Proj = identity,
+         class T = projected_value_t<iterator_t<R>, Proj>>
   requires @\libconcept{indirect_binary_predicate}@<ranges::equal_to, projected<iterator_t<R>, Proj>, const T*>
   constexpr borrowed_subrange_t<R> ranges::find_last(R&& r, const T& value, Proj proj = {});
 template<@\libconcept{forward_iterator}@ I, @\libconcept{sentinel_for}@<I> S, class Proj = identity,
@@ -3963,7 +4116,7 @@ if no such iterator is found.
 
 \pnum
 \complexity
-At most \tcode{(last1-first1) * (last2-first2)} applications
+At most \tcode{(last1 - first1) * (last2 - first2)} applications
 of the corresponding predicate and any projections.
 \end{itemdescr}
 
@@ -4403,7 +4556,7 @@ otherwise, returns \tcode{false}.
 
 \pnum
 \complexity
-No applications of the corresponding predicate and projections if:
+No applications of the corresponding predicate and projections if
 \begin{itemize}
 \item
 for the first overload,
@@ -4456,7 +4609,7 @@ template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
 \begin{itemdescr}
 \pnum
 \returns
-The first iterator \tcode{i} in the range \range{first1}{last1 - (last2-first2)}
+The first iterator \tcode{i} in the range \crange{first1}{last1 - (last2 - first2)}
 such that
 for every non-negative integer \tcode{n} less than \tcode{last2 - first2}
 the following corresponding conditions hold:
@@ -4494,7 +4647,7 @@ template<@\libconcept{forward_range}@ R1, @\libconcept{forward_range}@ R2, class
 \item
   \tcode{\{i, i + (last2 - first2)\}},
   where \tcode{i} is
-  the first iterator in the range \range{first1}{last1 - (last2 - first2)}
+  the first iterator in the range \crange{first1}{last1 - (last2 - first2)}
   such that
   for every non-negative integer \tcode{n} less than \tcode{last2 - first2}
   the condition
@@ -4549,11 +4702,15 @@ The type \tcode{Size}
 is convertible to an integral type\iref{conv.integral,class.conv}.
 
 \pnum
+Let $E$ be \tcode{pred(*(i + n), value) != false}
+for the overloads with a parameter \tcode{pred},
+and \tcode{*(i + n) == value} otherwise.
+
+\pnum
 \returns
-The first iterator \tcode{i} in the range \range{first}{last-count}
+The first iterator \tcode{i} in the range \crange{first}{last - count}
 such that for every non-negative integer \tcode{n} less than \tcode{count}
-the following corresponding conditions hold:
-\tcode{*(i + n) == value, pred(*(i + n), value) != false}.
+the condition $E$ is \tcode{true}.
 Returns \tcode{last} if no such iterator is found.
 
 \pnum
@@ -4582,7 +4739,7 @@ template<@\libconcept{forward_range}@ R, class Pred = ranges::equal_to,
 \pnum
 \returns
 \tcode{\{i, i + count\}}
-where \tcode{i} is the first iterator in the range \range{first}{last - count}
+where \tcode{i} is the first iterator in the range \crange{first}{last - count}
 such that for every non-negative integer \tcode{n} less than \tcode{count},
 the following condition holds:
 \tcode{invoke(pred, invoke(proj, *(i + n)), value)}.
@@ -4682,7 +4839,8 @@ Let \tcode{N1} be \tcode{ranges::distance(r1)} and
 \returns
 \tcode{false} if $\tcode{N1} < \tcode{N2}$, otherwise
 \begin{codeblock}
-ranges::equal(ranges::drop_view(ranges::ref_view(r1), N1 - N2), r2, pred, proj1, proj2)
+ranges::equal(views::drop(ranges::ref_view(r1), N1 - static_cast<decltype(N1)>(N2)),
+              r2, pred, proj1, proj2)
 \end{codeblock}
 \end{itemdescr}
 
@@ -4904,7 +5062,7 @@ Exactly $N$ assignments.
 \indexlibraryglobal{copy}%
 \begin{itemdecl}
 template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
-  ForwardIterator2 copy(ExecutionPolicy&& policy,
+  ForwardIterator2 copy(ExecutionPolicy&& exec,
                         ForwardIterator1 first, ForwardIterator1 last,
                         ForwardIterator2 result);
 \end{itemdecl}
@@ -5167,7 +5325,7 @@ Exactly $N$ assignments.
 \indexlibrary{\idxcode{move}!algorithm}%
 \begin{itemdecl}
 template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
-  ForwardIterator2 move(ExecutionPolicy&& policy,
+  ForwardIterator2 move(ExecutionPolicy&& exec,
                         ForwardIterator1 first, ForwardIterator1 last,
                         ForwardIterator2 result);
 \end{itemdecl}
@@ -5266,7 +5424,7 @@ Exactly $N$ assignments.
 template<class ForwardIterator1, class ForwardIterator2>
   constexpr ForwardIterator2
     swap_ranges(ForwardIterator1 first1, ForwardIterator1 last1,
-                ForwardIterator2 first2);                               // freestanding
+                ForwardIterator2 first2);
 template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
   ForwardIterator2
     swap_ranges(ExecutionPolicy&& exec,
@@ -5390,14 +5548,14 @@ template<@\libconcept{input_iterator}@ I1, @\libconcept{sentinel_for}@<I1> S1, @
          @\libconcept{weakly_incrementable}@ O, @\libconcept{copy_constructible}@ F, class Proj1 = identity,
          class Proj2 = identity>
   requires @\libconcept{indirectly_writable}@<O, indirect_result_t<F&, projected<I1, Proj1>,
-                                         projected<I2, Proj2>>>
+                               projected<I2, Proj2>>>
   constexpr ranges::binary_transform_result<I1, I2, O>
     ranges::transform(I1 first1, S1 last1, I2 first2, S2 last2, O result,
                       F binary_op, Proj1 proj1 = {}, Proj2 proj2 = {});
 template<@\libconcept{input_range}@ R1, @\libconcept{input_range}@ R2, @\libconcept{weakly_incrementable}@ O,
          @\libconcept{copy_constructible}@ F, class Proj1 = identity, class Proj2 = identity>
   requires @\libconcept{indirectly_writable}@<O, indirect_result_t<F&, projected<iterator_t<R1>, Proj1>,
-                                         projected<iterator_t<R2>, Proj2>>>
+                               projected<iterator_t<R2>, Proj2>>>
   constexpr ranges::binary_transform_result<borrowed_iterator_t<R1>, borrowed_iterator_t<R2>, O>
     ranges::transform(R1&& r1, R2&& r2, O result,
                       F binary_op, Proj1 proj1 = {}, Proj2 proj2 = {});
@@ -5559,14 +5717,12 @@ of the corresponding predicate and any projection.
 \indexlibraryglobal{replace_copy}%
 \indexlibraryglobal{replace_copy_if}%
 \begin{itemdecl}
-template<class InputIterator, class OutputIterator,
-         class T = iterator_traits<OutputIterator>::value_type>
+template<class InputIterator, class OutputIterator, class T>
   constexpr OutputIterator
     replace_copy(InputIterator first, InputIterator last,
                  OutputIterator result,
                  const T& old_value, const T& new_value);
-template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
-         class T = iterator_traits<ForwardIterator2>::value_type>
+template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2, class T>
   ForwardIterator2
     replace_copy(ExecutionPolicy&& exec,
                  ForwardIterator1 first, ForwardIterator1 last,
@@ -6107,7 +6263,7 @@ let $E$ be
 \expects
 \begin{itemize}
 \item
-  The ranges \range{first}{last} and \range{result}{result+(last-first)}
+  The ranges \range{first}{last} and \range{result}{result + (last - first)}
   do not overlap.
 \item
   For the overloads in namespace \tcode{std}:
@@ -6608,7 +6764,7 @@ Otherwise, moves the element
 from position \tcode{first + i} into position \tcode{first + n + i}
 for each non-negative integer \tcode{i < (last - first) - n}.
 Does so in order starting
-from \tcode{i = (last - first) - n - 1} and proceeding to \tcode{i = 0} if:
+from \tcode{i = (last - first) - n - 1} and proceeding to \tcode{i = 0} if
 \begin{itemize}
 \item
 for the overload in namespace \tcode{std}
@@ -7412,7 +7568,7 @@ The elements \tcode{e} of \range{first}{last}
 are partitioned with respect to the expressions
 \tcode{bool(invoke(comp, invoke(proj, e), value))} and
 \tcode{!bool(invoke(comp, value, invoke(proj, e)))}.
-Also, for all elements \tcode{e} of \tcode{[first, last)},
+Also, for all elements \tcode{e} of \range{first}{last},
 \tcode{bool(comp(e, value))} implies \tcode{!bool(comp(\brk{}value, e))}
 for the overloads in namespace \tcode{std}.
 
@@ -7479,7 +7635,7 @@ The elements \tcode{e} of \range{first}{last}
 are partitioned with respect to the expressions
 \tcode{bool(invoke(comp, invoke(proj, e), value))} and
 \tcode{!bool(invoke(comp, value, invoke(proj, e)))}.
-Also, for all elements \tcode{e} of \tcode{[first, last)},
+Also, for all elements \tcode{e} of \range{first}{last},
 \tcode{bool(comp(e, value))} implies \tcode{!bool(comp(\brk{}value, e))}
 for the overloads in namespace \tcode{std}.
 
@@ -7945,7 +8101,7 @@ Let $N = \tcode{last - first}$:
 \begin{itemize}
 \item
   For the overloads with no \tcode{ExecutionPolicy}, and
-  if enough additional memory is available, exactly $N - 1$ comparisons.
+  if enough additional memory is available, at most $N - 1$ comparisons.
 \item
   Otherwise, \bigoh{N \log N} comparisons.
 \end{itemize}
@@ -9300,7 +9456,7 @@ of the first corresponding pair of elements that are not equivalent.
 \tcode{ranges::lexicographical_compare(I1, S1, I2, S2, Comp, Proj1, Proj2)}
 can be implemented as:
 \begin{codeblock}
-for ( ; first1 != last1 && first2 != last2 ; ++first1, (void) ++first2) {
+for (; first1 != last1 && first2 != last2; ++first1, (void)++first2) {
   if (invoke(comp, invoke(proj1, *first1), invoke(proj2, *first2))) return true;
   if (invoke(comp, invoke(proj2, *first2), invoke(proj1, *first1))) return false;
 }
@@ -9488,6 +9644,7 @@ At most \tcode{(last - first) / 2} swaps.
 
 \indexheader{numeric}%
 \begin{codeblock}
+// mostly freestanding
 namespace std {
   // \ref{accumulate}, accumulate
   template<class InputIterator, class T>
@@ -9507,13 +9664,13 @@ namespace std {
                        BinaryOperation binary_op);
   template<class ExecutionPolicy, class ForwardIterator>
     typename iterator_traits<ForwardIterator>::value_type
-      reduce(ExecutionPolicy&& exec,                            // see \ref{algorithms.parallel.overloads}
+      reduce(ExecutionPolicy&& exec,                            // freestanding-deleted, see \ref{algorithms.parallel.overloads}
              ForwardIterator first, ForwardIterator last);
   template<class ExecutionPolicy, class ForwardIterator, class T>
-    T reduce(ExecutionPolicy&& exec,                            // see \ref{algorithms.parallel.overloads}
+    T reduce(ExecutionPolicy&& exec,                            // freestanding-deleted, see \ref{algorithms.parallel.overloads}
              ForwardIterator first, ForwardIterator last, T init);
   template<class ExecutionPolicy, class ForwardIterator, class T, class BinaryOperation>
-    T reduce(ExecutionPolicy&& exec,                            // see \ref{algorithms.parallel.overloads}
+    T reduce(ExecutionPolicy&& exec,                            // freestanding-deleted, see \ref{algorithms.parallel.overloads}
              ForwardIterator first, ForwardIterator last, T init, BinaryOperation binary_op);
 
   // \ref{inner.product}, inner product
@@ -9541,19 +9698,19 @@ namespace std {
                                  BinaryOperation binary_op, UnaryOperation unary_op);
   template<class ExecutionPolicy,
            class ForwardIterator1, class ForwardIterator2, class T>
-    T transform_reduce(ExecutionPolicy&& exec,                  // see \ref{algorithms.parallel.overloads}
+    T transform_reduce(ExecutionPolicy&& exec,                  // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                        ForwardIterator1 first1, ForwardIterator1 last1,
                        ForwardIterator2 first2, T init);
   template<class ExecutionPolicy,
            class ForwardIterator1, class ForwardIterator2, class T,
            class BinaryOperation1, class BinaryOperation2>
-    T transform_reduce(ExecutionPolicy&& exec,                  // see \ref{algorithms.parallel.overloads}
+    T transform_reduce(ExecutionPolicy&& exec,                  // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                        ForwardIterator1 first1, ForwardIterator1 last1,
                        ForwardIterator2 first2, T init,
                        BinaryOperation1 binary_op1, BinaryOperation2 binary_op2);
   template<class ExecutionPolicy, class ForwardIterator, class T,
            class BinaryOperation, class UnaryOperation>
-    T transform_reduce(ExecutionPolicy&& exec,                  // see \ref{algorithms.parallel.overloads}
+    T transform_reduce(ExecutionPolicy&& exec,                  // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                        ForwardIterator first, ForwardIterator last, T init,
                        BinaryOperation binary_op, UnaryOperation unary_op);
 
@@ -9578,13 +9735,13 @@ namespace std {
                      OutputIterator result, T init, BinaryOperation binary_op);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2, class T>
     ForwardIterator2
-      exclusive_scan(ExecutionPolicy&& exec,                    // see \ref{algorithms.parallel.overloads}
+      exclusive_scan(ExecutionPolicy&& exec,                    // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                      ForwardIterator1 first, ForwardIterator1 last,
                      ForwardIterator2 result, T init);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2, class T,
            class BinaryOperation>
     ForwardIterator2
-      exclusive_scan(ExecutionPolicy&& exec,                    // see \ref{algorithms.parallel.overloads}
+      exclusive_scan(ExecutionPolicy&& exec,                    // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                      ForwardIterator1 first, ForwardIterator1 last,
                      ForwardIterator2 result, T init, BinaryOperation binary_op);
 
@@ -9603,19 +9760,19 @@ namespace std {
                      OutputIterator result, BinaryOperation binary_op, T init);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
     ForwardIterator2
-      inclusive_scan(ExecutionPolicy&& exec,                    // see \ref{algorithms.parallel.overloads}
+      inclusive_scan(ExecutionPolicy&& exec,                    // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                      ForwardIterator1 first, ForwardIterator1 last,
                      ForwardIterator2 result);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class BinaryOperation>
     ForwardIterator2
-      inclusive_scan(ExecutionPolicy&& exec,                    // see \ref{algorithms.parallel.overloads}
+      inclusive_scan(ExecutionPolicy&& exec,                    // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                      ForwardIterator1 first, ForwardIterator1 last,
                      ForwardIterator2 result, BinaryOperation binary_op);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class BinaryOperation, class T>
     ForwardIterator2
-      inclusive_scan(ExecutionPolicy&& exec,                    // see \ref{algorithms.parallel.overloads}
+      inclusive_scan(ExecutionPolicy&& exec,                    // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                      ForwardIterator1 first, ForwardIterator1 last,
                      ForwardIterator2 result, BinaryOperation binary_op, T init);
 
@@ -9629,7 +9786,7 @@ namespace std {
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2, class T,
            class BinaryOperation, class UnaryOperation>
     ForwardIterator2
-      transform_exclusive_scan(ExecutionPolicy&& exec,          // see \ref{algorithms.parallel.overloads}
+      transform_exclusive_scan(ExecutionPolicy&& exec,          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                                ForwardIterator1 first, ForwardIterator1 last,
                                ForwardIterator2 result, T init,
                                BinaryOperation binary_op, UnaryOperation unary_op);
@@ -9650,14 +9807,14 @@ namespace std {
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class BinaryOperation, class UnaryOperation>
     ForwardIterator2
-      transform_inclusive_scan(ExecutionPolicy&& exec,          // see \ref{algorithms.parallel.overloads}
+      transform_inclusive_scan(ExecutionPolicy&& exec,          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                                ForwardIterator1 first, ForwardIterator1 last,
                                ForwardIterator2 result, BinaryOperation binary_op,
                                UnaryOperation unary_op);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class BinaryOperation, class UnaryOperation, class T>
     ForwardIterator2
-      transform_inclusive_scan(ExecutionPolicy&& exec,          // see \ref{algorithms.parallel.overloads}
+      transform_inclusive_scan(ExecutionPolicy&& exec,          // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                                ForwardIterator1 first, ForwardIterator1 last,
                                ForwardIterator2 result,
                                BinaryOperation binary_op, UnaryOperation unary_op, T init);
@@ -9673,13 +9830,13 @@ namespace std {
                           OutputIterator result, BinaryOperation binary_op);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2>
     ForwardIterator2
-      adjacent_difference(ExecutionPolicy&& exec,               // see \ref{algorithms.parallel.overloads}
+      adjacent_difference(ExecutionPolicy&& exec,               // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                           ForwardIterator1 first, ForwardIterator1 last,
                           ForwardIterator2 result);
   template<class ExecutionPolicy, class ForwardIterator1, class ForwardIterator2,
            class BinaryOperation>
     ForwardIterator2
-      adjacent_difference(ExecutionPolicy&& exec,               // see \ref{algorithms.parallel.overloads}
+      adjacent_difference(ExecutionPolicy&& exec,               // freestanding-deleted, see \ref{algorithms.parallel.overloads}
                           ForwardIterator1 first, ForwardIterator1 last,
                           ForwardIterator2 result, BinaryOperation binary_op);
 
@@ -9715,15 +9872,15 @@ namespace std {
 
   // \ref{numeric.sat}, saturation arithmetic
   template<class T>
-    constexpr T add_sat(T x, T y) noexcept;                     // freestanding
+    constexpr T add_sat(T x, T y) noexcept;
   template<class T>
-    constexpr T sub_sat(T x, T y) noexcept;                     // freestanding
+    constexpr T sub_sat(T x, T y) noexcept;
   template<class T>
-    constexpr T mul_sat(T x, T y) noexcept;                     // freestanding
+    constexpr T mul_sat(T x, T y) noexcept;
   template<class T>
-    constexpr T div_sat(T x, T y) noexcept;                     // freestanding
+    constexpr T div_sat(T x, T y) noexcept;
   template<class T, class U>
-    constexpr T saturate_cast(U x) noexcept;                    // freestanding
+    constexpr T saturate_cast(U x) noexcept;
 }
 \end{codeblock}
 
@@ -10665,7 +10822,7 @@ move assigns from \tcode{val} to \tcode{acc}.
 \pnum
 For the overloads with an \tcode{ExecutionPolicy} and a non-empty range,
 performs \tcode{*result = *first}.
-Then, for every \tcode{d} in \tcode{[1, last - first - 1]},
+Then, for every \tcode{d} in \crange{1}{last - first - 1},
 performs \tcode{*(result + d) = binary_op(*(first + d), *(first + (d - 1)))}.
 
 \pnum
@@ -10985,13 +11142,29 @@ are destroyed in an unspecified order
 before allowing the exception to propagate.
 
 \pnum
+\begin{note}
+When new objects are created by
+the algorithms specified in \ref{specialized.algorithms},
+the lifetime ends for any existing objects
+(including potentially-overlapping subobjects \ref{intro.object})
+in storage that is reused \ref{basic.life}.
+\end{note}
+
+\pnum
 Some algorithms specified in \ref{specialized.algorithms}
-make use of the exposition-only function template
-\tcode{\placeholdernc{voidify}}:
+make use of the following exposition-only function templates:
 \begin{codeblock}
 template<class T>
   constexpr void* @\placeholdernc{voidify}@(T& obj) noexcept {
     return addressof(obj);
+  }
+
+template<class I>
+  decltype(auto) @\exposid{deref-move}@(I& it) {
+    if constexpr (is_lvalue_reference_v<decltype(*it)>)
+      return std::move(*it);
+    else
+      return *it;
   }
 \end{codeblock}
 
@@ -11086,7 +11259,8 @@ concept @\defexposconcept{nothrow-forward-range}@ = // \expos
 \indexlibraryglobal{uninitialized_default_construct}%
 \begin{itemdecl}
 template<class NoThrowForwardIterator>
-  void uninitialized_default_construct(NoThrowForwardIterator first, NoThrowForwardIterator last);
+  constexpr void uninitialized_default_construct(NoThrowForwardIterator first,
+                                                 NoThrowForwardIterator last);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -11105,10 +11279,10 @@ for (; first != last; ++first)
 namespace ranges {
   template<@\exposconcept{nothrow-forward-iterator}@ I, @\exposconcept{nothrow-sentinel-for}@<I> S>
     requires @\libconcept{default_initializable}@<iter_value_t<I>>
-    I uninitialized_default_construct(I first, S last);
+    constexpr I uninitialized_default_construct(I first, S last);
   template<@\exposconcept{nothrow-forward-range}@ R>
     requires @\libconcept{default_initializable}@<range_value_t<R>>
-    borrowed_iterator_t<R> uninitialized_default_construct(R&& r);
+    constexpr borrowed_iterator_t<R> uninitialized_default_construct(R&& r);
 }
 \end{itemdecl}
 
@@ -11126,7 +11300,8 @@ return first;
 \indexlibraryglobal{uninitialized_default_construct_n}%
 \begin{itemdecl}
 template<class NoThrowForwardIterator, class Size>
-  NoThrowForwardIterator uninitialized_default_construct_n(NoThrowForwardIterator first, Size n);
+  constexpr NoThrowForwardIterator
+    uninitialized_default_construct_n(NoThrowForwardIterator first, Size n);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -11146,7 +11321,7 @@ return first;
 namespace ranges {
   template<@\exposconcept{nothrow-forward-iterator}@ I>
     requires @\libconcept{default_initializable}@<iter_value_t<I>>
-    I uninitialized_default_construct_n(I first, iter_difference_t<I> n);
+    constexpr I uninitialized_default_construct_n(I first, iter_difference_t<I> n);
 }
 \end{itemdecl}
 
@@ -11165,7 +11340,8 @@ return uninitialized_default_construct(counted_iterator(first, n),
 \indexlibraryglobal{uninitialized_value_construct}%
 \begin{itemdecl}
 template<class NoThrowForwardIterator>
-  void uninitialized_value_construct(NoThrowForwardIterator first, NoThrowForwardIterator last);
+  constexpr void uninitialized_value_construct(NoThrowForwardIterator first,
+                                               NoThrowForwardIterator last);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -11184,10 +11360,10 @@ for (; first != last; ++first)
 namespace ranges {
   template<@\exposconcept{nothrow-forward-iterator}@ I, @\exposconcept{nothrow-sentinel-for}@<I> S>
     requires @\libconcept{default_initializable}@<iter_value_t<I>>
-    I uninitialized_value_construct(I first, S last);
+    constexpr I uninitialized_value_construct(I first, S last);
   template<@\exposconcept{nothrow-forward-range}@ R>
     requires @\libconcept{default_initializable}@<range_value_t<R>>
-    borrowed_iterator_t<R> uninitialized_value_construct(R&& r);
+    constexpr borrowed_iterator_t<R> uninitialized_value_construct(R&& r);
 }
 \end{itemdecl}
 
@@ -11205,7 +11381,8 @@ return first;
 \indexlibraryglobal{uninitialized_value_construct_n}%
 \begin{itemdecl}
 template<class NoThrowForwardIterator, class Size>
-  NoThrowForwardIterator uninitialized_value_construct_n(NoThrowForwardIterator first, Size n);
+  constexpr NoThrowForwardIterator
+    uninitialized_value_construct_n(NoThrowForwardIterator first, Size n);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -11225,7 +11402,7 @@ return first;
 namespace ranges {
   template<@\exposconcept{nothrow-forward-iterator}@ I>
     requires @\libconcept{default_initializable}@<iter_value_t<I>>
-    I uninitialized_value_construct_n(I first, iter_difference_t<I> n);
+    constexpr I uninitialized_value_construct_n(I first, iter_difference_t<I> n);
 }
 \end{itemdecl}
 
@@ -11244,8 +11421,8 @@ return uninitialized_value_construct(counted_iterator(first, n),
 \indexlibraryglobal{uninitialized_copy}%
 \begin{itemdecl}
 template<class InputIterator, class NoThrowForwardIterator>
-  NoThrowForwardIterator uninitialized_copy(InputIterator first, InputIterator last,
-                                            NoThrowForwardIterator result);
+  constexpr NoThrowForwardIterator uninitialized_copy(InputIterator first, InputIterator last,
+                                                      NoThrowForwardIterator result);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -11257,7 +11434,7 @@ template<class InputIterator, class NoThrowForwardIterator>
 \effects
 Equivalent to:
 \begin{codeblock}
-for (; first != last; ++result, (void) ++first)
+for (; first != last; ++result, (void)++first)
   ::new (@\placeholdernc{voidify}@(*result))
     typename iterator_traits<NoThrowForwardIterator>::value_type(*first);
 \end{codeblock}
@@ -11273,11 +11450,11 @@ namespace ranges {
   template<@\libconcept{input_iterator}@ I, @\libconcept{sentinel_for}@<I> S1,
            @\exposconcept{nothrow-forward-iterator}@ O, @\exposconcept{nothrow-sentinel-for}@<O> S2>
     requires @\libconcept{constructible_from}@<iter_value_t<O>, iter_reference_t<I>>
-    uninitialized_copy_result<I, O>
+    constexpr uninitialized_copy_result<I, O>
       uninitialized_copy(I ifirst, S1 ilast, O ofirst, S2 olast);
   template<@\libconcept{input_range}@ IR, @\exposconcept{nothrow-forward-range}@ OR>
     requires @\libconcept{constructible_from}@<range_value_t<OR>, range_reference_t<IR>>
-    uninitialized_copy_result<borrowed_iterator_t<IR>, borrowed_iterator_t<OR>>
+    constexpr uninitialized_copy_result<borrowed_iterator_t<IR>, borrowed_iterator_t<OR>>
       uninitialized_copy(IR&& in_range, OR&& out_range);
 }
 \end{itemdecl}
@@ -11300,8 +11477,8 @@ return {std::move(ifirst), ofirst};
 \indexlibraryglobal{uninitialized_copy_n}%
 \begin{itemdecl}
 template<class InputIterator, class Size, class NoThrowForwardIterator>
-  NoThrowForwardIterator uninitialized_copy_n(InputIterator first, Size n,
-                                              NoThrowForwardIterator result);
+  constexpr NoThrowForwardIterator uninitialized_copy_n(InputIterator first, Size n,
+                                                        NoThrowForwardIterator result);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -11313,7 +11490,7 @@ template<class InputIterator, class Size, class NoThrowForwardIterator>
 \effects
 Equivalent to:
 \begin{codeblock}
-for ( ; n > 0; ++result, (void) ++first, --n)
+for (; n > 0; ++result, (void)++first, --n)
   ::new (@\placeholdernc{voidify}@(*result))
     typename iterator_traits<NoThrowForwardIterator>::value_type(*first);
 \end{codeblock}
@@ -11328,7 +11505,7 @@ for ( ; n > 0; ++result, (void) ++first, --n)
 namespace ranges {
   template<@\libconcept{input_iterator}@ I, @\exposconcept{nothrow-forward-iterator}@ O, @\exposconcept{nothrow-sentinel-for}@<O> S>
     requires @\libconcept{constructible_from}@<iter_value_t<O>, iter_reference_t<I>>
-    uninitialized_copy_n_result<I, O>
+    constexpr uninitialized_copy_n_result<I, O>
       uninitialized_copy_n(I ifirst, iter_difference_t<I> n, O ofirst, S olast);
 }
 \end{itemdecl}
@@ -11354,8 +11531,8 @@ return {std::move(t.in).base(), t.out};
 \indexlibraryglobal{uninitialized_move}%
 \begin{itemdecl}
 template<class InputIterator, class NoThrowForwardIterator>
-  NoThrowForwardIterator uninitialized_move(InputIterator first, InputIterator last,
-                                            NoThrowForwardIterator result);
+  constexpr NoThrowForwardIterator uninitialized_move(InputIterator first, InputIterator last,
+                                                      NoThrowForwardIterator result);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -11369,7 +11546,7 @@ Equivalent to:
 \begin{codeblock}
 for (; first != last; (void)++result, ++first)
   ::new (@\placeholdernc{voidify}@(*result))
-    typename iterator_traits<NoThrowForwardIterator>::value_type(std::move(*first));
+    typename iterator_traits<NoThrowForwardIterator>::value_type(@\exposid{deref-move}@(first));
 return result;
 \end{codeblock}
 \end{itemdescr}
@@ -11380,11 +11557,11 @@ namespace ranges {
   template<@\libconcept{input_iterator}@ I, @\libconcept{sentinel_for}@<I> S1,
            @\exposconcept{nothrow-forward-iterator}@ O, @\exposconcept{nothrow-sentinel-for}@<O> S2>
     requires @\libconcept{constructible_from}@<iter_value_t<O>, iter_rvalue_reference_t<I>>
-    uninitialized_move_result<I, O>
+    constexpr uninitialized_move_result<I, O>
       uninitialized_move(I ifirst, S1 ilast, O ofirst, S2 olast);
   template<@\libconcept{input_range}@ IR, @\exposconcept{nothrow-forward-range}@ OR>
     requires @\libconcept{constructible_from}@<range_value_t<OR>, range_rvalue_reference_t<IR>>
-    uninitialized_move_result<borrowed_iterator_t<IR>, borrowed_iterator_t<OR>>
+    constexpr uninitialized_move_result<borrowed_iterator_t<IR>, borrowed_iterator_t<OR>>
       uninitialized_move(IR&& in_range, OR&& out_range);
 }
 \end{itemdecl}
@@ -11414,7 +11591,7 @@ left in a valid, but unspecified state.
 \indexlibraryglobal{uninitialized_move_n}%
 \begin{itemdecl}
 template<class InputIterator, class Size, class NoThrowForwardIterator>
-  pair<InputIterator, NoThrowForwardIterator>
+  constexpr pair<InputIterator, NoThrowForwardIterator>
     uninitialized_move_n(InputIterator first, Size n, NoThrowForwardIterator result);
 \end{itemdecl}
 
@@ -11427,9 +11604,9 @@ template<class InputIterator, class Size, class NoThrowForwardIterator>
 \effects
 Equivalent to:
 \begin{codeblock}
-for (; n > 0; ++result, (void) ++first, --n)
+for (; n > 0; ++result, (void)++first, --n)
   ::new (@\placeholdernc{voidify}@(*result))
-    typename iterator_traits<NoThrowForwardIterator>::value_type(std::move(*first));
+    typename iterator_traits<NoThrowForwardIterator>::value_type(@\exposid{deref-move}@(first));
 return {first, result};
 \end{codeblock}
 \end{itemdescr}
@@ -11439,7 +11616,7 @@ return {first, result};
 namespace ranges {
   template<@\libconcept{input_iterator}@ I, @\exposconcept{nothrow-forward-iterator}@ O, @\exposconcept{nothrow-sentinel-for}@<O> S>
     requires @\libconcept{constructible_from}@<iter_value_t<O>, iter_rvalue_reference_t<I>>
-    uninitialized_move_n_result<I, O>
+    constexpr uninitialized_move_n_result<I, O>
       uninitialized_move_n(I ifirst, iter_difference_t<I> n, O ofirst, S olast);
 }
 \end{itemdecl}
@@ -11471,7 +11648,8 @@ are left in a valid but unspecified state.
 \indexlibraryglobal{uninitialized_fill}%
 \begin{itemdecl}
 template<class NoThrowForwardIterator, class T>
-  void uninitialized_fill(NoThrowForwardIterator first, NoThrowForwardIterator last, const T& x);
+  constexpr void uninitialized_fill(NoThrowForwardIterator first,
+                                    NoThrowForwardIterator last, const T& x);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -11490,10 +11668,10 @@ for (; first != last; ++first)
 namespace ranges {
   template<@\exposconcept{nothrow-forward-iterator}@ I, @\exposconcept{nothrow-sentinel-for}@<I> S, class T>
     requires @\libconcept{constructible_from}@<iter_value_t<I>, const T&>
-    I uninitialized_fill(I first, S last, const T& x);
+    constexpr I uninitialized_fill(I first, S last, const T& x);
   template<@\exposconcept{nothrow-forward-range}@ R, class T>
     requires @\libconcept{constructible_from}@<range_value_t<R>, const T&>
-    borrowed_iterator_t<R> uninitialized_fill(R&& r, const T& x);
+    constexpr borrowed_iterator_t<R> uninitialized_fill(R&& r, const T& x);
 }
 \end{itemdecl}
 
@@ -11511,7 +11689,8 @@ return first;
 \indexlibraryglobal{uninitialized_fill_n}%
 \begin{itemdecl}
 template<class NoThrowForwardIterator, class Size, class T>
-  NoThrowForwardIterator uninitialized_fill_n(NoThrowForwardIterator first, Size n, const T& x);
+  constexpr NoThrowForwardIterator
+    uninitialized_fill_n(NoThrowForwardIterator first, Size n, const T& x);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -11531,7 +11710,7 @@ return first;
 namespace ranges {
   template<@\exposconcept{nothrow-forward-iterator}@ I, class T>
     requires @\libconcept{constructible_from}@<iter_value_t<I>, const T&>
-    I uninitialized_fill_n(I first, iter_difference_t<I> n, const T& x);
+    constexpr I uninitialized_fill_n(I first, iter_difference_t<I> n, const T& x);
 }
 \end{itemdecl}
 
@@ -11560,14 +11739,22 @@ namespace ranges {
 \begin{itemdescr}
 \pnum
 \constraints
-The expression \tcode{::new (declval<void*>()) T(declval<Args>()...)}
+\tcode{is_unbounded_array_v<T>} is \tcode{false}.
+The expression \tcode{::new (declval<void*>()) T(\linebreak{}declval<Args>()...)}
 is well-formed when treated as an unevaluated operand\iref{term.unevaluated.operand}.
+
+\pnum
+\mandates
+If \tcode{is_array_v<T>} is \tcode{true}, \tcode{sizeof...(Args)} is zero.
 
 \pnum
 \effects
 Equivalent to:
 \begin{codeblock}
-return ::new (@\placeholdernc{voidify}@(*location)) T(std::forward<Args>(args)...);
+if constexpr (is_array_v<T>)
+  return ::new (@\placeholdernc{voidify}@(*location)) T[1]();
+else
+  return ::new (@\placeholdernc{voidify}@(*location)) T(std::forward<Args>(args)...);
 \end{codeblock}
 \end{itemdescr}
 
@@ -11678,6 +11865,7 @@ are declared in the header \libheaderrefx{random}{rand.synopsis}.
 
 \rSec2[alg.rand.generate]{\tcode{generate_random}}
 
+\indexlibraryglobal{generate_random}%
 \begin{itemdecl}
 template<class R, class G>
   requires @\libconcept{output_range}@<R, invoke_result_t<G&>> && @\libconcept{uniform_random_bit_generator}@<remove_cvref_t<G>>
@@ -11720,6 +11908,7 @@ with the same values as produced by invocation of \tcode{g()}.
 \end{note}
 \end{itemdescr}
 
+\indexlibraryglobal{generate_random}%
 \begin{itemdecl}
 template<class G, @\libconcept{output_iterator}@<invoke_result_t<G&>> O, @\libconcept{sentinel_for}@<O> S>
   requires @\libconcept{uniform_random_bit_generator}@<remove_cvref_t<G>>
@@ -11735,10 +11924,12 @@ return generate_random(subrange<O, S>(std::move(first), last), g);
 \end{codeblock}
 \end{itemdescr}
 
+\indexlibraryglobal{generate_random}%
 \begin{itemdecl}
 template<class R, class G, class D>
   requires @\libconcept{output_range}@<R, invoke_result_t<D&, G&>> && @\libconcept{invocable}@<D&, G&> &&
-           @\libconcept{uniform_random_bit_generator}@<remove_cvref_t<G>>
+           @\libconcept{uniform_random_bit_generator}@<remove_cvref_t<G>> &&
+           is_arithmetic_v<invoke_result_t<D&, G&>>
 constexpr borrowed_iterator_t<R> ranges::generate_random(R&& r, G&& g, D&& d);
 \end{itemdecl}
 
@@ -11770,7 +11961,7 @@ ranges::generate(std::forward<R>(r), [&d, &g] { return invoke(d, g); });
 
 \pnum
 \returns
-\tcode{ranges::end(r)}
+\tcode{ranges::end(r)}.
 
 \pnum
 \remarks
@@ -11785,9 +11976,11 @@ as produced by invocation of \tcode{invoke(d, g)}.
 \end{note}
 \end{itemdescr}
 
+\indexlibraryglobal{generate_random}%
 \begin{itemdecl}
 template<class G, class D, @\libconcept{output_iterator}@<invoke_result_t<D&, G&>> O, @\libconcept{sentinel_for}@<O> S>
-  requires @\libconcept{invocable}@<D&, G&> && @\libconcept{uniform_random_bit_generator}@<remove_cvref_t<G>>
+  requires @\libconcept{invocable}@<D&, G&> && @\libconcept{uniform_random_bit_generator}@<remove_cvref_t<G>> &&
+           is_arithmetic_v<invoke_result_t<D&, G&>>
 constexpr O ranges::generate_random(O first, S last, G&& g, D&& d);
 \end{itemdecl}
 

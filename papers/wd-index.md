@@ -49,3 +49,8 @@
  * [N4964](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2023/n4964.pdf) 2023-10 C++ Working Draft
  * [N4971](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2023/n4971.pdf) 2023-12 C++ Working Draft
  * [N4981](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/n4981.pdf) 2024-03 C++ Working Draft
+ * [N4986](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/n4986.pdf) 2024-06 C++ Working Draft
+ * [N4988](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/n4988.pdf) 2024-08 C++ Working Draft
+ * [N4993](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/n4993.pdf) 2024-10 C++ Working Draft
+ * [N5001](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2024/n5001.pdf) 2024-12 C++ Working Draft
+ * [N5008](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2025/n5008.pdf) 2025-03 C++ Working Draft
