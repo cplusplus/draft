@@ -64,6 +64,26 @@ struct Y {
 \end{codeblock}
 \end{example}
 
+\rSec2[ub.basic.align]{Object alignment}
+
+\pnum
+\ubxref{basic.align.object.alignment} \\
+All instances of a type must be created in storage that meets the alignment
+requirement of that type.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct alignas(4) S {};
+
+void make_misaligned()
+{
+    alignas(S) char s[sizeof(S) + 1];
+    new (&s+1) S();     // undefined behavior
+}
+\end{codeblock}
+\end{example}
+
 \rSec2[ub.basic.life]{Object lifetime}
 
 \pnum
@@ -221,13 +241,34 @@ void h() {
 \end{codeblock}
 \end{example}
 
+\rSec2[ub.basic.indet]{Indeterminate and erroneous values}
+
+\pnum
+\ubxref{basic.indet.value} \\
+When the result of an evaluation is
+an indeterminate value
+(but not just an erroneous value)
+the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+void g() {
+  int x [[ indeterminate ]];
+  int y = x;    // undefined behavior
+}
+\end{codeblock}
+\end{example}
 
 \rSec2[ub.basic.stc.dynamic]{Dynamic storage Duration}
 
 \pnum
 \ubxref{basic.stc.alloc.dealloc.constraint} \\
-If the behavior of an allocation or deallocation function does not satisfy the semantic constraints specified
-in \iref{basic.stc.dynamic.allocation} and \iref{basic.stc.dynamic.deallocation}, the behavior is undefined.
+If the behavior of an allocation or deallocation function does not satisfy the semantic constraints
+specified
+in \iref{basic.stc.dynamic.allocation} and \iref{basic.stc.dynamic.deallocation}.
+the behavior is undefined.
+
 
 \pnum
 \begin{example}
@@ -245,6 +286,71 @@ void operator delete(void* ptr) noexcept {
 }
 \end{codeblock}
 \end{example}
+
+\pnum
+\ubxref{basic.stc.alloc.dealloc.throw} \\
+If a call to a deallocation function
+terminates by throwing an exception
+the behavior is undefined.
+\pnum
+\begin{example}
+\begin{codeblock}
+struct X {
+  void operator delete(void*) { throw "oops"; }
+};
+void f()
+{
+  X* x = new X();
+  delete x;     // undefined behavior
+}
+\end{codeblock}
+\end{example}
+
+
+
+\rSec2[ub.basic.stc.alloc.zero.dereference]{Zero-sized allocation dereference}
+
+\pnum
+\ubxref{basic.stc.alloc.zero.dereference} \\
+The pointer returned when invoking an allocation function with a size of zero
+cannot be dereferenced.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+void test()
+{
+    char* c = static_cast<char*>(operator new(0z));
+    c[0] = 'X';     // undefined behavior
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[ub.basic.compound]{Compound types}
+
+\pnum
+\ubxref{basic.compound.invalid.pointer} \\
+Indirection or
+the invocation of a deallocation function
+with a pointer value referencing storage
+that has been freed
+has undefined behavior.
+(Most other uses of such a pointer have
+implemention-defined behavior.)
+
+\pnum
+\begin{example}
+\begin{codeblock}
+void f()
+{
+    int *x = new int{5};
+    delete x;
+    int y = *x; // undefined behavior
+    delete x;   // undefined behavior
+}
+\end{codeblock}
+\end{example}
+
 
 \rSec2[ub.intro.execution]{Sequential execution}
 
@@ -385,8 +491,10 @@ int main() {
 
 \pnum
 \ubxref{expr.basic.lvalue.strict.aliasing.violation} \\
-If a program attempts to access \iref{defns.access} the stored value of an object through a glvalue whose type is not
-similar \iref{conv.rval} to one of the following types the behavior is undefined
+If a program attempts to access \iref{defns.access} the stored value of an object
+whose dynamic type is $T$ through a glvalue whose type is not
+similar \iref{conv.rval} to $T$ (or its corresponding signed or unsigned types)
+the behavior is undefined.
 
 \pnum
 \begin{example}
@@ -402,6 +510,67 @@ int main() {
   int x = 0;
 
   x = foo(reinterpret_cast<float*>(&x), &x);
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{expr.basic.lvalue.union.initialization} \\
+If a program invokes a defaulted copy/move constructor or copy/move assignment
+operator of a union with an argument that is not an object of a similar type
+within its lifetime, the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+union U { int x; };
+void f()
+{
+   char u[sizeof(U)];
+   U o = reinterpret_cast<U&>(u);   // undefined behavior
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[ub.expr.type]{Type}
+
+\pnum
+\ubxref{expr.type.reference.lifetime} \\
+Evaluating a reference when an equivalent use of a pointer denoting the same object
+would be invalid has undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+void g()
+{
+  int* ip = new int(5);
+  int& i = *ip;
+  delete ip;
+  i;    // undefined behavior
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[ub.conv.lval]{Lvalue-to-rvalue conversion}
+
+\pnum
+\ubxref{conv.lval.valid.representation} \\
+Performing an
+lvalue-to-rvalue conversion
+on an object whose
+value representation
+is not valid for its type
+has undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+bool f() {
+  bool b = true;
+  char c = 42;
+  memcpy(&b, &c, 1);
+  return b;         // undefined behavior if \tcode{42} is not a valid value representation for \keyword{bool}
 }
 \end{codeblock}
 \end{example}
@@ -426,7 +595,6 @@ int main() {
                 // represetable values are [-inf,+inf] this would not be UB
   int i = d2;   // undefined behavior, the max value of double is not representable as int
 }
-
 \end{codeblock}
 \end{example}
 
@@ -434,7 +602,8 @@ int main() {
 \rSec2[ub.conv.fpint]{Floating-integral conversions}
 
 \pnum
-\ubxref{conv.fpint.not.represented} \\
+\ubxref{conv.fpint.float.not.represented} \\
+%\ubxref{conv.fpint.int.not.represented} \\  % in same section
 When converting a floating-point value to an integer type and vice versa if
 the value is not representable in the destination type it is undefined behavior.
 
@@ -456,6 +625,59 @@ int main() {
 }
 \end{codeblock}
 \end{example}
+
+\rSec2[ub.conv.ptr]{Pointer conversions}
+
+\pnum
+\ubxref{conv.ptr.virtual.base} \\
+Converting
+a pointer to a derived class \tcode{D}
+to
+a pointer to a virtual base class \tcode{B}
+that does not point to
+a valid object
+within its lifetime
+has undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct B {};
+struct D : virtual B {};
+void f()
+{
+  D ds[1];
+  B* b = &ds[1];    // undefined behavior
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[ub.conv.mem]{Pointer-to-member conversions}
+
+\pnum
+\ubxref{conv.member.missing.member} \\
+The conversion of
+a pointer to a member of a base class
+to a pointer to member of a derived class
+that could not contain that member
+has undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct B {};
+struct D1 : B { int d1; };
+struct D2 : B {};
+void f()
+{
+  int (D1::*pd1) = &D1::d1;
+  int (B::*pb) = static_cast<int (B::*)>(pd1);
+  int (D2::*pd2) = pb;  // undefined behavior
+}
+\end{codeblock}
+\end{example}
+
+
 
 \rSec2[ub.expr.call]{Function call}
 
@@ -484,7 +706,7 @@ int main() {
 \rSec2[ub.expr.ref]{Class member access}
 
 \pnum
-\ubxref{expr.ref.not.similar} \\
+\ubxref{expr.ref.member.not.similar} \\
 If \tcode{E2} is a non-static member and the result of \tcode{E1} is an object whose type
 is not similar\iref{conv.qual} to the type of \tcode{E1}, the behavior is undefined.
 
@@ -501,6 +723,25 @@ void f() {
 \end{codeblock}
 \end{example}
 
+\rSec2[ub.expr.dynamic.cast]{Dynamic cast}
+
+\pnum
+\ubxref{expr.dynamic.cast.lifetime} \\
+Evaluating a \keyword{dynamic_cast} on a non-null pointer or reference that
+denotes an object (of polymorphic type) of the wrong type or that is
+not within its lifetime has undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct B { virtual ~B(); };
+void f() {
+  B bs[1];
+  B* dp = dynamic_cast<B*>(bs+1);   // undefined behavior
+  B& dr = dynamic_cast<B&>(bs[1]);  // undefined behavior
+}
+\end{codeblock}
+\end{example}
 
 \rSec2[ub.expr.static.cast]{Static cast}
 
@@ -538,6 +779,31 @@ enum A { e1 = 1, e2 };
 void f() {
   enum A a = static_cast<A>(4); // undefined behavior, 4 is not with the range of enumeration values
 }
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{expr.static.cast.fp.outside.range} \\
+An explicit conversion of a
+floating-point value that is outside the range of the
+target type has undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+void f() {
+  double d = FLT_MAX * 16;
+  d *= 16;
+  float f = static_cast<float>(d);  // undefined behavior.
+}
+\end{codeblock}
+\end{example}
+
+
+\pnum
+\begin{example}
+\begin{codeblock}
+
 \end{codeblock}
 \end{example}
 
@@ -581,6 +847,24 @@ struct D : A, B {};
 int main() {
   char D::*p1 = &D::c;
   char B::*p2 = static_cast<char B::*>(p1); // undefined behavior, \tcode{B} does not contain the original member \tcode{c}
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[ub.expr.unary.op]{Unary operators}
+
+\pnum
+\ubxref{expr.unary.dereference} \\
+Dereferencing a pointer that does not point to an object or function
+has undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+int f()
+{
+  int *p = nullptr;
+  return *p;    // undefined behavior
 }
 \end{codeblock}
 \end{example}
@@ -815,7 +1099,7 @@ void f() {
 \end{example}
 
 \pnum
-\ubxref{expr.add.polymorphic} \\
+\ubxref{expr.add.not.similar} \\
 For addition or subtraction, if the expressions P or Q have type ``pointer to cv T'', where T and the array
 element type are not similar \iref{conv.rval}, the behavior is undefined.
 
@@ -1017,6 +1301,57 @@ int& y = const_cast<int&>(x);
 std::cout << y;         // undefined behavior, accessing volatile through non-volatile glvalue
 \end{codeblock}
 \end{example}
+
+\rSec2[ub.dcl.ref]{References}
+
+\pnum
+\ubxref{dcl.ref.incompatible.function} \\
+Initializing a reference to a function
+with a value that is a function
+that is not call-compatible\iref{expr.call}
+with the type of the reference
+has undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+void f(float x);
+void (&g)(int) = reinterpret_cast<void (&)(int)>(f);    // undefined behavior
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{dcl.ref.incompatible.type} \\
+Initializing a reference to an object
+with a value that is not
+type-accessible\iref{basic.lval} through
+the type of the reference
+has undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+float g;
+int& i = reinterpret_cast<int&>(g);     // undefined behavior
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{dcl.ref.uninitialized.reference} \\
+Evaluating a reference
+prior to initializing that
+reference has undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+extern int &ir1;
+int i2 = ir1;   // undefined behavior, \tcode{ir1} not yet initialized
+int ir1 = 17;
+\end{codeblock}
+\end{example}
+
+
 
 
 \rSec2[ub.dcl.fct.def.coroutine]{Coroutine definitions}
@@ -1269,7 +1604,7 @@ public:
 \rSec2[ub.class.cdtor]{Construction and destruction}
 
 \pnum
-\ubxref{class.cdtor.before.ctor.after.dtor} \\
+\ubxref{class.cdtor.before.ctor} \\
 For an object with a non-trivial constructor, referring to any non-static member or base class of the object
 before the constructor begins execution results in undefined behavior. For an object with a non-trivial
 destructor, referring to any non-static member or base class of the object after the destructor finishes execution
@@ -1314,6 +1649,35 @@ struct Y {
   Y() : p(&x.j) {       // undefined, \tcode{x} is not yet constructed
   }
 };
+\end{codeblock}
+\end{example}
+
+
+\pnum
+\ubxref{class.cdtor.after.dtor} \\
+For an object with a non-trivial destructor,
+referring to any non-static member or base class of the object
+after the destructor finishes execution
+has undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct X {
+  int i;
+  ~X();     // non-trivial
+};
+X& g()
+{
+  static X x;
+  return x;
+}
+void f()
+{
+  X& px = &g();
+  px->~X();
+  int*p = px->i;    // undefined behavior
+}
 \end{codeblock}
 \end{example}
 
