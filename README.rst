@@ -24,7 +24,7 @@ Install the `MacTeX distribution <http://tug.org/mactex/>`_.
 If you are on a slow network, you'll want to get the `BasicTeX package <http://tug.org/mactex/morepackages.html>`_ instead,
 then run the following command to install the other packages that the draft requires:
 
-   sudo tlmgr install latexmk isodate substr relsize ulem fixme rsfs extract layouts enumitem l3packages l3kernel imakeidx splitindex xstring
+   ``sudo tlmgr install latexmk isodate substr relsize ulem fixme rsfs extract layouts enumitem l3packages l3kernel imakeidx splitindex xstring``
 
 ---------------------------------------
 Getting Started on Debian-based Systems
@@ -32,7 +32,7 @@ Getting Started on Debian-based Systems
 
 Install the following packages:
 
-   sudo apt-get install latexmk texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended lmodern
+   ``sudo apt-get install latexmk texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended lmodern``
 
 -------------------------
 Getting Started on Fedora
@@ -40,7 +40,7 @@ Getting Started on Fedora
 
 Install the following packages:
 
-   dnf install latexmk texlive texlive-isodate texlive-relsize texlive-ulem texlive-fixme texlive-extract texlive-l3kernel texlive-l3packages texlive-splitindex texlive-imakeidx
+   ``dnf install latexmk texlive texlive-isodate texlive-relsize texlive-ulem texlive-fixme texlive-extract texlive-l3kernel texlive-l3packages texlive-splitindex texlive-imakeidx``
 
 -----------------------------
 Getting Started on Arch Linux
@@ -48,7 +48,7 @@ Getting Started on Arch Linux
 
 Install the following packages:
 
-   pacman -S make texlive-latexextra texlive-binextra texlive-plaingeneric texlive-fontsrecommended
+   ``pacman -S make texlive-latexextra texlive-binextra texlive-plaingeneric texlive-fontsrecommended``
 
 -----------------------------
 Getting Started on Microsoft Windows
@@ -58,6 +58,10 @@ Install Perl (for example, using a `Cygwin installation <https://cygwin.com/inst
 See `sample instructions <https://bennierobinson.com/programming/2016/01/24/perl-windows-2016.html>`_ for more details)
 
 Install `MiKTeX <https://miktex.org/download>`_
+
+Alternatively, you can `install WSL <https://learn.microsoft.com/en-us/windows/wsl/install>`_
+and a Linux distribution,
+and follow the instructions for Linux above.
 
 ------------
 Instructions
@@ -79,6 +83,22 @@ To regenerate figures from .dot files, run::
 For example::
 
    make figvirt.pdf
+
+Verifying input and output when making changes
+==============================================
+
+While in the ``source`` directory,
+you can check for common mistakes such as misaligned comments with::
+
+    ../tools/check-source.sh
+
+After typesetting the document,
+you can also check the output for further problems with::
+
+    ../tools/check-output.sh
+
+GitHub Actions will also run these checks when you create a pull request,
+but it's often faster if you run them locally first.
 
 ----------------
 Acknowledgements
