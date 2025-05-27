@@ -59,6 +59,10 @@ See `sample instructions <https://bennierobinson.com/programming/2016/01/24/perl
 
 Install `MiKTeX <https://miktex.org/download>`_
 
+Alternatively, you can `install WSL <https://learn.microsoft.com/en-us/windows/wsl/install>`_
+and a Linux distribution,
+and follow the instructions for Linux above.
+
 ------------
 Instructions
 ------------
@@ -79,6 +83,22 @@ To regenerate figures from .dot files, run::
 For example::
 
    make figvirt.pdf
+
+Verifying input and output when making changes
+==============================================
+
+While in the ``source`` directory,
+you can check for common mistakes such as misaligned comments with::
+
+    ../tools/check-source.sh
+
+After typesetting the document,
+you can also check the output for further problems with::
+
+    ../tools/check-output.sh
+
+GitHub Actions will also run these checks when you create a pull request,
+but it's often faster if you run them locally first.
 
 ----------------
 Acknowledgements
