@@ -36,7 +36,7 @@ rm -f tmp.txt
 
 # Find bad labels
 grep newlabel `ls *.aux | grep -v std.aux` | awk -F '{' '{ print  $2 }' |
-    sed 's/}//g' | sed 's/^tab://;s/fig://;s/eq://;s/idx.*\..//' |
+    sed 's/}//g' | sed 's/^tab://;s/fig://;s/eq://;s/ub://;s/ubx://;s/ifndr://;s/ifndrx://;s/idx.*\..//' |
     grep -v '^[a-z.0-9]*$' |
     sed 's/^\(.*\)$/bad label \1/' |
     fail || failed=1
