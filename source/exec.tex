@@ -636,6 +636,8 @@ namespace std::execution {
   struct @\libglobal{stopped_as_optional_t}@ { @\unspec@ };
   struct @\libglobal{stopped_as_error_t}@ { @\unspec@ };
 
+  inline constexpr @\unspec@ @\libglobal{write_env}@{};
+  inline constexpr @\unspec@ @\libglobal{unstoppable}@{};
   inline constexpr starts_on_t @\libglobal{starts_on}@{};
   inline constexpr continues_on_t @\libglobal{continues_on}@{};
   inline constexpr on_t @\libglobal{on}@{};
@@ -1866,57 +1868,6 @@ implementations are encouraged to use the type
 denoted by \tcode{\exposid{completion-signatures-for}<Sndr, Env>}
 to communicate to users why.
 
-\begin{itemdecl}
-template<@\libconcept{sender}@ Sndr, @\exposconcept{queryable}@ Env>
-  constexpr auto @\exposid{write-env}@(Sndr&& sndr, Env&& env);     // \expos
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\exposid{write-env} is an exposition-only sender adaptor that,
-when connected with a receiver \tcode{rcvr},
-connects the adapted sender with a receiver
-whose execution environment is the result of
-joining the \exposconcept{queryable} argument \tcode{env}
-to the result of \tcode{get_env(rcvr)}.
-
-\pnum
-Let \exposid{write-env-t} be an exposition-only empty class type.
-
-\pnum
-\returns
-\begin{codeblock}
-@\exposid{make-sender}@(@\exposid{write-env-t}@(), std::forward<Env>(env), std::forward<Sndr>(sndr))
-\end{codeblock}
-
-\pnum
-\remarks
-The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
-is specialized for \exposid{write-env-t} as follows:
-\begin{codeblock}
-template<>
-struct @\exposid{impls-for}@<@\exposid{write-env-t}@> : @\exposid{default-impls}@ {
-  static constexpr auto @\exposid{get-env}@ =
-    [](auto, const auto& state, const auto& rcvr) noexcept {
-      return @\seebelow@;
-    };
-};
-\end{codeblock}
-Invocation of
-\tcode{\exposid{impls-for}<\exposid{write-env-t}>::\exposid{get-env}}
-returns an object \tcode{e} such that
-\begin{itemize}
-\item
-\tcode{decltype(e)} models \exposconcept{queryable} and
-\item
-given a query object \tcode{q},
-the expression \tcode{e.query(q)} is expression-equivalent
-to \tcode{state.query(q)} if that expression is valid,
-otherwise, \tcode{e.query(q)} is expression-equivalent
-to \tcode{get_env(rcvr).que\-ry(q)}.
-\end{itemize}
-\end{itemdescr}
-
 \rSec2[exec.snd.concepts]{Sender concepts}
 
 \pnum
@@ -2822,6 +2773,68 @@ The expression \tcode{adaptor(args...)} is well-formed if and only if
 the initializations of the bound argument entities of the result,
 as specified above, are all well-formed.
 
+\rSec3[exec.write.env]{\tcode{execution::write_env}}
+
+\pnum
+\tcode{write_env} is a sender adaptor
+that accepts a sender and a queryable object, and
+that returns a sender that,
+when connected with a receiver \tcode{rcvr},
+connects the adapted sender with a receiver
+whose execution environment is the result of
+joining the \exposconcept{queryable} object
+to the result of \tcode{get_env(rcvr)}.
+
+\pnum
+\tcode{write_env} is a customization point object.
+For some subexpressions \tcode{sndr} and \tcode{env},
+if \tcode{decltype((sndr))} does not satisfy \libconcept{sender} or
+if \tcode{decltype((env))} does not satisfy \exposconcept{queryable},
+the expression \tcode{write_env(sndr, env)} is ill-formed.
+Otherwise, it is expression-equivalent to
+\tcode{\exposid{make-sender}(write_env, env, sndr)}.
+
+\pnum
+Let \exposid{write-env-t} denote the type \tcode{decltype(auto(write_env))}.
+The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
+is specialized for \exposid{write-env-t} as follows:
+\begin{codeblock}
+template<>
+struct @\exposid{impls-for}@<@\exposid{write-env-t}@> : @\exposid{default-impls}@ {
+  static constexpr auto @\exposid{get-env}@ =
+    [](auto, const auto& state, const auto& rcvr) noexcept {
+      return @\seebelow@;
+    };
+};
+\end{codeblock}
+Invocation of
+\tcode{\exposid{impls-for}<\exposid{write-env-t}>::\exposid{get-env}}
+returns an object \tcode{e} such that
+\begin{itemize}
+\item
+\tcode{decltype(e)} models \exposconcept{queryable} and
+\item
+given a query object \tcode{q},
+the expression \tcode{e.query(q)} is expression-equivalent
+to \tcode{state.query(q)} if that expression is valid,
+otherwise, \tcode{e.query(q)} is expression-equivalent
+to \tcode{get_env(rcvr).que\-ry(q)}.
+\end{itemize}
+
+\rSec3[exec.unstoppable]{\tcode{execution::unstoppable}}
+
+\pnum
+\tcode{unstoppable} is a sender adaptor
+that connects its inner sender
+with a receiver that has the execution environment of the outer receiver
+but with an object of type \tcode{never_stop_token}
+as the result of the \tcode{get_stop_token query}.
+
+\pnum
+For a subexpression \tcode{sndr},
+\tcode{unstoppable(sndr)} is expression-equivalent to
+\tcode{write_env(sndr, prop(get_stop_token, never_stop_token\{\}))}.
+
 \rSec3[exec.starts.on]{\tcode{execution::starts_on}}
 
 \pnum
@@ -3269,11 +3282,11 @@ if constexpr (@\libconcept{scheduler}@<decltype(data)>) {
   if constexpr (@\libconcept{same_as}@<decltype(orig_sch), @\exposid{not-a-scheduler}@>) {
     return @\exposid{not-a-sender}@{};
   } else {
-    return @\exposid{write-env}@(
+    return write_env(
       continues_on(
         std::forward_like<OutSndr>(closure)(
           continues_on(
-            @\exposid{write-env}@(std::forward_like<OutSndr>(child), @\exposid{SCHED-ENV}@(orig_sch)),
+            write_env(std::forward_like<OutSndr>(child), @\exposid{SCHED-ENV}@(orig_sch)),
             sch)),
         orig_sch),
       @\exposid{SCHED-ENV}@(sch));
