@@ -88,10 +88,10 @@ done
 
 # Cross references since C++17.
 # Note: xrefprev should contain a sorted list of C++17 labels.
-function indexentries() { sed 's,\\glossaryentry{\(.*\)@.*,\1,' "$1" | LANG=C sort; }
+function indexentries() { sed 's,\\glossaryentry{\(.*\)@.*,\1,' "$1" | LC_ALL=C sort; }
 function removals() { diff -u "$1" "$2" | grep '^-' | grep -v '^---' | sed 's/^-//'; }
 function difference() { diff -u "$1" "$2" | grep '^[-+]' | grep -v '^\(---\|+++\)'; }
-XREFDELTA="$(difference <(indexentries xrefdelta.glo) <(removals <(LANG=C sort < xrefprev) <(indexentries xrefindex.glo)))"
+XREFDELTA="$(difference <(indexentries xrefdelta.glo) <(removals xrefprev <(indexentries xrefindex.glo)))"
 if [ -n "$XREFDELTA" ]; then
   echo "incorrect entries in xrefdelta.tex:" >&2
   echo "$XREFDELTA" | sed 's,^-,spurious ,; s,^+,missing ,;' >&2
