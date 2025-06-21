@@ -19,9 +19,35 @@ exhaustively cover all possible ways of invoking that case.
 \ubxref{intro.object.implicit.create}
 For each
 operation that is specified as implicitly creating objects, that operation implicitly creates and starts the
-lifetime of zero or more objects of implicit-lifetime types \iref{basic.types} in its specified region of storage if doing so
+lifetime of zero or more objects of implicit-lifetime types\iref{basic.types} in its specified region of storage if doing so
 would result in the program having defined behavior. If no such set of objects would give the program defined
 behavior, the behavior of the program is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+void f()
+{
+  void *p = malloc(sizeof(int) + sizeof(float));
+  *reinterpret_cast<int*>(p) = 0;
+  *reinterpret_cast<float*>(p) = 0.0f;  // undefined behavior, cannot create
+                                        // both \tcode{int} and \tcode{float} in same place
+}
+\end{codeblock}
+\end{example}
+
+
+\pnum
+\ubxref{intro.object.implicit.pointer}
+After implicitly creating objects within a specified region of storage,
+some operations are described as producing a pointer to a
+suitable created object\iref{basic.types}.
+These operations select one of the implicitly-created objects
+whose address is the address of the start of the region of storage,
+and produce a pointer value that points to that object,
+if that value would result in the program having defined behavior.
+If no such pointer value would give the program defined behavior,
+the behavior of the program is undefined.
 
 \pnum
 \begin{example}
@@ -87,32 +113,10 @@ void make_misaligned()
 \rSec2[ub.basic.life]{Object lifetime}
 
 \pnum
-\ubxref{lifetime.outside.pointer} \\
-The behavior of some uses of a pointer
-pointing to an object outside its lifetime
-are not defined:
-\begin{itemize}
-\item
-  the object will be or was of a class type with a non-trivial destructor
-  and the pointer is used as the operand of a \grammarterm{delete-expression},
-\item
-  the pointer is used to access a non-static data member or call a
-  non-static member function of the object, or
-\item
-  the pointer is implicitly converted\iref{conv.ptr} to a pointer
-  to a virtual base class, or
-\item
-  the pointer is used as the operand of a
-  \tcode{static_cast}\iref{expr.static.cast}, except when the conversion
-  is to pointer to \cv{}~\tcode{void}, or to pointer to \cv{}~\tcode{void}
-  and subsequently to pointer to
-  \cv{}~\tcode{char},
-  \cv{}~\tcode{unsigned char}, or
-  \cv{}~\tcode{std::byte}\iref{cstddef.syn}, or
-\item
-  the pointer is used as the operand of a
-  \tcode{dynamic_cast}\iref{expr.dynamic.cast}.
-\end{itemize}
+\ubxref{lifetime.outside.pointer.delete}
+For a pointer pointing to an object outside of its lifetime, behavior is
+undefined if the object will be or was of a class type with a non-trivial destructor
+and the pointer is used as the operand of a \grammarterm{delete-expression}.
 
 \pnum
 \begin{example}
@@ -122,79 +126,185 @@ struct S {
   ~S() {}
 };
 
+void f() {
+  S* p = new S;
+  p->~S();
+  delete p;     // undefined behavior, operand of delete, lifetime has ended and \tcode{S}
+                // has a non-trivial destructor
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{lifetime.outside.pointer.member}
+For a pointer pointing to an object outside of its lifetime, behavior is
+undefined if the pointer is used to access a non-static data member or call a
+non-static member function of the object.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct S {
+  float f = 0;
+};
+
 float f() {
   S s;
-  S* p1 = &s;
-  S* p2 = new S;
+  S* p = &s;
   s.~S();
-  p2->~S();
-  delete p2;            // undefined behavior, operand of delete, lifetime has ended and \tcode{S}
-                        // has a non-trivial destructor
-  return p1->f;         // Undefined behavior, accessing non-static data member after
-                        // end of lifetime
-}
-\end{codeblock}
-\end{example}
-\begin{example}
-\begin{codeblock}
-#include <cstdlib>
-#include <new>
-
-struct B {
-  virtual void f();
-  void mutate();
-  virtual ~B();
-};
-
-struct D1 : B {
-  void f();
-};
-struct D2 : B {
-  void f();
-};
-
-void B::mutate() {
-  new (this) D2;        // reuses storage and ends the lifetime of *this
-  f();                  // undefined behavior
-  B *b = this;          // OK, this points to valid memory
-}
-
-void g() {
-  void* p = std::malloc(sizeof(D1) + sizeof(D2));
-  B* pb = new (p) D1;
-  pb->mutate();
-  *pb;                  // OK, pb points to valid memory
-  void* q = pb;         // OK, pb points to valid memory
-  pb->f();              // undefined behavior, lifetime of \tcode{*pb} has ended
+  return p->f;  // undefined behavior, accessing non-static data member after
+                // end of lifetime
 }
 \end{codeblock}
 \end{example}
 
 \pnum
-\ubxref{lifetime.outside.glvalue} \\
-The behavior of some uses of a glvalue
-that refers to an object outside its lifetime
-are not defined.
+\ubxref{lifetime.outside.pointer.virtual}
+For a pointer pointing to an object outside of its lifetime, behavior is
+undefined if pointer is implicitly converted\iref{conv.ptr} to a pointer
+to a virtual base class.
 
 \pnum
 \begin{example}
 \begin{codeblock}
-struct A{void f(){} };
+struct B {};
+struct D : virtual B {};
+void f() {
+  D d;
+  D* p = &d;
+  d.~D();
+  B* b = p;     // undefined behavior
+}
+\end{codeblock}
+\end{example}
 
+\pnum
+\ubxref{lifetime.outside.pointer.static.cast}
+For a pointer pointing to an object outside of its lifetime, behavior is
+undefined if the pointer is used as the operand of a
+\tcode{static_cast}, except when the conversion
+is to pointer to \cv{}~\tcode{void}, or to pointer to \cv{}~\tcode{void}
+and subsequently to pointer to
+\cv{}~\tcode{char},
+\cv{}~\tcode{unsigned char}, or
+\cv{}~\tcode{std::byte}\iref{cstddef.syn}.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct B {};
+struct D : B {};
+void f()
+{
+  D d;
+  B* bp = &d;
+  d.~D();
+  void* vp = bp;                // OK
+  D* dp = static_cast<D*>(bp);  // undefined behavior
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{lifetime.outside.pointer.dynamic.cast}
+For a pointer pointing to an object outside of its lifetime, behavior is
+undefined if the pointer is used as the operand of a
+\tcode{dynamic_cast}\iref{expr.dynamic.cast}.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct B { virtual ~B() = default; };
+struct D : B {};
+void f()
+{
+  D d;
+  B* bp = &d;
+  d.~D();
+  D* dp = dynamic_cast<D*>(bp);     // undefined behavior
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{lifetime.outside.glvalue.access}
+Behavior is undefined if a glvalue referring to an object outside of its
+lifetime is used to access the object.
+
+\pnum
+\begin{example}
+\begin{codeblock}
 void f() {
   int x = int{10};
-  A a;
   using T = int;
   x.~T();
-  a.~A();
-  a.f();        // undefined behavior, glvalue used to access a
-                // non-static member function after the lifetime has ended
   int y = x;    // undefined behavior, glvalue used to access the
                 // object after the lifetime has ended
 }
 \end{codeblock}
 \end{example}
 
+\pnum
+\ubxref{lifetime.outside.glvalue.member}
+Behavior is undefined if a glvalue referring to an object outside of its
+lifetime is used to call a non-static member function of the object.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct A {
+  void f() {}
+};
+
+void f() {
+  A a;
+  a.~A();
+  a.f();    // undefined behavior, glvalue used to access a
+            // non-static member function after the lifetime has ended
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{lifetime.outside.glvalue.virtual}
+Behavior is undefined if a glvalue referring to an object outside of its
+lifetime is bound to a reference to a virtual base class.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct B {};
+struct D : virtual B {
+};
+
+void f() {
+  D d;
+  d.~D();
+  B& b = d;     // undefined behavior
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{lifetime.outside.glvalue.dynamic.cast}
+Behavior is undefined if a glvalue referring to an object outside of its
+lifetime is used as the operand of a
+\keyword{dynamic_cast} or as the operand of \keyword{typeid}.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct B { virtual ~B(); };
+struct D : virtual B {};
+
+void f() {
+  D d;
+  B& br = d;
+  d.~D();
+  D& dr = dynamic_cast<D&>(br);     // undefined behavior
+}
+\end{codeblock}
+\end{example}
 
 \pnum
 \ubxref{original.type.implicit.destructor} \\
@@ -266,7 +376,7 @@ void g() {
 \ubxref{basic.stc.alloc.dealloc.constraint} \\
 If the behavior of an allocation or deallocation function does not satisfy the semantic constraints
 specified
-in \iref{basic.stc.dynamic.allocation} and \iref{basic.stc.dynamic.deallocation}.
+in~\ref{basic.stc.dynamic.allocation} and~\ref{basic.stc.dynamic.deallocation}.
 the behavior is undefined.
 
 
@@ -357,9 +467,9 @@ void f()
 \pnum
 \ubxref{intro.execution.unsequenced.modification} \\
 If a side effect on a
-memory location \iref{intro.memory} is unsequenced relative to either another side effect on the same memory location or
+memory location\iref{intro.memory} is unsequenced relative to either another side effect on the same memory location or
 a value computation using the value of any object in the same memory location, and they are not potentially
-concurrent \iref{intro.multithread}, the behavior is undefined.
+concurrent\iref{intro.multithread}, the behavior is undefined.
 
 \pnum
 \begin{example}
@@ -380,7 +490,7 @@ void g(int i) {
 \ubxref{intro.races.data} \\
 The execution of a program contains a data race if it contains two potentially concurrent conflicting actions,
 at least one of which is not atomic, and neither happens before the other, except for the special case for
-signal handlers described in \iref{intro.races}. Any such data race results in undefined behavior.
+signal handlers described in~\ref{intro.races}. Any such data race results in undefined behavior.
 
 \pnum
 \begin{example}
@@ -388,7 +498,7 @@ signal handlers described in \iref{intro.races}. Any such data race results in u
 int count = 0;
 auto f = [&] { count++; };
 std::thread t1{f}, t2{f}, t3{f};
-// Undefined behavior t1, t2 and t3 have a data race on access of variable count
+// undefined behavior t1, t2 and t3 have a data race on access of variable count
 \end{codeblock}
 \end{example}
 
@@ -456,9 +566,9 @@ int main() {}
 
 \pnum
 \ubxref{basic.start.term.signal.handler} \\
-If there is a use of a standard library object or function not permitted within signal handlers \iref{support.runtime} that
-does not happen before \iref{intro.multithread} completion of destruction of objects with static storage duration and execution
-of std::atexit registered functions \iref{support.start.term}, the program has undefined behavior.
+If there is a use of a standard library object or function not permitted within signal handlers\iref{support.runtime} that
+does not happen before\iref{intro.multithread} completion of destruction of objects with static storage duration and execution
+of std::atexit registered functions\iref{support.start.term}, the program has undefined behavior.
 
 \pnum
 \begin{example}
@@ -491,9 +601,9 @@ int main() {
 
 \pnum
 \ubxref{expr.basic.lvalue.strict.aliasing.violation} \\
-If a program attempts to access \iref{defns.access} the stored value of an object
+If a program attempts to access\iref{defns.access} the stored value of an object
 whose dynamic type is $T$ through a glvalue whose type is not
-similar \iref{conv.rval} to $T$ (or its corresponding signed or unsigned types)
+similar\iref{conv.rval} to $T$ (or its corresponding signed or unsigned types)
 the behavior is undefined.
 
 \pnum
@@ -602,8 +712,7 @@ int main() {
 \rSec2[ub.conv.fpint]{Floating-integral conversions}
 
 \pnum
-\ubxref{conv.fpint.float.not.represented} \\
-%\ubxref{conv.fpint.int.not.represented} \\  % in same section
+\ubxref{conv.fpint.int.not.represented} \\
 When converting a floating-point value to an integer type and vice versa if
 the value is not representable in the destination type it is undefined behavior.
 
@@ -617,11 +726,24 @@ int main() {
   // 2,147,483,647 Assuming 32-bit float and 64-bit double
   double d = (double)std::numeric_limits<int>::max() + 1;
   int x1 = d;   // undefined behavior 2,147,483,647 + 1 is not representable as int
+}
+\end{codeblock}
+\end{example}
 
+\pnum
+\ubxref{conv.fpint.float.not.represented} \\
+When converting a value of integer or unscoped enumeration type to a
+floating-point type, if the value is not representable in the destination type
+it is undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+int main() {
   __uint128_t x2 = -1;
   float f = x2; // undefined behavior on systems where the range of
-                // representable values of float is [-max,+max] on system where
-                // represetable values are [-inf,+inf] this would not be UB
+  // representable values of float is [-max,+max] on system where
+  // represetable values are [-inf,+inf] this would not be UB
 }
 \end{codeblock}
 \end{example}
@@ -725,10 +847,11 @@ void f() {
 
 \rSec2[ub.expr.dynamic.cast]{Dynamic cast}
 
+
 \pnum
-\ubxref{expr.dynamic.cast.lifetime} \\
-Evaluating a \keyword{dynamic_cast} on a non-null pointer or reference that
-denotes an object (of polymorphic type) of the wrong type or that is
+\ubxref{expr.dynamic.cast.pointer.lifetime} \\
+Evaluating a \keyword{dynamic_cast} on a non-null pointer that points to
+an object (of polymorphic type) of the wrong type or to an object
 not within its lifetime has undefined behavior.
 
 \pnum
@@ -738,6 +861,23 @@ struct B { virtual ~B(); };
 void f() {
   B bs[1];
   B* dp = dynamic_cast<B*>(bs+1);   // undefined behavior
+}
+\end{codeblock}
+\end{example}
+
+
+\pnum
+\ubxref{expr.dynamic.cast.glvalue.lifetime} \\
+Evaluating a \keyword{dynamic_cast} on a reference that
+denotes an object (of polymorphic type) of the wrong type or an object
+not within its lifetime has undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct B { virtual ~B(); };
+void f() {
+  B bs[1];
   B& dr = dynamic_cast<B&>(bs[1]);  // undefined behavior
 }
 \end{codeblock}
@@ -768,7 +908,7 @@ void f() {
 \pnum
 \ubxref{expr.static.cast.enum.outside.range} \\
 If the enumeration type does not have a fixed underlying
-type, the value is unchanged if the original value is within the range of the enumeration values \iref{dcl.enum}, and
+type, the value is unchanged if the original value is within the range of the enumeration values\iref{dcl.enum}, and
 otherwise, the behavior is undefined.
 
 \pnum
@@ -872,7 +1012,7 @@ int f()
 \pnum
 \ubxref{expr.new.non.allocating.null} \\
 If the allocation
-function is a non-allocating form \iref{new.delete.placement} that returns null, the behavior is undefined.
+function is a non-allocating form\iref{new.delete.placement} that returns null, the behavior is undefined.
 
 \pnum
 \begin{example}
@@ -903,13 +1043,25 @@ int main() {
 
 \pnum
 \ubxref{expr.delete.mismatch} \\
-Using array delete on the result of a single object new expression and vice versa is undefined behavior.
+Using array delete on the result of a single object new expression is undefined behavior.
 
 \pnum
 \begin{example}
 \begin{codeblock}
 int* x = new int;
-delete[] x;             // undefined behavior, allocated using single object new expression
+delete[] x;         // undefined behavior, allocated using single object new expression
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{expr.delete.array.mismatch} \\
+Using single object delete on the result of an array new expression is undefined behavior.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+int* x = new int[10];
+delete x;           // undefined behavior, allocated using array new expression
 \end{codeblock}
 \end{example}
 
@@ -994,7 +1146,7 @@ void f() {
 \pnum
 \ubxref{expr.mptr.oper.member.func.null} \\
 If the second operand is the null
-member pointer value \iref{conv.mem}, the behavior is undefined.
+member pointer value\iref{conv.mem}, the behavior is undefined.
 
 \pnum
 \begin{example}
@@ -1098,7 +1250,7 @@ void f() {
 \pnum
 \ubxref{expr.add.not.similar} \\
 For addition or subtraction, if the expressions P or Q have type ``pointer to cv T'', where T and the array
-element type are not similar \iref{conv.rval}, the behavior is undefined.
+element type are not similar\iref{conv.rval}, the behavior is undefined.
 
 \pnum
 \begin{example}
@@ -1679,34 +1831,51 @@ void f()
 \end{codeblock}
 \end{example}
 
-
 \pnum
-\ubxref{class.cdtor.convert.or.form.pointer} \\
-When converting a pointer to a base class of an object or forming a pointer to a direct non-static
-member of a class, construction must have started and destruction must not have finished otherwise
+\ubxref{class.cdtor.convert.pointer} \\
+When converting a pointer to a base class of an object,
+construction must have started and destruction must not have finished otherwise
 this is undefined behavior.
 
 \pnum
 \begin{example}
 \begin{codeblock}
-struct A {};
-struct B : virtual A {};
-struct C : B {};
-struct D : virtual A {
-  D(A *);
-};
-struct X {
-  X(A *);
-};
+struct A { };
+struct B : virtual A { };
+struct C : B { };
+struct D : virtual A { D(A*); };
+struct X { X(A*); };
+
 struct E : C, D, X {
-  E()
-      : D(this),        // undefined: upcast from \tcode{E*} to \tcode{A*} might use path E->D->A
-                        // but \tcode{D} is not constructed
-                        // \tcode{D((C*)this)} would be defined: E->C is defined because
-                        // \tcode{E()} has started, and C->A is defined because \tcode{C} is fully
-                        // constructed
-        X(this)         // well-defined: upon construction of \tcode{X}, C/B/D/A sublattice is fully constructed
-  {}
+  E() : D(this),    // undefined behavior: upcast from \tcode{E*} to \tcode{A*} might use path \tcode{E*} $\rightarrow$ \tcode{D*} $\rightarrow$ \tcode{A*}
+                    // but \tcode{D} is not constructed
+
+                    // ``\tcode{D((C*)this)}\!'' would be defined: \tcode{E*} $\rightarrow$ \tcode{C*} is defined because \tcode{E()} has started,
+                    // and \tcode{C*} $\rightarrow$ \tcode{A*} is defined because \tcode{C} is fully constructed
+
+  X(this) {}        // defined: upon construction of \tcode{X}, \tcode{C/B/D/A} sublattice is fully constructed
+};
+\end{codeblock}
+\end{example}
+
+\pnum
+\ubxref{class.cdtor.form.pointer} \\
+When forming a pointer to
+a direct non-static member of a class,
+construction must have started
+and destruction must not have finished
+otherwise the behavior is undefined.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct A {
+  int i = 0;
+};
+struct B {
+  int *p;
+  A a;
+  B() : p(&a.i) {}  // undefined behavior
 };
 \end{codeblock}
 \end{example}
@@ -1717,7 +1886,7 @@ When a virtual function is called directly or indirectly from a constructor or f
 including during the construction or destruction of the class's non-static data members, and the object to
 which the call applies is the object (call it \tcode{x}) under construction or destruction, the function called is the
 final overrider in the constructor's or destructor's class and not one overriding it in a more-derived class.
-If the virtual function call uses an explicit class member access \iref{expr.ref} and the object expression refers
+If the virtual function call uses an explicit class member access\iref{expr.ref} and the object expression refers
 to the complete object of \tcode{x} or one of that object's base class subobjects but not \tcode{x} or one of its base class
 subobjects, the behavior is undefined.
 
@@ -1858,7 +2027,7 @@ constructor or destructor for that object results in undefined behavior.
 struct A {
   A() try : x(0 ? 1 : throw 1) {
   } catch (int) {
-    std::cout << "y: " << y << std::endl;   // Undefined behavior, referring to non-static member y in
+    std::cout << "y: " << y << std::endl;   // undefined behavior, referring to non-static member y in
                                             // the handler of function-try-block
   }
   int x;
@@ -1961,7 +2130,7 @@ If an invalid preprocessing token results from using the concat operator the beh
 #define cat(x, y) x##y
 
 void f() {
-  cat(/, /) // Undefined behavior // is not a valid preprocessing token
+  cat(/, /) // undefined behavior // is not a valid preprocessing token
 }
 \end{codeblock}
 \end{example}
