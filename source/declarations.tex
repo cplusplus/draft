@@ -53,6 +53,7 @@ the form
     using-enum-declaration\br
     using-directive\br
     static_assert-declaration\br
+    consteval-block-declaration\br
     alias-declaration\br
     opaque-enum-declaration
 \end{bnf}
@@ -100,6 +101,11 @@ the form
 \nontermdef{static_assert-declaration}\br
   \keyword{static_assert} \terminal{(} constant-expression \terminal{)} \terminal{;}\br
   \keyword{static_assert} \terminal{(} constant-expression \terminal{,} static_assert-message \terminal{)} \terminal{;}
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{consteval-block-declaration}\br
+  \keyword{consteval} compound-statement
 \end{bnf}
 
 \begin{bnf}
@@ -245,8 +251,7 @@ array or non-union class type.
 If the \grammarterm{decl-specifier-seq} contains the \keyword{typedef}
 specifier, the declaration is a \defnx{typedef declaration}{declaration!typedef}
 and each \grammarterm{declarator-id}
-is declared to be a \grammarterm{typedef-name}, synonymous with its
-associated type\iref{dcl.typedef}.
+is declared to be a \grammarterm{typedef-name}\iref{dcl.typedef}.
 \begin{note}
 Such a \grammarterm{declarator-id} is
 an \grammarterm{identifier}\iref{class.conv.fct}.
@@ -378,6 +383,35 @@ void f(T t) {
 void g(char c) {
   f(0);             // OK
   f(c);             // error on implementations where \tcode{sizeof(int) > 1}: must be \tcode{int}-sized
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+For a \grammarterm{consteval-block-declaration} $D$,
+the expression $E$ corresponding to $D$ is:
+\begin{codeblock}
+  [] -> void static consteval @\grammarterm{compound-statement}@ ()
+\end{codeblock}
+$E$ shall be a constant expression\iref{expr.const}.
+\begin{note}
+The evaluation of the expression
+corresponding to a \grammarterm{consteval-block-declaration}\iref{lex.phases}
+can produce injected declarations as side effects.
+\end{note}
+\begin{example}
+\begin{codeblock}
+struct S;
+consteval {
+  std::meta::define_aggregate(^^S, {});     // OK
+
+  template<class T>
+  struct X { };                             // error: local templates are not allowed
+
+  template<class T>
+  concept C = true;                         // error: local concepts are not allowed
+
+  return;                                   // OK
 }
 \end{codeblock}
 \end{example}
@@ -708,9 +742,8 @@ struct S {
 
 \pnum
 Declarations containing the \grammarterm{decl-specifier} \keyword{typedef}
-declare identifiers that can be used later for naming
-fundamental\iref{basic.fundamental} or compound\iref{basic.compound}
-types. The \keyword{typedef} specifier shall not be
+declare \defnadjx{type}{aliases}{alias}.
+The \keyword{typedef} specifier shall not be
 combined in a \grammarterm{decl-specifier-seq} with any other kind of
 specifier except a \grammarterm{defining-type-specifier}, and it shall not be used in the
 \grammarterm{decl-specifier-seq} of a
@@ -728,14 +761,12 @@ the program is ill-formed.
 
 A name declared with the \keyword{typedef} specifier becomes a
 \grammarterm{typedef-name}.
-A \grammarterm{typedef-name} names
+The underlying entity of the type alias is
 the type associated with the \grammarterm{identifier}\iref{dcl.decl}
 or \grammarterm{simple-template-id}\iref{temp.pre};
 \indextext{declaration!typedef@\tcode{typedef} as type}%
 \indextext{equivalence!type}%
-\indextext{synonym!type name as}%
-a \grammarterm{typedef-name} is thus a synonym for another type. A
-\grammarterm{typedef-name} does not introduce a new type the way a class
+A \grammarterm{typedef-name} does not introduce a new type the way a class
 declaration\iref{class.name} or enum declaration\iref{dcl.enum} does.
 \begin{example}
 After
@@ -752,14 +783,14 @@ are all correct declarations; the type of \tcode{distance} is
 \end{example}
 
 \pnum
-A \grammarterm{typedef-name} can also be introduced by an
+A type alias can also be declared by an
 \grammarterm{alias-declaration}. The \grammarterm{identifier} following the
-\tcode{using} keyword is not looked up; it becomes a \grammarterm{typedef-name}
+\tcode{using} keyword is not looked up;
+it becomes the \grammarterm{typedef-name} of a type alias
 and the optional \grammarterm{attribute-specifier-seq} following the
-\grammarterm{identifier} appertains to that \grammarterm{typedef-name}.
-Such a \grammarterm{typedef-name} has the same
-semantics as if it were introduced by the \keyword{typedef} specifier. In
-particular, it does not define a new type.
+\grammarterm{identifier} appertains to that type alias.
+Such a type alias has the same
+semantics as if it were introduced by the \keyword{typedef} specifier.
 \begin{example}
 \begin{codeblock}
 using handler_t = void (*)(int);
@@ -1377,7 +1408,8 @@ The simple type specifiers are
 \begin{bnf}
 \nontermdef{computed-type-specifier}\br
     decltype-specifier\br
-    pack-index-specifier
+    pack-index-specifier\br
+    splice-type-specifier
 \end{bnf}
 
 \pnum
@@ -1412,12 +1444,21 @@ A \grammarterm{placeholder-type-specifier}
 is a placeholder for
 a type to be deduced\iref{dcl.spec.auto}.
 \indextext{deduction!class template arguments}%
-A \grammarterm{type-specifier} of the form
-\opt{\keyword{typename}} \opt{\grammarterm{nested-name-specifier}} \grammarterm{template-name}
-is a placeholder for
-a deduced class type\iref{dcl.type.class.deduct}.
-The \grammarterm{nested-name-specifier}, if any, shall be non-dependent and
-the \grammarterm{template-name} shall name a deducible template.
+A \grammarterm{type-specifier} is a placeholder for
+a deduced class type\iref{dcl.type.class.deduct} if either
+\begin{itemize}
+\item
+it is of the form
+\opt{\keyword{typename}} \opt{\grammarterm{nested-name-specifier}} \grammarterm{template-name} or
+\item
+it is of the form \opt{\keyword{typename}} \grammarterm{splice-specifier} and
+the \grammarterm{splice-specifier} designates
+a class template or alias template.
+\end{itemize}
+The \grammarterm{nested-name-specifier} or \grammarterm{splice-specifier},
+if any, shall be non-dependent and
+the \grammarterm{template-name} or \grammarterm{splice-specifier}
+shall designate a deducible template.
 A \defnadj{deducible}{template} is either a class template or
 is an alias template whose \grammarterm{defining-type-id} is of the form
 
@@ -1455,6 +1496,7 @@ and the types they specify.
 \grammarterm{placeholder-type-specifier}
                                   & the type as defined in~\ref{dcl.spec.auto}\\
 \grammarterm{template-name}       & the type as defined in~\ref{dcl.type.class.deduct}\\
+\grammarterm{splice-type-specifier} & the type as defined in~\ref{dcl.type.splice}\\
 \tcode{char}                      & ``\tcode{char}''                  \\
 \tcode{unsigned char}             & ``\tcode{unsigned char}''         \\
 \tcode{signed char}               & ``\tcode{signed char}''           \\
@@ -1683,6 +1725,10 @@ member access\iref{expr.ref}, \tcode{decltype($E$)} is the
 type of the entity named by $E$.
 If there is no such entity, the program is ill-formed;
 
+\item otherwise, if $E$ is an unparenthesized \grammarterm{splice-expression},
+\tcode{decltype($E$)} is the type of the entity, object, or value
+designated by the \grammarterm{splice-specifier} of $E$;
+
 \item otherwise, if $E$ is
 an xvalue, \tcode{decltype($E$)} is \tcode{T\&\&}, where \tcode{T} is the type
 of $E$;
@@ -1706,11 +1752,13 @@ decltype(foo()) x1 = 17;        // type is \tcode{const int\&\&}
 decltype(i) x2;                 // type is \tcode{int}
 decltype(a->x) x3;              // type is \tcode{double}
 decltype((a->x)) x4 = x3;       // type is \tcode{const double\&}
+decltype([:^^x1:]) x5 = 18;     // type is \tcode{const int\&\&}
+decltype(([:^^x1:])) x6 = 19;   // type is \tcode{const int\&}
 
 void f() {
   [](auto ...pack) {
-    decltype(pack...[0]) x5;    // type is \tcode{int}
-    decltype((pack...[0])) x6;  // type is \tcode{int\&}
+    decltype(pack...[0]) x7;    // type is \tcode{int}
+    decltype((pack...[0])) x8;  // type is \tcode{int\&}
   }(0);
 }
 \end{codeblock}
@@ -2266,6 +2314,59 @@ auto d = container(v.begin(), v.end()); // OK, deduces \tcode{double} for \tcode
 container e{5, 6};                      // error: \tcode{int} is not an iterator
 \end{codeblock}
 \end{example}
+
+\rSec3[dcl.type.splice]{Type splicing}
+
+\begin{bnf}
+\nontermdef{splice-type-specifier}\br
+   \opt{\keyword{typename}} splice-specifier\br
+   \opt{\keyword{typename}} splice-specialization-specifier
+\end{bnf}
+
+\pnum
+A \grammarterm{splice-specifier} or
+\grammarterm{splice-specialization-specifier}
+immediately followed by \tcode{::}
+is never interpreted as part of a \grammarterm{splice-type-specifier}.
+A \grammarterm{splice-specifier} or
+\grammarterm{splice-specialization-specifier}
+not preceded by \keyword{typename}
+is only interpreted as a \grammarterm{splice-type-specifier}
+within a type-only context\iref{temp.res.general}.
+\begin{example}
+\begin{codeblock}
+template<std::meta::info R> void tfn() {
+  typename [:R:]::type m;       // OK, \keyword{typename} applies to the qualified name
+}
+
+struct S { using type = int; };
+void fn() {
+  [:^^S::type:] *var;           // error: \tcode{[:\caret\caret S::type:]} is an expression
+  typename [:^^S::type:] *var;  // OK, declares variable with type \tcode{int*}
+}
+
+using alias = [:^^S::type:];    // OK, type-only context
+\end{codeblock}
+\end{example}
+
+\pnum
+For a \grammarterm{splice-type-specifier} of the form
+\opt{\keyword{typename}} \grammarterm{splice-specifier},
+the \grammarterm{splice-specifier} shall designate
+a type, a class template, or an alias template.
+The \grammarterm{splice-type-specifier} designates
+the same entity as the \grammarterm{splice-specifier}.
+
+\pnum
+For a \grammarterm{splice-type-specifier} of the form
+\opt{\keyword{typename}} \grammarterm{splice-specialization-specifier},
+the \grammarterm{splice-specifier} of
+the \grammarterm{splice-specialization-specifier}
+shall designate a template \tcode{T}
+that is either a class template or an alias template.
+The \grammarterm{splice-type-specifier} designates
+the specialization of \tcode{T} corresponding to
+the template argument list of the \grammarterm{splice-specialization-specifier}.
 \indextext{specifier|)}%
 
 \rSec1[dcl.decl]{Declarators}%
@@ -3276,7 +3377,7 @@ nested-name-specifier \terminal{*} \opt{attribute-specifier-seq} \opt{cv-qualifi
 \end{ncsimplebnf}
 and the
 \grammarterm{nested-name-specifier}
-denotes a class,
+designates a class,
 and the type of the contained \grammarterm{declarator-id} in the declaration
 \tcode{T}
 \tcode{D1}
@@ -3289,6 +3390,7 @@ is ``\placeholder{derived-declarator-type-list} \grammarterm{cv-qualifier-seq} p
 \tcode{T}''.
 The optional \grammarterm{attribute-specifier-seq}\iref{dcl.attr.grammar} appertains to the
 pointer-to-member.
+The \grammarterm{nested-name-specifier} shall not designate an anonymous union.
 
 \pnum
 \begin{example}
@@ -3469,8 +3571,10 @@ supplied\iref{dcl.init.aggr},
 and the type of the array is ``array of \tcode{N} \tcode{U}''.
 
 \pnum
-Furthermore, if there is a reachable declaration of the entity that inhabits the same
-scope in which the bound was specified, an omitted array bound is taken to
+Furthermore, if there is a reachable declaration of the entity
+that specifies a bound and
+has the same host scope\iref{basic.scope.scope},
+an omitted array bound is taken to
 be the same as in that earlier declaration, and similarly for the definition
 of a static data member of a class.
 \begin{example}
@@ -3487,6 +3591,9 @@ void f() {
   extern int x[];
   int i = sizeof(x);    // error: incomplete object type
 }
+
+namespace A { extern int z[3]; }
+int A::z[] = {};        // OK, defines an array of 3 elements
 \end{codeblock}
 \end{example}
 
@@ -3839,7 +3946,7 @@ the adjusted types of all the non-object parameters.
 
 \pnum
 A function type with a \grammarterm{cv-qualifier-seq} or a
-\grammarterm{ref-qualifier} (including a type named by
+\grammarterm{ref-qualifier} (including a type denoted by
 \grammarterm{typedef-name}\iref{dcl.typedef,temp.param})
 shall appear only as:
 \begin{itemize}
@@ -3855,15 +3962,18 @@ or \grammarterm{alias-declaration},
 
 \item the \grammarterm{type-id} of a \grammarterm{template-argument} for a
 \grammarterm{type-parameter}\iref{temp.arg.type}.
+
+\item the operand of a \grammarterm{reflect-expression}\iref{expr.reflect}.
 \end{itemize}
 \begin{example}
 \begin{codeblock}
 typedef int FIC(int) const;
-FIC f;              // error: does not declare a member function
+FIC f;                                                  // error: does not declare a member function
 struct S {
-  FIC f;            // OK
+  FIC f;                                                // OK
 };
-FIC S::*pm = &S::f; // OK
+FIC S::*pm = &S::f;                                     // OK
+constexpr std::meta::info yeti = ^^void(int) const &;   // OK
 \end{codeblock}
 \end{example}
 
@@ -4220,9 +4330,9 @@ declarations.
 \pnum
 For non-template functions, default arguments can be added in later
 declarations of a
-function that inhabit the same scope.
-Declarations that inhabit different
-scopes have completely distinct sets of default arguments.
+function that have the same host scope.
+Declarations that have different
+host scopes have completely distinct sets of default arguments.
 That
 is, declarations in inner scopes do not acquire default
 arguments from declarations in outer scopes, and vice versa.
@@ -4393,9 +4503,19 @@ int g(float I, int b = I(2));       // error: parameter \tcode{I} found
 int h(int a, int b = sizeof(a));    // OK, unevaluated operand\iref{term.unevaluated.operand}
 \end{codeblock}
 \end{example}
-A non-static member shall not appear in a default argument unless it appears as
-the \grammarterm{id-expression} of a class member access expression\iref{expr.ref} or
-unless it is used to form a pointer to member\iref{expr.unary.op}.
+A non-static member shall not be designated in a default argument unless
+\begin{itemize}
+\item
+it is designated by
+the \grammarterm{id-expression} or \grammarterm{splice-expression}
+of a class member access expression\iref{expr.ref},
+\item
+it is designated by an expression
+used to form a pointer to member\iref{expr.unary.op}, or
+\item
+it appears as the operand of
+a \grammarterm{reflect-expression}\iref{expr.reflect}.
+\end{itemize}
 \begin{example}
 The declaration of
 \tcode{X::mem1()}
@@ -4407,8 +4527,10 @@ used as an initializer.
 int b;
 class X {
   int a;
-  int mem1(int i = a);              // error: non-static member \tcode{a} used as default argument
-  int mem2(int i = b);              // OK;  use \tcode{X::b}
+  int mem1(int i = a);                      // error: non-static member \tcode{a} used as default argument
+  int mem2(int i = b);                      // OK, use \tcode{X::b}
+  consteval void mem3(std::meta::info r = ^^a) {}   // OK
+  int mem4(int i = [:^^a:]);                // error: non-static member a designated in default argument
   static int b;
 };
 \end{codeblock}
@@ -4433,10 +4555,13 @@ int (*p1)(int) = &f;
 int (*p2)() = &f;                   // error: type mismatch
 \end{codeblock}
 \end{example}
+\begin{note}
 When an overload set contains a declaration of a function
-that inhabits a scope $S$,
-any default argument associated with any reachable declaration that inhabits $S$
-is available to the call.
+whose host scope is $S$,
+any default argument associated with any reachable declaration
+whose host scope is $S$
+is available to the call\iref{over.match.viable}.
+\end{note}
 \begin{note}
 The candidate might have been found through a \grammarterm{using-declarator}
 from which the declaration that provides the default argument is not reachable.
@@ -4895,20 +5020,16 @@ if $D$ inhabits a block scope.
 \indextext{initialization!default}%
 \indextext{variable!indeterminate uninitialized}%
 \indextext{initialization!zero-initialization}%
-To
-\defnx{zero-initialize}{zero-initialization}
-an object or reference of type
-\tcode{T}
-means:
+To \defnx{zero-initialize}{zero-initialization}
+an object or reference of type \tcode{T} means:
 \begin{itemize}
 \item
-if
-\tcode{T}
-is a scalar type\iref{term.scalar.type}, the
-object
-is initialized to the value obtained by converting the integer literal \tcode{0}
-(zero) to
-\tcode{T};
+if \tcode{T} is \tcode{std::meta::info},
+the object is initialized to a null reflection value;
+\item
+if \tcode{T} is any other scalar type\iref{term.scalar.type},
+the object is initialized to the value
+obtained by converting the integer literal \tcode{0} (zero) to \tcode{T};
 \begin{footnote}
 As specified in~\ref{conv.ptr}, converting an integer
 literal whose value is
@@ -4975,6 +5096,9 @@ shall be met and
 each element is default-initialized.
 
 \item
+If \tcode{T} is \tcode{std::meta::info}, the object is zero-initialized.
+
+\item
 Otherwise,
 no initialization is performed.
 \end{itemize}
@@ -5002,8 +5126,9 @@ each potentially constructed base class of \tcode{T} is const-default-constructi
 \end{itemize}
 
 If a program calls for the default-initialization of an object of a
-const-qualified type \tcode{T},
-\tcode{T} shall be a const-default-constructible class type or array thereof.
+const-qualified type \tcode{T}, \tcode{T} shall be
+\tcode{std::meta::\linebreak info} or a const-default-constructible class type or
+array thereof.
 
 \pnum
 To
@@ -7003,8 +7128,10 @@ a function with a
 deleted definition or a function that is implicitly defined as deleted.
 
 \pnum
-A program that refers to a deleted function implicitly or explicitly, other
-than to declare it, is ill-formed.
+A construct that designates a deleted function implicitly or explicitly,
+other than to declare it or to appear as the operand of
+a \grammarterm{reflect-expression}\iref{expr.reflect},
+is ill-formed.
 
 \recommended
 The resulting diagnostic message should include
@@ -7993,11 +8120,15 @@ void h() {
 \begin{bnf}
 \nontermdef{using-enum-declarator}\br
     \opt{nested-name-specifier} identifier\br
-    \opt{nested-name-specifier} simple-template-id
+    \opt{nested-name-specifier} simple-template-id\br
+    splice-type-specifier
 \end{bnf}
 
 \pnum
-A \grammarterm{using-enum-declarator}
+A \grammarterm{using-enum-declarator} of
+the form \grammarterm{splice-type-specifier}
+designates the same type designated by the \grammarterm{splice-type-specifier}.
+Any other \grammarterm{using-enum-declarator}
 names the set of declarations found by
 type-only lookup\iref{basic.lookup.general}
 for the \grammarterm{using-enum-declarator}\iref{basic.lookup.unqual,basic.lookup.qual}.
@@ -8261,7 +8392,7 @@ where
 \grammarterm{unnamed-namespace-definition}
 and all occurrences of \exposid{unique} in a translation unit are replaced by
 the same identifier, and this identifier differs from all other
-identifiers in the translation unit.
+identifiers in the program.
 The optional \grammarterm{attribute-specifier-seq}
 in the \grammarterm{unnamed-namespace-definition}
 appertains to \exposid{unique}.
@@ -8293,8 +8424,8 @@ void h() {
 \indextext{synonym}
 
 \pnum
-A \grammarterm{namespace-alias-definition} declares an alternate name for a
-namespace according to the following grammar:
+A \grammarterm{namespace-alias-definition} declares a \defnadj{namespace}{alias}
+according to the following grammar:
 
 \begin{bnf}
 \nontermdef{namespace-alias}\br
@@ -8303,7 +8434,8 @@ namespace according to the following grammar:
 
 \begin{bnf}
 \nontermdef{namespace-alias-definition}\br
-        \keyword{namespace} identifier \terminal{=} qualified-namespace-specifier \terminal{;}
+        \keyword{namespace} identifier \terminal{=} qualified-namespace-specifier \terminal{;}\br
+        \keyword{namespace} identifier \terminal{=} splice-specifier \terminal{;}\br
 \end{bnf}
 
 \begin{bnf}
@@ -8312,9 +8444,18 @@ namespace according to the following grammar:
 \end{bnf}
 
 \pnum
+The \grammarterm{splice-specifier} (if any)
+shall designate a namespace that is not the global namespace.
+
+\pnum
 The \grammarterm{identifier} in a \grammarterm{namespace-alias-definition}
-becomes a \grammarterm{namespace-alias} and denotes the namespace denoted by the
-\grammarterm{qualified-namespace-specifier}.
+becomes a \grammarterm{namespace-alias}.
+
+\pnum
+The underlying entity\iref{basic.pre} of the namespace alias is
+the namespace either
+denoted by the \grammarterm{qualified-namespace-specifier} or
+designated by the \grammarterm{splice-specifier}.
 \begin{note}
 When looking up a \grammarterm{namespace-name} in a
 \grammarterm{namespace-alias-definition}, only namespace names are
@@ -8326,8 +8467,17 @@ considered, see~\ref{basic.lookup.udir}.
 
 \begin{bnf}
 \nontermdef{using-directive}\br
-    \opt{attribute-specifier-seq} \keyword{using} \keyword{namespace} \opt{nested-name-specifier} namespace-name \terminal{;}
+    \opt{attribute-specifier-seq} \keyword{using} \keyword{namespace} \opt{nested-name-specifier} namespace-name \terminal{;}\br
+    \opt{attribute-specifier-seq} \keyword{using} \keyword{namespace} splice-specifier \terminal{;}
 \end{bnf}
+
+\pnum
+The \grammarterm{splice-specifier} (if any) shall designate a namespace
+that is not the global namespace.
+The \grammarterm{nested-name-specifier},
+\grammarterm{namespace-name}, and
+\grammarterm{splice-specifier}
+shall not be dependent.
 
 \pnum
 A \grammarterm{using-directive} shall not appear in class scope, but may
@@ -8341,13 +8491,13 @@ The optional \grammarterm{attribute-specifier-seq} appertains to the \grammarter
 
 \pnum
 \begin{note}
-A \grammarterm{using-directive} makes the names in the nominated
+A \grammarterm{using-directive} makes the names in the designated
 namespace usable in the scope in which the
 \grammarterm{using-directive} appears after
 the \grammarterm{using-directive}\iref{basic.lookup.unqual,namespace.qual}.
 During unqualified name lookup, the names
 appear as if they were declared in the nearest enclosing namespace which
-contains both the \grammarterm{using-directive} and the nominated
+contains both the \grammarterm{using-directive} and the designated
 namespace.
 \end{note}
 
@@ -8388,8 +8538,8 @@ void f4() {
 \pnum
 \begin{note}
 A \grammarterm{using-directive} is transitive: if a scope contains a
-\grammarterm{using-directive} that nominates a namespace that itself
-contains \grammarterm{using-directive}{s}, the namespaces nominated by those
+\grammarterm{using-directive} that designates a namespace that itself
+contains \grammarterm{using-directive}{s}, the namespaces designated by those
 \grammarterm{using-directive}{s} are also eligible to be considered.
 \end{note}
 \begin{example}
@@ -9280,7 +9430,8 @@ such as types, variables, names, contract assertions, blocks, or translation uni
     \terminal{(} \opt{balanced-token-seq} \terminal{)}\br
     \terminal{[} \opt{balanced-token-seq} \terminal{]}\br
     \terminal{\{} \opt{balanced-token-seq} \terminal{\}}\br
-    \textnormal{any \grammarterm{token} other than a parenthesis, a bracket, or a brace}
+    \terminal{[:} \opt{balanced-token-seq} \terminal{:]}\br
+    \textnormal{any \grammarterm{token} other than \terminal{(}, \terminal{)}, \terminal{[}, \terminal{]}, \terminal{\{}, \terminal{\}}, \terminal{[:}, or \terminal{:]}}
 \end{bnf}
 
 \pnum
@@ -9319,7 +9470,9 @@ For each individual attribute, the form of the
 In an \grammarterm{attribute-list}, an ellipsis may appear only if that
 \grammarterm{attribute}'s specification permits it. An \grammarterm{attribute} followed
 by an ellipsis is a pack expansion\iref{temp.variadic}.
-An \grammarterm{attribute-specifier} that contains no \grammarterm{attribute}{s} has no
+An \grammarterm{attribute-specifier}
+that contains no \grammarterm{attribute}{s} and no \grammarterm{alignment-specifier}
+has no
 effect. The order in which the \grammarterm{attribute-token}{s} appear in an
 \grammarterm{attribute-list} is not significant. If a
 keyword\iref{lex.key}
@@ -9575,7 +9728,7 @@ can be used to explain the rationale for deprecation and/or to suggest a replaci
 \pnum
 The attribute may be applied to the declaration of
 a class,
-a \grammarterm{typedef-name},
+a type alias,
 a variable,
 a non-static data member,
 a function,
@@ -9793,7 +9946,7 @@ No \grammarterm{attribute-argument-clause} shall be present.
 
 \pnum
 The attribute may be applied to the declaration of a class,
-\grammarterm{typedef-name},
+type alias,
 variable (including a structured binding declaration),
 structured binding,
 result binding\iref{dcl.contract.res},

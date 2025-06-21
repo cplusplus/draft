@@ -147,7 +147,7 @@ Expressions are categorized according to the taxonomy in \fref{basic.lval}.
 \end{importgraphic}
 
 \begin{itemize}
-\item A \defn{glvalue} is an expression whose evaluation determines the identity of an object or function.
+\item A \defn{glvalue} is an expression whose evaluation determines the identity of an object, function, or non-static data member.
 \item A \defn{prvalue} is an expression whose evaluation initializes an object
 or computes the value of an operand of an operator,
 as specified by the context in which it appears,
@@ -186,7 +186,8 @@ Despite their names, these terms apply to expressions, not values.
 \begin{note}
 An expression is an xvalue if it is:
 \begin{itemize}
-\item a move-eligible \grammarterm{id-expression}\iref{expr.prim.id.unqual},
+\item a move-eligible \grammarterm{id-expression}\iref{expr.prim.id.unqual}
+or \grammarterm{splice-expression}\iref{expr.prim.splice},
 
 \item the result of calling a function, whether implicitly or explicitly,
 whose return type is an rvalue reference to object type\iref{expr.call},
@@ -442,6 +443,7 @@ expr.prim.req.compound,
 expr.typeid,
 expr.sizeof,
 expr.unary.noexcept,
+expr.reflect,
 dcl.type.decltype,
 temp.pre,
 temp.concept}.
@@ -467,6 +469,7 @@ following:
 \item \tcode{(} \grammarterm{expression} \tcode{)}, where
   \grammarterm{expression} is one of these expressions,
 \item \grammarterm{id-expression}\iref{expr.prim.id},
+\item \grammarterm{splice-expression}\iref{expr.prim.splice},
 \item subscripting\iref{expr.sub},
 \item class member access\iref{expr.ref},
 \item indirection\iref{expr.unary.op},
@@ -1243,7 +1246,8 @@ are both unsigned integer types,
     id-expression\br
     lambda-expression\br
     fold-expression\br
-    requires-expression
+    requires-expression\br
+    splice-expression
 \end{bnf}
 
 \rSec2[expr.prim.literal]{Literals}
@@ -1389,6 +1393,9 @@ $E$ is potentially evaluated or
 $E$ is not the \grammarterm{id-expression} of
 a class member access expression\iref{expr.ref}, and
 \item
+$E$ is not the \grammarterm{id-expression} of
+a \grammarterm{reflect-expression}\iref{expr.reflect}, and
+\item
 if $E$ is a \grammarterm{qualified-id},
 $E$ is not the un-parenthesized operand of
 the unary \tcode{\&} operator\iref{expr.unary.op},
@@ -1446,7 +1453,8 @@ where $u$ names the anonymous union variable.
 \end{itemize}
 
 \pnum
-An \grammarterm{id-expression} that denotes a non-static data member or
+An \grammarterm{id-expression} or \grammarterm{splice-expression}
+that designates a non-static data member or
 implicit object member function of a class can only be used:
 \begin{itemize}
 \item as part of a class member access
@@ -1459,7 +1467,8 @@ that class, or
 
 \item to form a pointer to member\iref{expr.unary.op}, or
 
-\item if that \grammarterm{id-expression} denotes a non-static data member
+\item if that \grammarterm{id-expression} or \grammarterm{splice-expression}
+designates a non-static data member
 and it appears in an unevaluated operand.
 \begin{example}
 \begin{codeblock}
@@ -1468,6 +1477,7 @@ struct S {
 };
 int i = sizeof(S::m);           // OK
 int j = sizeof(S::m + 42);      // OK
+int S::*k = &[:^^S::m:];        // OK
 \end{codeblock}
 \end{example}
 \end{itemize}
@@ -1775,10 +1785,12 @@ An \defnadj{implicitly movable}{entity} is
 a variable with automatic storage duration
 that is either a non-volatile object or
 an rvalue reference to a non-volatile object type.
-An \grammarterm{id-expression} is \defn{move-eligible} if
+An \grammarterm{id-expression} or
+\grammarterm{splice-expression}\iref{expr.prim.splice}
+is \defn{move-eligible} if
 \begin{itemize}
 \item
-it names an implicitly movable entity,
+it designates an implicitly movable entity,
 \item
 it is the (possibly parenthesized)
 operand of a \tcode{return}\iref{stmt.return} or
@@ -1787,7 +1799,7 @@ of a \grammarterm{throw-expression}\iref{expr.throw}, and
 \item
 each intervening scope between
 the declaration of the entity and
-the innermost enclosing scope of the \grammarterm{id-expression}
+the innermost enclosing scope of the expression
 is a block scope and,
 for a \grammarterm{throw-expression},
 is not the block scope of
@@ -1813,8 +1825,14 @@ a \grammarterm{try-block} or \grammarterm{function-try-block}.
     type-name \terminal{::}\br
     namespace-name \terminal{::}\br
     computed-type-specifier \terminal{::}\br
+    splice-scope-specifier \terminal{::}\br
     nested-name-specifier identifier \terminal{::}\br
     nested-name-specifier \opt{\keyword{template}} simple-template-id \terminal{::}
+\end{bnf}
+\begin{bnf}
+\nontermdef{splice-scope-specifier}\br
+    splice-specifier\br
+    \opt{\keyword{template}} splice-specialization-specifier
 \end{bnf}
 
 \pnum
@@ -1827,6 +1845,33 @@ its \grammarterm{identifier} (if any) and those of its
 \grammarterm{namespace-name},
 \grammarterm{simple-template-id}, and/or
 \grammarterm{nested-name-specifier}.
+
+\pnum
+A \grammarterm{splice-specifier} or
+\grammarterm{splice-specialization-specifier}
+that is not followed by \tcode{::}
+is never interpreted as part of a \grammarterm{splice-scope-specifier}.
+The keyword \keyword{template} may only be omitted
+from the form
+\tcode{\opt{\keyword{template}} \grammarterm{splice-specialization-specifier} ::}
+when the \grammarterm{splice-specialization-specifier}
+is preceded by \keyword{typename}.
+\begin{example}
+\begin{codeblock}
+template<int V>
+struct TCls {
+  static constexpr int s = V;
+  using type = int;
+};
+
+int v1 = [:^^TCls<1>:]::s;
+int v2 = template [:^^TCls:]<2>::s;             // OK, \keyword{template} binds to \grammarterm{splice-scope-specifier}
+typename [:^^TCls:]<3>::type v3 = 3;            // OK, \keyword{typename} binds to the qualified name
+template [:^^TCls:]<3>::type v4 = 4;            // OK, \keyword{template} binds to the \grammarterm{splice-scope-specifier}
+typename template [:^^TCls:]<3>::type v5 = 5;   // OK, same as \tcode{v3}
+[:^^TCls:]<3>::type v6 = 6;                     // error: unexpected \tcode{<}
+\end{codeblock}
+\end{example}
 
 \pnum
 A \grammarterm{nested-name-specifier} is \defn{declarative} if it is part of
@@ -1842,17 +1887,44 @@ that is the \grammarterm{id-expression} of a \grammarterm{declarator-id}, or
 a declarative \grammarterm{nested-name-specifier}.
 \end{itemize}
 A declarative \grammarterm{nested-name-specifier}
-shall not have a \grammarterm{computed-type-specifier}.
+shall not have a \grammarterm{computed-type-specifier} or
+a \grammarterm{splice-scope-specifier}.
 A declaration that uses a declarative \grammarterm{nested-name-specifier}
 shall be a friend declaration or
 inhabit a scope that contains the entity being redeclared or specialized.
 
 \pnum
-The \grammarterm{nested-name-specifier} \tcode{::} nominates
+The entity designated by a \grammarterm{nested-name-specifier}
+is determined as follows:
+\begin{itemize}
+\item
+The \grammarterm{nested-name-specifier} \tcode{::} designates
 the global namespace.
+\item
 A \grammarterm{nested-name-specifier} with a \grammarterm{computed-type-specifier}
-nominates the type denoted by the \grammarterm{computed-type-specifier},
+designates the same type designated by the \grammarterm{computed-type-specifier},
 which shall be a class or enumeration type.
+\item
+For a \grammarterm{nested-name-specifier} of
+the form \tcode{\grammarterm{splice-specifier} ::},
+the \grammarterm{splice-specifier} shall designate
+a class or enumeration type or a namespace.
+The \grammarterm{nested-name-specifier} designates the same entity
+as the \grammarterm{splice-specifier}.
+\item
+For a \grammarterm{nested-name-specifier} of
+the form
+\tcode{\opt{\keyword{template}} \grammarterm{splice-specialization-specifier} ::},
+the \grammarterm{splice-specifier} of
+the \grammarterm{splice-specialization-specifier} shall designate
+a class template or an alias template $T$.
+Letting $S$ be the specialization of $T$
+corresponding to the template argument list of
+the \grammarterm{splice-specialization-specifier},
+$S$ shall either be a class template specialization or
+an alias template specialization that denotes a class or enumeration type.
+The \grammarterm{nested-name-specifier} designates the underlying entity of $S$.
+\item
 If a \grammarterm{nested-name-specifier} $N$
 is declarative and
 has a \grammarterm{simple-template-id} with a template argument list $A$
@@ -1863,22 +1935,24 @@ $T$ shall be a class template.
 \item
 If $A$ is the template argument list\iref{temp.arg} of
 the corresponding \grammarterm{template-head} $H$\iref{temp.mem},
-$N$ nominates the primary template of $T$;
+$N$ designates the primary template of $T$;
 $H$ shall be equivalent to
 the \grammarterm{template-head} of $T$\iref{temp.over.link}.
 \item
-Otherwise, $N$ nominates the partial specialization\iref{temp.spec.partial} of $T$
+Otherwise, $N$ designates the partial specialization\iref{temp.spec.partial} of $T$
 whose template argument list is equivalent to $A$\iref{temp.over.link};
 the program is ill-formed if no such partial specialization exists.
 \end{itemize}
-Any other \grammarterm{nested-name-specifier} nominates
-the entity denoted by its
+\item
+Any other \grammarterm{nested-name-specifier} designates
+the entity denotes by its
 \grammarterm{type-name},
 \grammarterm{namespace-name},
 \grammarterm{identifier}, or
 \grammarterm{simple-template-id}.
 If the \grammarterm{nested-name-specifier} is not declarative,
 the entity shall not be a template.
+\end{itemize}
 
 \pnum
 A \grammarterm{qualified-id} shall not be of the form
@@ -2134,6 +2208,10 @@ called the \defn{closure type},
 whose properties are described below.
 
 \pnum
+The closure type is not complete
+until the end of its corresponding \grammarterm{compound-statement}.
+
+\pnum
 The closure type is declared in the smallest block
 scope, class scope, or namespace scope that contains the corresponding
 \grammarterm{lambda-expression}.
@@ -2172,6 +2250,8 @@ are those of the \grammarterm{lambda-expression}{'s}
 respectively, and whose
 \grammarterm{template-parameter-list} consists of
 the specified \grammarterm{template-parameter-list}, if any.
+The function call operator or the function call operator template are
+direct members of the closure type.
 The \grammarterm{requires-clause} of the function call operator template
 is the \grammarterm{requires-clause} immediately following
 \tcode{<}~\grammarterm{template-parameter-list}{}~\tcode{>}, if any.
@@ -2524,7 +2604,9 @@ struct S1 {
 };
 \end{codeblock}
 \end{example}
-Further, a variable \mname{func} is implicitly defined at the beginning of
+Unless the \grammarterm{compound-statement} is
+that of a \grammarterm{consteval-block-declaration}\iref{dcl.pre},
+a variable \mname{func} is implicitly defined at the beginning of
 the \grammarterm{compound-statement} of the \grammarterm{lambda-expression},
 with semantics as described in~\ref{dcl.fct.def.general}.
 
@@ -3271,13 +3353,16 @@ and a \grammarterm{nested-requirement}.
 
 \begin{bnf}
 \nontermdef{type-requirement}\br
-    \keyword{typename} \opt{nested-name-specifier} type-name \terminal{;}
+    \keyword{typename} \opt{nested-name-specifier} type-name \terminal{;}\br
+    \keyword{typename} splice-specifier\br
+    \keyword{typename} splice-specialization-specifier
 \end{bnf}
 
 \pnum
 A \grammarterm{type-requirement} asserts the validity of a type.
 The component names of a \grammarterm{type-requirement} are those of its
-\grammarterm{nested-name-specifier} (if any) and \grammarterm{type-name}.
+\grammarterm{nested-name-specifier} (if any) and
+\grammarterm{type-name} (if any).
 \begin{note}
 The enclosing \grammarterm{requires-expression} will evaluate to \keyword{false}
 if substitution of template arguments fails.
@@ -3288,10 +3373,12 @@ template<typename T, typename T::type = 0> struct S;
 template<typename T> using Ref = T&;
 
 template<typename T> concept C = requires {
-  typename T::inner;    // required nested member name
-  typename S<T>;        // required valid\iref{temp.names} \grammarterm{template-id};
-                        // fails if \tcode{T::type} does not exist as a type to which \tcode{0} can be implicitly converted
-  typename Ref<T>;      // required alias template substitution, fails if \tcode{T} is void
+  typename T::inner;        // required nested member name
+  typename S<T>;            // required valid\iref{temp.names} \grammarterm{template-id}; fails if \tcode{T::type} does not exist as a type
+                            // to which \tcode{0} can be implicitly converted
+  typename Ref<T>;          // required alias template substitution, fails if \tcode{T} is void
+  typename [:T::r1:];       // fails if \tcode{T::r1} is not a reflection of a type
+  typename [:T::r2:]<int>;  // fails if \tcode{T::r2} is not a reflection of a template \tcode{Z} for which \tcode{Z<int>} is a type
 };
 \end{codeblock}
 \end{example}
@@ -3426,6 +3513,150 @@ template<typename T> concept D = requires (T t) {
 \indextext{expression!requires|)}
 \indextext{expression!primary|)}
 
+\rSec2[expr.prim.splice]{Expression splicing}
+
+\begin{bnf}
+\nontermdef{splice-expression}\br
+    splice-specifier\br
+    \keyword{template} splice-specifier\br
+    \keyword{template} splice-specialization-specifier
+\end{bnf}
+
+\pnum
+A \grammarterm{splice-specifier}
+or \grammarterm{splice-specialization-specifier}
+immediately followed by \tcode{::} or preceded by \keyword{typename}
+is never interpreted as part of a \grammarterm{splice-expression}.
+\begin{example}
+\begin{codeblock}
+struct S { static constexpr int a = 1; };
+template<typename> struct TCls { static constexpr int b = 2; };
+
+constexpr int c = [:^^S:]::a;                   // OK, \tcode{[:\caret\caret S:]} is not an expression
+constexpr int d = template [:^^TCls:]<int>::b;  // OK, \tcode{template [:\caret\caret TCls:]<int>} is not an expression
+template<auto V> constexpr int e = [:V:];       // OK
+constexpr int f = template [:^^e:]<^^S::a>;     // OK
+
+constexpr auto g = typename [:^^int:](42);      // OK, \tcode{typename [:\caret\caret int:]} is a \grammarterm{splice-type-specifier}
+
+constexpr auto h = ^^g;
+constexpr auto i = e<[:^^h:]>;          // error: unparenthesized \grammarterm{splice-expression} used as template argument
+constexpr auto j = e<([:^^h:])>;        // OK
+\end{codeblock}
+\end{example}
+
+\pnum
+For a \grammarterm{splice-expression} of the form \grammarterm{splice-specifier},
+let $S$ be the construct designated by \grammarterm{splice-specifier}.
+\begin{itemize}
+\item
+The expression is ill-formed if $S$ is
+\begin{itemize}
+\item
+a constructor,
+\item
+a destructor,
+\item
+an unnamed bit-field, or
+\item
+a local entity\iref{basic.pre} such that
+\begin{itemize}
+\item
+there is a lambda scope that intervenes
+between the expression and the point at which $S$ was introduced and
+\item
+the expression would be potentially evaluated
+if the effect of any enclosing \keyword{typeid} expressions\iref{expr.typeid}
+were ignored.
+\end{itemize}
+\end{itemize}
+\item
+Otherwise, if $S$ is a function $F$,
+the expression denotes an overload set containing all declarations of $F$
+that precede either the expression or
+the point immediately following the \grammarterm{class-specifier} of
+the outermost class for which the expression is in a complete-class context;
+overload resolution is performed\iref{over.match,over.over}.
+\item
+Otherwise, if $S$ is an object or a non-static data member,
+the expression is an lvalue designating $S$.
+The expression has the same type as that of $S$, and
+is a bit-field if and only if $S$ is a bit-field.
+\begin{note}
+The implicit transformation
+whereby an \grammarterm{id-expression} denoting a non-static member
+becomes a class member access\iref{expr.prim.id}
+does not apply to a \grammarterm{splice-expression}.
+\end{note}
+\item
+Otherwise, if $S$ is a variable or a structured binding,
+$S$ shall either have static or thread storage duration or
+shall inhabit a scope enclosing the expression.
+The expression is an lvalue referring to the object or function $X$
+associated with or referenced by $S$,
+has the same type as that of $S$, and
+is a bit-field if and only if $X$ is a bit-field.
+\begin{note}
+The type of a \grammarterm{splice-expression}
+designating a variable or structured binding of reference type
+will be adjusted to a non-reference type\iref{expr.type}.
+\end{note}
+\item
+Otherwise, if $S$ is a value or an enumerator,
+the expression is a prvalue that computes $S$ and
+whose type is the same as that of $S$.
+\item
+Otherwise, the expression is ill-formed.
+\end{itemize}
+
+\pnum
+For a \grammarterm{splice-expression} of
+the form \tcode{\keyword{template} \grammarterm{splice-specifier}},
+the \grammarterm{splice-specifier} shall designate a function template $T$
+that is not a constructor template.
+The expression denotes an overload set containing all declarations of $T$
+that precede either the expression or
+the point immediately following the \grammarterm{class-specifier} of
+the outermost class for which the expression is in a complete-class context;
+overload resolution is performed.
+\begin{note}
+During overload resolution,
+candidate function templates undergo template argument deduction and
+the resulting specializations are considered as candidate functions.
+\end{note}
+
+\pnum
+For a \grammarterm{splice-expression} of
+the form \tcode{template \grammarterm{splice-specialization-specifier}},
+the \grammarterm{splice-specifier} of
+the \grammarterm{splice-specialization-specifier}
+shall designate a template $T$.
+\begin{itemize}
+\item
+If $T$ is a function template,
+the expression denotes an overload set containing all declarations of $T$
+that precede either the expression or
+the point immediately following the \grammarterm{class-specifier} of
+the outermost class for which the expression is in a complete-class context;
+overload resolution is performed\iref{over.match,over.over}.
+\item
+Otherwise, if $T$ is a variable template,
+let $S$ be the specialization of $T$ corresponding to
+the template argument list of the \grammarterm{splice-specialization-specifier}.
+The expression is an lvalue referring to
+the object associated with $S$ and has the same type as that of $S$.
+\item
+Otherwise, the expression is ill-formed.
+\end{itemize}
+\begin{note}
+Class members are accessible from any point
+when designated by \grammarterm{splice-expression}s\iref{class.access.base}.
+A class member access expression\iref{expr.ref}
+whose right operand is a \grammarterm{splice-expression} is ill-formed
+if the left operand (considered as a pointer) cannot be implicitly converted
+to a pointer to the designating class of the right operand.
+\end{note}
+
 \rSec1[expr.compound]{Compound expressions}
 
 \rSec2[expr.post]{Postfix expressions}%
@@ -3446,7 +3677,9 @@ Postfix expressions group left-to-right.
     simple-type-specifier braced-init-list\br
     typename-specifier braced-init-list\br
     postfix-expression \terminal{.} \opt{\keyword{template}} id-expression\br
+    postfix-expression \terminal{.} splice-expression\br
     postfix-expression \terminal{->} \opt{\keyword{template}} id-expression\br
+    postfix-expression \terminal{->} splice-expression\br
     postfix-expression \terminal{++}\br
     postfix-expression \terminal{--}\br
     \keyword{dynamic_cast} \terminal{<} type-id \terminal{>} \terminal{(} expression \terminal{)}\br
@@ -3915,10 +4148,12 @@ void h() {
 A postfix expression followed by a dot \tcode{.} or an arrow \tcode{->},
 optionally followed by the keyword
 \keyword{template}, and then followed by an
-\grammarterm{id-expression}, is a postfix expression.
+\grammarterm{id-expression} or a \grammarterm{splice-expression},
+is a postfix expression.
 \begin{note}
-If the keyword \keyword{template} is used,
-the following unqualified name
+If the keyword \keyword{template} is used and
+followed by an \grammarterm{id-expression},
+the unqualified name
 is considered to refer to a template\iref{temp.names}.
 If a \grammarterm{simple-template-id} results and is followed by a \tcode{::},
 the \grammarterm{id-expression} is a \grammarterm{qualified-id}.
@@ -3926,16 +4161,16 @@ the \grammarterm{id-expression} is a \grammarterm{qualified-id}.
 
 \pnum
 \indextext{type!incomplete}%
-For the first option (dot),
-if the \grammarterm{id-expression} names a static member or an enumerator,
+For a dot that is followed by an expression
+that designates a static member or an enumerator,
 the first expression is a discarded-value expression\iref{expr.context};
-if the \grammarterm{id-expression} names a non-static data member,
+if the expression after the dot designates a non-static data member,
 the first expression shall be a glvalue.
-For the second option (arrow), the first expression
+A postfix expression that is followed by an arrow
 shall be a prvalue having pointer type.
 The expression \tcode{E1->E2} is
 converted to the equivalent form \tcode{(*(E1)).E2}; the remainder of
-\ref{expr.ref}~will address only the first option (dot).
+\ref{expr.ref}~will address only the form using a dot.
 \begin{footnote}
 Note that
 \tcode{(*(E1))} is an lvalue.
@@ -3951,12 +4186,14 @@ the value of the entire postfix expression, for example if the
 \grammarterm{id-expression} denotes a static member.
 \end{footnote}
 the result of that evaluation,
-together with the \grammarterm{id-expression},
+together with
+the \grammarterm{id-expression} or \grammarterm{splice-expression},
 determines the result of the entire postfix expression.
 
 \pnum
 Abbreviating
-\grammarterm{postfix-expression}\tcode{.}\grammarterm{id-expression}
+\grammarterm{postfix-expression}\tcode{.}\grammarterm{id-expression} or
+\grammarterm{postfix-expression}\tcode{.}\grammarterm{splice-expression}
 as \tcode{E1.E2}, \tcode{E1} is called the \defn{object expression}.
 If the object expression is of scalar type,
 \tcode{E2} shall name the pseudo-destructor
@@ -3981,7 +4218,11 @@ when the class is complete\iref{class.member.lookup}.
 \end{note}
 
 \pnum
-If \tcode{E2} is a bit-field, \tcode{E1.E2} is a bit-field. The
+If \tcode{E2} is a \grammarterm{splice-expression},
+then \tcode{E2} shall designate a member of the type of \tcode{E1}.
+
+\pnum
+If \tcode{E2} designates a bit-field, \tcode{E1.E2} is a bit-field. The
 type and value category of \tcode{E1.E2} are determined as follows.
 In the remainder of~\ref{expr.ref}, \cvqual{cq} represents either
 \keyword{const} or the absence of \keyword{const} and \cvqual{vq} represents
@@ -3990,9 +4231,10 @@ represents an arbitrary set of cv-qualifiers, as defined
 in~\ref{basic.type.qualifier}.
 
 \pnum
-If \tcode{E2} is declared to have type ``reference to \tcode{T}'', then
+If \tcode{E2} designates an entity
+that is declared to have type ``reference to \tcode{T}'', then
 \tcode{E1.E2} is an lvalue of type \tcode{T}.
-If \tcode{E2} is a static data member,
+In that case, if \tcode{E2} designates a static data member,
 \tcode{E1.E2} designates the object or function to which
 the reference is bound,
 otherwise \tcode{E1.E2} designates the object or function to which
@@ -4000,11 +4242,11 @@ the corresponding reference member of \tcode{E1} is bound.
 Otherwise, one of the following rules applies.
 
 \begin{itemize}
-\item If \tcode{E2} is a static data member and the type of \tcode{E2}
+\item If \tcode{E2} designates a static data member and the type of \tcode{E2}
 is \tcode{T}, then \tcode{E1.E2} is an lvalue; the expression designates
 the named member of the class. The type of \tcode{E1.E2} is \tcode{T}.
 
-\item If \tcode{E2} is a non-static data member and the type of
+\item Otherwise, if \tcode{E2} designates a non-static data member and the type of
 \tcode{E1} is ``\cvqual{cq1 vq1} \tcode{X}'', and the type of \tcode{E2}
 is ``\cvqual{cq2 vq2} \tcode{T}'', the expression designates the corresponding
 member subobject of the object designated by the first expression. If \tcode{E1}
@@ -4015,13 +4257,15 @@ Let the notation \cvqual{vq12} stand for the ``union'' of
 is \tcode{volatile}, then \cvqual{vq12} is \keyword{volatile}. Similarly,
 let the notation \cvqual{cq12} stand for the ``union'' of \cvqual{cq1}
 and \cvqual{cq2}; that is, if \cvqual{cq1} or \cvqual{cq2} is
-\keyword{const}, then \cvqual{cq12} is \keyword{const}. If \tcode{E2} is
-declared to be a \keyword{mutable} member, then the type of \tcode{E1.E2}
-is ``\cvqual{vq12} \tcode{T}''. If \tcode{E2} is not declared to be a
-\keyword{mutable} member, then the type of \tcode{E1.E2} is
-``\cvqual{cq12} \cvqual{vq12} \tcode{T}''.
+\keyword{const}, then \cvqual{cq12} is \keyword{const}.
+If the entity designated by \tcode{E2}
+is declared to be a \keyword{mutable} member,
+then the type of \tcode{E1.E2} is ``\cvqual{vq12} \tcode{T}''.
+If the entity designated by \tcode{E2}
+is not declared to be a \keyword{mutable} member,
+then the type of \tcode{E1.E2} is ``\cvqual{cq12} \cvqual{vq12} \tcode{T}''.
 
-\item If \tcode{E2} is an overload set,
+\item If \tcode{E2} denotes an overload set,
 the expression shall be the (possibly-parenthesized) left-hand operand of
 a member function call\iref{expr.call}, and
 function overload resolution\iref{over.match}
@@ -4041,26 +4285,30 @@ is ignored\iref{expr.prim.paren}.
 \end{note}
 \end{itemize}
 
-\item If \tcode{E2} is a nested type, the expression \tcode{E1.E2} is
+\item If \tcode{E2} designates a nested type, the expression \tcode{E1.E2} is
 ill-formed.
 
-\item If \tcode{E2} is a member enumerator and the type of \tcode{E2}
+\item If \tcode{E2} designates a member enumerator and the type of \tcode{E2}
 is \tcode{T}, the expression \tcode{E1.E2} is a prvalue of type \tcode{T}
 whose value is the value of the enumerator.
+
+\item Otherwise, the program is ill-formed.
 \end{itemize}
 
 \pnum
-If \tcode{E2} is a non-static member,
-the program is ill-formed if the class of which \tcode{E2} is
-directly a member is an ambiguous base\iref{class.member.lookup} of
-the naming class\iref{class.access.base} of \tcode{E2}.
+If \tcode{E2} designates a non-static member
+(possibly after overload resolution),
+the program is ill-formed if the class of which \tcode{E2} designates
+a direct member is an ambiguous base\iref{class.member.lookup} of
+the designating class\iref{class.access.base} of \tcode{E2}.
 \begin{note}
 The program is also ill-formed if the naming class is an ambiguous base of the class type
 of the object expression; see~\ref{class.access.base}.
 \end{note}
 
 \pnum
-If \tcode{E2} is a non-static member and
+If \tcode{E2} designates a non-static member
+(possibly after overload resolution) and
 the result of \tcode{E1} is an object whose type
 is not similar\iref{conv.qual} to the type of \tcode{E1},
 the behavior is undefined.
@@ -4907,7 +5155,8 @@ Expressions with unary operators group right-to-left.
     \keyword{alignof} \terminal{(} type-id \terminal{)}\br
     noexcept-expression\br
     new-expression\br
-    delete-expression
+    delete-expression\br
+    reflect-expression
 \end{bnf}
 
 \indextext{operator!indirection}%
@@ -4963,14 +5212,25 @@ The operand of the unary \tcode{\&} operator
 shall be an lvalue of some type \tcode{T}.
 \begin{itemize}
 \item
-If the operand is a \grammarterm{qualified-id} naming a non-static or variant member \tcode{m}
-of some class \tcode{C}, other than an explicit object member function, the result has type ``pointer to member
-of class \tcode{C} of type \tcode{T}'' and designates \tcode{C::m}.
+If the operand is a \grammarterm{qualified-id} or \grammarterm{splice-expression}
+designating a non-static member \tcode{m},
+other than an explicit object member function,
+\tcode{m} shall be a direct member of some class \tcode{C}
+that is not an anonymous union.
+The result has type ``pointer to member of class \tcode{C} of type \tcode{T}''
+and designates \tcode{C::m}.
+\begin{note}
+A \grammarterm{qualified-id}
+that names a member of a namespace-scope anonymous union
+is considered to be a class member access expression\iref{expr.prim.id.general}
+and cannot be used to form a pointer to member.
+\end{note}
 \item
 Otherwise, the result has type ``pointer to \tcode{T}'' and points to
 the designated object\iref{intro.memory} or function\iref{basic.compound}.
-If the operand names an explicit object member function\iref{dcl.fct},
-the operand shall be a \grammarterm{qualified-id}.
+If the operand designates an explicit object member function\iref{dcl.fct},
+the operand shall be
+a \grammarterm{qualified-id} or a \grammarterm{splice-expression}.
 \begin{note}
 In particular, taking the address of a variable of type ``\cv{}~\tcode{T}''
 yields a pointer of type ``pointer to \cv{}~\tcode{T}''.
@@ -4995,8 +5255,9 @@ associated with the non-static data member.
 
 \pnum
 A pointer to member is only formed when an explicit \tcode{\&} is used
-and its operand is a \grammarterm{qualified-id} not enclosed in
-parentheses.
+and its operand is
+a \grammarterm{qualified-id} or \grammarterm{splice-expression}
+not enclosed in parentheses.
 \begin{note}
 That is, the expression \tcode{\&(qualified-id)}, where the
 \grammarterm{qualified-id} is enclosed in parentheses, does not form an
@@ -6327,6 +6588,232 @@ the second or third argument was not the corresponding argument in said call,
 the behavior is undefined\iref{new.delete.single,new.delete.array}.
 \end{note}
 
+\rSec3[expr.reflect]{The reflection operator}
+
+\begin{bnf}
+\nontermdef{reflect-expression}\br
+    \terminal{\caret\caret} \terminal{::}\br
+    \terminal{\caret\caret} reflection-name\br
+    \terminal{\caret\caret} type-id\br
+    \terminal{\caret\caret} id-expression
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{reflection-name}\br
+    \opt{nested-name-specifier} identifier\br
+    nested-name-specifier \keyword{template} identifier
+\end{bnf}
+
+\pnum
+The unary \tcode{\caret\caret} operator,
+called the \defnadj{reflection}{operator},
+yields a prvalue of type \tcode{std::meta::info}\iref{basic.fundamental}.
+\begin{note}
+This document places no restriction on representing, by reflections,
+constructs not described by this document or
+using the names of such constructs
+as operands of \grammarterm{reflect-expression}s.
+\end{note}
+
+\pnum
+The component names of a \grammarterm{reflection-name}
+are those of its \grammarterm{nested-name-specifier} (if any) and
+its \grammarterm{identifier}.
+The terminal name of a \grammarterm{reflection-name} of the form
+\grammarterm{nested-name-specifier} \keyword{template} \grammarterm{identifier}
+shall denote a template.
+
+\pnum
+A \grammarterm{reflect-expression} is parsed as
+the longest possible sequence of tokens
+that could syntactically form a \grammarterm{reflect-expression}.
+An unparenthesized \grammarterm{reflect-expression}
+that represents a template shall not be followed by \tcode{<}.
+\begin{example}
+\begin{codeblock}
+static_assert(std::meta::is_type(^^int()));     // \tcode{\caret\caret} applies to the type-id \tcode{int()}
+
+template<bool>struct X {};
+consteval bool operator<(std::meta::info, X<false>) { return false; }
+consteval void g(std::meta::info r, X<false> xv) {
+  r == ^^int && true;       // error: \tcode{\caret\caret} applies to the \grammarterm{type-id} \tcode{int\&\&}
+  r == ^^int & true;        // error: \tcode{\caret\caret} applies to the type-id \tcode{int\&}
+  r == (^^int) && true;     // OK
+  r == ^^int &&&& true;     // error: \tcode{int \&\&\&\&} is not a valid \grammarterm{type-id}
+  ^^X < xv;                 // error: \grammarterm{reflect-expression} that represents a template is followed by \tcode{<}
+  (^^X) < xv;               // OK
+  ^^X<true> < xv;           // OK
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+A \grammarterm{reflect-expression} of the form \tcode{\caret\caret ::}
+represents the global namespace.
+
+\pnum
+If a \grammarterm{reflect-expression} $R$ matches
+the form \tcode{\caret\caret \grammarterm{reflection-name}},
+it is interpreted as such;
+the identifier is looked up and
+the representation of $R$ is determined as follows:
+\begin{itemize}
+\item
+If lookup finds a declaration
+that replaced a \grammarterm{using-declarator}
+during a single search\iref{basic.lookup.general,namespace.udecl},
+$R$ is ill-formed.
+\begin{example}
+\begin{codeblock}
+struct A { struct S {}; };
+struct B : A { using A::S; };
+constexpr std::meta::info r1 = ^^B::S;  // error: \tcode{A::S} found through \grammarterm{using-declarator}
+
+struct C : virtual B { struct S {}; };
+struct D : virtual B, C {};
+D::S s;                                 // OK, names \tcode{C::S} per \ref{class.member.lookup}
+constexpr std::meta::info r2 = ^^D::S;  // OK, result \tcode{C::S} not found through \grammarterm{using-declarator}
+\end{codeblock}
+\end{example}
+\item
+Otherwise, if lookup finds a namespace alias\iref{namespace.alias},
+$R$ represents that namespace alias.
+For any other \grammarterm{namespace-name},
+$R$ represents the denoted namespace.
+\item
+Otherwise, if lookup finds a namespace\iref{namespace.alias},
+$R$ represents that namespace.
+\item
+Otherwise, if lookup finds a concept\iref{temp.concept},
+$R$ represents the denoted concept.
+\item
+Otherwise, if lookup finds a template\iref{temp.names},
+the representation of $R$ is determined as follows:
+\begin{itemize}
+\item
+If lookup finds an injected-class-name\iref{class.pre}, then:
+\begin{itemize}
+\item
+If the \grammarterm{reflection-name} is of the form
+\tcode{\grammarterm{nested-name-specifier} \keyword{template} \grammarterm{identifier}},
+then $R$ represents the class template named by the injected-class-name.
+\item
+Otherwise, the injected-class-name shall be unambiguous
+when considered as a \grammarterm{type-name} and
+$R$ represents the class template specialization so named.
+\end{itemize}
+\item
+Otherwise, if lookup finds an overload set,
+that overload set shall contain only
+declarations of a unique function template F;
+$R$ represents F.
+\item
+Otherwise, if lookup finds
+a class template, variable template, or alias template,
+$R$ represents that template.
+\begin{note}
+Lookup never finds a partial or explicit specialization.
+\end{note}
+\end{itemize}
+\item
+Otherwise, if lookup finds a type alias $A$,
+$R$ represents the underlying entity of $A$
+if $A$ was introduced by the declaration of a template parameter;
+otherwise, $R$ represents $A$.
+\item
+Otherwise, if lookup finds a class or an enumeration,
+$R$ represents the denoted type.
+\item
+Otherwise, if lookup finds a class member of an anonymous union\iref{class.union.anon}, $R$ represents that class member.
+\item
+Otherwise,
+the \grammarterm{reflection-name} shall be an \grammarterm{id-expression} \tcode{I}
+and $R$ is \tcode{\caret\caret I} (see below).
+\end{itemize}
+
+\pnum
+A \grammarterm{reflect-expression} $R$ of the form
+\tcode{\caret\caret \grammarterm{type-id}}
+represents an entity determined as follows:
+\begin{itemize}
+\item
+If the \grammarterm{type-id} designates
+a placeholder type\iref{dcl.spec.auto.general},
+$R$ is ill-formed.
+\item
+Otherwise, if the \grammarterm{type-id} names a type alias
+that is a specialization of an alias template\iref{temp.alias},
+$R$ represents that type alias.
+\item
+Otherwise, $R$ represents the type denoted by the \grammarterm{type-id}.
+\end{itemize}
+
+\pnum
+A \grammarterm{reflect-expression} $R$ of the form
+\tcode{\caret\caret \grammarterm{id-expression}}
+represents an entity determined as follows:
+\begin{itemize}
+\item
+If the \grammarterm{id-expression} denotes
+\begin{itemize}
+\item
+a variable declared by
+an \grammarterm{init-capture}\iref{expr.prim.lambda.capture},
+\item
+a function-local predefined variable\iref{dcl.fct.def.general},
+\item
+a local parameter introduced by
+a \grammarterm{requires-expression}\iref{expr.prim.req}, or
+\item
+a local entity $E$\iref{basic.pre} for which a lambda scope intervenes
+between the point at which $E$ was introduced and $R$,
+then $R$ is ill-formed.
+\end{itemize}
+\item
+Otherwise, if the \grammarterm{id-expression} denotes an overload set $S$,
+overload resolution for the expression \tcode{\&S} with no target
+shall select a unique function\iref{over.over};
+$R$ represents that function.
+\item
+Otherwise, if the \grammarterm{id-expression} denotes
+a variable, structured binding, enumerator, or non-static data member,
+$R$ represents that entity.
+\item
+Otherwise, $R$ is ill-formed.
+\begin{note}
+This includes \grammarterm{unqualified-id}s
+that name a constant template parameter and
+\grammarterm{pack-index-expression}s.
+\end{note}
+\end{itemize}
+The \grammarterm{id-expression} of
+a \grammarterm{reflect-expression} is an unevaluated operand\iref{expr.context}.
+\begin{example}
+\begin{codeblock}
+template<typename T> void fn() requires (^^T != ^^int);
+template<typename T> void fn() requires (^^T == ^^int);
+template<typename T> void fn() requires (sizeof(T) == sizeof(int));
+
+constexpr std::meta::info a = ^^fn<char>;       // OK
+constexpr std::meta::info b = ^^fn<int>;        // error: ambiguous
+
+constexpr std::meta::info c = ^^std::vector;    // OK
+
+template<typename T>
+struct S {
+  static constexpr std::meta::info r = ^^T;
+  using type = T;
+};
+static_assert(S<int>::r == ^^int);
+static_assert(^^S<int>::type != ^^int);
+
+typedef struct X {} Y;
+typedef struct Z {} Z;
+constexpr std::meta::info e = ^^Y;              // OK, represents the type alias \tcode{Y}
+constexpr std::meta::info f = ^^Z;              // OK, represents the type alias \tcode{Z}, not the type\iref{basic.lookup.general}
+\end{codeblock}
+\end{example}
+
 \rSec2[expr.cast]{Explicit type conversion (cast notation)}%
 \indextext{expression!cast|(}
 
@@ -7112,6 +7599,19 @@ bool y = (pb == pl);            // \tcode{true}
 \pnum
 Two operands of type \tcode{std::nullptr_t} or one operand of type
 \tcode{std::nullptr_t} and the other a null pointer constant compare equal.
+
+\pnum
+If both operands are of type \tcode{std::meta::info},
+they compare equal if both operands
+\begin{itemize}
+\item are null reflection values,
+\item represent values that are template-argument-equivalent\iref{temp.type},
+\item represent the same object,
+\item represent the same entity,
+\item represent the same direct base class relationship, or
+\item represent equal data member descriptions\iref{class.mem.general},
+\end{itemize}
+and they compare unequal otherwise.
 
 \pnum
 If two operands compare equal, the result is \keyword{true} for
@@ -8159,6 +8659,11 @@ that would throw an exception
 where no definition of the exception type is reachable;
 
 \item
+an expression that would produce an injected declaration (see below),
+unless $E$ is the corresponding expression of
+a \grammarterm{consteval-block-declaration}\iref{dcl.pre};
+
+\item
 an \grammarterm{asm-declaration}\iref{dcl.asm};
 
 \item
@@ -8295,7 +8800,8 @@ void f(std::tuple<S&> t) {
 
 \pnum
 During the evaluation of an expression $E$ as a core constant expression,
-all \grammarterm{id-expression}s and uses of \tcode{*\keyword{this}}
+all \grammarterm{id-expression}s, \grammarterm{splice-expression}s, and
+uses of \tcode{*\keyword{this}}
 that refer to an object or reference
 whose lifetime did not begin with the evaluation of $E$
 are treated as referring to a specific instance of that object or reference
@@ -8448,8 +8954,31 @@ the conversion sequence contains only the conversions above.
 
 \pnum
 A \defnadj{constant}{expression} is either
-a glvalue core constant expression that refers to
-an object or a non-immediate function, or
+\begin{itemize}
+\item
+a glvalue core constant expression $E$ for which
+\begin{itemize}
+\item
+$E$ refers to a non-immediate function
+\item
+$E$ designates an object \tcode{o}, and
+if the complete object of \tcode{o} is of consteval-only type then so is $E$,
+\begin{example}
+\begin{codeblock}
+struct Base { };
+struct Derived : Base { std::meta::info r; };
+
+consteval const Base& fn(const Derived& derived) { return derived; }
+
+constexpr Derived obj{.r=^^::};     // OK
+constexpr const Derived& d = obj;   // OK
+constexpr const Base& b = fn(obj);  // error: not a constant expression because \tcode{Derived}
+                                    // is a consteval-only type but \tcode{Base} is not.
+\end{codeblock}
+\end{example}
+\end{itemize}
+or
+\item
 a prvalue core constant expression whose result object\iref{basic.lval}
 satisfies the following constraints:
 \begin{itemize}
@@ -8461,7 +8990,21 @@ no constituent value of scalar type is an indeterminate or erroneous value\iref{
 no constituent value of pointer type is a pointer to an immediate function or
 an invalid pointer value\iref{basic.compound}, and
 \item
-no constituent value of pointer-to-member type designates an immediate function.
+no constituent value of pointer-to-member type designates an immediate function, and
+\item
+unless the value is of consteval-only type,
+\begin{itemize}
+\item
+no constituent value of pointer-to-member type points to
+a direct member of a consteval-only class type
+\item
+no constituent value of pointer type points to or past an object
+whose complete object is of consteval-only type, and
+\item
+no constituent reference refers to an object
+whose complete object is of consteval-only type.
+\end{itemize}
+\end{itemize}
 \end{itemize}
 \begin{note}
 A glvalue core constant expression
@@ -8537,17 +9080,17 @@ that has a subexpression that is an immediate-escalating expression.
 \indexdefn{conversion!immediate-escalating}%
 \indexdefn{immediate-escalating!expression|see{expression, immediate-escalating}}%
 \indexdefn{immediate-escalating!conversion|see{conversion, immediate-escalating}}%
-An expression or conversion is \defn{immediate-escalating}
-if it is not initially in an immediate function context
-and it is either
+A potentially-evaluated expression or conversion is \defn{immediate-escalating}
+if it is neither initially in an immediate function context
+nor a subexpression of an immediate invocation, and
 \begin{itemize}
 \item
-a potentially-evaluated \grammarterm{id-expression}
-that denotes an immediate function
-that is not a subexpression of an immediate invocation, or
+it is an \grammarterm{id-expression} or \grammarterm{splice-expression}
+that designates an immediate function,
 \item
-an immediate invocation that is not a constant expression
-and is not a subexpression of an immediate invocation.
+it is an immediate invocation that is not a constant expression, or
+\item
+it is of consteval-only type\iref{basic.types.general}.
 \end{itemize}
 
 \pnum
@@ -8568,14 +9111,18 @@ An immediate-escalating expression shall appear only
 in an immediate-escalating function.
 
 \pnum
-An \defnadj{immediate}{function} is a function or constructor that is
+An \defnadj{immediate}{function} is a function or constructor that is either
 \begin{itemize}
 \item
 declared with the \keyword{consteval} specifier, or
 \item
 an immediate-escalating function \tcode{\placeholder{F}}
-whose function body contains an immediate-escalating expression \tcode{\placeholder{E}}
-such that \tcode{\placeholder{E}}'s innermost enclosing non-block scope
+whose function body contains either
+\begin{itemize}
+\item an immediate-escalating expression or
+\item a definition of a non-constexpr variable with consteval-only type
+\end{itemize}
+whose innermost enclosing non-block scope
 is \tcode{\placeholder{F}}'s function parameter scope.
 \begin{tailnote}
 Default member initializers used to initialize
@@ -8649,7 +9196,6 @@ const int i3 = l(3);    // static initialization; value of \tcode{3}
 \end{codeblock}
 \end{example}
 
-
 \pnum
 An expression or conversion is \defn{manifestly constant-evaluated}
 if it is:
@@ -8696,6 +9242,146 @@ Except for a \grammarterm{static_assert-message},
 a manifestly constant-evaluated expression
 is evaluated even in an unevaluated operand\iref{term.unevaluated.operand}.
 \end{note}
+
+\pnum
+The evaluation of an expression can introduce
+one or more \defnadjx{injected}{declarations}{declaration}.
+The evaluation is said to \defn{produce} the declarations.
+\begin{note}
+An invocation of
+the library function template \tcode{std::meta::define_aggregate}
+produces an injected declaration\iref{meta.reflection.define.aggregate}.
+\end{note}
+Each such declaration has
+\begin{itemize}
+\item
+an associated \defnadj{synthesized}{point},
+which follows the last non-synthesized program point
+in the translation unit containing that declaration, and
+\item
+an associated \defnadj{characteristic}{sequence} of values.
+\end{itemize}
+\begin{note}
+Special rules concerning reachability
+apply to synthesized points\iref{module.reach}.
+\end{note}
+\begin{note}
+The program is ill-formed
+if injected declarations with different characteristic sequences
+define the same entity in different translation units\iref{basic.def.odr}.
+\end{note}
+
+\pnum
+A member of an entity defined by an injected declaration
+shall not have a name reserved to the implementation\iref{lex.name};
+no diagnostic is required.
+
+\pnum
+Let $C$ be a \grammarterm{consteval-block-declaration},
+the evaluation of whose corresponding expression
+produces an injected declaration for an entity $E$.
+The program is ill-formed if either
+\begin{itemize}
+\item
+$C$ is enclosed by a scope associated with $E$ or
+\item
+letting $P$ be a point whose immediate scope is that to which $E$ belongs,
+there is a function parameter scope or class scope
+that encloses exactly one of $C$ or $P$.
+\end{itemize}
+\begin{example}
+\begin{codeblock}
+struct S0 {
+  consteval {
+    std::meta::define_aggregate(^^S0, {});  // error: scope associated with \tcode{S0} encloses the consteval block
+  }
+};
+
+struct S1;
+consteval { std::meta::define_aggregate(^^S1, {}); }    // OK
+
+template <std::meta::info R> consteval void tfn1() {
+  std::meta::define_aggregate(R, {});
+}
+
+struct S2;
+consteval { tfn1<^^S2>(); }                             // OK
+
+template <std::meta::info R> consteval void tfn2() {
+  consteval { std::meta::define_aggregate(R, {}); }
+}
+
+struct S3;
+consteval { tfn2<^^S3>(); }
+  // error: function parameter scope of \tcode{tfn2<\caret\caret S3>} intervenes between the declaration of \tcode{S3}
+  // and the consteval block that produces the injected declaration
+
+template <typename> struct TCls {
+  struct S4;
+  static void sfn() requires ([] {
+    consteval { std::meta::define_aggregate(^^S4, {}); }
+    return true;
+  }()) { }
+};
+
+consteval { TCls<void>::sfn(); }    // error: \tcode{TCls<void>::S4} is not enclosed by \grammarterm{requires-clause} lambda
+
+struct S5;
+struct Cls {
+  consteval { std::meta::define_aggregate(^^S5, {}); }  // error: \tcode{S5} is not enclosed by class \tcode{Cls}
+};
+
+struct S6;
+consteval {                                 // \#1
+  struct S7;                                // local class
+
+  std::meta::define_aggregate(^^S7, {});    // error: consteval block \#1 does not enclose itself,
+                                            // but encloses \tcode{S7}
+
+  consteval {                               // \#2
+    std::meta::define_aggregate(^^S6, {});  // error: consteval block \#1 encloses
+                                            // consteval block \#2 but not \tcode{S6}
+
+    std::meta::define_aggregate(^^S7, {});  // OK, consteval block \#1 encloses both \#2 and \tcode{S7}
+  }
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+The \defn{evaluation context} is a set of program points
+that determines the behavior of certain functions
+used for reflection\iref{meta.reflection}.
+During the evaluation $V$ of an expression $E$ as a core constant expression,
+the evaluation context of an evaluation $X$\iref{intro.execution}
+consists of the following points:
+\begin{itemize}
+\item
+The program point $\textit{EVAL-PT}(L)$,
+where $L$ is the point at which $E$ appears, and
+where $\textit{EVAL-PT}(P)$, for a point $P$,
+is a point $R$ determined as follows:
+\begin{itemize}
+\item
+If a potentially-evaluated subexpression\iref{intro.execution} of
+a default member initializer $I$ appears at $P$, and
+a (possibly aggregate) initialization during $V$ is using $I$,
+then $R$ is $\textit{EVAL-PT}(Q)$
+where $Q$ is the point at which that initialization appears.
+\item
+Otherwise, if a potentially-evaluated subexpression of
+a default argument\iref{dcl.fct.default} appears at $P$, and
+an invocation of a function\iref{expr.call} during $V$
+is using that default argument,
+then $R$ is $\textit{EVAL-PT}(Q)$
+where $Q$ is the point at which that invocation appears.
+\item
+Otherwise, $R$ is $P$.
+\end{itemize}
+\item
+Each synthesized point corresponding to an injected declaration produced by
+any evaluation sequenced before $X$\iref{intro.execution}.
+\end{itemize}
 
 \pnum
 \indextext{expression!potentially constant evaluated}%
