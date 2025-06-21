@@ -56,7 +56,7 @@ cat std-headerindex.ind |
 
 # Find concept index entries missing a definition
 cat std-conceptindex.ind |
-    sed 's/.hyperindexformat/\nhyperindexformat/;s/.hyperpage/hyperpage/' |
+    sed 's/.hyperindexformat/\nhyperindexformat/;s/.hyperpage/\nhyperpage/g' |
     awk 'BEGIN { def=1 } /^  .item/ { if (def==0) { gsub("[{},]", "", item); print item } item=$NF; def=0; next } /hyperindexformat/ { def=1 }' |
     sed 's/^\(.*\)$/concept \1 has no definition/' |
     fail || failed=1
