@@ -24,7 +24,7 @@ sed -e 's,<pre>,\\begin{itemdecl},g' \
     -e 's,`i`<sup>th</sup>,#iiiiiiiiith#,g' \
     -e 's,`i`,i,g' \
     -e 's,// \[\([.a-z]\+\)],// \\ref{\1},g' \
-    -e 's,(\[\([.a-z]\+\)]),\\iref{\1},g' \
+    -e 's, *(\[\([.a-z]\+\)]),\\iref{\1},g' \
     -e 's,\<i\>,$i$,g' \
     -e 's,#iiiiiiiiith#,$i^\\text{th}$,g' \
     -e 's,`\[\([^\,]\+\)\, *\([^`]\+\))`,\\range{\1}{\2},' \
