@@ -10730,9 +10730,6 @@ namespace std {
     void set_value_at_thread_exit(@\seebelow@);
     void set_exception_at_thread_exit(exception_ptr p);
   };
-
-  template<class R, class Alloc>
-    struct uses_allocator<promise<R>, Alloc>;
 }
 \end{codeblock}
 
@@ -10751,20 +10748,6 @@ The \tcode{set_value}, \tcode{set_exception}, \tcode{set_value_at_thread_exit},
 and \tcode{set_exception_at_thread_exit} member functions behave as though
 they acquire a single mutex associated with the promise object while updating the
 promise object.
-
-\indexlibrarymember{uses_allocator}{promise}%
-\begin{itemdecl}
-template<class R, class Alloc>
-  struct uses_allocator<promise<R>, Alloc>
-    : true_type { };
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\expects
-\tcode{Alloc} meets
-the \oldconcept{Allocator} requirements\iref{allocator.requirements.general}.
-\end{itemdescr}
 
 \indexlibraryctor{promise}%
 \begin{itemdecl}
@@ -11867,6 +11850,8 @@ namespace std {
     packaged_task() noexcept;
     template<class F>
       explicit packaged_task(F&& f);
+    template<class F, class Allocator>
+      explicit packaged_task(allocator_arg_t, const Allocator& a, F&& f);
     ~packaged_task();
 
     // no copy
@@ -11918,6 +11903,19 @@ template<class F>
 
 \begin{itemdescr}
 \pnum
+\effects
+Equivalent to
+\tcode{packaged_task(allocator_arg, allocator<int>(), std::forward<F>(f))}.
+\end{itemdescr}
+
+\indexlibraryctor{packaged_task}%
+\begin{itemdecl}
+template<class F, class Allocator>
+  explicit packaged_task(allocator_arg_t, const Allocator& a, F&& f);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
 \constraints
 \tcode{remove_cvref_t<F>}
 is not the same type as \tcode{packaged_task<R(ArgTypes...)>}.
@@ -11927,16 +11925,26 @@ is not the same type as \tcode{packaged_task<R(ArgTypes...)>}.
 \tcode{is_invocable_r_v<R, decay_t<F>\&, ArgTypes...>} is \tcode{true}.
 
 \pnum
+\expects
+\tcode{Allocator} meets the \oldconcept{Allocator} requirements\iref{allocator.requirements.general}.
+
+\pnum
 \effects
+Let \tcode{A2} be
+\tcode{allocator_traits<Allocator>::rebind_alloc<\unspec>}
+and let \tcode{a2} be an object of type \tcode{A2} initialized with
+\tcode{A2(a)}.
 Constructs a new \tcode{packaged_task} object with
 a stored task of type \tcode{decay_t<F>} and a shared state.
 Initializes the object's stored task with \tcode{std::forward<F>(f)}.
+Uses \tcode{a2} to allocate storage for the shared state and stores a copy
+of \tcode{a2} in the shared state.
 
 \pnum
 \throws
-Any exceptions thrown by the copy or move constructor of \tcode{f}, or
-\tcode{bad_alloc} if memory for the internal data structures
-cannot be allocated.
+Any exceptions thrown by the initialization of the stored task.
+If storage for the shared state cannot be allocated, any exception thrown by
+\tcode{A2::allocate}.
 \end{itemdescr}
 
 \indexlibraryctor{packaged_task}%
@@ -12146,9 +12154,16 @@ void reset();
 \begin{itemdescr}
 \pnum
 \effects
-As if \tcode{*this = packaged_task(std::move(f))}, where
+Equivalent to:
+\begin{codeblock}
+if (!valid()) {
+  throw future_error(future_errc::no_state);
+}
+*this = packaged_task(allocator_arg, a, std::move(f));
+\end{codeblock}
+where
 \tcode{f} is the task stored in
-\tcode{*this}.
+\tcode{*this} and \tcode{a} is the allocator stored in the shared state.
 \begin{note}
 This constructs a new shared state for \tcode{*this}. The
 old state is abandoned\iref{futures.state}.
@@ -12157,9 +12172,7 @@ old state is abandoned\iref{futures.state}.
 \pnum
 \throws
 \begin{itemize}
-\item \tcode{bad_alloc} if memory for the new shared state cannot be allocated.
-\item Any exception thrown by the move constructor of the task stored in the shared
-state.
+\item Any exception thrown by the \tcode{packaged_task} constructor.
 \item \tcode{future_error} with an error condition of \tcode{no_state} if \tcode{*this}
 has no shared state.
 \end{itemize}
