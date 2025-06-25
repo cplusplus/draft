@@ -3026,11 +3026,19 @@ to initialize a structured binding.
 Let \tcode{Sigs} be
 a pack of the arguments to the \tcode{completion_signatures} specialization
 named by \tcode{completion_signatures_of_t<\exposid{child-type}<Sndr>, env_of_t<Rcvr>>}.
-Let \exposid{as-tuple} be an alias template
-that transforms a completion signature \tcode{Tag(Args...)} into
-the tuple specialization \tcode{\exposid{decayed-tuple}<Tag, Args...>}.
+Let \exposid{as-tuple} be an alias template such that
+\tcode{\exposid{as-tuple}<Tag(Args...)>} denotes
+the type \tcode{\exposid{decayed-tuple}<Tag, Args...>}, and
+let \exposid{is-no\-throw-decay-copy-sig} be a variable template such that
+\tcode{auto(\exposid{is-nothrow-decay-copy-sig}<Tag(Args...\linebreak{})>)} is
+a constant expression of type \tcode{bool} and
+equal to \tcode{(is_nothrow_constructible_v<decay_t<Args>, Args> \&\& ...)}.
+Let \exposid{error-completion} be a pack consisting of
+the type \tcode{set_error_t(exception_ptr)}
+if \tcode{(\exposid{is-nothrow-decay-copy-sig}<Sigs> \&\&...)} is \tcode{false},
+and an empty pack otherwise.
 Then \tcode{variant_t} denotes
-the type \tcode{variant<monostate, \exposid{as-tuple}<Sigs>...>},
+the type \tcode{variant<monostate, \exposid{as-tuple}<Sigs>..., \exposid{error-completion}...>},
 except with duplicate types removed.
 
 \pnum
@@ -3081,15 +3089,14 @@ is initialized with a callable object equivalent to the following lambda:
 []<class Tag, class... Args>(auto, auto& state, auto& rcvr, Tag, Args&&... args) noexcept
     -> void {
   using result_t = @\exposid{decayed-tuple}@<Tag, Args...>;
-  constexpr bool nothrow = is_nothrow_constructible_v<result_t, Tag, Args...>;
+  constexpr bool nothrow = (is_nothrow_constructible_v<decay_t<Args>, Args> && ...);
 
   try {
     state.@\exposid{async-result}@.template emplace<result_t>(Tag(), std::forward<Args>(args)...);
   } catch (...) {
-    if constexpr (!nothrow) {
-      set_error(std::move(rcvr), current_exception());
-      return;
-    }
+    if constexpr (!nothrow)
+      state.@\exposid{async-result}@.template emplace<tuple<set_error_t,
+                                                exception_ptr>>(set_error, current_exception());
   }
   start(state.@\exposid{op-state}@);
 };
