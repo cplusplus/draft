@@ -227,7 +227,7 @@ done |
     fail 'hanging paragraph' || failed=1
 
 # Subclauses without siblings
-for f in $texfiles; do
+for f in `ls $texfiles | grep -v ub.tex | grep -v ifndr.tex`; do
     sed -n '/^\\rSec/{=;p;}' $f |
     # prefix output with filename and line
     sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/" |
