@@ -151,6 +151,9 @@ done |
 grep -F -ne ') const&' $texlib |
     fail 'no space between cv-qualifier and ref-qualifier' || failed=1
 
+grep -n '\\\(def\)\?\(lib\|expos\)concept{[a-z0-9_-]*[^a-z0-9_}-][a-z0-9_-]*}' $texlib |
+    fail 'bad concept name' || failed=1
+
 # \begin{example/note} with non-whitespace in front on the same line.
 grep -ne '^.*[^ ]\s*\\\(begin\|end\){\(example\|note\)}' $texfiles |
     fail "non-whitespace before note/example begins" || failed=1
