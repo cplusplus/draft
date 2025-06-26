@@ -631,6 +631,8 @@ namespace std::execution {
   struct @\libglobal{let_error_t}@ { @\unspec@ };
   struct @\libglobal{let_stopped_t}@ { @\unspec@ };
   struct @\libglobal{bulk_t}@ { @\unspec@ };
+  struct @\libglobal{bulk_chunked_t}@ { @\unspec@ };
+  struct @\libglobal{bulk_unchunked_t}@ { @\unspec@ };
   struct @\libglobal{split_t}@ { @\unspec@ };
   struct @\libglobal{when_all_t}@ { @\unspec@ };
   struct @\libglobal{when_all_with_variant_t}@ { @\unspec@ };
@@ -651,6 +653,8 @@ namespace std::execution {
   inline constexpr let_error_t @\libglobal{let_error}@{};
   inline constexpr let_stopped_t @\libglobal{let_stopped}@{};
   inline constexpr bulk_t @\libglobal{bulk}@{};
+  inline constexpr bulk_chunked_t @\libglobal{bulk_chunked}@{};
+  inline constexpr bulk_unchunked_t @\libglobal{bulk_unchunked}@{};
   inline constexpr split_t @\libglobal{split}@{};
   inline constexpr when_all_t @\libglobal{when_all}@{};
   inline constexpr when_all_with_variant_t @\libglobal{when_all_with_variant}@{};
@@ -3677,52 +3681,122 @@ the completion of a sender returned by \tcode{f}, and
 propagates the other completion operations sent by \tcode{sndr}.
 \end{itemize}
 
-\rSec3[exec.bulk]{\tcode{execution::bulk}}
+\rSec3[exec.bulk]{\tcode{execution::bulk}, \tcode{execution::bulk_chunked}, and \tcode{execution::bulk_unchunked}}
 
 \pnum
-\tcode{bulk} runs a task repeatedly for every index in an index space.
+\tcode{bulk}, \tcode{bulk_chunked}, and \tcode{bulk_unchunked}
+run a task repeatedly for every index in an index space.
 
-The name \tcode{bulk} denotes a pipeable sender adaptor object.
-For subexpressions \tcode{sndr}, \tcode{shape}, and \tcode{f},
-let \tcode{Shape} be \tcode{decltype(auto(shape))}.
+\pnum
+The names \tcode{bulk}, \tcode{bulk_chunked}, and \tcode{bulk_unchunked}
+denote pipeable sender adaptor objects.
+Let \tcode{\placeholder{bulk-algo}} be either
+\tcode{bulk}, \tcode{bulk_chunked}, or \tcode{bulk_unchunked}.
+For subexpressions \tcode{sndr}, \tcode{policy}, \tcode{shape}, and \tcode{f},
+let
+\tcode{Policy} be \tcode{remove_cvref_t<decltype(policy)>},
+\tcode{Shape} be \tcode{decltype(auto(shape))}, and
+\tcode{Func} be \tcode{decay_t<decltype((f))>}.
 If
 \begin{itemize}
 \item
 \tcode{decltype((sndr))} does not satisfy \libconcept{sender}, or
 \item
+\tcode{is_execution_policy_v<Policy>} is \tcode{false}, or
+\item
 \tcode{Shape} does not satisfy \libconcept{integral}, or
 \item
-\tcode{decltype((f))} does not satisfy \exposconcept{movable-value},
+\tcode{Func} does not model \libconcept{copy_constructible},
 \end{itemize}
-\tcode{bulk(sndr, shape, f)} is ill-formed.
+\tcode{\placeholder{bulk-algo}(sndr, policy, shape, f)} is ill-formed.
 
 \pnum
 Otherwise,
-the expression \tcode{bulk(sndr, shape, f)} is expression-equivalent to:
+the expression \tcode{\placeholder{bulk-algo}(sndr, policy, shape, f)}
+is expression-equivalent to:
 
 \begin{codeblock}
-transform_sender(@\exposid{get-domain-early}@(sndr), @\exposid{make-sender}@(bulk, @\exposid{product-type}@{shape, f}, sndr))
+transform_sender(@\exposid{get-domain-early}@(sndr), @\exposid{make-sender}@(
+    @\placeholder{bulk-algo}@, @\exposid{product-type}@<@\seebelow@, Shape, Func>{policy, shape, f}, sndr))
 \end{codeblock}
 except that \tcode{sndr} is evaluated only once.
+The first template argument of \exposid{product-type} is \tcode{Policy}
+if \tcode{Policy} models \libconcept{copy_constructible}, and
+\tcode{const Policy\&} otherwise.
+
+\pnum
+Let \tcode{sndr} and \tcode{env} be subexpressions such that
+\tcode{Sndr} is \tcode{decltype((sndr))}.
+If \tcode{\exposconcept{sender-for}<Sndr, bulk_t>} is \tcode{false}, then
+the expression \tcode{bulk.transform_sender(sndr, env)} is ill-formed;
+otherwise, it is equivalent to:
+\begin{codeblock}
+auto [_, data, child] = sndr;
+auto& [policy, shape, f] = data;
+auto new_f = [func = std::move(f)](Shape begin, Shape end, auto&&... vs)
+    noexcept(noexcept(f(begin, vs...))) {
+  while (begin != end) func(begin++, vs...);
+}
+return bulk_chunked(std::move(child), policy, shape, std::move(new_f));
+\end{codeblock}
+\begin{note}
+This causes the \tcode{bulk(sndr, policy, shape, f)} sender to be
+expressed in terms of \tcode{bulk_chunked(sndr, policy, shape, f)} when
+it is connected to a receiver whose
+execution domain does not customize \tcode{bulk}.
+\end{note}
 
 \pnum
 The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
-is specialized for \tcode{bulk_t} as follows:
+is specialized for \tcode{bulk_chunked_t} as follows:
 \begin{codeblock}
 namespace std::execution {
   template<>
-  struct @\exposid{impls-for}@<bulk_t> : @\exposid{default-impls}@ {
+  struct @\exposid{impls-for}@<bulk_chunked_t> : @\exposid{default-impls}@ {
     static constexpr auto @\exposid{complete}@ = @\seebelow@;
   };
 }
 \end{codeblock}
-
-\pnum
-The member \tcode{\exposid{impls-for}<bulk_t>::\exposid{complete}}
+The member \tcode{\exposid{impls-for}<bulk_chunked_t>::\exposid{complete}}
 is initialized with a callable object equivalent to the following lambda:
 \begin{codeblock}
 []<class Index, class State, class Rcvr, class Tag, class... Args>
-  (Index, State& state, Rcvr& rcvr, Tag, Args&&... args) noexcept -> void requires @\seebelow@ {
+  (Index, State& state, Rcvr& rcvr, Tag, Args&&... args) noexcept
+  -> void requires @\seebelow@ {
+    if constexpr (@\libconcept{same_as}@<Tag, set_value_t>) {
+      auto& [policy, shape, f] = state;
+      constexpr bool nothrow = noexcept(f(auto(shape), auto(shape), args...));
+      @\exposid{TRY-EVAL}@(rcvr, [&]() noexcept(nothrow) {
+        f(static_cast<decltype(auto(shape))>(0), auto(shape), args...);
+        Tag()(std::move(rcvr), std::forward<Args>(args)...);
+      }());
+    } else {
+      Tag()(std::move(rcvr), std::forward<Args>(args)...);
+    }
+  }
+\end{codeblock}
+The expression in the \grammarterm{requires-clause} of the lambda above is
+\tcode{true} if and only
+if \tcode{Tag} denotes a type other than \tcode{set_value_t} or
+if the expression \tcode{f(auto(shape), auto(shape), args...)} is well-formed.
+
+\pnum
+The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
+is specialized for \tcode{bulk_unchunked_t} as follows:
+\begin{codeblock}
+namespace std::execution {
+  template<>
+  struct @\exposid{impls-for}@<bulk_unchunked_t> : @\exposid{default-impls}@ {
+    static constexpr auto @\exposid{complete}@ = @\seebelow@;
+  };
+}
+\end{codeblock}
+The member \tcode{\exposid{impls-for}<bulk_unchunked_t>::\exposid{complete}}
+is initialized with a callable object equivalent to the following lambda:
+\begin{codeblock}
+[]<class Index, class State, class Rcvr, class Tag, class... Args>
+  (Index, State& state, Rcvr& rcvr, Tag, Args&&... args) noexcept
+  -> void requires @\seebelow@ {
     if constexpr (@\libconcept{same_as}@<Tag, set_value_t>) {
       auto& [shape, f] = state;
       constexpr bool nothrow = noexcept(f(auto(shape), args...));
@@ -3737,8 +3811,6 @@ is initialized with a callable object equivalent to the following lambda:
     }
   }
 \end{codeblock}
-
-\pnum
 The expression in the \grammarterm{requires-clause} of the lambda above
 is \tcode{true} if and only
 if \tcode{Tag} denotes a type other than \tcode{set_value_t} or
@@ -3746,23 +3818,101 @@ if the expression \tcode{f(auto(shape), args...)} is well-formed.
 
 \pnum
 Let the subexpression \tcode{out_sndr} denote
-the result of the invocation \tcode{bulk(sndr, shape, f)} or
+the result of the invocation
+\tcode{\placeholder{bulk-algo}(sndr, policy, shape, f)} or
 an object equal to such, and
 let the subexpression \tcode{rcvr} denote a receiver
 such that the expression \tcode{connect(out_sndr, rcvr)} is well-formed.
 The expression \tcode{connect(out_sndr, rcvr)} has undefined behavior
 unless it creates an asynchronous operation\iref{exec.async.ops} that,
-when started,
+when started:
+
 \begin{itemize}
 \item
-on a value completion operation,
-invokes \tcode{f(i, args...)}
-for every \tcode{i} of type \tcode{Shape} in \range{\tcode{0}}{\tcode{shape}},
-where \tcode{args} is a pack of lvalue subexpressions
-referring to the value completion result datums of the input sender, and
+If \tcode{sndr} has a successful completion, where
+\tcode{args} is a pack of lvalue subexpressions
+referring to the value completion result datums of \tcode{sndr}, or
+decayed copies of those values if they model \libconcept{copy_constructible},
+then:
+
+  \begin{itemize}
+  \item
+  If \tcode{out_sndr} also completes successfully, then:
+
+    \begin{itemize}
+    \item
+    for \tcode{bulk},
+    invokes \tcode{f($i$, args...)} for every $i$ of type \tcode{Shape}
+    from \tcode{0} to \tcode{shape};
+
+    \item
+    for \tcode{bulk_unchunked},
+    invokes \tcode{f($i$, args...)} for every $i$ of type \tcode{Shape}
+    from \tcode{0} to \tcode{shape};
+
+    \recommended
+    The underlying scheduler should execute each iteration
+    on a distinct execution agent.
+
+    \item
+    for \tcode{bulk_chunked},
+    invokes \tcode{f($b$, $e$, args...)} zero or more times
+    with pairs of $b$ and $e$ of type \tcode{Shape}
+    in range \crange{\tcode{0}}{\tcode{shape}},
+    such that $b < e$ and
+    for every $i$ of type \tcode{Shape} from \tcode{0} to \tcode{shape},
+    there is exactly one invocation with a pair $b$ and $e$,
+    such that $i$ is in the range \range{$b$}{$e$}.
+    \end{itemize}
+
+  \item
+  If \tcode{out_sndr} completes with \tcode{set_error(rcvr, eptr)}, then
+  the asynchronous operation may invoke a subset of
+  the invocations of \tcode{f}
+  before the error completion handler is called, and
+  \tcode{eptr} is an \tcode{exception_ptr} containing either:
+    \begin{itemize}
+    \item
+    an exception thrown by an invocation of \tcode{f}, or
+    \item
+    a \tcode{bad_alloc} exception if
+    the implementation fails to allocate required resources, or
+    \item
+    an exception derived from \tcode{runtime_error}.
+    \end{itemize}
+
+  \item
+  If \tcode{out_sndr} completes with \tcode{set_stopped(rcvr)}, then
+  the asynchronous operation may invoke a subset of
+  the invocations of \tcode{f}
+  before the stopped completion handler.
+  \end{itemize}
+
 \item
-propagates all completion operations sent by \tcode{sndr}.
+If \tcode{sndr} does not complete with \tcode{set_value}, then
+the completion is forwarded to \tcode{recv}.
+
+\item
+For \tcode{\placeholder{bulk-algo}},
+the parameter \tcode{policy} describes
+the manner in which
+the execution of the asynchronous operations corresponding to these algorithms
+may be parallelized and
+the manner in which
+%%FIXME: Should this be "apply to f"?
+they apply \tcode{f}.
+Permissions and requirements
+on parallel algorithm element access functions\iref{algorithms.parallel.exec}
+apply to \tcode{f}.
 \end{itemize}
+
+\pnum
+\begin{note}
+The asynchronous operation corresponding to
+\tcode{\placeholder{bulk-algo}(sndr, policy, shape, f)}
+can complete with \tcode{set_stopped} if cancellation is requested or
+ignore cancellation requests.
+\end{note}
 
 \rSec3[exec.split]{\tcode{execution::split}}
 
