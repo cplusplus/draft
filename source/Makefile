@@ -30,3 +30,12 @@ clean-examples:
 	rm -f $(EXAMPLES)
 
 examples: $(EXAMPLES)
+
+check: .check.stamp
+
+.check.stamp: ../tools/check-source.sh *.tex
+	@echo "Running tools/check-source.sh"
+	@../tools/check-source.sh
+	@touch $@
+
+.PHONY: default refresh refresh full quiet clean-figures figures clean-examples examples check
