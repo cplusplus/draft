@@ -731,6 +731,21 @@ namespace std::execution {
   // \ref{exec.scope.counting}
   class counting_scope;
 }
+
+namespace std::execution {
+  // \ref{exec.par.scheduler}, parallel scheduler
+  class @\libglobal{parallel_scheduler}@ { @\unspec@ };
+  parallel_scheduler get_parallel_scheduler();
+}
+
+// \ref{exec.sysctxrepl}, namespace \tcode{system_context_replaceability}
+namespace std::execution::@\libglobal{system_context_replaceability}@ {
+  struct receiver_proxy;
+  struct bulk_item_receiver_proxy;
+  struct parallel_scheduler_backend;
+
+  shared_ptr<parallel_scheduler_backend> query_parallel_scheduler_backend();
+}
 \end{codeblock}
 
 \pnum
@@ -7093,4 +7108,426 @@ Equivalent to:
 \begin{codeblock}
 return @\exposid{stop-when}@(std::forward<Sender>(snd), @\exposid{scope}@->@\exposid{s_source}@.get_token());
 \end{codeblock}
+\end{itemdescr}
+
+\rSec1[exec.par.scheduler]{Parallel scheduler}
+
+\pnum
+\tcode{parallel_scheduler} models \libconcept{scheduler}.
+
+\pnum
+Let \tcode{sch} be an object of type \tcode{parallel_scheduler}, and
+let \tcode{\exposid{BACKEND-OF}(sch)} be \tcode{*ptr},
+where \tcode{sch} is associated with \tcode{ptr}.
+
+\pnum
+The expression \tcode{get_forward_progress_guarantee(sch)} returns
+\tcode{forward_progress_guarantee::paral\-lel}.
+
+\pnum
+Let \tcode{sch2} be an object of type \tcode{parallel_scheduler}.
+Two objects \tcode{sch} and \tcode{sch2} compare equal if and only if
+\tcode{\exposid{BACKEND-OF}(sch)} and
+\tcode{\exposid{BACKEND-OF}(sch2)} refer to the same object.
+
+\pnum
+Let \tcode{rcvr} be a receiver.
+A \defn{proxy} for \tcode{rcvr} with base \tcode{B} is
+an lvalue \tcode{r} of type \tcode{B} such that:
+\begin{itemize}
+\item
+\tcode{r.set_value()} has effects equivalent to
+\tcode{set_value(std::move(rcvr))}.
+\item
+\tcode{r.set_error(e)}, where \tcode{e} is an \tcode{exception_ptr} object,
+has effects equivalent to \tcode{set_error(std::move(\brk{}rcvr), std::move(e))}.
+\item
+\tcode{r.set_stopped()} has effects equivalent to
+\tcode{set_stopped(std::move(rcvr))}.
+\end{itemize}
+
+\pnum
+A \defn{preallocated backend storage for a proxy} \tcode{r} is
+an object \tcode{s} of type \tcode{span<byte>}
+such that the range \tcode{s} remains valid and may be overwritten
+until one of \tcode{set_value}, \tcode{set_error}, or \tcode{set_stopped}
+is called on \tcode{r}.
+\begin{note}
+The storage referenced by \tcode{s} can be used as temporary storage
+for operations launched via calls to \tcode{parallel_scheduler_backend}.
+\end{note}
+
+\pnum
+A \defnadj{bulk chunked}{proxy} for \tcode{rcvr}
+with callable \tcode{f} and arguments \tcode{args}
+is a proxy \tcode{r} for \tcode{rcvr}
+with base \tcode{system_context_replaceability::bulk_item_receiver_proxy}
+such that
+\tcode{r.execute(i, j)} for indices \tcode{i} and \tcode{j}
+has effects equivalent to \tcode{f(i, j, args...)}.
+
+\pnum
+A \defnadj{bulk unchunked}{proxy} for \tcode{rcvr}
+with callable \tcode{f} and arguments \tcode{args}
+is a proxy \tcode{r} for \tcode{rcvr}
+with base \tcode{system_context_replaceability::bulk_item_receiver_proxy}
+such that
+\tcode{r.execute(i, i+1)} for index \tcode{i}
+has effects equivalent to \tcode{f(i, args...)}.
+
+\pnum
+Let \tcode{b} be \tcode{\exposid{BACKEND-OF}(sch)},
+let \tcode{sndr} be the object returned by \tcode{schedule(sch)}, and
+let \tcode{rcvr} be a receiver.
+If \tcode{rcvr} is connected to \tcode{sndr} and
+the resulting operation state is started, then:
+\begin{itemize}
+\item
+If \tcode{sndr} completes successfully,
+then \tcode{b.schedule(r, s)} is called, where
+\begin{itemize}
+\item
+\tcode{r} is a proxy for \tcode{rcvr}
+with base \tcode{system_context_replaceability::receiver_proxy} and
+\item
+\tcode{s} is a preallocated backend storage for \tcode{r}.
+\end{itemize}
+\item
+All other completion operations are forwarded unchanged.
+\end{itemize}
+
+\pnum
+\tcode{parallel_scheduler} provides a customized implementation of
+the \tcode{bulk_chunked} algorithm\iref{exec.bulk}.
+If a receiver \tcode{rcvr} is connected to the sender
+returned by \tcode{bulk_chunked(sndr, pol, shape, f)} and
+the resulting operation state is started, then:
+\begin{itemize}
+\item
+If \tcode{sndr} completes with values \tcode{vals},
+let \tcode{args} be a pack of lvalue subexpressions designating \tcode{vals},
+then \tcode{b.schedule_bulk_chunked(shape, r, s)} is called, where
+\begin{itemize}
+\item
+\tcode{r} is a bulk chunked proxy for \tcode{rcvr}
+with callable \tcode{f} and arguments \tcode{args} and
+\item
+\tcode{s} is a preallocated backend storage for \tcode{r}.
+\end{itemize}
+\item
+All other completion operations are forwarded unchanged.
+\end{itemize}
+\begin{note}
+Customizing the behavior of \tcode{bulk_chunked}
+affects the default implementation of \tcode{bulk}.
+\end{note}
+
+\pnum
+\tcode{parallel_scheduler} provides a customized implementation of
+the \tcode{bulk_unchunked} algorithm\iref{exec.bulk}.
+If a receiver \tcode{rcvr} is connected to the sender
+returned by \tcode{bulk_unchunked(sndr, pol, shape, f)} and
+the resulting operation state is started, then:
+\begin{itemize}
+\item
+If \tcode{sndr} completes with values \tcode{vals},
+let \tcode{args} be a pack of lvalue subexpressions designating \tcode{vals},
+then \tcode{b.schedule_bulk_unchunked(shape, r, s)} is called, where
+\begin{itemize}
+\item
+\tcode{r} is a bulk unchunked proxy for \tcode{rcvr}
+with callable \tcode{f} and arguments \tcode{args} and
+\item
+\tcode{s} is a preallocated backend storage for \tcode{r}.
+\end{itemize}
+\item
+All other completion operations are forwarded unchanged.
+\end{itemize}
+
+\indexlibraryglobal{get_parallel_scheduler}%
+\begin{itemdecl}
+parallel_scheduler get_parallel_scheduler();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Let \tcode{eb} be the result of \tcode{system_context_replaceability::query_parallel_scheduler_backend()}.
+If \tcode{eb == nullptr} is \tcode{true},
+calls \tcode{terminate}\iref{except.terminate}.
+Otherwise, returns a \tcode{parallel_scheduler} object
+associated with \tcode{eb}.
+\end{itemdescr}
+
+\rSec1[exec.sysctxrepl]{Namespace \tcode{system_context_replaceability}}
+
+\rSec2[exec.sysctxrepl.general]{General}
+
+\pnum
+Facilities in the \tcode{system_context_replaceability} namespace
+allow users to replace the default implementation of \tcode{parallel_scheduler}.
+
+\rSec2[exec.sysctxrepl.query]{\tcode{query_parallel_scheduler_backend}}
+\indexlibraryglobal{query_parallel_scheduler_backend}%
+\begin{itemdecl}
+shared_ptr<parallel_scheduler_backend> query_parallel_scheduler_backend();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\tcode{query_parallel_scheduler_backend()} returns
+the implementation object for a parallel scheduler.
+
+\pnum
+\returns
+A non-null shared pointer to an object
+that implements the \tcode{parallel_scheduler_backend} interface.
+
+\pnum
+\remarks
+This function is replaceable\iref{dcl.fct.def.replace}.
+\end{itemdescr}
+
+\begin{codeblock}
+namespace std::execution::system_context_replaceability {
+  struct @\libglobal{receiver_proxy}@ {
+    virtual ~receiver_proxy() = default;
+
+  protected:
+    virtual bool @\exposidnc{query-env}@(unspecified) noexcept = 0;   // \expos
+
+  public:
+    virtual void set_value() noexcept = 0;
+    virtual void set_error(exception_ptr) noexcept = 0;
+    virtual void set_stopped() noexcept = 0;
+
+    template<class P, @\exposid{class-type}@ Query>
+      optional<P> try_query(Query q) noexcept;
+  };
+
+  struct @\libglobal{bulk_item_receiver_proxy}@ : receiver_proxy {
+    virtual void execute(size_t, size_t) noexcept = 0;
+  };
+}
+\end{codeblock}
+
+\pnum
+\tcode{receiver_proxy} represents a receiver
+that will be notified
+by the implementations of \tcode{parallel_scheduler_backend}
+to trigger the completion operations.
+\tcode{bulk_item_receiver_proxy} is derived from \tcode{receiver_proxy} and
+is used for \tcode{bulk_chunked} and \tcode{bulk_unchunked} customizations
+that will also receive notifications
+from implementations of \tcode{parallel_scheduler_backend}
+corresponding to different iterations.
+
+\begin{itemdecl}
+template<class P, @\exposconcept{class-type}@ Query>
+  optional<P> @\libglobal{try_query}@(Query q) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{P} is a cv-unqualified non-array object type.
+
+\pnum
+\returns
+Let \tcode{env} be the environment of the receiver represented by \tcode{*this}.
+If
+\begin{itemize}
+\item
+\tcode{Query} is not a member of an implementation-defined set
+of supported queries; or
+\item
+\tcode{P} is not a member of an implementation-defined set
+of supported result types for \tcode{Query}; or
+\item
+the expression \tcode{q(env)} is not well-formed or
+does not have type \cv{} \tcode{P},
+\end{itemize}
+then returns \tcode{nullopt}.
+Otherwise, returns \tcode{q(env)}.
+
+\pnum
+\remarks
+\tcode{get_stop_token_t} is
+in the implementation-defined set of supported queries, and
+\tcode{inplace_stop_token} is a member
+of the implementation-defined set of supported result types
+for \tcode{get_stop_token_t}.
+\end{itemdescr}
+
+\rSec2[exec.sysctxrepl.psb]{Class \tcode{parallel_scheduler_backend}}
+
+\begin{codeblock}
+namespace std::execution::system_context_replaceability {
+  struct @\libglobal{parallel_scheduler_backend}@ {
+    virtual ~parallel_scheduler_backend() = default;
+
+    virtual void schedule(receiver_proxy&, span<byte>) noexcept = 0;
+    virtual void schedule_bulk_chunked(size_t, bulk_item_receiver_proxy&,
+                                       span<byte>) noexcept = 0;
+    virtual void schedule_bulk_unchunked(size_t, bulk_item_receiver_proxy&,
+                                         span<byte>) noexcept = 0;
+  };
+}
+\end{codeblock}
+
+\indexlibrarymember{schedule}{parallel_scheduler_backend}%
+\begin{itemdecl}
+virtual void schedule(receiver_proxy& r, span<byte> s) noexcept = 0;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+The ends of
+the lifetimes of \tcode{*this},
+the object referred to by \tcode{r}, and
+any storage referenced by \tcode{s}
+all happen after
+the beginning of the evaluation of one of the expressions below.
+
+\pnum
+\effects
+A derived class shall implement this function such that:
+\begin{itemize}
+\item
+One of the following expressions is evaluated:
+\begin{itemize}
+\item
+\tcode{r.set_value()}, if no error occurs, and the work is successful;
+\item
+\tcode{r.set_error(eptr)}, if an error occurs,
+where \tcode{eptr} is an object of type \tcode{exception_ptr};
+\item
+\tcode{r.set_stopped()}, if the work is canceled.
+\end{itemize}
+\item
+Any call to \tcode{r.set_value()} happens on
+an execution agent of the execution context represented by \tcode{*this}.
+\end{itemize}
+
+\pnum
+\remarks
+The storage referenced by \tcode{s}
+may be used by \tcode{*this} as temporary storage
+for the duration of the operation launched by this call.
+\end{itemdescr}
+
+\indexlibrarymember{schedule_bulk_chunked}{parallel_scheduler_backend}%
+\begin{itemdecl}
+virtual void schedule_bulk_chunked(size_t n, bulk_item_receiver_proxy& r,
+                                   span<byte> s) noexcept = 0;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+The ends of
+the lifetimes of \tcode{*this},
+the object referred to by \tcode{r}, and
+any storage referenced by \tcode{s}
+all happen after
+the beginning of the evaluation of one of the expressions below.
+
+\pnum
+\effects
+A derived class shall implement this function such that:
+\begin{itemize}
+\item
+Eventually, one of the following expressions is evaluated:
+\begin{itemize}
+\item
+\tcode{r.set_value()}, if no error occurs, and the work is successful;
+\item
+\tcode{r.set_error(eptr)}, if an error occurs,
+where \tcode{eptr} is an object of type \tcode{exception_ptr};
+\item
+\tcode{r.set_stopped()}, if the work is canceled.
+\end{itemize}
+\item
+If \tcode{r.execute(b, e)} is called,
+then \tcode{b} and \tcode{e} are in the range \range{0}{n} and
+$\tcode{b} < \tcode{e}$.
+\item
+For each $i$ in \range{0}{n},
+there is at most one call to \tcode{r.execute(b, e)}
+such that $i$ is in the range \range{b}{e}.
+\item
+If \tcode{r.set_value()} is called,
+then for each $i$ in \range{0}{n},
+there is exactly one call to \tcode{r.execute(b, e)}
+such that $i$ is in the range \range{b}{e}.
+\item
+All calls to \tcode{execute} on \tcode{r} happen before
+the call to either \tcode{set_value}, \tcode{set_error}, or \tcode{set_stopped}
+on \tcode{r}.
+\item
+All calls to \tcode{execute} and \tcode{set_value} on \tcode{r} are made
+on execution agents of the execution context represented by \tcode{*this}.
+\end{itemize}
+
+\pnum
+\remarks
+The storage referenced by \tcode{s} may be used by \tcode{*this}
+as temporary storage for the duration of the operation launched by this call.
+\end{itemdescr}
+
+\indexlibrarymember{schedule_bulk_unchunked}{parallel_scheduler_backend}%
+\begin{itemdecl}
+virtual void schedule_bulk_unchunked(size_t n, bulk_item_receiver_proxy& r,
+                                     span<byte> s) noexcept = 0;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+The ends of
+the lifetimes of \tcode{*this},
+the object referred to by \tcode{r}, and
+any storage referenced by \tcode{s}
+all happen after
+the beginning of the evaluation of one of the expressions below.
+
+\pnum
+\effects
+A derived class shall implement this function such that:
+\begin{itemize}
+\item
+Eventually, one of the following expressions is evaluated:
+\begin{itemize}
+\item
+\tcode{r.set_value()}, if no error occurs, and the work is successful;
+\item
+\tcode{r.set_error(eptr)}, if an error occurs,
+where \tcode{eptr} is an object of type \tcode{exception_ptr};
+\item
+\tcode{r.set_stopped()}, if the work is canceled.
+\end{itemize}
+\item
+If \tcode{r.execute(b, e)} is called,
+then \tcode{b} is in the range \range{0}{n} and
+\tcode{e} is equal to \tcode{b + 1}.
+For each $i$ in \range{0}{n},
+there is at most one call to \tcode{r.execute($i$, $i$ + 1)}.
+\item
+If \tcode{r.set_value()} is called,
+then for each $i$ in \range{0}{n},
+there is exactly one call to \tcode{r.execute($i$, $i$ + 1)}.
+\item
+All calls to execute on \tcode{r} happen before
+the call to either \tcode{set_value}, \tcode{set_error}, or \tcode{set_stopped}
+on \tcode{r}.
+\item
+All calls to \tcode{execute} and \tcode{set_value} on \tcode{r} are made
+on execution agents of the execution context represented by \tcode{*this}.
+\end{itemize}
+
+\pnum
+\remarks
+The storage referenced by \tcode{s} may be used by \tcode{*this}
+as temporary storage for the duration of the operation launched by this call.
 \end{itemdescr}
