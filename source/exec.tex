@@ -733,6 +733,26 @@ namespace std::execution::@\libglobal{system_context_replaceability}@ {
 
   shared_ptr<parallel_scheduler_backend> query_parallel_scheduler_backend();
 }
+
+namespace std::execution {
+  // \ref{exec.affine.on}
+  struct @\libglobal{affine_on_t}@ { @\unspec@ };
+  inline constexpr affine_on_t @\libglobal{affine_on}@{};
+
+  // \ref{exec.inline.scheduler}
+  class @\libglobal{inline_scheduler}@;
+
+  // \ref{exec.task.scheduler}
+  class @\libglobal{task_scheduler}@;
+
+  // \ref{exec.task}
+  template<class E>
+    struct @\libglobal{with_error}@;
+  template<@\libconcept{scheduler}@ Sch>
+    struct @\libglobal{change_coroutine_scheduler}@;
+  template<class T, class Environment>
+    class @\libglobal{task}@;
+}
 \end{codeblock}
 
 \pnum
@@ -6882,6 +6902,851 @@ Equivalent to:
 \begin{codeblock}
 return as_awaitable(std::forward<Value>(value), static_cast<Promise&>(*this));
 \end{codeblock}
+\end{itemdescr}
+
+\rSec2[exec.affine.on]{\tcode{execution::affine_on}}
+
+\pnum
+\tcode{affine_on} adapts a sender into one that completes on
+the specified scheduler.
+If the algorithm determines that the adapted sender already completes
+on the correct scheduler it can avoid any scheduling operation.
+
+\pnum
+The name \tcode{affine_on} denotes a pipeable sender adaptor
+object.
+For subexpressions \tcode{sch} and \tcode{sndr}, if \tcode{decltype((sch))}
+does not satisfy \libconcept{scheduler}, or \tcode{decltype((sndr))}
+does not satisfy \libconcept{sender}, \tcode{affine_on(sndr, sch)}
+is ill-formed.
+
+\pnum
+Otherwise, the expression \tcode{affine_on(sndr, sch)} is
+expression-equivalent to:
+\begin{codeblock}
+transform_sender(@\exposid{get-domain-early}@(sndr), @\exposid{make-sender}@(affine_on, sch, sndr))
+\end{codeblock}
+except that \tcode{sndr} is evalutated only once.
+
+\pnum
+The exposition-only class template \exposid{impls-for}
+is specialized for \tcode{affine_on_t} as follows:
+
+\begin{codeblock}
+namespace std::execution {
+  template<>
+  struct @\exposid{impls-for}@<affine_on_t> : @\exposid{default-impls}@ {
+    static constexpr auto @\exposid{get-attrs}@ =
+      [](const auto& data, const auto& child) noexcept -> decltype(auto) {
+        return @\exposid{JOIN-ENV}@(@\exposid{SCHED-ATTRS}@(data), @\exposid{FWD-ENV}@(get_env(child)));
+      };
+  };
+}
+\end{codeblock}
+
+\pnum
+Let \tcode{\placeholder{out_sndr}} be a subexpression denoting a sender
+returned from \tcode{affine_on(sndr, sch)} or one equal to such,
+and let \tcode{\placeholder{OutSndr}} be the type \tcode{decltype((\placeholder{out_sndr}))}.
+Let \tcode{\placeholder{out_rcvr}} be a subexpression denoting a receiver that
+has an environment of type \tcode{Env} such that \tcode{\libconcept{sender_in}<\placeholder{OutSndr}, Env>}
+is \tcode{true}.
+Let \tcode{\placeholder{op}} be an lvalue referring to the operation state that
+results from connecting \tcode{\placeholder{out_sndr}} to \tcode{\placeholder{out_rcvr}}.
+Calling \tcode{start(\placeholder{op})} will start \tcode{sndr} on the current
+execution agent and execute completion operations on \tcode{\placeholder{out_rcvr}}
+on an execution agent of the execution resource associated with
+\tcode{sch}.
+If the current execution resource is the same as the execution
+resource associated with \tcode{sch}, the completion operation on
+\tcode{\placeholder{out_rcvr}} may be called before \tcode{start(op)} completes.
+If scheduling onto \tcode{sch} fails, an error completion on
+\tcode{\placeholder{out_rcvr}} shall be executed on an unspecified execution
+agent.
+
+\rSec2[exec.inline.scheduler]{\tcode{execution::inline_scheduler}}
+
+\begin{codeblock}
+namespace std::execution {
+  class @\libglobal{inline_scheduler}@ {
+    class @\exposidnc{inline-sender}@;                // \expos
+
+    template<@\libconcept{receiver}@ R>
+      class @\exposidnc{inline-state}@;               // \expos
+
+  public:
+    using scheduler_concept = scheduler_t;
+
+    constexpr @\exposid{inline-sender}@ schedule() noexcept { return {}; }
+    constexpr bool operator==(const inline_scheduler&) const noexcept = default;
+  };
+}
+\end{codeblock}
+
+\pnum
+\tcode{inline_scheduler} is a class that models
+\libconcept{scheduler}\iref{exec.sched}.
+All objects of type \tcode{inline_scheduler} are equal.
+
+\pnum
+\exposid{inline-sender} is an exposition-only type that satisfies
+\libconcept{sender}.
+The type \tcode{completion_signatures_of_t<\exposid{inline-sender}>}
+is \tcode{completion_signatures<set_value_t()>}.
+
+\pnum
+Let \tcode{sndr} be an expression of type \exposid{inline-sender},
+let \tcode{rcvr} be an expression such that
+\tcode{\libconcept{receiver_of}<decltype((rcvr)), CS>} is \tcode{true}
+where \tcode{CS} is \tcode{completion_signatures<set_value_t()>},
+then:
+\begin{itemize}
+\item the expression \tcode{connect(sndr, rcvr)} has
+type \tcode{\exposid{inline-state}<remove_cvref_t<decltype((rcvr))>>}
+and is potentially-throwing if and only if
+\tcode{((void)sndr, auto(rcvr))} is potentially-throwing, and
+\item the expression
+\tcode{get_completion_scheduler<set_value_t>(get_env(sndr))} has
+type\brk{} \tcode{inline_\-sched\-ul\-er} and is potentially-throwing
+if and only if \tcode{get_env(sndr)} is potentially-throwing.
+\end{itemize}
+
+\pnum
+Let \tcode{\placeholder{o}} be a non-\tcode{const} lvalue of type
+\tcode{\exposid{inline-state}<Rcvr>}, and let \tcode{REC(\placeholder{o})} be
+a non-\tcode{const} lvalue reference to an object of type \tcode{Rcvr} that
+was initialized with the expression \tcode{rcvr} passed to an
+invocation of \tcode{connect} that returned \tcode{\placeholder{o}}, then:
+\begin{itemize}
+\item the object to which \tcode{REC(\placeholder{o})} refers remains valid for
+the lifetime of the object to which \tcode{\placeholder{o}} refers, and
+\item the expression \tcode{start(\placeholder{o})} is equivalent to
+\tcode{set_value(std::move(REC(\placeholder{o})))}.
+\end{itemize}
+
+\rSec2[exec.task.scheduler]{\tcode{execution::task_scheduler}}
+
+\begin{codeblock}
+namespace std::execution {
+  class @\libglobal{task_scheduler}@ {
+    class @\exposidnc{ts-sender}@;                    // \expos
+
+    template<@\libconcept{receiver}@ R>
+      class @\exposidnc{state}@;                      // \expos
+
+  public:
+    using scheduler_concept = scheduler_t;
+
+    template<class Sch, class Allocator = allocator<void>>
+      requires (!@\libconcept{same_as}@<task_scheduler, remove_cvref_t<Sch>>)
+        && @\libconcept{scheduler}@<Sch>
+    explicit task_scheduler(Sch&& sch, Allocator alloc = {});
+
+    @\exposid{ts-sender}@ schedule();
+
+    friend bool operator==(const task_scheduler& lhs, const task_scheduler& rhs)
+        noexcept;
+    template<class Sch>
+      requires (!@\libconcept{same_as}@<task_scheduler, Sch>)
+      && @\libconcept{scheduler}@<Sch>
+    friend bool operator==(const task_scheduler& lhs, const Sch& rhs) noexcept;
+
+  private:
+    shared_ptr<void> @\exposidnc{sch_}@; // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+\tcode{task_scheduler} is a class that models
+\libconcept{scheduler}\iref{exec.sched}.
+Given on object \tcode{s} of type \tcode{task_scheduler}, let
+\tcode{\exposid{SCHED}(s)} be the object owned by \tcode{s.\exposid{sch_}}.
+
+\indexlibraryctor{task_scheduler}
+\begin{itemdecl}
+template<class Sch, class Allocator = allocator<void>>
+  requires(!@\libconcept{same_as}@<task_scheduler, remove_cvref_t<Sch>>) && @\libconcept{scheduler}@<Sch>
+explicit task_scheduler(Sch&& sch, Allocator alloc = {});
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\effects
+Initialize \exposid{sch_} with
+\tcode{allocate_shared<remove_cvref_t<Sch>>(alloc,\brk{} std::forward<Sch>\brk{}(sch))}.
+
+\pnum
+\recommended
+Implementations should avoid the use of dynamically
+allocated memory for small scheduler objects.
+
+\pnum
+\remarks
+Any allocations performed by construction of \exposid{ts-sender} or
+\exposid{state} objects resulting from calls on \tcode{*this} are
+performed using a copy of \tcode{alloc}.
+\end{itemdescr}
+
+\indexlibrarymember{scheduler}{task_scheduler}%
+\begin{itemdecl}
+@\exposid{ts-sender}@ schedule();
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\effects
+Returns an object of type \exposid{ts-sender} containing a sender
+initialized with \tcode{sched\-ule(\brk{}\exposid{SCHED}\brk{}(*this))}.
+\end{itemdescr}
+
+\indexlibrarymember{operator==}{task_scheduler}%
+\begin{itemdecl}
+bool operator==(const task_scheduler& lhs, const task_scheduler& rhs) noexcept;
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return lhs == \exposid{SCHED}(rhs);}
+\end{itemdescr}
+
+\indexlibrarymember{operator==}{task_scheduler}%
+\begin{itemdecl}
+template<class Sch>
+  requires (!@\libconcept{same_as}@<task_scheduler, Sch>)
+        && @\libconcept{scheduler}@<Sch>
+bool operator==(const task_scheduler& lhs, const Sch& rhs) noexcept;
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{false} if type of \tcode{\exposid{SCHED}(lhs)} is not \tcode{Sch},
+otherwise \tcode{\exposid{SCHED}(lhs) == rhs;}
+\end{itemdescr}
+
+\pnum
+\begin{codeblock}
+namespace std::execution {
+  class task_scheduler::@\exposidnc{ts-sender}@ {     // \expos
+  public:
+    using sender_concept = sender_t;
+
+    template<@\libconcept{receiver}@ Rcvr>
+      @\exposid{state}@<Rcvr> connect(Rcvr&& rcvr);
+  };
+}
+\end{codeblock}
+\exposid{ts-sender} is an exposition-only class that models
+\libconcept{sender}\iref{exec.snd} and for which
+\tcode{completion_signatures_of_t<\exposid{ts-sender}>} denotes:
+\begin{codeblock}
+completion_signatures<
+  set_value_t(),
+  set_error_t(error_code),
+  set_error_t(exception_ptr),
+  set_stopped_t()>
+\end{codeblock}
+
+\pnum
+Let \tcode{\placeholder{sch}} be an object of type \tcode{task_scheduler}
+and let \tcode{sndr} be an object of type \exposid{ts-sender} obtained
+from \tcode{schedule(\placeholder{sch})}.
+Then \tcode{get_completion_scheduler<set_value_t>(get_env(sndr)) == \placeholder{sch}}
+is \tcode{true}.
+The object \tcode{\exposid{SENDER}(sndr)} is the sender object contained by
+\tcode{sndr} or an object move constructed from it.
+
+\indexlibrarymember{connect}{task_scheduler::\exposid{ts-sender}}%
+\begin{itemdecl}
+template<@\libconcept{receiver}@ Rcvr>
+  @\exposid{state}@<Rcvr> connect(Rcvr&& rcvr);
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\effects
+Let \tcode{\placeholder{r}} be an object of a type that models \libconcept{receiver}
+and whose completion handlers result in invoking the corresponding
+completion handlers of \tcode{rcvr} or copy thereof.
+Returns an object of type \tcode{\exposid{state}<Rcvr>} containing
+an operation state object initialized with \tcode{connect(\exposid{SENDER}(*this),
+std::move(\placeholder{r}))}.
+\end{itemdescr}
+
+\pnum
+\begin{codeblock}
+namespace std::execution {
+  template<@\libconcept{receiver}@ R>
+  class task_scheduler::@\exposidnc{state}@ {         // \expos
+  public:
+    using operation_state_concept = operation_state_t;
+
+    void start() & noexcept;
+  };
+}
+\end{codeblock}
+\exposid{state} is an exposition-only class template whose
+specializations model \libconcept{operation_state}\iref{exec.opstate}.
+
+\indexlibrarymember{start}{task_scheduler::\exposid{state}}%
+\begin{itemdecl}
+void start() & noexcept;
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{start(st)} where \tcode{st} is the operation
+state object contained by \tcode{*this}.
+\end{itemdescr}
+
+\rSec2[exec.task]{\tcode{execution::task}}
+
+\rSec3[task.overview]{\tcode{task} overview}
+
+\pnum
+The \tcode{task} class template represents a sender that can
+be used as the return type of coroutines.
+The first template parameter \tcode{T} defines the type of the value
+completion datum\iref{exec.async.ops} if \tcode{T} is not \tcode{void}.
+Otherwise, there are no value completion datums.
+Inside coroutines returning \tcode{task<T, E>} the operand of
+\tcode{co_return} (if any) becomes the argument of \tcode{set_value}.
+The second template parameter \tcode{Environment} is used to customize
+the behavior of \tcode{task}.
+
+\rSec3[task.class]{Class template \tcode{task}}
+
+\begin{codeblock}
+namespace std::execution {
+  template<class T, class Environment>
+  class @\libglobal{task}@ {
+    // \ref{task.state}
+    template<@\libconcept{receiver}@ Rcvr>
+      class @\exposidnc{state}@;                              // \expos
+
+  public:
+    using sender_concept = sender_t;
+    using completion_signatures = @\seebelow@;
+    using allocator_type = @\seebelow@;
+    using scheduler_type = @\seebelow@;
+    using stop_source_type = @\seebelow@;
+    using stop_token_type = decltype(declval<stop_source_type>().get_token());
+    using error_types = @\seebelow@;
+
+    // \ref{task.promise}
+    class promise_type;
+
+    task(task&&) noexcept;
+    ~task();
+
+    template<@\libconcept{receiver}@ Rcvr>
+      @\exposid{state}@<Rcvr> connect(Rcvr&& rcvr);
+
+  private:
+    coroutine_handle<promise_type> @\exposidnc{handle}@;      // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+\tcode{task<T, E>} models \libconcept{sender}\iref{exec.snd}
+if \tcode{T} is \tcode{void}, a reference type, or a \cv{}-unqualified
+non-array object type and \tcode{E} is a class type.
+Otherwise a program that instantiates the definition of \tcode{task<T, E>}
+is ill-formed.
+
+\pnum
+The nested types of \tcode{task} template specializations
+are determined based on the \tcode{Environment} parameter:
+\begin{itemize}
+\item \tcode{allocator_type} is \tcode{Environment::allocator_type}
+if that \grammarterm{qualified-id} is valid and denotes a type,
+\tcode{allocator<byte>} otherwise.
+\item \tcode{scheduler_type} is \tcode{Environment::scheduler_type}
+if that \grammarterm{qualified-id} is valid and denotes a type,
+\tcode{task_scheduler} otherwise.
+\item \tcode{stop_source_type} is \tcode{Environment::stop_source_type}
+if that \grammarterm{qualified-id} is valid and denotes a type,
+\tcode{inplace_stop_source} otherwise.
+\item \tcode{error_types} is \tcode{Environment::error_types} if
+that \grammarterm{qualified-id} is valid and denotes a type,
+\tcode{com\-pletion_sign\-atures<set_error_t(exception_ptr)>} otherwise.
+\end{itemize}
+
+\pnum
+ A program is ill-formed if \tcode{error_types} is not a
+specialization of \tcode{completion_signatures<ErrorSigs...>} or
+\tcode{ErrorSigs} contains an element which is not of the form
+\tcode{set_error_t(E)} for some type \tcode{E}.
+
+\pnum
+The type alias \tcode{completion_signatures} is a specialization
+of \tcode{execution::completion_signatures} with the template
+arguments (in unspecified order):
+\begin{itemize}
+\item \tcode{set_value_t()} if \tcode{T} is \tcode{void},
+and \tcode{set_value_t(T)} otherwise;
+\item template arguments of the specialization of
+\tcode{execution::completion_signatures} denoted by \tcode{error_types};
+and
+\item \tcode{set_stopped_t()}.
+\end{itemize}
+
+\pnum
+\tcode{allocator_type} shall meet the \oldconcept{Allocator}
+requirements.
+
+\rSec3[task.members]{\tcode{task} members}
+
+\indexlibraryctor{task}%
+\begin{itemdecl}
+task(task&& other) noexcept;
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{handle} with \tcode{exchange(other.\exposid{handle},
+\{\})}.
+\end{itemdescr}
+
+\indexlibrarydtor{task}%
+\begin{itemdecl}
+~task();
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if (@\exposid{handle}@)
+  @\exposid{handle}@.destroy();
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{connect}{task}%
+\begin{itemdecl}
+template<@\libconcept{receiver}@ R>
+  @\exposid{state}@<R> connect(R&& recv);
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{bool(\exposid{handle})} is \tcode{true}.
+
+\pnum
+\effects
+Equivalent to: \tcode{return \exposid{state}<R>(exchange(\exposid{handle},
+\{\}), std::forward<R>(recv));}
+\end{itemdescr}
+
+\rSec3[task.state]{\tcode{Class template \tcode{task::state}}}
+
+\begin{codeblock}
+namespace std::execution {
+  template<class T, class Environment>
+  template<@\libconcept{receiver}@ Rcvr>
+  class task<T, Environment>::@\exposidnc{state}@ {           // \expos
+  public:
+    using operation_state_concept = operation_state_t;
+
+    template<class R>
+      @\exposid{state}@(coroutine_handle<promise_type> h, R&& rr);
+
+    ~@\exposid{state}@();
+
+    void start() & noexcept;
+
+private:
+    using @\exposidnc{own-env-t}@ = @\seebelownc@;                // \expos
+    coroutine_handle<promise_type> @\exposidnc{handle}@;      // \expos
+    remove_cvref_t<Rcvr>           @\exposidnc{rcvr}@;        // \expos
+    @\exposidnc{own-env-t}@                      @\exposidnc{own-env}@;     // \expos
+    Environment                    @\exposidnc{environment}@; // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+The type \exposid{own-env-t} is \tcode{Environment::template
+env_type<decltype(get_env(\brk{}declval\brk{}<Rcvr>(\brk{})))\brk{}>} if that
+\grammarterm{qualified-id} is valid and denotes a type, \tcode{env<>} otherwise.
+
+\indexlibraryctor{task::\exposid{state}}%
+\begin{itemdecl}
+template<class R>
+  @\exposid{state}@(coroutine_handle<promise_type> h, R&& rr);
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\effects
+Initializes
+\begin{itemize}
+\item \exposid{handle} with \tcode{std::move(h)};
+\item \exposid{rcvr} with \tcode{std::forward<R>(rr)};
+\item \exposid{own-env}
+with \tcode{\exposid{own-env-t}(get_env(\exposid{rcvr}))} if that expression
+is valid and \tcode{\exposid{own-env-t}()} otherwise.
+\end{itemize}
+If neither of these expressions is valid, the program is ill-formed.
+\item \exposid{environment} with \tcode{Environment(\exposid{own-env})} if that expression is
+valid, otherwise \tcode{Environment(get_env(\exposid{rcvr}))}
+if this expression is valid, otherwise \tcode{Environment()}.
+If neither of these expressions is valid, the program is ill-formed.
+\end{itemdescr}
+
+\indexlibrarydtor{task::\exposid{state}}%
+\begin{itemdecl}
+~@\exposid{state}@();
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if (@\exposid{handle}@)
+  @\exposid{handle}@.destroy();
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{start}{task::\exposid{state}}%
+\begin{itemdecl}
+void start() & noexcept;
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\effects
+Let \tcode{\placeholder{prom}} be the object \tcode{\exposid{handle}.promise()}.
+Associates \tcode{\exposid{STATE}(\placeholder{prom})}, \tcode{\exposid{RCVR}(\placeholder{prom})}, and \tcode{\exposid{SCHED}(\placeholder{prom})}
+with \tcode{*this} as follows:
+\begin{itemize}
+\item \tcode{\exposid{STATE}(\placeholder{prom})} is \tcode{*this}.
+\item \tcode{\exposid{RCVR}(\placeholder{prom})} is \exposid{rcvr}.
+\item \tcode{\exposid{SCHED}(\placeholder{prom})} is the object initialized
+with \tcode{scheduler_type(get_scheduler(get_env(\exposid{rcvr})))}
+if that expression is valid and \tcode{scheduler_type()} otherwise.
+If neither of these expressions is valid, the program is ill-formed.
+\end{itemize}
+Let \tcode{\placeholder{st}} be \tcode{get_stop_token(get_env(\exposid{rcvr}))}.
+Initializes \tcode{\placeholder{prom}.\exposid{token}} and
+\tcode{\placeholder{prom}.\exposid{source}} such that
+\begin{itemize}
+\item
+\tcode{\placeholder{prom}.\exposid{token}.stop_requested()} returns
+\tcode{\placeholder{st}.stop_requested()};
+\item
+\tcode{\placeholder{prom}.\exposid{token}.stop_possible()} returns
+\tcode{\placeholder{st}.stop_possible()}; and
+\item
+for types \tcode{Fn} and \tcode{Init} such that both
+\tcode{\libconcept{invocable}<Fn>} and
+\tcode{\libconcept{constructible_from}<Fn, Init>} are modeled,
+\tcode{stop_token_type::callback_type<Fn>} models
+\tcode{\exposconcept{stoppable-callback-for}<Fn,\brk{} stop\-_token_type, Init>}.
+\end{itemize}
+After that invokes \tcode{\exposid{handle}.resume()}.
+\end{itemdescr}
+
+\rSec3[task.promise]{Class \tcode{task::promise_type}}
+
+\begin{codeblock}
+namespace std::execution {
+  template<class E>
+  struct @\libglobal{with_error}@ {
+    using type = remove_cvref_t<E>;
+    type error;
+  };
+  template<class E>
+    with_error(E) -> with_error<E>;
+
+  template<@\libconcept{scheduler}@ Sch>
+  struct change_coroutine_scheduler {
+    using type = remove_cvref_t<Sch>;
+    type scheduler;
+  };
+  template<@\libconcept{scheduler}@ Sch>
+    change_coroutine_scheduler(Sch) -> change_coroutine_scheduler<Sch>;
+
+  template<class T, class Environment>
+  class task<T, Environment>::promise_type {
+  public:
+    template<class... Args>
+      promise_type(const Args&... args);
+
+    task get_return_object() noexcept;
+
+    auto initial_suspend() noexcept;
+    auto final_suspend() noexcept;
+
+    void uncaught_exception();
+    coroutine_handle<> unhandled_stopped();
+
+    void return_void();                 // present only if \tcode{is_void_v<T>} is \tcode{true};
+    template<class V>
+      void return_value(V&& value);     // present only if \tcode{is_void_v<T>} is \tcode{false};
+
+    template<class E>
+      @\unspec@ yield_value(with_error<E> error);
+
+    template<class A>
+      auto await_transform(A&& a);
+    template<class Sch>
+      auto await_transform(change_coroutine_scheduler<Sch> sch);
+
+    @\unspec@ get_env() const noexcept;
+
+    template<class... Args>
+      void* operator new(size_t size, Args&&... args);
+
+    void operator delete(void* pointer, size_t size) noexcept;
+
+  private:
+    using @\exposidnc{error-variant}@ = @\seebelownc@;    // \expos
+
+    allocator_type    @\exposidnc{alloc}@;            // \expos
+    stop_source_type  @\exposidnc{source}@;           // \expos
+    stop_token_type   @\exposidnc{token}@;            // \expos
+    optional<T>       @\exposidnc{result}@;           // \expos; present only if \tcode{is_void_v<T>} is \tcode{false};
+    @\exposidnc{error-variant}@     @\exposidnc{errors}@;           // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+Let \tcode{\placeholder{prom}} be an object of \tcode{promise_type}
+and let \tcode{\placeholder{tsk}} be the \tcode{task} object
+created by \tcode{\placeholder{prom}.get_return_object()}.
+The description below
+refers to objects \tcode{\exposid{STATE}(\placeholder{prom})},
+\tcode{\exposid{RCVR}(\placeholder{prom})},
+and \tcode{\exposid{SCHED}(\placeholder{prom})}
+associated with \tcode{\placeholder{tsk}}
+during evalutation of \tcode{task::\exposid{state}<Rcvr>::start}
+for some receiver \tcode{Rcvr}.
+
+\pnum
+\exposid{error-variant} is a \tcode{variant<monostate,
+remove_cvref_t<E>...>}, with duplicate types removed, where \tcode{E...}
+are template arguments of the specialization of
+\tcode{execution::completion_signatures} denoted by
+\tcode{error_types}.
+
+\indexlibraryctor{task::promise_type}%
+\begin{itemdecl}
+template<class... Args>
+  promise_type(const Args&... args);
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\mandates
+The first parameter of type \tcode{allocator_arg_t} (if any) is not
+the last parameter.
+
+\pnum
+\effects
+If \tcode{Args} contains an element of type \tcode{allocator_arg_t}
+then \exposid{alloc} is initialized with the corresponding next
+element of \tcode{args}.
+Otherwise, \exposid{alloc} is initialized with \tcode{allocator_type()}.
+\end{itemdescr}
+
+\indexlibrarymember{get_return_object}{task::promise_type}%
+\begin{itemdecl}
+task get_return_object() noexcept;
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\returns
+A \tcode{task} object whose member \exposid{handle} is
+\tcode{coroutine_handle<promise_type>::\brk{}from_promise\brk{}(*this)}.
+\end{itemdescr}
+
+\indexlibrarymember{initial_suspend}{task::promise_type}%
+\begin{itemdecl}
+auto initial_suspend() noexcept;
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\returns
+An awaitable object of unspecified type\iref{expr.await} whose
+member functions arrange for
+\begin{itemize}
+\item the calling coroutine to be suspended,
+\item the coroutine to be resumed on an execution agent of the
+execution resource associated with \tcode{\exposid{SCHED}(*this)}.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibrarymember{final_suspend}{task::promise_type}%
+\begin{itemdecl}
+auto final_suspend() noexcept;
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\returns
+An awaitable object of unspecified type\iref{expr.await} whose
+member functions arrange for the completion of the asynchronous
+operation associated with \tcode{\exposid{STATE}(*this)} by invoking:
+\begin{itemize}
+\item
+\tcode{set_error(std::move(\exposid{RCVR}(*this)), std::move(e))}
+if \tcode{\exposid{errors}.index()} is greater than zero and
+\tcode{e} is the value held by \exposid{errors}, otherwise
+\item
+\tcode{set_value(std::move(\exposid{RCVR}(*this)))} if \tcode{is_void<T>} is \tcode{true},
+and otherwise
+\item
+ \tcode{set_value(std::move(\exposid{RCVR}(*this)), *\exposid{result})}.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibrarymember{yield_value}{task::promise_type}%
+\begin{itemdecl}
+template<class Err>
+  auto yield_value(with_error<Err> err);
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{std::move(err.error)} is convertible to exactly one of the
+\tcode{set_error_t} argument types of \tcode{error_types}.
+Let \tcode{\placeholder{Cerr}} be that type.
+
+\pnum
+\returns
+An awaitable object of unspecified type\iref{expr.await} whose
+member functions arrange for the calling coroutine to be suspended
+and then completes the asynchronous operation associated with
+\tcode{\exposid{STATE}(*this)} by invoking \tcode{set_error(std::move(\exposid{RCVR}(*this)),
+\placeholder{Cerr}(std::move(err.error)))}.
+\end{itemdescr}
+
+\indexlibrarymember{await_transform}{task::promise_type}%
+\begin{itemdecl}
+template<@\libconcept{sender}@ Sender>
+  auto await_transform(Sender&& sndr) noexcept;
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\returns
+If \tcode{\libconcept{same_as}<inline_scheduler, scheduler_type>} is \tcode{true}
+returns \tcode{as_awaitable(\brk{}std::\brk{}for\-ward<Sender>(sndr), *this)};
+otherwise returns
+\tcode{as_awaitable(affine_on(\brk{}std::\brk{}for\-ward<Sen\-der>(sndr), \exposid{SCHED}(*this)), *this)}.
+\end{itemdescr}
+
+\indexlibrarymember{await_transform}{task::promise_type}%
+\begin{itemdecl}
+template<class Sch>
+  auto await_transform(change_coroutine_scheduler<Sch> sch) noexcept;
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return await_transform(just(exchange(@\exposid{SCHED}@(*this), scheduler_type(sch.scheduler))), *this);
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{uncaught_exception}{task::promise_type}%
+\begin{itemdecl}
+void uncaught_exception();
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\effects
+If the signature \tcode{set_error_t(exception_ptr)} is not an element
+of \tcode{error_types}, calls \tcode{terminate()}\iref{except.terminate}.
+Otherwise, stores \tcode{current_exception()} into \exposid{errors}.
+\end{itemdescr}
+
+\indexlibrarymember{unhandled_stopped}{task::promise_type}%
+\begin{itemdecl}
+coroutine_handle<> unhandled_stopped();
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\effects
+Completes the asynchronous operation associated with \tcode{\exposid{STATE}(*this)}
+by invoking \tcode{set_stopped(std::move(\exposid{RCVR}(*this)))}.
+\end{itemdescr}
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{noop_coroutine()}.
+\end{itemdescr}
+
+\indexlibrarymember{get_env}{task::promise_type}%
+\begin{itemdecl}
+@\unspec@ get_env() const noexcept;
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\returns
+An object \tcode{env} such that queries are forwarded as follows:
+\begin{itemize}
+\item \tcode{env.query(get_scheduler)} returns \tcode{scheduler_type(\exposid{SCHED}(*this))}.
+\item \tcode{env.query(get_allocator)} returns \exposid{alloc}.
+\item \tcode{env.query(get_stop_token)} returns \exposid{token}.
+\item For any other query \tcode{q} and arguments \tcode{a...} a
+call to \tcode{env.query(q, a...)} returns
+\tcode{\exposid{STATE}(*this).} \tcode{environment.query(q, a...)} if this expression
+is well-formed and \tcode{forwarding_query(q)} is well-formed and is \tcode{true}.
+Otherwise \tcode{env.query(q, a...)} is ill-formed.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibrarymember{operator new}{task::promise_type}%
+\begin{itemdecl}
+template<class... Args>
+  void* operator new(size_t size, const Args&... args);
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+If there is no parameter with type \tcode{allocator_arg_t} then let
+\tcode{\placeholder{alloc}} be \tcode{Allocator()}.
+Let \tcode{\placeholder{arg_next}} be the parameter following the first
+\tcode{allocator_arg_t} parameter (if any) and let \tcode{\placeholder{alloc}}
+be \tcode{Allocator(\placeholder{arg_next})}.
+Then \tcode{PAlloc} is \tcode{allocator_traits<Allocator>::template
+re\-bind_alloc\brk{}<U>} where \tcode{U} is an unspecified type
+whose size and alignment are both \tcode{__STDCPP_DEFAULT_NEW_ALIGNMENT__}.
+
+\pnum
+\mandates
+\begin{itemize}
+\item The first parameter of type \tcode{allocator_arg_t} (if any) is not the last parameter.
+\item \tcode{Allocator(\placeholder{arg_next})} is a valid expression if there is a parameter
+of type \tcode{allocator_arg_t}.
+\item \tcode{allocator_traits<PAlloc>::pointer} is a pointer type.
+\end{itemize}
+
+\pnum
+\effects
+Initializes an allocator \tcode{palloc} of type \tcode{PAlloc} with
+\tcode{\placeholder{alloc}}.
+Uses \tcode{palloc} to allocate storage for the
+smallest array of \tcode{U} sufficient to provide storage for a
+coroutine state of size \tcode{size}, and unspecified additional
+state necessary to ensure that \tcode{operator delete} can later
+deallocate this memory block with an allocator equal to \tcode{palloc}.
+
+\pnum
+\returns
+A pointer to the allocated storage.
+\end{itemdescr}
+
+\indexlibrarymember{operator delete}{task::promise_type}%
+\begin{itemdecl}
+void operator delete(void* pointer, size_t size) noexcept;
+\end{itemdecl}
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{pointer} was returned from an invocation of the above overload
+of \tcode{operator new} with a size argument equal to \tcode{size}.
+
+\pnum
+\effects
+Deallocates the storage pointed to by \tcode{pointer} using an
+allocator equal to that used to allocate it.
 \end{itemdescr}
 
 \rSec1[exec.scope]{Execution scope utilities}
