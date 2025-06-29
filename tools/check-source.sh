@@ -100,6 +100,14 @@ grep -n 'unicode{[^}]*[^0-9a-f}][^}]*}' $texfiles |
 grep -n '.(\\ref' $texfiles  | grep -v -- "--" |
     fail 'use \\iref instead of (\\ref' || failed=1
 
+# \iref cannot be at the start of a line
+grep -n '^\\iref' $texfiles |
+    fail '\\iref must be flush against the preceding word, not at the start of a line' || failed=1
+
+# \iref cannot be preceded by space
+grep -n ' \\iref' $texfiles |
+    fail '\\iref must not be preceded by space' || failed=1
+
 # Use \xrefc instead of "ISO C x.y.z"
 grep -n "^ISO C [0-9]*\." $texfiles |
     fail 'use \\xrefc instead' || failed=1
@@ -142,6 +150,9 @@ done |
 # ref-qualifier on member functions with no space, e.g. "const&"
 grep -F -ne ') const&' $texlib |
     fail 'no space between cv-qualifier and ref-qualifier' || failed=1
+
+grep -n '\\\(def\)\?\(lib\|expos\)concept{[a-z0-9_-]*[^a-z0-9_}-][a-z0-9_-]*}' $texlib |
+    fail 'bad concept name' || failed=1
 
 # \begin{example/note} with non-whitespace in front on the same line.
 grep -ne '^.*[^ ]\s*\\\(begin\|end\){\(example\|note\)}' $texfiles |
