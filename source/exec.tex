@@ -372,6 +372,9 @@ that has an environment of type \tcode{Env}.
 The type of the receiver does not affect
 an asynchronous operation's completion signatures,
 only the type of the receiver's environment.
+A \defnadj{non-dependent}{sender} is a sender type
+whose completion signatures are knowable
+independent of an execution environment.
 
 \pnum
 A sender algorithm is a function that takes and/or returns a sender.
@@ -530,22 +533,17 @@ namespace std::execution {
   template<class Sndr>
     concept @\libconcept{sender}@ = @\seebelow@;
 
-  template<class Sndr, class Env = env<>>
+  template<class Sndr, class... Env>
     concept @\libconcept{sender_in}@ = @\seebelow@;
+
+  template<class Sndr>
+    concept @\libconcept{dependent_sender}@ = @\seebelow@;
 
   template<class Sndr, class Rcvr>
     concept @\libconcept{sender_to}@ = @\seebelow@;
 
   template<class... Ts>
     struct @\exposidnc{type-list}@;                                           // \expos
-
-  // \ref{exec.getcomplsigs}, completion signatures
-  struct get_completion_signatures_t;
-  inline constexpr get_completion_signatures_t get_completion_signatures {};
-
-  template<class Sndr, class Env = env<>>
-      requires @\libconcept{sender_in}@<Sndr, Env>
-    using completion_signatures_of_t = @\exposid{call-result-t}@<get_completion_signatures_t, Sndr, Env>;
 
   template<class... Ts>
     using @\exposidnc{decayed-tuple}@ = tuple<decay_t<Ts>...>;                // \expos
@@ -568,10 +566,10 @@ namespace std::execution {
       requires @\libconcept{sender_in}@<Sndr, Env>
     constexpr bool sends_stopped = @\seebelow@;
 
-  template<class Sndr, class Env>
+  template<class Sndr, class... Env>
     using @\exposidnc{single-sender-value-type}@ = @\seebelownc@;                 // \expos
 
-  template<class Sndr, class Env>
+  template<class Sndr, class... Env>
     concept @\exposconcept{single-sender}@ = @\seebelow@; // \expos
 
   template<@\libconcept{sender}@ Sndr>
@@ -664,36 +662,25 @@ namespace std::execution {
   inline constexpr associate_t @\libglobal{associate}@{};
   inline constexpr spawn_future_t @\libglobal{spawn_future}@{};
 
-  // \ref{exec.util}, sender and receiver utilities
+  // \ref{exec.cmplsig}, completion signatures
   template<class Fn>
     concept @\exposconceptnc{completion-signature}@ = @\seebelownc@;                   // \expos
 
   template<@\exposconcept{completion-signature}@... Fns>
-    struct @\libglobal{completion_signatures}@ {};
+    struct @\libglobal{completion_signatures}@;
 
   template<class Sigs>
     concept @\exposconceptnc{valid-completion-signatures}@ = @\seebelownc@;            // \expos
 
-  template<
-    @\exposconcept{valid-completion-signatures}@ InputSignatures,
-    @\exposconcept{valid-completion-signatures}@ AdditionalSignatures = completion_signatures<>,
-    template<class...> class SetValue = @\seebelow@,
-    template<class> class SetError = @\seebelow@,
-    @\exposconcept{valid-completion-signatures}@ SetStopped = completion_signatures<set_stopped_t()>>
-  using transform_completion_signatures = completion_signatures<@\seebelow@>;
+  struct dependent_sender_error : exception {};
 
-  template<
-    @\libconcept{sender}@ Sndr,
-    class Env = env<>,
-    @\exposconcept{valid-completion-signatures}@ AdditionalSignatures = completion_signatures<>,
-    template<class...> class SetValue = @\seebelow@,
-    template<class> class SetError = @\seebelow@,
-    @\exposconcept{valid-completion-signatures}@ SetStopped = completion_signatures<set_stopped_t()>>
-      requires @\libconcept{sender_in}@<Sndr, Env>
-  using transform_completion_signatures_of =
-    transform_completion_signatures<
-      completion_signatures_of_t<Sndr, Env>,
-      AdditionalSignatures, SetValue, SetError, SetStopped>;
+  // \ref{exec.getcomplsigs}
+  template<class Sndr, class... Env>
+    consteval auto get_completion_signatures() -> @\exposconcept{valid-completion-signatures}@ auto;
+
+  template<class Sndr, class... Env>
+      requires @\libconcept{sender_in}@<Sndr, Env...>
+    using completion_signatures_of_t = decltype(get_completion_signatures<Sndr, Env...>());
 
   // \ref{exec.run.loop}, run_loop
   class run_loop;
@@ -770,34 +757,43 @@ namespace std::execution {
 \end{itemize}
 
 \pnum
-For types \tcode{Sndr} and \tcode{Env},
-\tcode{\exposid{single-sender-value-type}<Sndr, Env>} is an alias for:
+For type \tcode{Sndr} and pack of types \tcode{Env},
+let \tcode{CS} be \tcode{completion_signatures_of_t<Sndr, Env...>}.
+Then \tcode{\exposid{single-sender-value-type}<Sndr, Env...>} is ill-formed
+if \tcode{CS} is ill-formed or
+if \tcode{sizeof...(Env) > 1} is \tcode{true};
+otherwise, it is an alias for:
 \begin{itemize}
 \item
-\tcode{value_types_of_t<Sndr, Env, decay_t, type_identity_t>}
+\tcode{\exposid{gather-signatures}<set_value_t, CS, decay_t, type_identity_t>}
 if that type is well-formed,
 \item
 Otherwise, \tcode{void}
-if \tcode{value_types_of_t<Sndr, Env, tuple, variant>} is
-\tcode{variant<tuple<>>} or \tcode{vari\-ant<>},
+if \tcode{\exposid{gather-signatures}<set_value_t, CS, tuple, variant>} is
+\tcode{variant<tuple<>>} or \tcode{variant<>},
 \item
-Otherwise, \tcode{value_types_of_t<Sndr, Env, \exposid{decayed-tuple}, type_identity_t>}
-if that type is well-formed,
+Otherwise, \tcode{\exposid{gather-signatures}<set_value_t, CS, \exposid{decayed-tuple}, type_identity_t>}
+if that\linebreak{} type is well-formed,
 \item
-Otherwise, \tcode{\exposid{single-sender-value-type}<Sndr, Env>} is ill-formed.
+Otherwise, \tcode{\exposid{single-sender-value-type}<Sndr, Env...>} is ill-formed.
 \end{itemize}
 
 \pnum
 The exposition-only concept \exposconcept{single-sender} is defined as follows:
 \begin{codeblock}
 namespace std::execution {
-  template<class Sndr, class Env>
-    concept @\defexposconcept{single-sender}@ = @\libconcept{sender_in}@<Sndr, Env> &&
+  template<class Sndr, class... Env>
+    concept @\defexposconcept{single-sender}@ = @\libconcept{sender_in}@<Sndr, Env...> &&
       requires {
-        typename @\exposid{single-sender-value-type}@<Sndr, Env>;
+        typename @\exposid{single-sender-value-type}@<Sndr, Env...>;
       };
 }
 \end{codeblock}
+
+\pnum
+A type satisfies and models the exposition-only concept
+\defexposconcept{valid-completion-signatures} if
+it is a specialization of the \tcode{completion_signatures} class template.
 
 \rSec1[exec.queries]{Queries}
 
@@ -1308,19 +1304,34 @@ necessarily results in the potential evaluation\iref{basic.def.odr} of
 a set of completion operations
 whose first argument is a subexpression equal to \tcode{rcvr}.
 Let \tcode{Sigs} be a pack of completion signatures corresponding to
-this set of completion operations.
-Then the type of the expression \tcode{get_completion_signatures(sndr, env)} is
+this set of completion operations, and
+let \tcode{CS} be
+the type of the expression \tcode{get_completion_signatures<Sndr, Env>()}.
+Then \tcode{CS} is
 a specialization of
-the class template \tcode{completion_signatures}\iref{exec.util.cmplsig},
+the class template \tcode{completion_signatures}\iref{exec.cmplsig},
 the set of whose template arguments is \tcode{Sigs}.
+If none of the types in \tcode{Sigs} are dependent on the type \tcode{Env}, then
+the expression \tcode{get_completion_signatures<Sndr>()} is well-formed and
+its type is \tcode{CS}.
 If a user-provided implementation of the algorithm
-that produced \tcode{sndr} is selected instead of the default,
-any completion signature
+that produced \tcode{sndr} is selected instead of the default:
+
+\begin{itemize}
+\item
+Any completion signature
 that is in the set of types
 denoted by \tcode{completion_signatures_of_t<Sndr, Env>} and
 that is not part of \tcode{Sigs} shall correspond to
 error or stopped completion operations,
 unless otherwise specified.
+
+\item
+If none of the types in \tcode{Sigs} are dependent on the type \tcode{Env}, then
+\tcode{completion_signatures_of_t<Sndr>} and
+\tcode{completion_signatures_of_t<Sndr, Env>}
+shall denote the same type.
+\end{itemize}
 
 \rSec2[exec.snd.expos]{Exposition-only entities}
 
@@ -1328,6 +1339,7 @@ unless otherwise specified.
 Subclause \ref{exec.snd} makes use of the following exposition-only entities.
 
 \pnum
+\indexlibraryglobal{\exposid{FWD-ENV}}%
 For a queryable object \tcode{env},
 \tcode{\exposid{FWD-ENV}(env)} is an expression
 whose type satisfies \exposconcept{queryable}
@@ -1336,6 +1348,7 @@ a pack of subexpressions \tcode{as},
 the expression \tcode{\exposid{FWD-ENV}(env).query(q, as...)} is ill-formed
 if \tcode{forwarding_query(q)} is \tcode{false};
 otherwise, it is expression-equivalent to \tcode{env.query(q, as...)}.
+\indexlibraryglobal{\exposid{FWD-ENV-T}}%
 The type \tcode{\exposid{FWD-ENV-T}(Env)} is
 \tcode{decltype(\exposid{FWD-ENV}(declval<Env>()))}.
 
@@ -1627,6 +1640,16 @@ if the \tcode{return} statement above is not potentially throwing;
 otherwise, \tcode{false}.
 \end{itemdescr}
 
+\pnum
+Let \exposconcept{valid-specialization} be the following concept:
+\begin{codeblock}
+namespace std::execution {
+  template<template<class...> class T, class... Args>
+  concept @\defexposconceptnc{valid-specialization}@ =                                // \expos
+    requires { typename T<Args...>; };
+}
+\end{codeblock}
+
 \begin{itemdecl}
 template<class Tag, class Data = @\seebelow@, class... Child>
   constexpr auto @\exposid{make-sender}@(Tag tag, Data&& data, Child&&... child);
@@ -1640,6 +1663,17 @@ The following expressions are \tcode{true}:
 \item \tcode{\libconcept{semiregular}<Tag>}
 \item \tcode{\exposconcept{movable-value}<Data>}
 \item \tcode{(\libconcept{sender}<Child> \&\& ...)}
+\item%
+\tcode{\libconcept{dependent_sender}<Sndr> || \libconcept{sender_in}<Sndr>},
+where \tcode{Sndr} is \tcode{\exposid{basic-sender}<Tag, Data,\linebreak{}Child...>}
+as defined below.
+
+ \recommended
+If evaluation of \tcode{\libconcept{sender_in}<Sndr>} results in
+an uncaught exception from
+the evaluation of \tcode{get_completion_signatures<Sndr>()},
+the implementation should include information about that exception in
+the resulting diagnostic.
 \end{itemize}
 
 \pnum
@@ -1656,16 +1690,15 @@ namespace std::execution {
   concept @\defexposconceptnc{completion-tag}@ =                                      // \expos
     @\libconcept{same_as}@<Tag, set_value_t> || @\libconcept{same_as}@<Tag, set_error_t> || @\libconcept{same_as}@<Tag, set_stopped_t>;
 
-  template<template<class...> class T, class... Args>
-  concept @\defexposconceptnc{valid-specialization}@ =                                // \expos
-    requires { typename T<Args...>; };
-
   struct @\exposidnc{default-impls}@ {                                        // \expos
     static constexpr auto @\exposidnc{get-attrs}@ = @\seebelownc@;                // \expos
     static constexpr auto @\exposidnc{get-env}@ = @\seebelownc@;                  // \expos
     static constexpr auto @\exposidnc{get-state}@ = @\seebelownc@;                // \expos
     static constexpr auto @\exposidnc{start}@ = @\seebelownc@;                    // \expos
     static constexpr auto @\exposidnc{complete}@ = @\seebelownc@;                 // \expos
+
+    template<class Sndr, class... Env>
+      static consteval void @\exposidnc{check-types}@();                      // \expos
   };
 
   template<class Tag>
@@ -1679,6 +1712,9 @@ namespace std::execution {
   using @\exposid{env-type}@ = @\exposid{call-result-t}@<
     decltype(@\exposid{impls-for}@<tag_of_t<Sndr>>::@\exposid{get-env}@), Index,
     @\exposid{state-type}@<Sndr, Rcvr>&, const Rcvr&>;
+
+  template<class Sndr>
+  using @\exposidnc{data-type}@ = decltype(declval<Sndr>().template @\exposidnc{get}@<1>());                // \expos
 
   template<class Sndr, size_t I = 0>
   using @\exposidnc{child-type}@ = decltype(declval<Sndr>().template @\exposidnc{get}@<I+2>());             // \expos
@@ -1755,9 +1791,6 @@ namespace std::execution {
     }
   };
 
-  template<class Sndr, class Env>
-  using @\exposidnc{completion-signatures-for}@ = @\seebelownc@;                  // \expos
-
   template<class Tag, class Data, class... Child>
   struct @\exposidnc{basic-sender}@ : @\exposidnc{product-type}@<Tag, Data, Child...> {     // \expos
     using sender_concept = sender_t;
@@ -1774,11 +1807,8 @@ namespace std::execution {
       return {std::forward<Self>(self), std::move(rcvr)};
     }
 
-    template<@\exposconcept{decays-to}@<@\exposid{basic-sender}@> Self, class Env>
-    auto get_completion_signatures(this Self&& self, Env&& env) noexcept
-      -> @\exposid{completion-signatures-for}@<Self, Env> {
-      return {};
-    }
+    template<@\exposconcept{decays-to}@<@\exposid{basic-sender}@> Self, class... Env>
+    static constexpr auto get_completion_signatures();
   };
 }
 \end{codeblock}
@@ -1903,26 +1933,125 @@ is initialized with a callable object equivalent to the following lambda:
 }
 \end{codeblock}
 
-\pnum
-For a subexpression \tcode{sndr} let \tcode{Sndr} be \tcode{decltype((sndr))}.
-Let \tcode{rcvr} be a receiver
-with an associated environment of type \tcode{Env}
-such that \tcode{\libconcept{sender_in}<Sndr, Env>} is \tcode{true}.
-\tcode{\exposid{completion-signatures-for}<Sndr, Env>} denotes
-a specialization of \tcode{completion_signatures},
-the set of whose template arguments correspond to
-the set of completion operations that are potentially evaluated
-as a result of starting\iref{exec.async.ops}
-the operation state that results from connecting \tcode{sndr} and \tcode{rcvr}.
-When \tcode{\libconcept{sender_in}<Sndr, Env>} is \tcode{false},
-the type denoted by \tcode{\exposid{completion-signatures-for}<Sndr, Env>},
-if any, is not a specialization of \tcode{completion_signatures}.
+\indexlibrarymember{\exposid{check-types}}{\exposid{default-impls}}%
+\begin{itemdecl}
+template<class Sndr, class... Env>
+  static consteval void @\exposid{default-impls}@::@\exposid{check-types}@();
+\end{itemdecl}
 
-\recommended
-When \tcode{\libconcept{sender_in}<Sndr, Env>} is \tcode{false},
-implementations are encouraged to use the type
-denoted by \tcode{\exposid{completion-signatures-for}<Sndr, Env>}
-to communicate to users why.
+\begin{itemdescr}
+\pnum
+Let \tcode{Is} be the pack of integral template arguments of
+the \tcode{integer_sequence} specialization denoted by
+\tcode{\exposid{ndices-for}<Sndr>}.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+(get_completion_signatures<@\exposid{child-type}@<Sndr, Is>, @\exposid{FWD-ENV-T}@(Env)...>(), ...);
+\end{codeblock}
+
+\pnum
+\begin{note}
+For any types \tcode{T} and \tcode{S}, and pack \tcode{E},
+let \tcode{e} be the expression
+\tcode{\exposid{impls-for}<T>::\exposid{check-types}<S, E...>()}.
+Then exactly one of the following is \tcode{true}:
+\begin{itemize}
+\item \tcode{e} is ill-formed, or
+\item the evaluation of \tcode{e} exits with an exception, or
+\item \tcode{e} is a core constant expression.
+\end{itemize}
+When \tcode{e} is a core constant expression,
+the pack \tcode{S, E...} uniquely determines a set of completion signatures.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarymember{get_completion_signatures}{\exposid{basic-sender}}%
+\begin{itemdecl}
+template<class Tag, class Data, class... Child>
+  template<class Sndr, class... Env>
+    constexpr auto @\exposid{basic-sender}@<Tag, Data, Child...>::get_completion_signatures();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{Rcvr} be the type of a receiver whose
+environment has type \tcode{E}, where
+\tcode{E} is the first type in the list \tcode{Env..., env<>}.
+Let \tcode{\placeholder{CHECK-TYPES}()} be the expression
+\tcode{\exposid{impls-for}<Tag>::template \exposid{check-types}<\linebreak{}Sndr, E>()}, and
+let \tcode{CS} be a type determined as follows:
+
+\begin{itemize}
+\item%
+If \tcode{\exposid{CHECK-TYPES}()} is a core constant expression,
+let \tcode{op} be an lvalue subexpression
+whose type is \tcode{connect_result_t<Sndr, Rcvr>}.
+Then \tcode{CS} is the specialization of \tcode{completion_signatures}
+the set of whose template arguments
+correspond to the set of completion operations
+that are potentially evaluated\iref{basic.def.odr}
+as a result of evaluating \tcode{op.start()}.
+
+\item%
+Otherwise, \tcode{CS} is \tcode{completion_signatures<>}.
+\end{itemize}
+
+\pnum
+\constraints
+\tcode{\exposid{CHECK-TYPES}()} is a well-formed expression.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+@\exposid{CHECK-TYPES}@();
+return CS();
+\end{codeblock}
+\end{itemdescr}
+
+\pnum
+\indexlibraryglobal{\exposid{overload-set}}
+%%FIXME: Should this be in a namespace?
+\begin{codeblock}
+template<class... Fns>
+struct @\exposid{overload-set}@ : Fns... {
+  using Fns::operator()...;
+};
+\end{codeblock}
+
+\pnum
+\indexlibraryglobal{\exposid{not-a-sender}}
+\indexlibrarymember{get_completion_signatures}{\exposid{not-a-sender}}
+%%FIXME: Should this be in a namespace?
+\begin{codeblock}
+struct @\exposid{not-a-sender}@ {
+  using sender_concept = sender_t;
+
+  template<class Sndr>
+    static consteval auto get_completion_signatures() -> completion_signatures<> {
+      throw @\placeholder{unspecified-exception}@();
+  }
+};
+\end{codeblock}
+where \tcode{\placeholder{unspecified-exception}} is
+a type derived from \tcode{exception}.
+
+\pnum
+\indexlibraryglobal{\exposid{decay-copyable-result-datums}}
+%%FIXME: Should this be in a namespace?
+\begin{codeblock}
+constexpr void @\exposid{decay-copyable-result-datums}@(auto cs) {
+  cs.@\exposid{for-each}@([]<class Tag, class... Ts>(Tag(*)(Ts...)) {
+    if constexpr (!(is_constructible_v<decay_t<Ts>, Ts> &&...))
+      throw @\placeholder{unspecified-exception}@();
+  });
+}
+\end{codeblock}
+where \tcode{\placeholder{unspecified-exception}} is
+a type derived from \tcode{exception}.
 
 \begin{itemdecl}
 template<@\libconcept{sender}@ Sndr, @\exposconcept{queryable}@ Env>
@@ -2023,10 +2152,11 @@ a sender's associated attributes.
 The connect customization point object is used to connect\iref{exec.async.ops}
 a sender and a receiver to produce an operation state.
 
+\indexlibraryglobal{\exposid{is-dependent-sender-helper}}%
 \begin{codeblock}
 namespace std::execution {
-  template<class Sigs>
-    concept @\exposconcept{valid-completion-signatures}@ = @\seebelow@;            // \expos
+  template<auto>
+    concept @\defexposconcept{is-constant}@ = true;                                 // \expos
 
   template<class Sndr>
     concept @\defexposconcept{is-sender}@ =                                         // \expos
@@ -2041,6 +2171,14 @@ namespace std::execution {
     inline constexpr bool enable_sender = @\exposconcept{enable-sender}@<Sndr>;
 
   template<class Sndr>
+    consteval bool @\exposidnc{is-dependent-sender-helper}@() try {           // \expos
+      get_completion_signatures<Sndr>();
+      return false;
+    } catch (dependent_sender_error&) {
+      return true;
+    }
+
+  template<class Sndr>
     concept @\deflibconcept{sender}@ =
       enable_sender<remove_cvref_t<Sndr>> &&
       requires (const remove_cvref_t<Sndr>& sndr) {
@@ -2049,14 +2187,16 @@ namespace std::execution {
       @\libconcept{move_constructible}@<remove_cvref_t<Sndr>> &&
       @\libconcept{constructible_from}@<remove_cvref_t<Sndr>, Sndr>;
 
-  template<class Sndr, class Env = env<>>
+  template<class Sndr, class... Env>
     concept @\deflibconcept{sender_in}@ =
       @\libconcept{sender}@<Sndr> &&
-      @\exposconcept{queryable}@<Env> &&
-      requires (Sndr&& sndr, Env&& env) {
-        { get_completion_signatures(std::forward<Sndr>(sndr), std::forward<Env>(env)) }
-          -> @\exposconcept{valid-completion-signatures}@;
-      };
+      (sizeof...(Env) <= 1) &&
+      (@\exposconcept{queryable}@<Env> &&...) &&
+      @\exposconcept{is-constant}@<get_completion_signatures<Sndr, Env...>()>;
+
+  template<class Sndr>
+    concept @\deflibconcept{dependent_sender}@ =
+      @\libconcept{sender}@<Sndr> && bool_constant<@\exposid{is-dependent-sender-helper}@<Sndr>()>::value;
 
   template<class Sndr, class Rcvr>
     concept @\deflibconcept{sender_to}@ =
@@ -2067,6 +2207,12 @@ namespace std::execution {
       };
 }
 \end{codeblock}
+
+\pnum
+For a type \tcode{Sndr}, if
+\tcode{\libconcept{sender}<Sndr>} is \tcode{true} and
+\tcode{\libconcept{dependent_sender}<Sndr>} is \tcode{false},
+then \tcode{Sndr} is a non-dependent sender\iref{exec.async.ops}.
 
 \pnum
 Given a subexpression \tcode{sndr},
@@ -2095,12 +2241,6 @@ be usable in constant expressions\iref{expr.const} and
 have type \tcode{const bool}.
 
 \pnum
-A type models
-the exposition-only concept \defexposconcept{valid-completion-signatures}
-if it denotes a specialization of
-the \tcode{completion_signatures} class template.
-
-\pnum
 The exposition-only concepts
 \exposconcept{sender-of} and \exposconcept{sender-in-of}
 define the requirements for a sender type
@@ -2110,15 +2250,22 @@ namespace std::execution {
   template<class... As>
     using @\exposid{value-signature}@ = set_value_t(As...);             // \expos
 
+  template<class Sndr, class SetValue, class... Env>
+    concept @\defexposconcept{sender-in-of-impl}@ =                             // \expos
+      @\libconcept{sender_in}@<Sndr, Env...> &&
+      @\exposid{MATCHING-SIG}@(SetValue,                                // see \ref{exec.general}
+                   @\exposid{gather-signatures}@<set_value_t,           // see \ref{exec.cmplsig}
+                                     completion_signatures_of_t<Sndr, Env...>,
+                                     @\exposid{value-signature}@,
+                                     type_identity_t>);
+
   template<class Sndr, class Env, class... Values>
-    concept @\defexposconcept{sender-in-of}@ =
-      @\libconcept{sender_in}@<Sndr, Env> &&
-      @\exposid{MATCHING-SIG}@(                     // see \ref{exec.general}
-        set_value_t(Values...),
-        value_types_of_t<Sndr, Env, @\exposid{value-signature}@, type_identity_t>);
+    concept @\defexposconcept{sender-in-of}@ =                                  // \expos
+      @\exposconcept{sender-in-of-impl}@<Sndr, set_value_t(Values...), Env>;
 
   template<class Sndr, class... Values>
-    concept @\defexposconcept{sender-of}@ = @\exposconcept{sender-in-of}@<Sndr, env<>, Values...>;
+    concept @\defexposconcept{sender-of}@ =                                     // \expos
+      @\exposconcept{sender-in-of-impl}@<Sndr, set_value_t(Values...)>;
 }
 \end{codeblock}
 
@@ -2190,6 +2337,14 @@ picked by overload resolution if any, and
 any necessary implicit conversions and materializations.
 \end{note}
 
+Let \tcode{\exposid{GET-AWAITER}(c)} be
+expression-equivalent to \tcode{\exposid{GET-AWAITER}(c, q)}
+where \tcode{q} is an lvalue of
+an unspecified empty class type \tcode{\placeholder{none-such}} that
+lacks an \tcode{await_transform} member, and
+where \tcode{coroutine_handle<\placeholder{none-such}>} behaves as
+\tcode{coroutine_handle<void>}.
+
 \pnum
 Let \exposconcept{is-awaitable} be the following exposition-only concept:
 \begin{codeblock}
@@ -2197,18 +2352,18 @@ namespace std {
   template<class T>
   concept @\exposconcept{await-suspend-result}@ = @\seebelow@;                     // \expos
 
-  template<class A, class Promise>
+  template<class A, class... Promise>
   concept @\defexposconcept{is-awaiter}@ =                                          // \expos
-    requires (A& a, coroutine_handle<Promise> h) {
+    requires (A& a, coroutine_handle<Promise...> h) {
       a.await_ready() ? 1 : 0;
       { a.await_suspend(h) } -> @\exposconcept{await-suspend-result}@;
       a.await_resume();
     };
 
-  template<class C, class Promise>
+  template<class C, class... Promise>
   concept @\defexposconcept{is-awaitable}@ =                                        // \expos
-    requires (C (*fc)() noexcept, Promise& p) {
-      { @\exposid{GET-AWAITER}@(fc(), p) } -> @\exposconcept{is-awaiter}@<Promise>;
+    requires (C (*fc)() noexcept, Promise&... p) {
+      { @\exposid{GET-AWAITER}@(fc(), p...) } -> @\exposconcept{is-awaiter}@<Promise...>;
     };
 }
 \end{codeblock}
@@ -2226,7 +2381,9 @@ For a subexpression \tcode{c}
 such that \tcode{decltype((c))} is type \tcode{C}, and
 an lvalue \tcode{p} of type \tcode{Promise},
 \tcode{\exposid{await-result-\newline type}<C, Promise>} denotes
-the type \tcode{decltype(\exposid{GET-AWAITER}(c, p).await_resume())}.
+the type \tcode{decltype(\exposid{GET-AWAITER}(c, p).await_resume())} and
+\tcode{\exposid{await-re\-sult-type}<C>} denotes
+the type \tcode{decltype(\exposid{GET-AWAITER}(c).await_resume())}.
 
 \pnum
 Let \exposid{with-await-transform} be the exposition-only class template:
@@ -2480,43 +2637,92 @@ The exception specification is equivalent to \tcode{noexcept($e$)}.
 
 \rSec2[exec.getcomplsigs]{\tcode{execution::get_completion_signatures}}
 
+\indexlibraryglobal{get_completion_signatures}%
+%%FIXME: Should this be in namespace std::execution?
+\begin{itemdecl}
+template<class Sndr, class... Env>
+  consteval auto get_completion_signatures() -> @\exposconcept{valid-completion-signatures}@ auto;
+\end{itemdecl}
+
+\begin{itemdescr}
 \pnum
-\tcode{get_completion_signatures} is a customization point object.
-Let \tcode{sndr} be an expression
-such that \tcode{decltype((sndr))} is \tcode{Sndr}, and
-let \tcode{env} be an expression
-such that \tcode{decltype((env))} is \tcode{Env}.
-Let \tcode{new_sndr} be the expression
-\tcode{transform_sender(decltype(\exposid{get-domain-late}(sndr, env))\{\}, sndr, env)}, and
-let \tcode{NewSndr} be \tcode{decltype((new_sndr))}.
-Then \tcode{get_completion_signatures(sndr, env)} is expression-equiva\-lent to
-\tcode{(void(sndr), void(env), CS())}
-except that \tcode{void(sndr)} and \tcode{void(env)} are
-indeterminately sequenced,
-where \tcode{CS} is:
+Let $except$ be an rvalue subexpression of
+an unspecified class type $Except$ such that
+\tcode{\libconceptx{move_construc\-tible}{move_constructible}<$Except$> \&\& \libconcept{derived_from}<$Except$, exception>}
+is \tcode{true}.
+Let \tcode{\placeholder{CHECKED-COMPLSIGS}($e$)} be $e$
+if $e$ is a core constant expression whose
+type satisfies \exposconcept{valid-completion-signatures};
+otherwise, it is the following expression:
+\begin{codeblock}
+(@$e$@, throw @$except$@, completion_signatures())
+\end{codeblock}
+Let \tcode{\placeholder{get-complsigs}<Sndr, Env...>()}
+be expression-equivalent to
+\tcode{remove_reference_t<Sndr>::tem\-plate get_completion_signatures<Sndr, Env...>()}.
+Let \tcode{NewSndr} be \tcode{Sndr}
+if \tcode{sizeof...(Env) == 0} is \tcode{true};
+otherwise, \tcode{decltype($s$)}
+where $s$ is the following expression:
+\begin{codeblock}
+transform_sender(
+  @\exposid{get-domain-late}@(declval<Sndr>(), declval<Env>()...),
+  declval<Sndr>(),
+  declval<Env>()...)
+\end{codeblock}
+
+\pnum
+\constraints
+\tcode{sizeof...(Env) <= 1} is \tcode{true}.
+
+\pnum
+\effects
+Equivalent to: \tcode{return $e$;}
+where $e$ is expression-equivalent to the following:
 \begin{itemize}
 \item
-\tcode{decltype(new_sndr.get_completion_signatures(env))}
-if that type is well-formed,
-
-\item
-Otherwise, \tcode{remove_cvref_t<NewSndr>::completion_signatures}
-if that type is well-formed,
+\tcode{\placeholder{CHECKED-COMPLSIGS}(\placeholder{get-complsigs}<NewSndr, Env...>())}
+if \tcode{\placeholder{get-complsigs}<NewSndr, Env\linebreak{}...>()}
+is a well-formed expression.
 
 \item
 Otherwise,
-if \tcode{\exposconcept{is-awaitable}<NewSndr, \exposid{env-promise}<Env>>} is \tcode{true},
-then:
+\tcode{\placeholder{CHECKED-COMPLSIGS}(\placeholder{get-complsigs}<NewSndr>())}
+if \tcode{\placeholder{get-complsigs}<NewSndr>()}
+is a well-formed expression.
+
+\item
+Otherwise,
 \begin{codeblock}
 completion_signatures<
-  @\exposid{SET-VALUE-SIG}@(@\exposid{await-result-type}@<NewSndr, @\exposid{env-promise}@<Env>>),        // \ref{exec.snd.concepts}
+  @\exposid{SET-VALUE-SIG}@(@\exposid{await-result-type}@<NewSndr, @\exposid{env-promise}@<Env>...>),   // \ref{exec.snd.concepts}
   set_error_t(exception_ptr),
   set_stopped_t()>
 \end{codeblock}
+if \tcode{\exposconcept{is-awaitable}<NewSndr, \exposid{env-promise}<Env>...>}
+is \tcode{true}.
 
 \item
-Otherwise, \tcode{CS} is ill-formed.
+Otherwise,
+\tcode{(throw \placeholder{dependent-sender-error}(), completion_signatures())}
+if \tcode{sizeof...(\linebreak{}Env) == 0} is \tcode{true},
+where \tcode{\placeholder{dependent-sender-error}} is
+\tcode{dependent_sender_error} or
+an unspecified type derived publicly and unambiguously from
+\tcode{dependent_sender_error}.
+
+\item
+Otherwise,
+\tcode{(throw $except$, completion_signatures())}.
 \end{itemize}
+
+\pnum
+Given a type \tcode{Env}, if
+\tcode{completion_signatures_of_t<Sndr>} and
+\tcode{completion_signatures_of_t<Sndr, Env>}
+are both well-formed,
+they shall denote the same type.
+\end{itemdescr}
 
 \pnum
 Let \tcode{rcvr} be an rvalue
@@ -2667,12 +2873,16 @@ The type of the expression above satisfies \libconcept{operation_state}.
 \item
 Otherwise, \tcode{\exposid{connect-awaitable}(new_sndr, rcvr)}.
 \end{itemize}
-%%FIXME: This sentence should be joined with the previous sentences;
-%%FIXME: how to do that with the embeded "madates"??
 Except that \tcode{rcvr} is evaluated only once.
 
 \mandates
-\tcode{\libconcept{sender}<Sndr> \&\& \libconcept{receiver}<Rcvr>} is \tcode{true}.
+The following are \tcode{true}:
+\begin{itemize}
+\item
+\tcode{\libconcept{sender_in}<Sndr, env_of_t<Rcvr>>}
+\item
+\tcode{\libconcept{receiver_of}<Rcvr, completion_signatures_of_t<Sndr, env_of_t<Rcvr>>>}
+\end{itemize}
 
 \rSec2[exec.factories]{Sender factories}
 
@@ -2766,6 +2976,7 @@ the expression \tcode{read_env(q)} is expression-equivalent to
 \pnum
 The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
 is specialized for \tcode{read_env} as follows:
+\indexlibraryglobal{\exposid{impls-for}<\exposid{decayed-typeof}<read_env>>}
 \begin{codeblock}
 namespace std::execution {
   template<>
@@ -2775,8 +2986,28 @@ namespace std::execution {
         @\exposid{TRY-SET-VALUE}@(rcvr, query(get_env(rcvr)));
       };
   };
+
+  template<class Sndr, class Env>
+    static consteval void @\exposid{check-types}@();
 }
 \end{codeblock}
+
+\indexlibrarymember{\exposid{check-types}}{\exposid{impls-for}<\exposid{decayed-typeof}<read_env>>}
+\begin{itemdecl}
+template<class Sndr, class Env>
+  static consteval void @\exposid{check-types}@();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{Q} be \tcode{decay_t<\exposid{data-type}<Sndr>>}.
+
+\pnum
+\throws
+An exception of an unspecified type derived from \tcode{exception} if
+the expression \tcode{Q()(env)} is ill-formed or has type \tcode{void}, where
+\tcode{env} is an lvalue subexpression whose type is \tcode{Env}.
+\end{itemdescr}
 
 \rSec2[exec.adapt]{Sender adaptors}
 
@@ -2810,8 +3041,17 @@ When a parent sender is connected to a receiver \tcode{rcvr},
 any receiver used to connect a child sender has
 an associated environment equal to \tcode{\exposid{FWD-ENV}(get_env(rcvr))}.
 \item
+An adaptor whose child senders are all non-dependent\iref{exec.async.ops}
+is itself non-dependent.
+\item
 These requirements apply to any function
 that is selected by the implementation of the sender adaptor.
+\item
+ \recommended
+Implementations should use
+the completion signatures of the adaptors
+to communicate type errors to users and
+to propagate any such type errors from child senders.
 \end{itemize}
 
 \pnum
@@ -2937,17 +3177,25 @@ Otherwise, it is expression-equivalent to
 Let \exposid{write-env-t} denote the type \tcode{decltype(auto(write_env))}.
 The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
 is specialized for \exposid{write-env-t} as follows:
+\indexlibraryglobal{\exposid{impls-for}<\exposid{write-env-t}>}
 \begin{codeblock}
 template<>
 struct @\exposid{impls-for}@<@\exposid{write-env-t}@> : @\exposid{default-impls}@ {
+  static constexpr auto @\exposid{join-env}@(const auto& state, const auto& env) noexcept {
+    return @\seebelow@;
+  }
+
   static constexpr auto @\exposid{get-env}@ =
     [](auto, const auto& state, const auto& rcvr) noexcept {
-      return @\seebelow@;
+      return @\exposid{join-env}@(state, @\exposid{FWD-ENV}@(get_env(rcvr)));
     };
+
+  template<class Sndr, class... Env>
+    static consteval void @\exposid{check-types}@();
 };
 \end{codeblock}
 Invocation of
-\tcode{\exposid{impls-for}<\exposid{write-env-t}>::\exposid{get-env}}
+\tcode{\exposid{impls-for}<\exposid{write-env-t}>::\exposid{join-env}}
 returns an object \tcode{e} such that
 \begin{itemize}
 \item
@@ -2957,7 +3205,15 @@ given a query object \tcode{q},
 the expression \tcode{e.query(q)} is expression-equivalent
 to \tcode{state.query(q)} if that expression is valid,
 otherwise, \tcode{e.query(q)} is expression-equivalent
-to \tcode{get_env(rcvr).que\-ry(q)}.
+to \tcode{env.query(q)}.
+\item
+For a type \tcode{Sndr} and a pack of types \tcode{Env},
+let \tcode{State} be \tcode{\exposid{data-type}<Sndr>} and
+let \tcode{JoinEnv} be the pack
+\tcode{decltype(\exposid{join-env}(declval<State>(), \exposid{FWD-ENV}(declval<Env>())))}.
+Then \tcode{\exposid{impls-for}<\exposid{write-\linebreak{}env-t}>::\exposid{check-types}<Sndr, Env...>()}
+is expression-equivalent to
+\tcode{get_completion_signatures<\linebreak{}\exposid{child-type}<Sndr>, JoinEnv...>()}.
 \end{itemize}
 
 \rSec3[exec.unstoppable]{\tcode{execution::unstoppable}}
@@ -3141,6 +3397,7 @@ except that \tcode{sch} is evaluated only once.
 \pnum
 The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
 is specialized for \tcode{schedule_from_t} as follows:
+\indexlibraryglobal{\exposid{impls-for}<schedule_from_t>}%
 \begin{codeblock}
 namespace std::execution {
   template<>
@@ -3149,6 +3406,9 @@ namespace std::execution {
     static constexpr auto @\exposid{get-state}@ = @\seebelow@;
     static constexpr auto @\exposid{complete}@ = @\seebelow@;
   };
+
+  template<class Sndr, class... Env>
+    static consteval void @\exposid{check-types}@();
 }
 \end{codeblock}
 
@@ -3188,6 +3448,23 @@ is initialized with a callable object equivalent to the following lambda:
   return @\exposid{state-type}@{sch, rcvr};
 }
 \end{codeblock}
+
+\indexlibrarymember{\exposid{check-types}}{\exposid{impls-for}<schedule_from_t>}
+\begin{itemdecl}
+template<class Sndr, class... Env>
+  static consteval void @\exposid{check-types}@();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+get_completion_signatures<schedule_result_t<@\exposid{data-type}@<Sndr>>, @\exposid{FWD-ENV-T}@(Env)...>();
+auto cs = get_completion_signatures<@\exposid{child-type}@<Sndr>, @\exposid{FWD-ENV-T}@(Env)...>();
+@\exposid{decay-copyable-result-datums}@(cs);   // see \ref{exec.snd.expos}
+\end{codeblock}
+\end{itemdescr}
 
 \pnum
 Objects of the local class \exposid{state-type} can be used
@@ -3368,20 +3645,7 @@ then the expressions \tcode{on.transform_env(out_sndr, env)} and
 
 \pnum
 Otherwise:
-Let \exposid{not-a-scheduler} be an unspecified empty class type, and
-let \exposid{not-a-sender} be the exposition-only type:
-\begin{codeblock}
-struct @\exposid{not-a-sender}@ {
-  using sender_concept = sender_t;
-
-  auto get_completion_signatures(auto&&) const {
-    return @\seebelow@;
-  }
-};
-\end{codeblock}
-where the member function \tcode{get_completion_signatures} returns
-an object of a type that is not
-a specialization of the \tcode{completion_signatures} class template.
+Let \exposid{not-a-scheduler} be an unspecified empty class type.
 
 \pnum
 The expression \tcode{on.transform_env(out_sndr, env)}
@@ -3432,13 +3696,6 @@ if constexpr (@\libconcept{scheduler}@<decltype(data)>) {
   }
 }
 \end{codeblock}
-
-\pnum
-\recommended
-Implementations should use
-the return type of \tcode{\exposid{not-a-sender}::get_completion_signatures}
-to inform users that their usage of \tcode{on} is incorrect
-because there is no available scheduler onto which to restore execution.
 
 \pnum
 Let \tcode{out_sndr} be a subexpression denoting
@@ -3539,6 +3796,7 @@ let \exposid{set-cpo} be
 \tcode{set_value}, \tcode{set_error}, and \tcode{set_stopped}, respectively.
 The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
 is specialized for \exposid{then-cpo} as follows:
+\indexlibraryglobal{\exposid{impls-for}<\exposid{decayed-typeof}<\exposid{then-cpo}>>}
 \begin{codeblock}
 namespace std::execution {
   template<>
@@ -3553,9 +3811,34 @@ namespace std::execution {
             Tag()(std::move(rcvr), std::forward<Args>(args)...);
           }
         };
+
+    template<class Sndr, class... Env>
+      static consteval void @\exposid{check-types}@();
   };
 }
 \end{codeblock}
+
+\indexlibrarymember{\exposid{check-types}}{\exposid{impls-for}<\exposid{decayed-typeof}<\exposid{then-cpo}>>}
+\begin{itemdecl}
+template<class Sndr, class... Env>
+  static consteval void @\exposid{check-types}@();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto cs = get_completion_signatures<@\exposid{child-type}@<Sndr>, @\exposid{FWD-ENV-T}@(Env)...>();
+auto fn = []<class... Ts>(set_value_t(*)(Ts...)) {
+  if constexpr (!@\libconcept{invocable}@<remove_cvref_t<@\exposid{data-type}@<Sndr>>, Ts...>)
+    throw @\placeholder{unspecified-exception}@();
+};
+cs.@\exposid{for-each}@(@\exposid{overload-set}@{fn, [](auto){}});
+\end{codeblock}
+where \tcode{\placeholder{unspecified-exception}} is
+a type derived from \tcode{exception}.
+\end{itemdescr}
 
 \pnum
 The expression \tcode{\exposid{then-cpo}(sndr, f)} has undefined behavior
@@ -3619,6 +3902,7 @@ except that \tcode{sndr} is evaluated only once.
 \pnum
 The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
 is specialized for \exposid{let-cpo} as follows:
+\indexlibraryglobal{\exposid{impls-for}<\exposid{decayed-typeof}<\exposid{let-cpo}>>}
 \begin{codeblock}
 namespace std::execution {
   template<class State, class Rcvr, class... Args>
@@ -3628,6 +3912,9 @@ namespace std::execution {
   struct @\exposid{impls-for}@<@\exposid{decayed-typeof}@<@\exposid{let-cpo}@>> : @\exposid{default-impls}@ {
     static constexpr auto @\exposid{get-state}@ = @\seebelow@;
     static constexpr auto @\exposid{complete}@ = @\seebelow@;
+
+    template<class Sndr, class... Env>
+      static consteval void @\exposid{check-types}@();
   };
 }
 \end{codeblock}
@@ -3680,6 +3967,40 @@ otherwise,
 \tcode{e.query(q)} is ill-formed.
 \end{itemize}
 
+\indexlibrarymember{\exposid{check-types}}{\exposid{impls-for}<\exposid{decayed-typeof}<\exposid{let-cpo}>>}
+\begin{itemdecl}
+template<class Sndr, class... Env>
+  static consteval void @\exposid{check-types}@();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+using LetFn = remove_cvref_t<@\exposid{data-type}@<Sndr>>;
+auto cs = get_completion_signatures<@\exposid{child-type}@<Sndr>, @\exposid{FWD-ENV-T}@(Env)...>();
+auto fn = []<class... Ts>(@\exposid{decayed-typeof}@<@\exposid{set-cpo}@>(*)(Ts...)) {
+  if constexpr (!@\placeholder{is-valid-let-sender}@)   // \seebelow
+    throw @\placeholder{unspecified-exception}@();
+};
+cs.@\exposid{for-each}@(@\exposid{overload-set}@(fn, [](auto){}));
+\end{codeblock}
+where \tcode{\placeholder{unspecified-exception}} is
+a type derived from \tcode{exception}, and
+where \tcode{\placeholder{is-valid-let-sender}} is \tcode{true} if and only if
+all of the following are \tcode{true}:
+\begin{itemize}
+\item \tcode{(\libconcept{constructible_from}<decay_t<Ts>, Ts> \&\&...)}
+\item \tcode{\libconcept{invocable}<LetFn, decay_t<Ts>\&...>}
+\item \tcode{\libconcept{sender}<invoke_result_t<LetFn, decay_t<Ts>\&...>>}
+\item%
+\tcode{sizeof...(Env) == 0 || \libconcept{sender_in}<invoke_result_t<LetFn, decay_t<Ts>\&...>, \placeholder{env-t}\linebreak{}...>}
+\end{itemize}
+where \tcode{\placeholder{env-t}} is the pack
+\tcode{decltype(\exposid{let-cpo}.transform_env(declval<Sndr>(), declval<Env>()))}.
+\end{itemdescr}
+
 \pnum
 \tcode{\exposid{impls-for}<\exposid{decayed-typeof}<\exposid{let-cpo}>>::\exposid{get-state}}
 is initialized with a callable object equivalent to the following:
@@ -3709,7 +4030,7 @@ to the \tcode{completion_signatures} specialization named by
 Let \tcode{LetSigs} be a pack of those types in \tcode{Sigs}
 with a return type of \tcode{\exposid{decayed-typeof}<\exposid{set-cpo}>}.
 Let \exposid{as-tuple} be an alias template
-such that \tcode{\exposid{as-tuple}<\linebreak Tag(Args...)>} denotes
+such that \tcode{\exposid{as-tuple}<Tag(Args...)>} denotes
 the type \tcode{\exposid{decayed-tuple}<Args...>}.
 Then \tcode{args_variant_t} denotes
 the type \tcode{variant<monostate, \exposid{as-tuple}<LetSigs>...>}
@@ -3862,11 +4183,15 @@ execution domain does not customize \tcode{bulk}.
 \pnum
 The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
 is specialized for \tcode{bulk_chunked_t} as follows:
+\indexlibraryglobal{\exposid{impls-for}<bulk_chunked_t>}
 \begin{codeblock}
 namespace std::execution {
   template<>
   struct @\exposid{impls-for}@<bulk_chunked_t> : @\exposid{default-impls}@ {
     static constexpr auto @\exposid{complete}@ = @\seebelow@;
+
+    template<class Sndr, class... Env>
+      static consteval void @\exposid{check-types}@();
   };
 }
 \end{codeblock}
@@ -3928,6 +4253,28 @@ The expression in the \grammarterm{requires-clause} of the lambda above
 is \tcode{true} if and only
 if \tcode{Tag} denotes a type other than \tcode{set_value_t} or
 if the expression \tcode{f(auto(shape), args...)} is well-formed.
+
+\indexlibrarymember{\exposid{check-types}}{\exposid{impls-for}<bulk_t>}
+\begin{itemdecl}
+template<class Sndr, class... Env>
+  static consteval void @\exposid{check-types}@();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto cs = get_completion_signatures<@\exposid{child-type}@<Sndr>, @\exposid{FWD-ENV-T}@(Env)...>();
+auto fn = []<class... Ts>(set_value_t(*)(Ts...)) {
+  if constexpr (!@\libconcept{invocable}@<remove_cvref_t<@\exposid{data-type}@<Sndr>>, Ts&...>)
+    throw @\placeholder{unspecified-exception}@();
+};
+cs.@\exposid{for-each}@(@\exposid{overload-set}@(fn, [](auto){}));
+\end{codeblock}
+where \tcode{\placeholder{unspecified-exception}} is
+a type derived from \tcode{exception}.
+\end{itemdescr}
 
 \pnum
 Let the subexpression \tcode{out_sndr} denote
@@ -4049,6 +4396,8 @@ Let \tcode{sndrs} be a pack of subexpressions,
 let \tcode{Sndrs} be a pack of the types \tcode{decltype((sndrs))...}, and
 let \tcode{CD} be
 the type \tcode{common_type_t<decltype(\exposid{get-domain-early}(sndrs))...>}.
+Let \tcode{CD2} be \tcode{CD} if \tcode{CD} is well-formed, and
+\tcode{default_domain} otherwise.
 The expressions \tcode{when_all(sndrs...)} and
 \tcode{when_all_with_variant(sndrs...)} are ill-formed
 if any of the following is \tcode{true}:
@@ -4056,20 +4405,19 @@ if any of the following is \tcode{true}:
 \item
 \tcode{sizeof...(sndrs)} is \tcode{0}, or
 \item
-\tcode{(\libconcept{sender}<Sndrs> \&\& ...)} is \tcode{false}, or
-\item
-\tcode{CD} is ill-formed.
+\tcode{(\libconcept{sender}<Sndrs> \&\& ...)} is \tcode{false}.
 \end{itemize}
 
 \pnum
 The expression \tcode{when_all(sndrs...)} is expression-equivalent to:
 \begin{codeblock}
-transform_sender(CD(), @\exposid{make-sender}@(when_all, {}, sndrs...))
+transform_sender(CD2(), @\exposid{make-sender}@(when_all, {}, sndrs...))
 \end{codeblock}
 
 \pnum
 The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
 is specialized for \tcode{when_all_t} as follows:
+\indexlibraryglobal{\exposid{impls-for}<when_all_t>}
 \begin{codeblock}
 namespace std::execution {
   template<>
@@ -4079,9 +4427,77 @@ namespace std::execution {
     static constexpr auto @\exposid{get-state}@ = @\seebelow@;
     static constexpr auto @\exposid{start}@ = @\seebelow@;
     static constexpr auto @\exposid{complete}@ = @\seebelow@;
+
+    template<class Sndr, class... Env>
+      static consteval void @\exposid{check-types}@();
   };
 }
 \end{codeblock}
+
+\pnum
+Let \exposid{make-when-all-env} be
+the following exposition-only function template:
+\indexlibraryglobal{\exposid{make-when-all-env}}
+%%FIXME: Should this be in namespace std::execution?
+\begin{codeblock}
+template<class Env>
+  constexpr auto @\exposid{make-when-all-env}@(inplace_stop_source& stop_src,               // \expos
+                                   Env&& env) noexcept {
+  return @\seebelow@;
+}
+\end{codeblock}
+Returns an object \tcode{e} such that
+\begin{itemize}
+\item
+\tcode{decltype(e)} models \exposconcept{queryable}, and
+\item
+\tcode{e.query(get_stop_token)} is expression-equivalent to
+\tcode{state.\exposid{stop-src}.get_token()}, and
+\item
+given a query object \tcode{q}
+with type other than \cv{} \tcode{stop_token_t} and
+whose type satisfies \exposconceptx{forwarding-que\-ry}{forwarding-query},
+\tcode{e.query(q)} is expression-equivalent to \tcode{get_env(rcvr).query(q)}.
+\end{itemize}
+
+\pnum
+Let \tcode{\placeholder{when-all-env}} be an alias template such that
+\tcode{\placeholder{when-all-env}<Env>} denotes the type
+\tcode{decltype(\exposid{make-\linebreak{}when-all-env}(declval<inplace_stop_source\&>(), declval<Env>()))}.
+
+\indexlibrarymember{\exposid{check-types}}{\exposid{impls-for}<when_all_t>}
+\begin{itemdecl}
+template<class Sndr, class... Env>
+  static consteval void @\exposid{check-types}@();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{Is} be the pack of integral template arguments of
+the \tcode{integer_sequence} specialization denoted by
+\tcode{\exposid{indices-for}<Sndr>}.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto fn = []<class Child>() {
+  auto cs = get_completion_signatures<Child, @\placeholder{when-all-env}@<Env>...>();
+  if constexpr (cs.@\exposid{count-of}@(set_value) >= 2)
+    throw @\placeholder{unspecified-exception}@();
+  @\exposid{decay-copyable-result-datums}@(cs); // see \ref{exec.snd.expos}
+};
+(fn.template operator()<@\exposid{child-type}@<Sndr, Is>>(), ...);
+\end{codeblock}
+where \tcode{\placeholder{unspecified-exception}} is
+a type derived from \tcode{exception}.
+
+\pnum
+\throws
+Any exception thrown as a result of evaluating the \Fundescx{Effects}, or
+an exception of an unspecified type
+derived from \tcode{exception} when \tcode{CD} is ill-formed.
+\end{itemdescr}
 
 \pnum
 The member \tcode{\exposid{impls-for}<when_all_t>::\exposid{get-attrs}}
@@ -4103,21 +4519,9 @@ is initialized with a callable object
 equivalent to the following lambda expression:
 \begin{codeblock}
 []<class State, class Rcvr>(auto&&, State& state, const Receiver& rcvr) noexcept {
-  return @\seebelow@;
+  return @\exposid{make-when-all-env}@(state.@\exposid{stop-src}@, get_env(rcvr));
 }
 \end{codeblock}
-Returns an object \tcode{e} such that
-\begin{itemize}
-\item
-\tcode{decltype(e)} models \exposconcept{queryable}, and
-\item
-\tcode{e.query(get_stop_token)} is expression-equivalent to
-\tcode{state.\exposid{stop-src}.get_token()}, and
-\item
-given a query object \tcode{q} with type other than \cv{} \tcode{stop_token_t}
-and whose type satisfies \exposconceptx{forwarding-que\-ry}{forwarding-query},
-\tcode{e.query(q)} is expression-equivalent to \tcode{get_env(rcvr).query(q)}.
-\end{itemize}
 
 \pnum
 The member \tcode{\exposid{impls-for}<when_all_t>::\exposid{get-state}}
@@ -4134,15 +4538,11 @@ std::forward<Sndr>(sndr).apply(@\exposid{make-state}@<Rcvr>())
 \end{codeblock}
 and where \exposid{make-state} is the following exposition-only class template:
 \begin{codeblock}
-template<class Sndr, class Env>
-concept @\defexposconcept{max-1-sender-in}@ = @\libconcept{sender_in}@<Sndr, Env> &&                // \expos
-  (tuple_size_v<value_types_of_t<Sndr, Env, tuple, tuple>> <= 1);
-
 enum class @\exposid{disposition}@ { @\exposid{started}@, @\exposid{error}@, @\exposid{stopped}@ };             // \expos
 
 template<class Rcvr>
 struct @\exposid{make-state}@ {
-  template<@\exposconcept{max-1-sender-in}@<@\exposid{FWD-ENV-T}@(env_of_t<Rcvr>)>... Sndrs>
+  template<class... Sndrs>
   auto operator()(auto, auto, Sndrs&&... sndrs) const {
     using values_tuple = @\seebelow@;
     using errors_variant = @\seebelow@;
@@ -4173,8 +4573,8 @@ struct @\exposid{make-state}@ {
 \pnum
 Let \exposid{copy-fail} be \tcode{exception_ptr}
 if decay-copying any of the child senders' result datums can potentially throw;
-otherwise, \exposid{none-such},
-where \exposid{none-such} is an unspecified empty class type.
+otherwise, \tcode{\placeholder{none-such}},
+where \tcode{\placeholder{none-such}} is an unspecified empty class type.
 
 \pnum
 The alias \tcode{values_tuple} denotes the type
@@ -4185,7 +4585,7 @@ if that type is well-formed; otherwise, \tcode{tuple<>}.
 
 \pnum
 The alias \tcode{errors_variant} denotes
-the type \tcode{variant<\exposid{none-such}, \exposid{copy-fail}, Es...>}
+the type \tcode{variant<\placeholder{none-such}, \exposid{copy-fail}, Es...>}
 with duplicate types removed,
 where \tcode{Es} is the pack of the decayed types
 of all the child senders' possible error result datums.
@@ -4217,7 +4617,7 @@ evaluates:
 @\exposid{on_stop}@.reset();
 visit(
   [&]<class Error>(Error& error) noexcept {
-    if constexpr (!@\libconcept{same_as}@<Error, @\exposid{none-such}@>) {
+    if constexpr (!@\libconcept{same_as}@<Error, @\placeholder{none-such}@>) {
       set_error(std::move(rcvr), std::move(error));
     }
   },
@@ -4306,7 +4706,7 @@ otherwise, \tcode{o.emplace(\linebreak as...)}.
 The expression \tcode{when_all_with_variant(sndrs...)}
 is expression-equivalent to:
 \begin{codeblock}
-transform_sender(CD(), @\exposid{make-sender}@(when_all_with_variant, {}, sndrs...));
+transform_sender(CD2(), @\exposid{make-sender}@(when_all_with_variant, {}, sndrs...));
 \end{codeblock}
 
 \pnum
@@ -4352,12 +4752,20 @@ except that \tcode{sndr} is only evaluated once.
 \pnum
 The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
 is specialized for \tcode{into_variant} as follows:
+\indexlibraryglobal{\exposid{impls-for}<into_variant_t>}
+\indexlibrarymember{\exposid{check-types}}{\exposid{impls-for}<into_variant_t>}
 \begin{codeblock}
 namespace std::execution {
   template<>
   struct @\exposid{impls-for}@<into_variant_t> : @\exposid{default-impls}@ {
     static constexpr auto @\exposid{get-state}@ = @\seebelow@;
     static constexpr auto @\exposid{complete}@ = @\seebelow@;
+
+    template<class Sndr, class... Env>
+      static consteval void @\exposid{check-types}@() {
+        auto cs = get_completion_signatures<@\exposid{child-type}@<Sndr>, @\exposid{FWD-ENV-T}@(Env)...>();
+        @\exposid{decay-copyable-result-datums}@(cs);   // see \ref{exec.snd.expos}
+      }
   };
 }
 \end{codeblock}
@@ -4407,15 +4815,41 @@ transform_sender(@\exposid{get-domain-early}@(sndr), @\exposid{make-sender}@(sto
 except that \tcode{sndr} is only evaluated once.
 
 \pnum
+The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
+is specialized for \tcode{stopped_as_optional_t} as follows:
+\indexlibraryglobal{\exposid{impls-for}<stopped_as_optional_t>}
+\indexlibrarymember{\exposid{check-types}}{\exposid{impls-for}<stopped_as_optional_t>}
+\begin{codeblock}
+namespace std::execution {
+  template<>
+  struct @\exposid{impls-for}@<stopped_as_optional_t> : @\exposid{default-impls}@ {
+    template<class Sndr, class... Env>
+      static consteval void @\exposid{check-types}@() {
+        @\exposid{default-impls}@::@\exposid{check-types}@<Sndr, Env...>();
+        if constexpr (!requires {
+          requires (!@\libconcept{same_as}@<void, @\exposid{single-sender-value-type}@<@\exposid{child-type}@<Sndr>,
+                                                            @\exposid{FWD-ENV-T}@(Env)...>>); })
+          throw @\placeholder{unspecified-exception}@();
+      }
+  };
+}
+\end{codeblock}
+where \tcode{\placeholder{unspecified-exception}} is
+a type derived from \tcode{exception}.
+
+\pnum
 Let \tcode{sndr} and \tcode{env} be subexpressions
 such that \tcode{Sndr} is \tcode{decltype((sndr))} and
 \tcode{Env} is \tcode{decltype((env))}.
 If \tcode{\exposconcept{sender-for}<Sndr, stopped_as_optional_t>}
-is \tcode{false}, or
-if the type \tcode{\exposid{single-sender-value-type}<\linebreak{}\exposid{child-type}<Sndr>, \exposid{FWD-ENV-T}(Env)>}
-is ill-formed or \tcode{void},
-then the expression \tcode{stopped_as_optional.\linebreak{}transform_sender(sndr, env)}
+is \tcode{false}
+then the expression \tcode{stopped_as_optional.trans\-form_sender(sndr, env)}
 is ill-formed;
+otherwise,
+if \tcode{\libconcept{sender_in}<\exposid{child-type}<Sndr>, \exposid{FWD-ENV-T}(Env)>}
+is \tcode{false},
+the expression \tcode{stopped_as_optional.transform_sender(sndr, env)}
+is equivalent to \tcode{\exposid{not-a-sen\-der}()};
 otherwise, it is equivalent to:
 \begin{codeblock}
 auto&& [_, _, child] = sndr;
@@ -4622,8 +5056,6 @@ except that \tcode{sndr} is evaluated only once.
 \pnum
 The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
 is specialized for \tcode{associate_t} as follows:
-
-%%FIXME: Where did data-type and FWD-ENV-T come from?
 \indexlibraryglobal{execution::\exposid{impls-for}<associate_t>}%
 \begin{codeblock}
 namespace std::execution {
@@ -5218,16 +5650,16 @@ namespace std::this_thread {
 \pnum
 The name \tcode{this_thread::sync_wait} denotes a customization point object.
 For a subexpression \tcode{sndr}, let \tcode{Sndr} be \tcode{decltype((sndr))}.
-If \tcode{\libconcept{sender_in}<Sndr, \exposid{sync-wait-env}>}
-is \tcode{false},
-the expression \tcode{this_thread::sync_wait(sndr)} is ill-formed.
-Otherwise, it is expression-equivalent to the following,
+The expression \tcode{this_thread::sync_wait(sndr)}
+is expression-equivalent to the following,
 except that \tcode{sndr} is evaluated only once:
 \begin{codeblock}
 apply_sender(@\exposid{get-domain-early}@(sndr), sync_wait, sndr)
 \end{codeblock}
 \mandates
 \begin{itemize}
+\item
+\tcode{\libconcept{sender_in}<Sndr, \exposid{sync-wait-env}>} is \tcode{true}.
 \item
 The type \tcode{\exposid{sync-wait-result-type}<Sndr>} is well-formed.
 \item
@@ -5362,16 +5794,16 @@ The name \tcode{this_thread::sync_wait_with_variant} denotes
 a customization point object.
 For a subexpression \tcode{sndr},
 let \tcode{Sndr} be \tcode{decltype(into_variant(sndr))}.
-If \tcode{\libconcept{sender_in}<Sndr, \exposid{sync-wait-env}>}
-is \tcode{false},
-\tcode{this_thread::sync_wait_with_variant(sndr)} is ill-formed.
-Otherwise, it is expression-equivalent to the following,
+The expression \tcode{this_thread::sync_wait_with_variant(sndr)}
+is expression-equivalent to the following,
 except \tcode{sndr} is evaluated only once:
 \begin{codeblock}
 apply_sender(@\exposid{get-domain-early}@(sndr), sync_wait_with_variant, sndr)
 \end{codeblock}
 \mandates
 \begin{itemize}
+\item
+\tcode{\libconcept{sender_in}<Sndr, \exposid{sync-wait-env}>} is \tcode{true}.
 \item
 The type \tcode{\exposid{sync-wait-with-variant-result-type}<Sndr>}
 is well-formed.
@@ -5381,8 +5813,7 @@ is \tcode{true}, where $e$ is the \tcode{ap\-ply_sender} expression above.
 \end{itemize}
 
 \pnum
-If \tcode{\exposconcept{callable}<sync_wait_t, Sndr>} is \tcode{false},
-the expression \tcode{sync_wait_with_variant.apply_sender(\linebreak sndr)} is ill-formed.
+The expression \tcode{sync_wait_with_variant.apply_sender(sndr)} is ill-formed.
 Otherwise, it is equivalent to:
 \begin{codeblock}
 using result_type = @\exposid{sync-wait-with-variant-result-type}@<Sndr>;
@@ -5603,9 +6034,7 @@ any constructed objects are destroyed and any allocated memory is deallocated.
 The expression \tcode{spawn(sndr, token)} is expression-equivalent to
 \tcode{spawn(sndr, token, execution::env<>(\brk{}))}.
 
-\rSec1[exec.util]{Sender/receiver utilities}
-
-\rSec2[exec.util.cmplsig]{\tcode{execution::completion_signatures}}
+\rSec1[exec.cmplsig]{Completion signatures}
 
 \pnum
 \tcode{completion_signatures} is a type
@@ -5706,10 +6135,21 @@ to \exposid{gather-signatures}.
 \end{note}
 
 \pnum
+\indexlibraryglobal{execution::completion_signatures}%
+\indexlibrarymember{\exposid{for-each}}{execution::completion_signatures}%
+\indexlibrarymember{\exposid{count-of}}{execution::completion_signatures}%
 \begin{codeblock}
 namespace std::execution {
   template<@\exposconcept{completion-signature}@... Fns>
-    struct completion_signatures {};
+    struct completion_signatures {
+      template<class Tag>
+        static constexpr size_t @\exposid{count-of}@(Tag) { return @\seebelow@; }
+
+      template<class Fn>
+        static constexpr void @\exposid{for-each}@(Fn&& fn) {               // \expos
+          (std::forward<Fn>(fn)(static_cast<Fns*>(nullptr)), ...);
+        }
+    };
 
   template<class Sndr, class Env = env<>,
            template<class...> class Tuple = @\exposid{decayed-tuple}@,
@@ -5734,104 +6174,12 @@ namespace std::execution {
 }
 \end{codeblock}
 
-\rSec2[exec.util.cmplsig.trans]{\tcode{execution::transform_completion_signatures}}
-
 \pnum
-\tcode{transform_completion_signatures} is an alias template
-used to transform one set of completion signatures into another.
-It takes a set of completion signatures and
-several other template arguments
-that apply modifications to each completion signature in the set
-to generate a new specialization of \tcode{completion_signature}s.
-\pnum
-\begin{example}
-Given a sender \tcode{Sndr} and an environment \tcode{Env},
-adapt the completion signatures of \tcode{Sndr} by
-lvalue-ref qualifying the values,
-adding an additional \tcode{exception_ptr} error completion
-if it is not already there, and
-leaving the other completion signatures alone.
-\begin{codeblock}
-template<class... Args>
-  using my_set_value_t =
-    completion_signatures<set_value_t(Args&...)>;
-
-using my_completion_signatures =
-  transform_completion_signatures<
-    completion_signatures_of_t<Sndr, Env>,
-    completion_signatures<set_error_t(exception_ptr)>,
-    my_set_value_t>;
-\end{codeblock}
-\end{example}
-
-\pnum
-This subclause makes use of the following exposition-only entities:
-\begin{codeblock}
-template<class... As>
-  using @\exposid{default-set-value}@ =
-    completion_signatures<set_value_t(As...)>;
-
-template<class Err>
-  using @\exposid{default-set-error}@ =
-    completion_signatures<set_error_t(Err)>;
-\end{codeblock}
-
-\pnum
-\begin{codeblock}
-namespace std::execution {
-  template<@\exposconcept{valid-completion-signatures}@ InputSignatures,
-           @\exposconcept{valid-completion-signatures}@ AdditionalSignatures = completion_signatures<>,
-           template<class...> class SetValue = @\exposid{default-set-value}@,
-           template<class> class SetError = @\exposid{default-set-error}@,
-           @\exposconcept{valid-completion-signatures}@ SetStopped = completion_signatures<set_stopped_t()>>
-  using transform_completion_signatures = completion_signatures<@\seebelow@>;
-}
-\end{codeblock}
-
-\pnum
-\tcode{SetValue} shall name an alias template
-such that for any pack of types \tcode{As},
-the type \tcode{SetValue<As...>} is either ill-formed or else
-\tcode{\exposconcept{valid-completion-signatures}<SetValue<As...>>} is satisfied.
-\tcode{SetError} shall name an alias template
-such that for any type \tcode{Err},
-\tcode{SetError<Err>} is either ill-formed or else
-\tcode{\exposconcept{valid-completion-signatures}<SetError<Err>>} is satisfied.
-
-\pnum
-Let \tcode{Vs} be a pack of the types in the \exposid{type-list} named by
-\tcode{\exposid{gather-signatures}<set_value_t, InputSigna\-tures, SetValue, \exposid{type-list}>}.
-
-\pnum
-Let \tcode{Es} be a pack of the types in the \exposid{type-list} named by
-\tcode{\exposid{gather-signatures}<set_error_t, InputSigna\-tures, type_identity_t, \exposid{error-list}>},
-where \exposid{error-list} is an alias template
-such that \tcode{\exposid{error-list}<\linebreak Ts...>} is
-\tcode{\exposid{type-list}<SetError<Ts>...>}.
-
-\pnum
-Let \tcode{Ss} name the type \tcode{completion_signatures<>} if
-\tcode{\exposid{gather-signatures}<set_stopped_t, InputSigna\-tures, \exposid{type-list}, \exposid{type-list}>}
-is an alias for the type \tcode{\exposid{type-list}<>};
-otherwise, \tcode{SetStopped}.
-
-\pnum
-If any of the above types are ill-formed,
-then
-\begin{codeblock}
-transform_completion_signatures<InputSignatures, AdditionalSignatures,
-                                SetValue, SetError, SetStopped>
-\end{codeblock}
-is ill-formed.
-Otherwise,
-\begin{codeblock}
-transform_completion_signatures<InputSignatures, AdditionalSignatures,
-                                SetValue, SetError, SetStopped>
-\end{codeblock}
-is the type \tcode{completion_signatures<Sigs...>}
-where \tcode{Sigs...} is the unique set of types in all the template arguments
-of all the \tcode{completion_signatures} specializations in the set
-\tcode{AdditionalSignatures}, \tcode{Vs...}, \tcode{Es...}, \tcode{Ss}.
+For a subexpression \tcode{tag},
+let \tcode{Tag} be the decayed type of \tcode{tag}.
+\tcode{completion_signatures<Fns...>::\exposid{count-of}(\linebreak{}tag)}
+returns the count of function types in \tcode{Fns...} that
+are of the form \tcode{Tag(Ts...)} where \tcode{Ts} is a pack of types.
 
 \rSec1[exec.envs]{Queryable utilities}
 
@@ -6071,8 +6419,7 @@ class @\exposid{run-loop-sender}@;
 \pnum
 \exposid{run-loop-sender} is an exposition-only type
 that satisfies \libconcept{sender}.
-For any type \tcode{Env},
-\tcode{completion_signatures_of_t<\exposid{run-loop-sender}, Env>} is
+\tcode{completion_signatures_of_t<\exposid{run-\linebreak{}loop-sender}>} is
 \begin{codeblock}
 completion_signatures<set_value_t(), set_error_t(exception_ptr), set_stopped_t()>
 \end{codeblock}
@@ -6547,7 +6894,6 @@ a type \tcode{Token} that can be used to create associations
 between senders and an async scope.
 
 \pnum
-%%FIXME: Should test-sender and test-env be declared somewhere as \expos?
 Let \placeholder{test-sender} and \placeholder{test-env}
 be unspecified types such that
 \tcode{\libconcept{sender_in}<\placeholder{test-sender}, \placeholder{test-env}>}
