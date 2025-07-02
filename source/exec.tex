@@ -1189,9 +1189,8 @@ namespace std::execution {
   template<class O>
     concept @\deflibconcept{operation_state}@ =
       @\libconcept{derived_from}@<typename O::operation_state_concept, operation_state_t> &&
-      is_object_v<O> &&
       requires (O& o) {
-        { start(o) } noexcept;
+        start(o);
       };
 }
 \end{codeblock}
@@ -1279,6 +1278,8 @@ a pack of subexpressions \tcode{as},
 the expression \tcode{\exposid{FWD-ENV}(env).query(q, as...)} is ill-formed
 if \tcode{forwarding_query(q)} is \tcode{false};
 otherwise, it is expression-equivalent to \tcode{env.query(q, as...)}.
+The type \tcode{\exposid{FWD-ENV-T}(Env)} is
+\tcode{decltype(\exposid{FWD-ENV}(declval<Env>()))}.
 
 \pnum
 For a query object \tcode{q} and \tcode{a} subexpression \tcode{v},
@@ -1947,8 +1948,11 @@ namespace std::execution {
       @\exposconcept{is-awaitable}@<Sndr, @\exposid{env-promise}@<env<>>>;                 // \ref{exec.awaitable}
 
   template<class Sndr>
+    inline constexpr bool enable_sender = @\exposconcept{enable-sender}@<Sndr>;
+
+  template<class Sndr>
     concept @\deflibconcept{sender}@ =
-      bool(@\exposconcept{enable-sender}@<remove_cvref_t<Sndr>>) &&
+      enable_sender<remove_cvref_t<Sndr>> &&
       requires (const remove_cvref_t<Sndr>& sndr) {
         { get_env(sndr) } -> @\exposconcept{queryable}@;
       } &&
@@ -1988,6 +1992,17 @@ if all the completion operations
 that are potentially evaluated by connecting \tcode{sndr} to \tcode{rcvr} and
 starting the resulting operation state
 are permissible completions for \tcode{Sndr} and \tcode{Env}.
+
+\pnum
+\remarks
+Pursuant to \ref{namespace.std},
+users may specialize \tcode{enable_sender} to
+\tcode{true} for cv-unqualified program-defined types that
+model \libconcept{sender}, and
+\tcode{false} for types that do not.
+Such specializations shall
+be usable in constant expressions\iref{expr.const} and
+have type \tcode{const bool}.
 
 \pnum
 A type models
@@ -2141,8 +2156,9 @@ namespace std::execution {
         }
 
       template<@\exposconcept{has-as-awaitable}@<Derived> T>
-        decltype(auto) await_transform(T&& value)
-          noexcept(noexcept(std::forward<T>(value).as_awaitable(declval<Derived&>()))) {
+        auto await_transform(T&& value)
+          noexcept(noexcept(std::forward<T>(value).as_awaitable(declval<Derived&>())))
+          -> decltype(std::forward<T>(value).as_awaitable(declval<Derived&>())) {
           return std::forward<T>(value).as_awaitable(static_cast<Derived&>(*this));
         }
     };
@@ -2231,7 +2247,7 @@ Let \tcode{e} be the expression
 tag_of_t<Sndr>().transform_env(std::forward<Sndr>(sndr), std::forward<Env>(env))
 \end{codeblock}
 if that expression is well-formed;
-otherwise, \tcode{static_cast<Env>(std::forward<Env>(env))}.
+otherwise, \tcode{\exposid{FWD-ENV}(std::forward<Env>(env))}.
 
 \pnum
 \mandates
@@ -2561,6 +2577,9 @@ The type of the expression above satisfies \libconcept{operation_state}.
 \item
 Otherwise, \tcode{\exposid{connect-awaitable}(new_sndr, rcvr)}.
 \end{itemize}
+%%FIXME: This sentence should be joined with the previous sentences;
+%%FIXME: how to do that with the embeded "madates"??
+Except that \tcode{rcvr} is evaluated only once.
 
 \mandates
 \tcode{\libconcept{sender}<Sndr> \&\& \libconcept{receiver}<Rcvr>} is \tcode{true}.
@@ -2995,7 +3014,7 @@ The member \tcode{\exposid{impls-for}<schedule_from_t>::\exposid{get-state}}
 is initialized with a callable object equivalent to the following lambda:
 \begin{codeblock}
 []<class Sndr, class Rcvr>(Sndr&& sndr, Rcvr& rcvr) noexcept(@\seebelow@)
-    requires @\libconcept{sender_in}@<@\exposid{child-type}@<Sndr>, env_of_t<Rcvr>> {
+    requires @\libconcept{sender_in}@<@\exposid{child-type}@<Sndr>, @\exposid{FWD-ENV-T}@(env_of_t<Rcvr>)> {
 
   auto& [_, sch, child] = sndr;
 
@@ -3025,12 +3044,20 @@ to initialize a structured binding.
 \pnum
 Let \tcode{Sigs} be
 a pack of the arguments to the \tcode{completion_signatures} specialization
-named by \tcode{completion_signatures_of_t<\exposid{child-type}<Sndr>, env_of_t<Rcvr>>}.
-Let \exposid{as-tuple} be an alias template
-that transforms a completion signature \tcode{Tag(Args...)} into
-the tuple specialization \tcode{\exposid{decayed-tuple}<Tag, Args...>}.
+named by \tcode{completion_signatures_of_t<\exposid{child-type}<Sndr>, \exposid{FWD-ENV-T}(env_of_t<Rcvr>)>}.
+Let \exposid{as-tuple} be an alias template such that
+\tcode{\exposid{as-tuple}<Tag(Args...)>} denotes
+the type \tcode{\exposid{decayed-tuple}<Tag, Args...>}, and
+let \exposid{is-no\-throw-decay-copy-sig} be a variable template such that
+\tcode{auto(\exposid{is-nothrow-decay-copy-sig}<Tag(Args...\linebreak{})>)} is
+a constant expression of type \tcode{bool} and
+equal to \tcode{(is_nothrow_constructible_v<decay_t<Args>, Args> \&\& ...)}.
+Let \exposid{error-completion} be a pack consisting of
+the type \tcode{set_error_t(exception_ptr)}
+if \tcode{(\exposid{is-nothrow-decay-copy-sig}<Sigs> \&\&...)} is \tcode{false},
+and an empty pack otherwise.
 Then \tcode{variant_t} denotes
-the type \tcode{variant<monostate, \exposid{as-tuple}<Sigs>...>},
+the type \tcode{variant<monostate, \exposid{as-tuple}<Sigs>..., \exposid{error-completion}...>},
 except with duplicate types removed.
 
 \pnum
@@ -3081,15 +3108,14 @@ is initialized with a callable object equivalent to the following lambda:
 []<class Tag, class... Args>(auto, auto& state, auto& rcvr, Tag, Args&&... args) noexcept
     -> void {
   using result_t = @\exposid{decayed-tuple}@<Tag, Args...>;
-  constexpr bool nothrow = is_nothrow_constructible_v<result_t, Tag, Args...>;
+  constexpr bool nothrow = (is_nothrow_constructible_v<decay_t<Args>, Args> && ...);
 
   try {
     state.@\exposid{async-result}@.template emplace<result_t>(Tag(), std::forward<Args>(args)...);
   } catch (...) {
-    if constexpr (!nothrow) {
-      set_error(std::move(rcvr), current_exception());
-      return;
-    }
+    if constexpr (!nothrow)
+      state.@\exposid{async-result}@.template emplace<tuple<set_error_t,
+                                                exception_ptr>>(set_error, current_exception());
   }
   start(state.@\exposid{op-state}@);
 };
@@ -3493,9 +3519,13 @@ returns an object \tcode{e} such that
 \item
 given a query object \tcode{q},
 the expression \tcode{e.query(q)} is expression-equivalent
-to \tcode{\exposid{env}.query(q)} if that expression is valid,
-otherwise \tcode{e.query(q)} is expression-equivalent
-to \tcode{get_env(\exposid{rcvr}).query(q)}.
+to \tcode{\exposid{env}.query(q)} if that expression is valid;
+otherwise,
+if the type of \tcode{q} satisfies \exposconcept{forwarding-query},
+\tcode{e.query(q)} is expression-equivalent
+to \tcode{get_env(\exposid{rcvr}).query(q)};
+otherwise,
+\tcode{e.query(q)} is ill-formed.
 \end{itemize}
 
 \pnum
@@ -3522,7 +3552,7 @@ is initialized with a callable object equivalent to the following:
 \pnum
 Let \tcode{Sigs} be a pack of the arguments
 to the \tcode{completion_signatures} specialization named by
-\tcode{completion_signatures_of_t<\exposid{child-type}<Sndr>, env_of_t<Rcvr>>}.
+\tcode{completion_signatures_of_t<\exposid{child-type}<Sndr>, \exposid{FWD-ENV-T}(env_of_t<Rcvr>)>}.
 Let \tcode{LetSigs} be a pack of those types in \tcode{Sigs}
 with a return type of \tcode{\exposid{decayed-typeof}<\exposid{set-cpo}>}.
 Let \exposid{as-tuple} be an alias template
@@ -3540,7 +3570,7 @@ the type \tcode{\exposid{call-result-t}<F, decay_t<Args>\&...>}.
 Then \tcode{ops2_variant_t} denotes
 the type
 \begin{codeblock}
-variant<monostate, connect_result_t<@\exposid{as-sndr2}@<LetSigs>, @\exposid{receiver2}@<Rcvr, Env>>...>
+variant<monostate, connect_result_t<@\exposid{as-sndr2}@<LetSigs>, @\exposid{receiver2}@<Rcvr, env_t>>...>
 \end{codeblock}
 except with duplicate types removed.
 
@@ -3585,8 +3615,11 @@ If
 is \tcode{false},
 then the expression \tcode{\exposid{let-cpo}.transform_env(sndr, env)}
 is ill-formed.
-Otherwise, it is equal to
-\tcode{\exposid{JOIN-ENV}(\exposid{let-env}(sndr), \exposid{FWD-ENV}(env))}.
+Otherwise, it is equal to:
+\begin{codeblock}
+auto& [_, _, child] = sndr;
+return @\exposid{JOIN-ENV}@(@\exposid{let-env}@(child), @\exposid{FWD-ENV}@(env));
+\end{codeblock}
 
 \pnum
 Let the subexpression \tcode{out_sndr} denote
@@ -4153,7 +4186,8 @@ Returns an object \tcode{e} such that
 \tcode{e.query(get_stop_token)} is expression-equivalent to
 \tcode{state.\exposid{stop-src}.get_token()}, and
 \item
-given a query object \tcode{q} with type other than \cv{} \tcode{stop_token_t},
+given a query object \tcode{q} with type other than \cv{} \tcode{stop_token_t}
+and whose type satisfies \exposconceptx{forwarding-que\-ry}{forwarding-query},
 \tcode{e.query(q)} is expression-equivalent to \tcode{get_env(rcvr).query(q)}.
 \end{itemize}
 
@@ -4162,7 +4196,7 @@ The member \tcode{\exposid{impls-for}<when_all_t>::\exposid{get-state}}
 is initialized with a callable object
 equivalent to the following lambda expression:
 \begin{codeblock}
-[]<class Sndr, class Rcvr>(Sndr&& sndr, Rcvr& rcvr) noexcept(@$e$@) -> decltype(@$e$@) {
+[]<class Sndr, class Rcvr>(Sndr&& sndr, Rcvr& rcvr) noexcept(noexcept(@$e$@)) -> decltype(@$e$@) {
   return @$e$@;
 }
 \end{codeblock}
@@ -4180,7 +4214,7 @@ enum class @\exposid{disposition}@ { @\exposid{started}@, @\exposid{error}@, @\e
 
 template<class Rcvr>
 struct @\exposid{make-state}@ {
-  template<@\exposconcept{max-1-sender-in}@<env_of_t<Rcvr>>... Sndrs>
+  template<@\exposconcept{max-1-sender-in}@<@\exposid{FWD-ENV-T}@(env_of_t<Rcvr>)>... Sndrs>
   auto operator()(auto, auto, Sndrs&&... sndrs) const {
     using values_tuple = @\seebelow@;
     using errors_variant = @\seebelow@;
@@ -4217,7 +4251,7 @@ where \exposid{none-such} is an unspecified empty class type.
 \pnum
 The alias \tcode{values_tuple} denotes the type
 \begin{codeblock}
-tuple<value_types_of_t<Sndrs, env_of_t<Rcvr>, @\exposid{decayed-tuple}@, optional>...>
+tuple<value_types_of_t<Sndrs, @\exposid{FWD-ENV-T}@(env_of_t<Rcvr>), @\exposid{decayed-tuple}@, optional>...>
 \end{codeblock}
 if that type is well-formed; otherwise, \tcode{tuple<>}.
 
@@ -4405,7 +4439,7 @@ The member \tcode{\exposid{impls-for}<into_variant_t>::\exposid{get-state}}
 is initialized with a callable object equivalent to the following lambda:
 \begin{codeblock}
 []<class Sndr, class Rcvr>(Sndr&& sndr, Rcvr& rcvr) noexcept
-  -> type_identity<value_types_of_t<@\exposid{child-type}@<Sndr>, env_of_t<Rcvr>>> {
+  -> type_identity<value_types_of_t<@\exposid{child-type}@<Sndr>, @\exposid{FWD-ENV-T}@(env_of_t<Rcvr>)>> {
   return {};
 }
 \end{codeblock}
@@ -4450,14 +4484,14 @@ such that \tcode{Sndr} is \tcode{decltype((sndr))} and
 \tcode{Env} is \tcode{decltype((env))}.
 If \tcode{\exposconcept{sender-for}<Sndr, stopped_as_optional_t>}
 is \tcode{false}, or
-if the type \tcode{\exposid{single-sender-value-type}<Sndr, Env>}
+if the type \tcode{\exposid{single-sender-value-type}<\linebreak{}\exposid{child-type}<Sndr>, \exposid{FWD-ENV-T}(Env)>}
 is ill-formed or \tcode{void},
-then the expression \tcode{stopped_as_optional.transform_sender(sndr, env)}
+then the expression \tcode{stopped_as_optional.\linebreak{}transform_sender(sndr, env)}
 is ill-formed;
 otherwise, it is equivalent to:
 \begin{codeblock}
 auto&& [_, _, child] = sndr;
-using V = @\exposid{single-sender-value-type}@<Sndr, Env>;
+using V = @\exposid{single-sender-value-type}@<@\exposid{child-type}@<Sndr>, @\exposid{FWD-ENV-T}@(Env)>;
 return let_stopped(
   then(std::forward_like<Sndr>(child),
        []<class... Ts>(Ts&&... ts) noexcept(is_nothrow_constructible_v<V, Ts...>) {
