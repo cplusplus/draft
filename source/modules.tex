@@ -148,7 +148,9 @@ a \grammarterm{nested-name-specifier} nor a \grammarterm{simple-template-id},
 it is attached to the module to which the friend is attached\iref{basic.link}.
 \item Otherwise, if the declaration
 \begin{itemize}
-\item is a \grammarterm{namespace-definition} with external linkage or
+\item declares a namespace whose name has external linkage,
+\item declares a type alias,
+\item declares a namespace alias, or
 \item appears within a \grammarterm{linkage-specification}\iref{dcl.link}
 \end{itemize}
 it is attached to the global module.
@@ -262,9 +264,10 @@ export using namespace N;       // OK
 \pnum
 If an exported declaration is a \grammarterm{using-declaration}\iref{namespace.udecl}
 and is not within a header unit,
-all entities to which all of the
-\grammarterm{using-declarator}{s} ultimately refer (if any)
-shall have been introduced with a name having external linkage.
+all entities named by the
+\grammarterm{using-declarator}{s} (if any)
+shall either be a type alias or
+have been introduced with a name having external linkage.
 \begin{example}
 \begin{codeblocktu}{Source file \tcode{"b.h"}}
 int f();
@@ -296,9 +299,8 @@ export using N::h;              // error: \#1 has internal linkage
 \end{codeblocktu}
 \end{example}
 \begin{note}
-These constraints do not apply to
-type names introduced by \keyword{typedef} declarations
-and \grammarterm{alias-declaration}{s}.
+The underlying entity of an exported type alias
+need not have a name with external linkage.
 \begin{example}
 \begin{codeblock}
 export module M;
@@ -312,13 +314,14 @@ export using T = S;             // OK, exports name \tcode{T} denoting type \tco
 A redeclaration of an entity $X$
 is implicitly exported
 if $X$ was introduced by an exported declaration;
-otherwise it shall not be exported unless it is a namespace.
+otherwise it shall not be exported
+unless it is a type alias, a namespace, or a namespace alias.
 \begin{example}
 \begin{codeblock}
 export module M;
 struct S { int n; };
 typedef S S;
-export typedef S S;             // OK, does not redeclare an entity
+export typedef S S;             // OK
 export struct S;                // error: exported declaration follows non-exported declaration
 namespace N {                   // external linkage, attached to global module, not exported
   void f();
@@ -698,12 +701,22 @@ whether a \grammarterm{decltype-specifier}
 that does not denote a dependent type
 is replaced by its denoted type
 prior to this determination,
-and
 
 \item
 whether a non-value-dependent constant expression
 is replaced by the result of constant evaluation
-prior to this determination.
+prior to this determination,
+and
+
+\item
+whether
+a \grammarterm{splice-expression},
+a \grammarterm{splice-type-specifier},
+a \grammarterm{splice-scope-specifier}, or
+any \grammarterm{splice-specifier} or
+\grammarterm{splice-specialization-specifier}
+outside of the preceding is replaced in any non-dependent context
+by the construct that it designates prior to this determination.
 \end{itemize}
 
 \pnum
@@ -878,8 +891,9 @@ in the context of a particular declaration or template instantiation.
 \pnum
 During the implicit definition of
 a defaulted function\iref{special,class.compare.default},
-the instantiation context is the union of
+the instantiation context contains each point in
 the instantiation context from the definition of the class and
+each point in
 the instantiation context of the program construct that
 resulted in the implicit definition of the defaulted function.
 
@@ -887,7 +901,7 @@ resulted in the implicit definition of the defaulted function.
 During the implicit instantiation of a template
 whose point of instantiation is specified as
 that of an enclosing specialization\iref{temp.point},
-the instantiation context is the union of
+the instantiation context contains each point in
 the instantiation context of the enclosing specialization and,
 if the template is defined in a module interface unit of a module $M$
 and the point of instantiation is not in a module interface unit of $M$,
@@ -900,18 +914,35 @@ primary module interface unit of $M$
 During the implicit instantiation of a template
 that is implicitly instantiated because it is referenced
 from within the implicit definition of a defaulted function,
-the instantiation context is the instantiation context of
+the instantiation context contains each point in the instantiation context of
 the defaulted function.
 
 \pnum
 During the instantiation of any other template specialization,
-the instantiation context comprises the point of instantiation
+the instantiation context contains the point of instantiation
 of the template.
+
+\pnum
+During the implicit instantiation of any construct
+that resulted from the evaluation of an expression
+as a core constant expression,
+the instantiation context contains
+each point in the evaluation context\iref{expr.const}.
+\begin{note}
+Implicit instantiations can result
+from invocations of library functions\iref{meta.reflection}.
+The evaluation context can include synthesized points
+associated with injected declarations
+produced by \tcode{std::meta::define_aggregate}\iref{meta.reflection.define.aggregate}.
+\end{note}
 
 \pnum
 In any other case, the instantiation context
 at a point within the program
-comprises that point.
+contains that point.
+
+\pnum
+The instantiation context contains only the points specified above.
 
 \pnum
 \begin{example}
@@ -1008,13 +1039,42 @@ in programs intending to be portable.
 A declaration $D$ is
 \defnx{reachable from}{reachable from!declaration} a point $P$ if
 \begin{itemize}
+\item
+$P$ is a non-synthesized point and
+\begin{itemize}
 \item $D$ appears prior to $P$ in the same translation unit, or
 \item $D$ is not discarded\iref{module.global.frag},
 appears in a translation unit that is
 reachable from $P$,
 and
-does not appear within a \grammarterm{private-module-fragment}.
+does not appear within a \grammarterm{private-module-fragment}; or
 \end{itemize}
+\item
+$D$ is the injected declaration
+for which $P$ is the corresponding synthesized point.
+\end{itemize}
+\begin{example}
+\begin{codeblock}
+class Incomplete;
+
+consteval {
+  int n = nonstatic_data_members_of(
+      define_aggregate(^^Incomplete, {data_member_spec(^^int, {.name="x"})}),
+      std::meta::access_context::current()
+    ).size();
+
+  Incomplete y;         // error: type of \tcode{y} is incomplete
+}
+/* P */
+\end{codeblock}
+The value of \tcode{n} is 1.
+The member \tcode{Incomplete::x}
+members-of-precedes\iref{meta.reflection.member.queries}
+the synthesized point P associated with the injected declaration
+produced by the call to \tcode{define_aggregate}.
+\end{example}
+
+\pnum
 A declaration is \defnx{reachable}{reachable!declaration}
 if it is reachable from
 any point in the instantiation context\iref{module.context}.
