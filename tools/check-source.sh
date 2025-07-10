@@ -97,7 +97,7 @@ grep -n 'unicode{[^}]*[^0-9a-f}][^}]*}' $texfiles |
     fail 'use lowercase hex digits inside \\unicode' || failed=1
 
 # Use \iref instead of "(\ref", except for subclause ranges
-grep -n '.(\\ref' $texfiles  | grep -v -- "--" |
+grep -n '.(\\ref{' $texfiles  | grep -v -- "--" |
     fail 'use \\iref instead of (\\ref' || failed=1
 
 # \iref cannot be at the start of a line
@@ -259,7 +259,7 @@ done | fail 'subclause without siblings' || failed=1
 for f in $texlibdesc; do
     sed -n '/begin{itemdescr}/,/end{itemdescr}/{=;p;}' < $f |
     sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/" |
-    awk -F: '$3 ~ /^\\pnum/ { seenpnum=1; next } $3 ~ /^\\index/ { next } $3 ~ /^\\(constraints|mandates|expects|effects|sync|ensures|returns|throws|complexity|remarks|errors|recommended)/ { if(seenpnum == 0) { print $0 } } { seenpnum=0 }'
+    awk -F: '$3 ~ /^\\pnum/ { seenpnum=1; next } $3 ~ /^\\index/ { next } $3 ~ /^\\(constraints|mandates|constantwhen|expects|hardexpects|effects|sync|ensures|returns|throws|complexity|remarks|errors|recommended)/ { if(seenpnum == 0) { print $0 } } { seenpnum=0 }'
 done |
     fail '\\pnum missing' || failed=1
 
