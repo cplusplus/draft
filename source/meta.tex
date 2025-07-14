@@ -2625,6 +2625,7 @@ namespace std::meta {
 
   consteval bool is_bit_field(info r);
   consteval bool is_enumerator(info r);
+  consteval bool is_annotation(info r);
 
   consteval bool is_const(info r);
   consteval bool is_volatile(info r);
@@ -2912,6 +2913,10 @@ namespace std::meta {
   consteval info variant_alternative(size_t index, info type);
 
   consteval strong_ordering type_order(info type_a, info type_b);
+
+  // \ref{meta.reflection.annotation}, annotation reflection
+  consteval vector<info> annotations_of(info item);
+  consteval vector<info> annotations_of_with_type(info item, info type);
 }
 \end{codeblock}
 
@@ -3243,6 +3248,7 @@ consteval bool @\exposid{has-type}@(info r);  // \expos
 \returns
 \tcode{true} if \tcode{r} represents a
 value,
+annotation,
 object,
 variable,
 function whose type does not contain an undeduced placeholder type
@@ -3277,6 +3283,9 @@ consteval bool type_of(info r);
   non-static data member, or
   unnamed bit-field,
   then the type of what is represented by \tcode{r}.
+\item
+  Otherwise, if \tcode{r} represents an annotation,
+  then \tcode{type_of(constant_of(r))}.
 \item
   Otherwise, if \tcode{r} represents
   an enumerator $N$ of an enumeration $E$, then:
@@ -3358,19 +3367,26 @@ consteval info constant_of(info r);
 
 \begin{itemdescr}
 \pnum
-Let \tcode{\placeholder{R}} be a constant expression of type \tcode{info}
-such that \tcode{\placeholder{R} == r} is \tcode{true}.
+Let $R$ be a constant expression of type \tcode{info}
+such that \tcode{$R$ == r} is \tcode{true}.
+If \tcode{r} represents an annotation,
+then let $C$ be its underlying constant.
 
 \pnum
 \constantwhen
-\tcode{[: \placeholder{R} :]} is a valid
+Either \tcode{r} represents an annotation or
+\tcode{[: $R$ :]} is a valid
 \grammarterm{splice-expression}\iref{expr.prim.splice}.
 
 \pnum
 \effects
 Equivalent to:
 \begin{codeblock}
-return reflect_constant([: @\placeholder{R}@ :]);
+if constexpr (is_annotation(@$R$@)) {
+  return @$C$@;
+} else {
+  return reflect_constant([: @$R$@ :]);
+}
 \end{codeblock}
 \begin{example}
 \begin{codeblock}
@@ -3552,14 +3568,16 @@ Otherwise, \tcode{false}.
 \end{itemdescr}
 
 \indexlibraryglobal{is_enumerator}%
+\indexlibraryglobal{is_annotation}%
 \begin{itemdecl}
 consteval bool is_enumerator(info r);
+consteval bool is_annotation(info r);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \returns
-\tcode{true} if \tcode{r} represents an enumerator.
+\tcode{true} if \tcode{r} represents an enumerator or annotation, respectively.
 Otherwise, \tcode{false}.
 \end{itemdescr}
 
@@ -5944,6 +5962,115 @@ consteval strong_ordering type_order(info t1, info t2);
 \tcode{type_order_v<T1, T2>},
 where \tcode{T1} and \tcode{T2} are the types
 represented by \tcode{dealias(t1)} and \tcode{dealias(t2)}, respectively.
+\end{itemdescr}
+
+\rSec2[meta.reflection.annotation]{Annotation reflection}
+
+\indexlibraryglobal{annotations_of}%
+\begin{itemdecl}
+consteval vector<info> annotations_of(info item);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constantwhen
+\tcode{item} represents a
+type,
+type alias,
+variable,
+function,
+namespace,
+enumerator,
+direct base class relationship, or
+non-static data member.
+
+%FIXME: it is highly unusual for this subclause to put Let paragraphs after Constant When
+\pnum
+Let $E$ be
+\begin{itemize}
+\item
+  the corresponding \grammarterm{base-specifier}
+  if \tcode{item} represents a direct base class relationship,
+\item
+  otherwise, the entity represented by \tcode{item}.
+\end{itemize}
+
+\pnum
+\returns
+A \tcode{vector} containing all of the reflections $R$
+representing each annotation applying to each declaration of $E$ that precedes either
+some point in the evaluation context\iref{expr.const} or
+a point immediately following the \grammarterm{class-specifier}
+of the outermost class for which such a point is in a complete-class context.
+For any two reflections $R_1$ and $R_2$ in the returned \tcode{vector},
+if the annotation represented by $R_1$ precedes the annotation represented by $R_2$,
+then $R_1$ appears before $R_2$.
+If $R_1$ and $R_2$ represent annotations from the same translation unit $T$,
+any element in the returned \tcode{vector} between $R_1$ and $R_2$
+represents an annotation from $T$.
+\begin{note}
+The order in which two annotations appear is otherwise unspecified.
+\end{note}
+\begin{example}
+\begin{codeblock}
+[[=1]] void f();
+[[=2, =3]] void g();
+void g [[=4]] ();
+
+static_assert(annotations_of(^^f).size() == 1);
+static_assert(annotations_of(^^g).size() == 3);
+static_assert([: constant_of(annotations_of(^^g)[0]) :] == 2);
+static_assert(extract<int>(annotations_of(^^g)[1]) == 3);
+static_assert(extract<int>(annotations_of(^^g)[2]) == 4);
+
+struct Option { bool value; };
+
+struct C {
+  [[=Option{true}]] int a;
+  [[=Option{false}]] int b;
+};
+
+static_assert(extract<Option>(annotations_of(^^C::a)[0]).value);
+static_assert(!extract<Option>(annotations_of(^^C::b)[0]).value);
+
+template<class T>
+  struct [[=42]] D { };
+
+constexpr std::meta::info a1 = annotations_of(^^D<int>)[0];
+constexpr std::meta::info a2 = annotations_of(^^D<char>)[0];
+static_assert(a1 != a2);
+static_assert(constant_of(a1) == constant_of(a2));
+
+[[=1]] int x, y;
+static_assert(annotations_of(^^x)[0] == annotations_of(^^y)[0]);
+\end{codeblock}
+\end{example}
+\end{itemdescr}
+
+\indexlibraryglobal{annotations_of_with_type}%
+\begin{itemdecl}
+consteval vector<info> annotations_of_with_type(info item, info type);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constantwhen
+\begin{itemize}
+\item
+  \tcode{annotations_of(item)} is a constant expression and
+\item
+  \tcode{dealias(type)} represents a type that is complete
+  from some point in the evaluation context.
+\end{itemize}
+
+\pnum
+\returns
+A \tcode{vector} containing each element \tcode{e} of \tcode{annotations_of(item)}
+where
+\begin{codeblock}
+remove_const(type_of(e)) == remove_const(type)
+\end{codeblock}
+is \tcode{true}, preserving their order.
 \end{itemdescr}
 
 \rSec1[ratio]{Compile-time rational arithmetic}
