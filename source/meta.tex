@@ -2579,6 +2579,23 @@ static_assert(*engaged);
 \begin{codeblock}
 #include <initializer_list>     // see \ref{initializer.list.syn}
 
+namespace std {
+  // \ref{meta.string.literal}, checking string literals
+  consteval bool is_string_literal(const char* p);
+  consteval bool is_string_literal(const wchar_t* p);
+  consteval bool is_string_literal(const char8_t* p);
+  consteval bool is_string_literal(const char16_t* p);
+  consteval bool is_string_literal(const char32_t* p);
+
+  // \ref{meta.define.static}, promoting to static storage strings
+  template<ranges::@\libconcept{input_range}@ R>
+    consteval const ranges::range_value_t<R>* define_static_string(R&& r);
+  template<ranges::@\libconcept{input_range}@ R>
+    consteval span<const ranges::range_value_t<R>> define_static_array(R&& r);
+  template<class T>
+    consteval const remove_cvref_t<T>* define_static_object(T&& r);
+}
+
 namespace std::meta {
   using info = decltype(^^::);
 
@@ -2743,6 +2760,13 @@ namespace std::meta {
     consteval info reflect_object(T& object);
   template<class T>
     consteval info reflect_function(T& fn);
+
+  // \ref{meta.reflection.array}, promoting to static storage arrays
+  template<ranges::@\libconcept{input_range}@ R>
+    consteval info reflect_constant_string(R&& r);
+
+  template<ranges::@\libconcept{input_range}@ R>
+    consteval info reflect_constant_array(R&& r);
 
   // \ref{meta.reflection.define.aggregate}, class definition generation
   struct data_member_options;
@@ -2973,6 +2997,102 @@ static_assert(sv.data()[0] == 'C');
 static_assert(sv.data()[1] == '@\textbackslash{}@0');
 \end{codeblock}
 \end{example}
+
+\rSec2[meta.string.literal]{Checking string literals}
+
+\indexlibraryglobal{is_string_literal}%
+\begin{itemdecl}
+consteval bool is_string_literal(const char* p);
+consteval bool is_string_literal(const wchar_t* p);
+consteval bool is_string_literal(const char8_t* p);
+consteval bool is_string_literal(const char16_t* p);
+consteval bool is_string_literal(const char32_t* p);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\begin{itemize}
+\item
+  If \tcode{p} points to an unspecified object\iref{expr.const},
+  \tcode{false}.
+\item
+  Otherwise, if \tcode{p} points to a subobject
+  of a string literal object\iref{lex.string},
+  \tcode{true}.
+\item
+  Otherwise, \tcode{false}.
+\end{itemize}
+\end{itemdescr}
+
+\rSec2[meta.define.static]{Promoting to static storage strings}
+
+\pnum
+The functions in this subclause promote compile-time storage into static storage.
+
+\indexlibraryglobal{define_static_string}%
+\begin{itemdecl}
+template<ranges::@\libconcept{input_range}@ R>
+  consteval const ranges::range_value_t<R>* define_static_string(R&& r);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return extract<const ranges::range_value_t<R>*>(meta::reflect_constant_string(r));
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryglobal{define_static_array}%
+\begin{itemdecl}
+template<ranges::@\libconcept{input_range}@ R>
+  consteval span<const ranges::range_value_t<R>> define_static_array(R&& r);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+using T = ranges::range_value_t<R>;
+meta::info array = meta::reflect_constant_array(r);
+if (is_array_type(type_of(array))) {
+  return span<const T>(extract<const T*>(array), extent(type_of(array)));
+} else {
+  return span<const T>();
+}
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibraryglobal{define_static_object}%
+\begin{itemdecl}
+template<class T>
+  consteval const remove_cvref_t<T>* define_static_object(T&& t);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+using U = remove_cvref_t<T>;
+if constexpr (is_class_type(^^U)) {
+  return addressof(extract<const U&>(meta::reflect_constant(std::forward<T>(t))));
+} else {
+  return define_static_array(span(addressof(t), 1)).data();
+}
+\end{codeblock}
+
+\pnum
+\begin{note}
+For class types,
+\tcode{define_static_object} provides
+the address of the template parameter object\iref{temp.param}
+that is template-argument equivalent to \tcode{t}.
+\end{note}
+\end{itemdescr}
 
 \rSec2[meta.reflection.operators]{Operator representations}
 
@@ -5366,6 +5486,102 @@ for a constant template parameter of type \tcode{T\&}\iref{temp.arg.nontype}.
 \pnum
 \returns
 A reflection of the function designated by \tcode{fn}.
+\end{itemdescr}
+
+\rSec2[meta.reflection.array]{Promoting to static storage arrays}
+
+\pnum
+The functions in this subclause promote compile-time storage into static storage.
+
+\indexlibraryglobal{reflect_constant_string}%
+\begin{itemdecl}
+template<ranges::@\libconcept{input_range}@ R>
+  consteval info reflect_constant_string(R&& r);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{CharT} be \tcode{ranges::range_value_t<R>}.
+
+\pnum
+\mandates
+\tcode{CharT} is one of
+\tcode{char},
+\tcode{wchar_t},
+\tcode{char8_t},
+\tcode{char16_t},
+\tcode{char32_t}.
+
+\pnum
+Let $V$ be the pack of values of type \tcode{CharT}
+whose elements are the corresponding elements of \tcode{r},
+except that if \tcode{r} refers to a string literal object,
+then $V$ does not include the trailing null terminator of \tcode{r}.
+
+\pnum
+Let $P$ be the template parameter object\iref{temp.param}
+of type \tcode{const CharT[sizeof...(V)+1]}
+initialized with \tcode{$V$..., CHART()}.
+
+\pnum
+\returns
+\tcode{\reflexpr{$P$}}.
+
+\pnum
+\begin{note}
+$P$ is a potentially non-unique object\iref{intro.object}.
+\end{note}
+\end{itemdescr}
+
+\indexlibraryglobal{reflect_constant_array}%
+\begin{itemdecl}
+template<ranges::@\libconcept{input_range}@ R>
+  consteval info reflect_constant_array(R&& r);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{T} be \tcode{ranges::range_value_t<R>}.
+
+\pnum
+\mandates
+\tcode{T} is a structural type\iref{temp.param},
+\tcode{is_constructible_v<T, ranges::range_reference_t<R>>} is \tcode{true}, and
+\tcode{is_copy_constructible_v<T>} is \tcode{true}.
+
+\pnum
+\constantwhen
+\tcode{reflect_constant(e)} is a constant subexpression
+for every element \tcode{e} of \tcode{r}.
+
+\pnum
+Let $V$ be the pack of values of type \tcode{info}
+of the same size as \tcode{r},
+where the $i^\text{th}$ element is \tcode{reflect_constant($\tcode{e}_i$)},
+where $\tcode{e}_i$ is the $i^\text{th}$ element of \tcode{r}.
+
+\pnum
+Let $P$ be
+\begin{itemize}
+\item
+  If \tcode{sizeof...($V$) > 0} is true,
+  then the template parameter object\iref{temp.param}
+  of type \tcode{const T[\brk{}sizeof...(\brk{}$V$)]}
+  initialized with \tcode{\{[:$V$:]...\}}.
+\item
+  Otherwise, the template parameter object
+  of type \tcode{array<T, 0>}
+  initialized with \tcode{\{\}}.
+\end{itemize}
+
+\pnum
+\returns
+\tcode{\reflexpr{$P$}}.
+
+\pnum
+\begin{note}
+$P$ is a potentially non-unique object\iref{intro.object}.
+\end{note}
 \end{itemdescr}
 
 \rSec2[meta.reflection.define.aggregate]{Reflection class definition generation}
