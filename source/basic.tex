@@ -114,17 +114,33 @@ before continuing to parse the program that contains it.
 A \defn{variable} is introduced by the
 declaration of
 a reference other than a non-static data member or of
-an object. The variable's name, if any, denotes the reference or object.
+an object.
 
 \pnum
-An \defn{entity} is a value, object, reference,
+An \defn{entity} is a
+variable,
 structured binding,
 result binding,
-function, enumerator, type,
-class member, bit-field, template, template specialization, namespace, or
-pack. An entity $E$ is denoted by the name (if any)
-that is introduced by a declaration of $E$ or
-by a \grammarterm{typedef-name} introduced by a declaration specifying $E$.
+function,
+enumerator,
+type,
+type alias,
+non-static data member,
+bit-field,
+template,
+namespace,
+namespace alias,
+template parameter,
+function parameter, or
+\grammarterm{init-capture}.
+The \defnadj{underlying}{entity} of an entity is that entity
+unless otherwise specified.
+A name \defnx{denotes}{denote} the underlying entity of
+the entity declared by each declaration that introduces the name.
+\begin{note}
+Type aliases and namespace aliases have underlying entities
+that are distinct from themselves.
+\end{note}
 
 \pnum
 A \defnadj{local}{entity} is a variable with
@@ -153,7 +169,7 @@ one or more names and/or entities into a translation
 unit.
 If so, the
 declaration specifies the interpretation and semantic properties of these names.
-A declaration of an entity or \grammarterm{typedef-name} $X$ is
+A declaration of an entity $X$ is
 a redeclaration of $X$
 if another declaration of $X$ is reachable from it\iref{module.reach};
 otherwise, it is a \defnadj{first}{declaration}.
@@ -221,12 +237,15 @@ it is a
 \item it is
 an \grammarterm{alias-declaration}\iref{dcl.typedef},
 \item it is
-a
-\grammarterm{using-declaration}\iref{namespace.udecl},
+a \grammarterm{namespace-alias-definition}\iref{namespace.alias},
+\item it is
+a \grammarterm{using-declaration}\iref{namespace.udecl},
 \item it is
 a \grammarterm{deduction-guide}\iref{temp.deduct.guide},
 \item it is
 a \grammarterm{static_assert-declaration}\iref{dcl.pre},
+\item it is
+a \grammarterm{consteval-block-declaration},
 \item
 it is an
 \grammarterm{attribute-declaration}\iref{dcl.pre},
@@ -264,7 +283,6 @@ struct X {                      // defines \tcode{X}
 int X::y = 1;                   // defines \tcode{X::y}
 enum { up, down };              // defines \tcode{up} and \tcode{down}
 namespace N { int d; }          // defines \tcode{N} and \tcode{N::d}
-namespace N1 = N;               // defines \tcode{N1}
 X anX;                          // defines \tcode{anX}
 
 \end{codeblock}
@@ -275,6 +293,7 @@ extern const int c;             // declares \tcode{c}
 int f(int);                     // declares \tcode{f}
 struct S;                       // declares \tcode{S}
 typedef int Int;                // declares \tcode{Int}
+namespace N1 = N;               // declares \tcode{N1}
 extern X anotherX;              // declares \tcode{anotherX}
 using N::d;                     // declares \tcode{d}
 \end{codeblock}
@@ -368,8 +387,9 @@ a conversion in an initialization or conversion sequence in such a context.
 The set of \defn{potential results} of an expression $E$ is
 defined as follows:
 \begin{itemize}
-\item If $E$ is an
-\grammarterm{id-expression}\iref{expr.prim.id}, the set
+\item If $E$ is
+an \grammarterm{id-expression}\iref{expr.prim.id} or
+a \grammarterm{splice-expression}\iref{expr.prim.splice}, the set
 contains only $E$.
 \item If $E$ is a subscripting operation\iref{expr.sub} with
 an array operand, the set contains the potential results of that operand.
@@ -395,17 +415,21 @@ contains the potential results of the right operand.
 \item Otherwise, the set is empty.
 \end{itemize}
 \begin{note}
-This set is a (possibly-empty) set of \grammarterm{id-expression}{s},
+This set is a (possibly-empty) set of
+\grammarterm{id-expression}{s} and \grammarterm{splice-expression}s,
 each of which is either $E$ or a subexpression of $E$.
 \begin{example}
 In the following example, the set of potential results of the initializer
 of \tcode{n} contains the first \tcode{S::x} subexpression, but not the second
 \tcode{S::x} subexpression.
+The set of potential results of the initializer of \tcode{o} contains
+the subexpression \tcode{[:\caret\caret S::x:]}.
 \begin{codeblock}
 struct S { static const int x = 0; };
 const int &f(const int &r);
 int n = b ? (1, S::x)           // \tcode{S::x} is not odr-used here
           : f(S::x);            // \tcode{S::x} is odr-used here, so a definition is required
+int o = [:^^S::x:];
 \end{codeblock}
 \end{example}
 \end{note}
@@ -453,7 +477,9 @@ This covers
 \pnum
 \label{term.odr.use}%
 A variable is named by an expression
-if the expression is an \grammarterm{id-expression} that denotes it.
+if the expression is an \grammarterm{id-expression} or
+\grammarterm{splice-expression}\iref{expr.prim.splice}
+that designates it.
 A variable \tcode{x} that is named by a
 potentially-evaluated expression $N$
 that appears at a point $P$
@@ -510,7 +536,12 @@ int h(bool cond) {
 \end{example}
 
 \pnum
-A structured binding is odr-used if it appears as a potentially-evaluated expression.
+A structured binding is named by an expression
+if that expression is either an \grammarterm{id-expression} or
+a \grammarterm{splice-expression}
+that designates that structured binding.
+A structured binding is odr-used
+if it is named by a potentially-evaluated expression.
 
 \pnum
 \tcode{*\keyword{this}} is odr-used if \keyword{this} appears as a potentially-evaluated expression
@@ -696,7 +727,16 @@ defined\iref{class.derived}, or
 \end{note}
 
 \pnum
-For any definable item \tcode{D} with definitions in multiple translation units,
+If a definable item \tcode{D} is defined in a translation unit
+by an injected declaration $X$\iref{expr.const} and
+another translation unit contains a definition of \tcode{D},
+that definition shall be an injected declaration
+having the same characteristic sequence as $X$;
+a diagnostic is required only if \tcode{D} is attached to a named module and
+a prior definition is reachable at the point where a later definition occurs.
+
+\pnum
+For any other definable item \tcode{D} with definitions in multiple translation units,
 \begin{itemize}
 \item
 if \tcode{D} is a non-inline non-templated function or variable, or
@@ -722,7 +762,7 @@ where the definition of a closure type
 is considered to consist of the sequence of tokens of
 the corresponding \grammarterm{lambda-expression}.
 \item In each such definition, corresponding names, looked up
-according to~\ref{basic.lookup}, shall refer to the same entity, after
+according to~\ref{basic.lookup}, shall denote the same entity, after
 overload resolution\iref{over.match} and after matching of partial
 template specializations\iref{temp.spec.partial.match}, except that a name can refer to
 \begin{itemize}
@@ -738,7 +778,7 @@ or
 \item
 a reference with internal or no linkage
 initialized with a constant expression such that
-the reference refers to the same entity in all definitions of \tcode{D}.
+the reference refers to the same object or function in all definitions of \tcode{D}.
 \end{itemize}
 
 \item In each such definition, except within
@@ -767,11 +807,17 @@ function.
 \item In each such definition,
 a default argument used by an (implicit or explicit) function call or
 a default template argument used by an (implicit or explicit)
-\grammarterm{template-id} or \grammarterm{simple-template-id}
+\grammarterm{template-id},
+\grammarterm{simple-template-id}, or
+\grammarterm{splice-specialization-specifier}
 is treated as if its token sequence
 were present in the definition of \tcode{D};
 that is, the default argument or default template argument
 is subject to the requirements described in this paragraph (recursively).
+
+\item In each such definition,
+corresponding \grammarterm{reflect-expression}s\iref{expr.reflect}
+compute equivalent values\iref{expr.eq}.
 \end{itemize}
 
 \pnum
@@ -926,6 +972,9 @@ A declaration's \defnadj{target}{scope} is the scope it inhabits.
 Any names (re)introduced by a declaration are \defnx{bound}{name!bound} to it
 in its target scope.
 \end{itemize}
+The \defnadj{host}{scope} of a declaration is
+the inhabited scope if that scope is a block scope and
+the target scope otherwise.
 An entity \defnx{belongs}{entity!belong} to a scope $S$
 if $S$ is the target scope of a declaration of the entity.
 \begin{note}
@@ -1006,7 +1055,7 @@ unless
 \item
 either is a \grammarterm{using-declarator}, or
 \item
-one declares a type (not a \grammarterm{typedef-name}) and the other declares a
+one declares a type (not a type alias) and the other declares a
 variable,
 non-static data member other than of an anonymous union\iref{class.union.anon},
 enumerator,
@@ -1663,7 +1712,7 @@ the \grammarterm{using-declarator}\iref{namespace.udecl}.
 In certain contexts, only certain kinds of declarations are included.
 After any such restriction, any declarations of classes or enumerations are discarded if any other declarations are found.
 \begin{note}
-A type (but not a \grammarterm{typedef-name} or template)
+A type (but not a type alias or template)
 is therefore hidden by any other entity in its scope.
 \end{note}
 \indextext{type-only!lookup|see{lookup, type-only}}%
@@ -1671,8 +1720,8 @@ However, if a lookup is \defnx{type-only}{lookup!type-only},
 only declarations of
 types and templates whose specializations are types are considered;
 furthermore, if declarations
-of a \grammarterm{typedef-name} and of the type to which it refers are found,
-the declaration of the \grammarterm{typedef-name} is discarded
+of a type alias and of its underlying entity are found,
+the declaration of the type alias is discarded
 instead of the type declaration.
 
 \rSec2[class.member.lookup]{Member name lookup}%
@@ -2136,7 +2185,16 @@ do not contribute to this set.
 The set of entities
 is determined in the following way:
 \begin{itemize}
-\item If \tcode{T} is a fundamental type, its associated set of
+\item If \tcode{T} is \tcode{std::meta::info}\iref{meta.syn},
+its associated set of entities is the singleton containing
+the enumeration type \tcode{std::meta::operators}\iref{meta.reflection.operators}.
+\begin{note}
+The \tcode{std::meta::info} type is a type alias,
+so an explicit rule is needed to associate calls
+whose arguments are reflections with the namespace \tcode{std::meta}.
+\end{note}
+
+\item If \tcode{T} is any other fundamental type, its associated set of
 entities is empty.
 
 \item If \tcode{T} is a class type (including unions),
@@ -2294,8 +2352,14 @@ Lookup of an \grammarterm{identifier}
 followed by a \tcode{::} scope resolution operator
 considers only
 namespaces, types, and templates whose specializations are types.
-If a name, \grammarterm{template-id}, or \grammarterm{computed-type-specifier}
+If a
+name,
+\grammarterm{template-id},
+\grammarterm{splice-scope-specifier}, or
+\grammarterm{computed-type-specifier}
 is followed by a \tcode{::},
+it shall either be
+a dependent \grammarterm{splice-scope-specifier}\iref{temp.dep.splice} or
 it shall designate a namespace, class, enumeration, or dependent type,
 and the \tcode{::} is never interpreted as
 a complete \grammarterm{nested-name-specifier}.
@@ -2344,6 +2408,7 @@ A \defnadj{qualified}{name} is
 \item a \grammarterm{typename-specifier},
 \item a \grammarterm{qualified-namespace-specifier}, or
 \item a \grammarterm{nested-name-specifier},
+\grammarterm{reflection-name},
 \grammarterm{elaborated-type-specifier}, or
 \grammarterm{class-or-decltype}
 that has a \grammarterm{nested-name-specifier}\iref{expr.prim.id.qual}.
@@ -2738,6 +2803,70 @@ during the lookup for a \grammarterm{namespace-name} or for a name in a
 only namespace names are considered.%
 \indextext{lookup!name|)}%
 
+\rSec1[basic.splice]{Splice specifiers}
+\indextext{splice|(}%
+
+\begin{bnf}
+\nontermdef{splice-specifier}\br
+  \terminal{[:} constant-expression \terminal{:]}
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{splice-specialization-specifier}\br
+  splice-specifier \terminal{<} \opt{template-argument-list} \terminal{>}
+\end{bnf}
+
+\pnum
+The \grammarterm{constant-expression} of a \grammarterm{splice-specifier}
+shall be a converted constant expression of
+type \tcode{std::meta::info}\iref{expr.const}.
+A \grammarterm{splice-specifier}
+whose converted \grammarterm{constant-expression} represents
+a construct $X$ is said to \defn{designate} either
+\begin{itemize}
+\item the underlying entity of $X$ if $X$ is an entity\iref{basic.pre}, or
+\item $X$ otherwise.
+\end{itemize}
+\begin{note}
+A \grammarterm{splice-specifier} is dependent
+if the converted \grammarterm{constant-expression} is
+value-dependent\iref{temp.dep.splice}.
+\end{note}
+
+\pnum
+A non-dependent \grammarterm{splice-specifier} of
+a \grammarterm{splice-specialization-specifier} shall designate a template.
+
+\pnum
+\begin{note}
+A \tcode{<} following a \grammarterm{splice-specifier} is interpreted as
+the delimiter of a \grammarterm{template-argument-list}
+when the \grammarterm{splice-specifier} is preceded by
+the keyword \keyword{template} or the keyword \keyword{typename}, or
+when it appears in a type-only context\iref{temp.names}.
+\begin{example}
+\begin{codeblock}
+constexpr int v = 1;
+template<int V> struct TCls {
+  static constexpr int s = V + 1;
+};
+
+using alias = [:^^TCls:]<([:^^v:])>;
+  // OK, a \grammarterm{splice-specialization-specifier} with a \grammarterm{splice-expression} as a template argument
+
+static_assert(alias::s == 2);
+
+auto o1 = [:^^TCls:]<([:^^v:])>();              // error: < means less than
+auto o2 = typename [:^^TCls:]<([:^^v:])>();     // OK, \tcode{o2} is an object of type \tcode{TCls<1>}
+
+consteval int bad_splice(std::meta::info v) {
+  return [:v:];                                 // error: \tcode{v} is not constant
+}
+\end{codeblock}
+\end{example}
+\end{note}
+\indextext{splice|)}
+
 \rSec1[basic.link]{Program and linkage}%
 \indextext{linkage|(}
 
@@ -2909,6 +3038,8 @@ and either
 \item
 they appear in the same translation unit, or
 \item
+they both declare type aliases or namespace aliases that have the same underlying entity, or
+\item
 they both declare names with module linkage and are attached to the same module, or
 \item
 they both declare names with external linkage.
@@ -3021,6 +3152,16 @@ A declaration $D$ \defnx{names}{name} an entity $E$ if
 \item
 $D$ contains a \grammarterm{lambda-expression} whose closure type is $E$,
 \item
+$D$ contains
+a \grammarterm{reflect-expression} or a \grammarterm{splice-specifier}
+that, respectively, represents or designates $E$,
+\item
+$D$ is an injected declaration\iref{expr.const}
+whose characteristic sequence contains a reflection
+that represents
+a data member description ($T$, $N$, $A$, $W$, $\mathit{NUA}$)\iref{class.mem.general}
+for which $T$ is $E$,
+\item
 $E$ is not a function or function template and $D$ contains an
 \grammarterm{id-expression},
 \grammarterm{type-specifier},
@@ -3069,7 +3210,7 @@ certain explicit specializations of it would be usable in other translation unit
 An entity is \defnx{TU-local}{TU-local!entity} if it is
 \begin{itemize}
 \item
-a type, function, variable, or template that
+a type, type alias, namespace, namespace alias, function, variable, or template that
 \begin{itemize}
 \item
 has a name with internal linkage, or
@@ -3101,14 +3242,28 @@ A specialization can be produced by implicit or explicit instantiation.
 A value or object is \defnx{TU-local}{TU-local!value or object} if either
 \begin{itemize}
 \item
+it is of TU-local type,
+\item
 it is, or is a pointer to,
-a TU-local function or the object associated with a TU-local variable, or
+a TU-local function or the object associated with a TU-local variable,
 \item
 it is an object of class or array type and
 any of its subobjects or
 any of the objects or functions
 to which its non-static data members of reference type refer
-is TU-local and is usable in constant expressions.
+is TU-local and is usable in constant expressions, or
+\item
+it is a reflection value\iref{basic.fundamental} that represents
+\begin{itemize}
+\item
+an entity, value, or object that is TU-local,
+\item
+a direct base class relationship (\tcode{D}, \tcode{B})\iref{class.derived.general}
+for which either \tcode{D} or \tcode{B} is TU-local, or
+\item
+a data member description ($T$, $N$, $A$, $W$, $\mathit{NUA}$)\iref{class.mem.general}
+for which $T$ is TU-local.
+\end{itemize}
 \end{itemize}
 
 \pnum
@@ -3158,6 +3313,16 @@ namespace N {
 void adl(double);
 
 inline void h(auto x) { adl(x); }   // OK, but certain specializations are exposures
+
+constexpr std::meta::info r1 = ^^g<0>;  // OK
+namespace N2 {
+  static constexpr std::meta::info r2 = ^^g<1>;     // OK, \tcode{r2} is TU-local
+}
+constexpr std::meta::info r3 = ^^f;                 // error: \tcode{r3} is an exposure of \tcode{f}
+
+constexpr auto ctx = std::meta::access_context::current();
+constexpr std::meta::info r4 =
+  std::meta::members_of(^^N2, ctx)[0];              // error: \tcode{r4} is an exposure of \tcode{N2::r2}
 \end{codeblocktu}
 \begin{codeblocktu}{Translation unit \#2}
 module A;
@@ -5021,7 +5186,7 @@ a function type, not a reference type, and not \cv{}~\keyword{void}.
 \label{term.scalar.type}%
 Arithmetic types\iref{basic.fundamental}, enumeration types,
 pointer types, pointer-to-member types\iref{basic.compound},
-\tcode{std::nullptr_t},
+\tcode{std::meta::\brk{}info}, \tcode{std::nullptr_t},
 and
 cv-qualified\iref{basic.type.qualifier} versions of these
 types are collectively called
@@ -5092,6 +5257,21 @@ Two types \cvqual{cv1} \tcode{T1} and \cvqual{cv2} \tcode{T2} are
 if \tcode{T1} and \tcode{T2} are the same type,
 layout-compatible enumerations\iref{dcl.enum}, or
 layout-compatible standard-layout class types\iref{class.mem}.
+
+\pnum
+A type is \defn{consteval-only} if it is either
+\tcode{std::meta::info} or
+a type compounded from a consteval-only type\iref{basic.compound}.
+Every object of consteval-only type shall be
+\begin{itemize}
+\item
+the object associated with a constexpr variable or a subobject thereof,
+\item
+a template parameter object\iref{temp.param} or a subobject thereof, or
+\item
+an object whose lifetime begins and ends
+during the evaluation of a core constant expression.
+\end{itemize}
 
 \rSec2[basic.fundamental]{Fundamental types}
 
@@ -5398,6 +5578,94 @@ A prvalue of type \tcode{std::nullptr_t} is a null pointer
 constant\iref{conv.ptr}. Such values participate in the pointer and the
 pointer-to-member conversions\iref{conv.ptr,conv.mem}.
 \tcode{\keyword{sizeof}(std::nullptr_t)} shall be equal to \tcode{\keyword{sizeof}(\keyword{void}*)}.
+
+\pnum
+A value of type \tcode{std::meta::info} is called a \defn{reflection}.
+There exists a unique \defnadj{null}{reflection};
+every other reflection is a representation of
+\begin{itemize}
+\item a value of scalar type\iref{temp.param},
+\item an object with static storage duration\iref{basic.stc},
+\item a variable\iref{basic.pre},
+\item a structured binding\iref{dcl.struct.bind},
+\item a function\iref{dcl.fct},
+\item an enumerator\iref{dcl.enum},
+\item a type alias\iref{dcl.typedef},
+\item a type\iref{basic.types},
+\item a class member\iref{class.mem},
+\item an unnamed bit-field\iref{class.bit},
+\item a class template\iref{temp.pre},
+\item a function template,
+\item a variable template,
+\item an alias template\iref{temp.alias},
+\item a concept\iref{temp.concept},
+\item a namespace alias\iref{namespace.alias},
+\item a namespace\iref{basic.namespace.general},
+\item a direct base class relationship\iref{class.derived.general}, or
+\item a data member description\iref{class.mem.general}.
+\end{itemize}
+A reflection is said to \defn{represent} the corresponding construct.
+\begin{note}
+A reflection of a value can be produced by library functions such as
+\tcode{std::meta::constant_of} and \tcode{std::meta::reflect_constant}.
+\end{note}
+\begin{example}
+\begin{codeblock}
+int arr[] = {1, 2, 3};
+auto [a1, a2, a3] = arr;
+void fn();
+enum Enum { A };
+using Alias = int;
+struct B {};
+struct S : B {
+  int mem;
+  int : 0;
+};
+template<auto> struct TCls {};
+template<auto> void TFn();
+template<auto> int TVar;
+template<auto> concept Concept = requires { true; };
+namespace NS {};
+namespace NSAlias = NS;
+
+constexpr auto ctx = std::meta::access_context::current();
+
+constexpr auto r1 = std::meta::reflect_constant(42);        // represents \tcode{int} value of \tcode{42}
+constexpr auto r2 = std::meta::reflect_object(arr[1]);      // represents \tcode{int} object
+constexpr auto r3 = ^^arr;                                  // represents a variable
+constexpr auto r4 = ^^a3;                                   // represents a structured binding
+constexpr auto r5 = ^^fn;                                   // represents a function
+constexpr auto r6 = ^^Enum::A;                              // represents an enumerator
+constexpr auto r7 = ^^Alias;                                // represents a type alias
+constexpr auto r8 = ^^S;                                    // represents a type
+constexpr auto r9 = ^^S::mem;                               // represents a class member
+constexpr auto r10 = std::meta::members_of(^^S, ctx)[1];    // represents an unnamed bit-field
+constexpr auto r11 = ^^TCls;                                // represents a class template
+constexpr auto r12 = ^^TFn;                                 // represents a function template
+constexpr auto r13 = ^^TVar;                                // represents a variable template
+constexpr auto r14 = ^^Concept;                             // represents a concept
+constexpr auto r15 = ^^NSAlias;                             // represents a namespace alias
+constexpr auto r16 = ^^NS;                                  // represents a namespace
+constexpr auto r17 = std::meta::bases_of(^^S, ctx)[0];      // represents a direct base class relationship
+constexpr auto r18 =
+  std::meta::data_member_spec(^^int, {.name="member"});     // represents a data member description
+\end{codeblock}
+\end{example}
+
+\pnum
+\recommended
+Implementations should not represent other constructs
+specified in this document, such as
+\grammarterm{using-declarator}s,
+partial template specializations,
+attributes, placeholder types,
+statements, or
+expressions,
+as values of type \tcode{std::meta::info}.
+\begin{note}
+Future revisions of this document can specify semantics for reflections
+representing any such constructs.
+\end{note}
 
 \pnum
 \indextext{type!fundamental}%
@@ -6078,12 +6346,14 @@ that defines the default argument.
 
 \pnum
 \indextext{value computation|(}%
-Reading an object designated by a \keyword{volatile}
-glvalue\iref{basic.lval}, modifying an object, calling a library I/O
-function, or calling a function that does any of those operations are
-all
-\defn{side effects}, which are changes in the state of the execution
-environment. \defnx{Evaluation}{evaluation} of an expression (or a
+Reading an object designated by a \keyword{volatile} glvalue\iref{basic.lval},
+modifying an object,
+producing an injected declaration\iref{expr.const},
+calling a library I/O function, or
+calling a function that does any of those operations
+are all \defn{side effects},
+which are changes in the state of the execution or translation environment.
+\defnx{Evaluation}{evaluation} of an expression (or a
 subexpression) in general includes both value computations (including
 determining the identity of an object for glvalue evaluation and fetching
 a value previously assigned to an object for prvalue evaluation) and
@@ -6255,6 +6525,14 @@ of the \tcode{std::raise} function and before its return.
 When a signal is received for another reason, the execution of the
 signal handler is usually unsequenced with respect to the rest of the program.
 \end{note}
+
+\pnum
+During the evaluation of an expression
+as a core constant expression\iref{expr.const},
+evaluations of operands of individual operators and
+of subexpressions of individual expressions
+that are otherwise either unsequenced or indeterminately sequenced
+are evaluated in lexical order.
 
 \rSec2[intro.multithread]{Multi-threaded executions and data races}
 

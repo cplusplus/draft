@@ -555,6 +555,7 @@ if its \grammarterm{template-name} names a class template.
     using-declaration\br
     using-enum-declaration\br
     static_assert-declaration\br
+    consteval-block-declaration\br
     template-declaration\br
     explicit-specialization\br
     deduction-guide\br
@@ -646,13 +647,14 @@ A specialization of a member class template is a nested class.
 \end{note}
 
 \pnum
-A \grammarterm{member-declaration} does not declare new members of the class
+A \grammarterm{member-declaration} does not itself declare new members of the class
 if it is
 \begin{itemize}
 \item a friend declaration\iref{class.friend},
 \item a \grammarterm{deduction-guide}\iref{temp.deduct.guide},
 \item a \grammarterm{template-declaration} whose \grammarterm{declaration} is one of the above,
 \item a \grammarterm{static_assert-declaration},
+\item a \grammarterm{consteval-block-declaration},
 \item a \grammarterm{using-declaration}\iref{namespace.udecl}, or
 \item an \grammarterm{empty-declaration}.
 \end{itemize}
@@ -686,10 +688,21 @@ of the class.
 Any other data member or member function is a \defnadj{non-static}{member}
 (a \defnadj{non-static}{data member} or
 \defnadj{non-static}{member function}\iref{class.mfct.non.static}, respectively).
-\begin{note}
-A non-static data member of non-reference
-type is a member subobject of a class object\iref{intro.object}.
-\end{note}
+
+\pnum
+Every object of class type has a unique member subobject
+corresponding to each of its direct non-static data members.
+If any non-static data member of a class \tcode{C} is of reference type,
+then let \tcode{D} be an invented class
+that is identical to \tcode{C}
+except that each non-static member of \tcode{D} corresponding to
+a member of \tcode{C} of type ``reference to \tcode{T}''
+instead has type ``pointer to \tcode{T}''.
+Every member subobject of a complete object of type \tcode{C}
+has the same size, alignment, and offset
+as that of the corresponding subobject of a complete object of type \tcode{D}.
+The size and alignment of \tcode{C} are the same as
+the size and alignment of \tcode{D}.
 
 \pnum
 A member shall not be declared twice in the
@@ -997,6 +1010,46 @@ not at its beginning, as necessary to achieve appropriate alignment.
 \begin{note}
 The object and its first subobject are
 pointer-interconvertible\iref{basic.compound,expr.static.cast}.
+\end{note}
+
+\pnum
+A \defnadj{data member}{description} is
+a quintuple ($T$, $N$, $A$, $W$, $\mathit{NUA}$)
+describing the potential declaration of a non-static data member where
+\begin{itemize}
+\item $T$ is a type,
+\item $N$ is an identifier or $\bot$,
+\item $A$ is an alignment or $\bot$,
+\item $W$ is a bit-field width or $\bot$, and
+\item $\mathit{NUA}$ is a boolean value.
+\end{itemize}
+Two data member descriptions are equal
+if each of their respective components are the same entities,
+are the same identifiers, have equal values, or are both $\bot$.
+\begin{note}
+The components of a data member description describe a data member such that
+\begin{itemize}
+\item
+its type is specified using the type given by $T$,
+\item
+it is declared with the name given by $N$
+if $N$ is not $\bot$ and is otherwise unnamed,
+\item
+it is declared with the \grammarterm{alignment-specifier}\iref{dcl.align}
+given by \tcode{alignas($A$)}
+if $A$ is not $\bot$ and
+is otherwise declared without an \grammarterm{alignment-specifier},
+\item
+it is a bit-field\iref{class.bit} with the width given by $W$
+if W is not $\bot$ and is otherwise not a bit-field, and
+\item
+it is declared with
+the attribute \tcode{[[no_unique_address]]}\iref{dcl.attr.nouniqueaddr}
+if $\mathit{NUA}$ is true and is otherwise declared without that attribute.
+\end{itemize}
+Data member descriptions are represented by reflections\iref{basic.fundamental}
+returned by \tcode{std::meta::data_member_spec}\iref{meta.reflection.define.aggregate} and
+can be reified as data members of a class using \tcode{std::meta::define_aggregate}.
 \end{note}
 
 \rSec2[class.mfct]{Member functions}%
@@ -3514,7 +3567,12 @@ any cv-qualifiers are ignored.
 The class denoted by the \grammarterm{class-or-decltype} of
 a \grammarterm{base-specifier} is called a
 \defnadj{direct}{base class}
-for the class being defined.
+for the class being defined;
+for each such \grammarterm{base-specifier},
+the corresponding \defnadj{direct base class}{relationship}
+is the ordered pair (\tcode{D}, \tcode{B})
+where \tcode{D} is the class being defined and
+\tcode{B} is the direct base class.
 \indextext{base class}%
 \indextext{derivation|see{inheritance}}%
 The lookup for the component name of
@@ -4345,9 +4403,10 @@ void g(S* sp) {
 \end{codeblock}
 \end{example}
 \begin{note}
-Because access control applies to the declarations named, if access control is applied to a
-\grammarterm{typedef-name}, only the accessibility of the typedef or alias declaration itself is considered.
-The accessibility of the entity referred to by the \grammarterm{typedef-name} is not considered.
+Because access control applies to the declarations named,
+if access control is applied to a type alias,
+only the accessibility of the typedef or alias declaration itself is considered.
+The accessibility of the underlying entity is not considered.
 \begin{example}
 \begin{codeblock}
 class A {
@@ -4738,10 +4797,18 @@ can implicitly convert an
 to a pointer to a private or protected immediate base class of
 \tcode{X}.
 \end{note}
-The access to a member is affected by the class in which the member is
-named.
-This naming class is
-the class in whose scope name lookup performed a search that found the member.
+An expression $E$ that designates a member \tcode{m}
+has a \defnadj{designating}{class}
+that affects the access to \tcode{m}.
+This designating class is either
+\begin{itemize}
+\item
+the innermost class of which \tcode{m} is directly a member
+if $E$ is a \grammarterm{splice-expression} or
+\item
+the class in whose scope name lookup performed a search
+that found \tcode{m} otherwise.
+\end{itemize}
 \begin{note}
 This class can be explicit, e.g., when a
 \grammarterm{qualified-id}
@@ -4753,7 +4820,7 @@ If both a class member access operator and a
 \grammarterm{qualified-id}
 are used to name the member (as in
 \tcode{p->T::m}),
-the class naming the member is the class denoted by the
+the class designating the member is the class designated by the
 \grammarterm{nested-name-specifier}
 of the
 \grammarterm{qualified-id}
@@ -4764,10 +4831,12 @@ A member
 \tcode{m}
 is accessible at the point
 \placeholder{R}
-when named in class
+when designated in class
 \tcode{N}
 if
 \begin{itemize}
+\item
+\tcode{m} is designated by a \grammarterm{splice-expression}, or
 \item
 \tcode{m}
 as a member of
@@ -4810,7 +4879,7 @@ and
 \tcode{m}
 is accessible at
 \placeholder{R}
-when named in class
+when designated in class
 \tcode{B}.
 \begin{example}
 \begin{codeblock}
@@ -4836,10 +4905,10 @@ member function, the reference is ill-formed if the
 left operand (considered as a pointer in the
 ``\tcode{.}''
 operator case) cannot be implicitly converted to a
-pointer to the naming class of the right operand.
+pointer to the designating class of the right operand.
 \begin{note}
 This requirement is in addition to the requirement that
-the member be accessible as named.
+the member be accessible as designated.
 \end{note}
 
 \rSec2[class.friend]{Friends}%
