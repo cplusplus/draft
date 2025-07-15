@@ -3196,15 +3196,21 @@ object is tracked by the optional object.
 namespace std {
   // \ref{optional.optional}, class template \tcode{optional}
   template<class T>
-    class optional;                                                     // partially freestanding
+    class optional;                                             // partially freestanding
+
+  // \ref{optional.optional.ref}, partial specialization of \tcode{optional} for lvalue reference types
+  template<class T>
+    class optional<T&>;                                         // partially freestanding
 
   template<class T>
     constexpr bool ranges::enable_view<optional<T>> = true;
   template<class T>
     constexpr auto format_kind<optional<T>> = range_format::disabled;
+  template<class T>
+    constexpr bool ranges::enable_borrowed_range<optional<T&>> = true;
 
   template<class T>
-    concept @\defexposconcept{is-derived-from-optional}@ = requires(const T& t) {       // \expos
+    concept @\defexposconceptnc{is-derived-from-optional}@ = requires(const T& t) {   // \expos
       []<class U>(const optional<U>&){ }(t);
     };
 
@@ -3379,9 +3385,14 @@ When an \tcode{optional<T>} object contains a value,
 member \tcode{val} points to the contained value.
 
 \pnum
-\tcode{T} shall be a type
-other than \cv{} \tcode{in_place_t} or \cv{} \tcode{nullopt_t}
-that meets the \oldconcept{Destructible} requirements (\tref{cpp17.destructible}).
+A type \tcode{X} is a
+\defnx{valid contained type}{valid contained type!\idxcode{optional}} for \tcode{optional}
+if \tcode{X} is an lvalue reference type or a complete non-array object type,
+and \tcode{remove_cvref_t<X>} is a type other than \tcode{in_place_t} or \tcode{nullopt_t}.
+If a specialization of \tcode{optional} is instantiated with a type \tcode{T}
+that is not a valid contained type for \tcode{optional}, the program is ill-formed.
+If \tcode{T} is an object type,
+\tcode{T} shall meet the \oldconcept{Destructible} requirements (\tref{cpp17.destructible}).
 
 \rSec3[optional.ctor]{Constructors}
 
@@ -3454,7 +3465,7 @@ constexpr optional(optional&& rhs) noexcept(@\seebelow@);
 \pnum
 \effects
 If \tcode{rhs} contains a value, direct-non-list-initializes the contained value
-with \tcode{std::move(*rhs)}.
+with \tcode{*std::move(rhs)}.
 \tcode{rhs.has_value()} is unchanged.
 
 \pnum
@@ -3618,7 +3629,7 @@ template<class U> constexpr explicit(@\seebelow@) optional(optional<U>&& rhs);
 \pnum
 \effects
 If \tcode{rhs} contains a value,
-direct-non-list-initializes the contained value with \tcode{std::move(*rhs)}.
+direct-non-list-initializes the contained value with \tcode{*std::move(rhs)}.
 \tcode{rhs.has_value()} is unchanged.
 
 \pnum
@@ -3744,8 +3755,8 @@ The result of the expression \tcode{rhs.has_value()} remains unchanged.
 {\tcode{*this} does not contain a value}
 
 \rowhdr{\tcode{rhs} contains a value} &
-assigns \tcode{std::move(*rhs)} to the contained value &
-direct-non-list-initializes the contained value with \tcode{std::move(*rhs)} \\
+assigns \tcode{*std::move(rhs)} to the contained value &
+direct-non-list-initializes the contained value with \tcode{*std::move(rhs)} \\
 \rowsep
 
 \rowhdr{\tcode{rhs} does not contain a value} &
@@ -3894,8 +3905,8 @@ The result of the expression \tcode{rhs.has_value()} remains unchanged.
 {\tcode{*this} does not contain a value}
 
 \rowhdr{\tcode{rhs} contains a value} &
-assigns \tcode{std::move(*rhs)} to the contained value &
-direct-non-list-initializes the contained value with \tcode{std::move(*rhs)} \\
+assigns \tcode{*std::move(rhs)} to the contained value &
+direct-non-list-initializes the contained value with \tcode{*std::move(rhs)} \\
 \rowsep
 
 \rowhdr{\tcode{rhs} does not contain a value} &
@@ -4319,8 +4330,7 @@ Let \tcode{U} be \tcode{remove_cv_t<invoke_result_t<F, decltype(*\exposid{val})>
 
 \pnum
 \mandates
-\tcode{U} is a non-array object type
-other than \tcode{in_place_t} or \tcode{nullopt_t}.
+\tcode{U} is a valid contained type for \tcode{optional}.
 The declaration
 \begin{codeblock}
 U u(invoke(std::forward<F>(f), *@\exposid{val}@));
@@ -4351,8 +4361,7 @@ Let \tcode{U} be
 
 \pnum
 \mandates
-\tcode{U} is a non-array object type
-other than \tcode{in_place_t} or \tcode{nullopt_t}.
+\tcode{U} is a valid contained type for \tcode{optional}.
 The declaration
 \begin{codeblock}
 U u(invoke(std::forward<F>(f), std::move(*@\exposid{val}@)));
@@ -4440,6 +4449,551 @@ otherwise no effect.
 \pnum
 \ensures
 \tcode{*this} does not contain a value.
+\end{itemdescr}
+
+\rSec2[optional.optional.ref]{Partial specialization of \tcode{optional} for reference types}
+
+\rSec3[optional.optional.ref.general]{General}
+\begin{codeblock}
+namespace std {
+  template<class T>
+  class optional<T&> {
+    public:
+      using value_type     = T;
+      using iterator       = @\impdefnc@;            // see~\ref{optional.ref.iterators}
+
+    public:
+      // \ref{optional.ref.ctor}, constructors
+      constexpr optional() noexcept = default;
+      constexpr optional(nullopt_t) noexcept : optional() {}
+      constexpr optional(const optional& rhs) noexcept = default;
+
+      template<class Arg>
+        constexpr explicit optional(in_place_t, Arg&& arg);
+      template<class U>
+        constexpr explicit(@\seebelow@) optional(U&& u) noexcept(@\seebelow@);
+      template<class U>
+        constexpr explicit(@\seebelow@) optional(optional<U>& rhs) noexcept(@\seebelow@);
+      template<class U>
+        constexpr explicit(@\seebelow@) optional(const optional<U>& rhs) noexcept(@\seebelow@);
+      template<class U>
+        constexpr explicit(@\seebelow@) optional(optional<U>&& rhs) noexcept(@\seebelow@);
+      template<class U>
+        constexpr explicit(@\seebelow@) optional(const optional<U>&& rhs) noexcept(@\seebelow@);
+
+      constexpr ~optional() = default;
+
+      // \ref{optional.ref.assign}, assignment
+      constexpr optional& operator=(nullopt_t) noexcept;
+      constexpr optional& operator=(const optional& rhs) noexcept = default;
+
+      template<class U> constexpr T& emplace(U&& u) noexcept(@\seebelow@);
+
+      // \ref{optional.ref.swap}, swap
+      constexpr void swap(optional& rhs) noexcept;
+
+      // \ref{optional.iterators}, iterator support
+      constexpr iterator begin() const noexcept;
+      constexpr iterator end() const noexcept;
+
+      // \ref{optional.ref.observe}, observers
+      constexpr T*       operator->() const noexcept;
+      constexpr T&       operator*() const noexcept;
+      constexpr explicit operator bool() const noexcept;
+      constexpr bool     has_value() const noexcept;
+      constexpr T&       value() const;                         // freestanding-deleted
+      template<class U = remove_cv_t<T>>
+        constexpr remove_cv_t<T> value_or(U&& u) const;
+
+      // \ref{optional.ref.monadic}, monadic operations
+      template<class F> constexpr auto and_then(F&& f) const;
+      template<class F> constexpr optional<invoke_result_t<F, T&>> transform(F&& f) const;
+      template<class F> constexpr optional or_else(F&& f) const;
+
+      // \ref{optional.ref.mod}, modifiers
+      constexpr void reset() noexcept;
+
+    private:
+      T* @\exposidnc{val}@ = nullptr;                                         // \expos
+
+      // \ref{optional.ref.expos}, exposition only helper functions
+      template<class U>
+        constexpr void @\exposidnc{convert-ref-init-val}@(U&& u);             // \expos
+    };
+}
+\end{codeblock}
+
+\pnum
+An object of \tcode{optional<T\&>}
+\defnx{contains a value}{contains a value!\idxcode{optional.ref}}
+if and only if \tcode{\exposidnc{val} != nullptr} is \tcode{true}.
+When an \tcode{optional<T\&>} contains a value,
+the \defnx{contained value}{contained value!\idxcode{optional.ref}}
+is a reference to \tcode{*\exposid{val}}.
+
+\rSec3[optional.ref.ctor]{Constructors}
+
+\begin{itemdecl}
+template<class Arg>
+  constexpr explicit optional(in_place_t, Arg&& arg);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_constructible_v<T\&, Arg>} is \tcode{true}, and
+\item \tcode{reference_constructs_from_temporary_v<T\&, Arg>} is \tcode{false}.
+\end{itemize}
+
+\pnum
+\effects
+Equivalent to: \tcode{\exposid{convert-ref-init-val}(std::forward<Arg>(arg))}.
+
+\pnum
+\ensures
+\tcode{*this} contains a value.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class U>
+  constexpr explicit(!is_convertible_v<U, T&>)
+  optional(U&& u) noexcept(is_nothrow_constructible_v<T&, U>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_same_v<remove_cvref_t<U>, optional>} is \tcode{false},
+\item \tcode{is_same_v<remove_cvref_t<U>, in_place_t>} is \tcode{false}, and
+\item \tcode{is_constructible_v<T\&, U>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\effects
+Equivalent to: \tcode{\exposid{convert-ref-init-val}(std::forward<U>(u))}.
+
+\pnum
+\ensures
+\tcode{*this} contains a value.
+
+\pnum
+\remarks
+ This constructor is defined as deleted if
+\begin{codeblock}
+reference_constructs_from_temporary_v<T&, U>
+\end{codeblock}
+ is \tcode{true}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class U>
+  constexpr explicit(!is_convertible_v<U&, T&>)
+  optional(optional<U>& rhs) noexcept(is_nothrow_constructible_v<T&, U&>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_same_v<remove_cv_t<T>, optional<U>>} is \tcode{false},
+\item \tcode{is_same_v<T\&, U>} is \tcode{false}, and
+\item \tcode{is_constructible_v<T\&, U\&>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if (rhs.has_value()) @\exposid{convert-ref-init-val}@(*rhs);
+\end{codeblock}
+
+\pnum
+\remarks
+This constructor is defined as deleted if
+\begin{codeblock}
+reference_constructs_from_temporary_v<T&, U&>
+\end{codeblock}
+is \tcode{true}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class U>
+  constexpr explicit(!is_convertible_v<const U&, T&>)
+  optional(const optional<U>& rhs) noexcept(is_nothrow_constructible_v<T&, const U&>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_same_v<remove_cv_t<T>, optional<U>>} is \tcode{false},
+\item \tcode{is_same_v<T\&, U>} is \tcode{false}, and
+\item \tcode{is_constructible_v<T\&, const U\&>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if (rhs.has_value()) @\exposid{convert-ref-init-val}@(*rhs);
+\end{codeblock}
+
+\pnum
+\remarks
+This constructor is defined as deleted if
+\begin{codeblock}
+reference_constructs_from_temporary_v<T&, const U&>
+\end{codeblock}
+is \tcode{true}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class U>
+  constexpr explicit(!is_convertible_v<U, T&>)
+  optional(optional<U>&& rhs) noexcept(is_nothrow_constructible_v<T&, U>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_same_v<remove_cv_t<T>, optional<U>>} is \tcode{false},
+\item \tcode{is_same_v<T\&, U>} is \tcode{false}, and
+\item \tcode{is_constructible_v<T\&, U>} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if (rhs.has_value()) @\exposid{convert-ref-init-val}@(*std::move(rhs));
+\end{codeblock}
+
+\pnum
+\remarks
+This constructor is defined as deleted if
+\begin{codeblock}
+reference_constructs_from_temporary_v<T&, U>
+\end{codeblock}
+is \tcode{true}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class U>
+  constexpr explicit(!is_convertible_v<const U, T&>)
+  optional(const optional<U>&& rhs) noexcept(is_nothrow_constructible_v<T&, const U>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_same_v<remove_cv_t<T>, optional<U>>} is \tcode{false}, and
+\item \tcode{is_same_v<T\&, U>} is \tcode{false}.
+\item \tcode{is_constructible_v<T\&, const U>} is \tcode{true},
+\end{itemize}
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if (rhs.has_value()) @\exposid{convert-ref-init-val}@(*std::move(rhs));
+\end{codeblock}
+
+\pnum
+\remarks
+This constructor is defined as deleted if
+\begin{codeblock}
+reference_constructs_from_temporary_v<T&, const U>
+\end{codeblock}
+is \tcode{true}.
+\end{itemdescr}
+
+\rSec3[optional.ref.assign]{Assignment}
+
+\begin{itemdecl}
+constexpr optional& operator=(nullopt_t) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Assigns \tcode{nullptr} to \exposid{val}.
+
+\pnum
+\ensures
+\tcode{*this} does not contain a value.
+
+\pnum
+\returns
+\tcode{*this}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class U>
+  constexpr T& emplace(U&& u) noexcept(is_nothrow_constructible_v<T&, U>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item \tcode{is_constructible_v<T\&, U>} is \tcode{true}, and
+\item \tcode{reference_constructs_from_temporary_v<T\&, U>} is \tcode{false}.
+\end{itemize}
+
+\pnum
+\effects
+Equivalent to: \tcode{\exposid{convert-ref-init-val}(std::forward<U>(u))}.
+\end{itemdescr}
+
+\rSec3[optional.ref.swap]{Swap}
+
+\begin{itemdecl}
+constexpr void swap(optional& rhs) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{swap(\exposid{val}, rhs.\exposid{val})}.
+\end{itemdescr}
+
+\rSec3[optional.ref.iterators]{Iterator support}
+
+\begin{itemdecl}
+using iterator = @\impdef@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+This type
+models \libconcept{contiguous_iterator}\iref{iterator.concept.contiguous},
+meets the \oldconcept{RandomAccessIterator} requirements\iref{random.access.iterators},
+and meets the requirements for constexpr iterators\iref{iterator.requirements.general},
+with value type \tcode{remove_cv_t<T>}.
+The reference type is \tcode{T\&} for \tcode{iterator}.
+
+\pnum
+All requirements on container iterators\iref{container.reqmts} apply to
+\tcode{optional::iterator}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr iterator begin() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+  If \tcode{has_value()} is \tcode{true},
+  an iterator referring to \tcode{*\exposid{val}}.
+  Otherwise, a past-the-end iterator value.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr iterator end() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{begin() + has_value()}.
+\end{itemdescr}
+
+\rSec3[optional.ref.observe]{Observers}
+
+\begin{itemdecl}
+constexpr T* operator->() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\hardexpects
+\tcode{has_value()} is \tcode{true}.
+
+\pnum
+\returns
+\exposid{val}.
+
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr T& operator*() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\hardexpects
+\tcode{has_value()} is \tcode{true}.
+
+\pnum
+\returns
+\tcode{*\exposid{val}}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr explicit operator bool() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{\exposid{val} != nullptr}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr bool has_value() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{\exposid{val} != nullptr}.
+\end{itemdescr}
+
+\begin{itemdecl}
+constexpr T& value() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return has_value() ? *@\exposid{val}@ : throw bad_optional_access();
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class U = remove_cv_t<T>> constexpr remove_cv_t<T> value_or(U&& u) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+ Let \tcode{X} be \tcode{remove_cv_t<T>}.
+
+\pnum
+\mandates
+\tcode{is_constructible_v<X, T\&> \&\& is_convertible_v<U, X>} is \tcode{true}.
+
+\pnum
+\effects
+ Equivalent to:
+\begin{codeblock}
+return has_value() ? *@\exposid{val}@ : static_cast<X>(std::forward<U>(u));
+\end{codeblock}
+\end{itemdescr}
+
+\rSec3[optional.ref.monadic]{Monadic operations}
+
+\begin{itemdecl}
+template<class F> constexpr auto and_then(F&& f) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{U} be \tcode{invoke_result_t<F, T\&>}.
+
+\pnum
+\mandates
+\tcode{remove_cvref_t<U>} is a specialization of \tcode{optional}.
+
+\pnum
+\effects
+  Equivalent to:
+\begin{codeblock}
+if (has_value()) {
+  return invoke(std::forward<F>(f), *@\exposid{val}@);
+} else {
+  return remove_cvref_t<U>();
+}
+\end{codeblock}
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class F>
+  constexpr optional<remove_cv_t<invoke_result_t<F, T&>>> transform(F&& f) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+  Let \tcode{U} be \tcode{remove_cv_t<invoke_result_t<F, T\&>>}.
+
+\pnum
+\mandates
+The declaration
+\begin{codeblock}
+U u(invoke(std::forward<F>(f), *@\exposid{val}@));
+\end{codeblock}
+is well-formed for some invented variable \tcode{u}.
+\begin{note}
+There is no requirement that \tcode{U} is movable\iref{dcl.init.general}.
+\end{note}
+
+\pnum
+\returns
+If \tcode{*this} contains a value, an \tcode{optional<U>} object
+whose contained value is direct-non-list-initialized with
+\tcode{invoke(std::forward<F>(f), *\exposid{val})};
+otherwise, \tcode{optional<U>()}.
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class F> constexpr optional or_else(F&& f) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{F} models \tcode{\libconcept{invocable}}.
+
+\pnum
+\mandates
+\tcode{is_same_v<remove_cvref_t<invoke_result_t<F>>, optional>} is \tcode{true}.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if (has_value()) {
+  return *@\exposid{val}@;
+} else {
+  return std::forward<F>(f)();
+}
+\end{codeblock}
+\end{itemdescr}
+
+\rSec3[optional.ref.mod]{Modifiers}
+
+\begin{itemdecl}
+constexpr void reset() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Assigns \tcode{nullptr} to \exposid{val}.
+
+\pnum
+\ensures
+\tcode{*this} does not contain a value.
+\end{itemdescr}
+
+\rSec3[optional.ref.expos]{Exposition only helper functions}
+
+\begin{itemdecl}
+template<class U>
+  constexpr void @\exposid{convert-ref-init-val}@(U&& u);  // \expos
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Creates a variable \tcode{r} as if by \tcode{T\& r(std::forward<U>(u));}
+and then initializes \exposid{val} with \tcode{addressof(r)}.
 \end{itemdescr}
 
 \rSec2[optional.nullopt]{No-value state indicator}
@@ -4911,8 +5465,10 @@ template<class T>
 \begin{itemdescr}
 \pnum
 \constraints
-\tcode{is_move_constructible_v<T>} is \tcode{true} and
-\tcode{is_swappable_v<T>} is \tcode{true}.
+\begin{codeblock}
+is_reference_v<T> || (is_move_constructible_v<T> && is_swappable_v<T>)
+\end{codeblock}
+is \tcode{true}.
 
 \pnum
 \effects
@@ -4925,6 +5481,12 @@ template<class T> constexpr optional<decay_t<T>> make_optional(T&& v);
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+\constraints
+The call to \tcode{make_optional} does not use
+an explicit \grammarterm{template-argument-list} that
+begins with a type \grammarterm{template-argument}.
+
 \pnum
 \returns
 \tcode{optional<decay_t<T>>(std::forward<T>(v))}.
