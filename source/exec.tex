@@ -639,6 +639,8 @@ namespace std::execution {
   struct @\libglobal{into_variant_t}@ { @\unspec@ };
   struct @\libglobal{stopped_as_optional_t}@ { @\unspec@ };
   struct @\libglobal{stopped_as_error_t}@ { @\unspec@ };
+  struct @\libglobal{associate_t}@ { @\unspec@ };
+  struct @\libglobal{spawn_future_t}@ { @\unspec@ };
 
   inline constexpr @\unspec@ @\libglobal{write_env}@{};
   inline constexpr @\unspec@ @\libglobal{unstoppable}@{};
@@ -661,9 +663,10 @@ namespace std::execution {
   inline constexpr into_variant_t @\libglobal{into_variant}@{};
   inline constexpr stopped_as_optional_t @\libglobal{stopped_as_optional}@{};
   inline constexpr stopped_as_error_t @\libglobal{stopped_as_error}@{};
+  inline constexpr associate_t @\libglobal{associate}@{};
+  inline constexpr spawn_future_t @\libglobal{spawn_future}@{};
 
   // \ref{exec.util}, sender and receiver utilities
-  // \ref{exec.util.cmplsig}
   template<class Fn>
     concept @\exposconceptnc{completion-signature}@ = @\seebelownc@;                   // \expos
 
@@ -673,7 +676,6 @@ namespace std::execution {
   template<class Sigs>
     concept @\exposconceptnc{valid-completion-signatures}@ = @\seebelownc@;            // \expos
 
-  // \ref{exec.util.cmplsig.trans}
   template<
     @\exposconcept{valid-completion-signatures}@ InputSignatures,
     @\exposconcept{valid-completion-signatures}@ AdditionalSignatures = completion_signatures<>,
@@ -709,6 +711,10 @@ namespace std::this_thread {
 }
 
 namespace std::execution {
+  // \ref{exec.consumers}, consumers
+  struct @\libglobal{spawn_t}@ { @\unspec@ };
+  inline constexpr spawn_t spawn{};
+
   // \ref{exec.as.awaitable}
   struct @\libglobal{as_awaitable_t}@ { @\unspec@ };
   inline constexpr as_awaitable_t @\libglobal{as_awaitable}@{};
@@ -716,6 +722,16 @@ namespace std::execution {
   // \ref{exec.with.awaitable.senders}
   template<@\exposconcept{class-type}@ Promise>
     struct with_awaitable_senders;
+
+  // \ref{exec.scope.concepts}, scope concepts
+  template<class Token>
+    concept @\libconcept{scope_token}@ = @\seebelow@;
+
+  // \ref{exec.scope.simple.counting}
+  class simple_counting_scope;
+
+  // \ref{exec.scope.counting}
+  class counting_scope;
 }
 \end{codeblock}
 
@@ -4811,6 +4827,704 @@ return let_stopped(
   });
 \end{codeblock}
 
+\rSec3[exec.associate]{\tcode{std::execution::associate}}
+
+\pnum
+\tcode{associate} tries to associate
+a sender with an async scope such that
+the scope can track the lifetime of any asynchronous operations
+created with the sender.
+
+\pnum
+Let \exposid{associate-data} be the following exposition-only class template:
+
+\indexlibraryglobal{execution::\exposid{associate-data}}%
+\begin{codeblock}
+namespace std::execution {
+  template<@\libconcept{scope_token}@ Token, @\libconcept{sender}@ Sender>
+  struct @\exposid{associate-data}@ {                                       // \expos
+    using @\exposid{wrap-sender}@ =                                         // \expos
+      remove_cvref_t<decltype(declval<Token&>().wrap(declval<Sender>()))>;
+
+    explicit @\exposid{associate-data}@(Token t, Sender&& s)
+      : @\exposid{sndr}@(t.wrap(std::forward<Sender>(s))),
+        @\exposid{token}@(t) {
+      if (!@\exposid{token}@.try_associate())
+        @\exposid{sndr}@.reset();
+    }
+
+    @\exposid{associate-data}@(const @\exposid{associate-data}@& other)
+      noexcept(is_nothrow_copy_constructible_v<@\exposid{wrap-sender}@> &&
+               noexcept(other.@\exposid{token}@.try_associate()));
+
+    @\exposid{associate-data}@(@\exposid{associate-data}@&& other)
+      noexcept(is_nothrow_move_constructible_v<@\exposid{wrap-sender}@>);
+
+    ~@\exposid{associate-data}@();
+
+    optional<pair<Token, @\exposid{wrap-sender}@>>
+      release() && noexcept(is_nothrow_move_constructible_v<@\exposid{wrap-sender}@>);
+
+  private:
+    optional<@\exposid{wrap-sender}@> @\exposid{sndr}@;  // \expos
+    Token @\exposid{token}@;                 // \expos
+  };
+
+  template<@\libconcept{scope_token}@ Token, @\libconcept{sender}@ Sender>
+    @\exposid{associate-data}@(Token, Sender&&) -> @\exposid{associate-data}@<Token, Sender>;
+}
+\end{codeblock}
+
+\pnum
+For an \exposid{associate-data} object \tcode{a},
+\tcode{a.\exposid{sndr}.has_value()} is \tcode{true}
+if and only if
+an association was successfully made and is owned by \tcode{a}.
+
+\indexlibraryctor{execution::\exposid{associate-data}}%
+\begin{itemdecl}
+@\exposid{associate-data}@(const @\exposid{associate-data}@& other)
+  noexcept(is_nothrow_copy_constructible_v<@\exposid{wrap-sender}@> &&
+           noexcept(other.@\exposid{token}@.try_associate()));
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{\libconcept{copy_constructible}<\exposid{wrap-sender}>} is \tcode{true}.
+
+\pnum
+\effects
+Value-initializes \exposid{sndr} and
+initializes \exposid{token} with \tcode{other.\exposid{token}}.
+If \tcode{other.\exposid{sndr}.has_value()} is \tcode{false},
+no further effects;
+otherwise,
+calls \tcode{\exposid{token}.try_associate()} and,
+if that returns \tcode{true},
+calls \tcode{\exposid{sndr}.emplace(*other.\exposid{sndr})} and,
+if that exits with an exception,
+calls \tcode{\exposid{token}.disassociate()} before propagating the exception.
+\end{itemdescr}
+
+\indexlibraryctor{execution::\exposid{associate-data}}%
+\begin{itemdecl}
+@\exposid{associate-data}@(@\exposid{associate-data}@&& other)
+  noexcept(is_nothrow_move_constructible_v<@\exposid{wrap-sender}@>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{sndr} with \tcode{std::move(other.\exposid{sndr})} and
+initializes \exposid{token} with \tcode{std::move(other.\brk{}\exposid{token})} and
+then calls \tcode{other.\exposid{sndr}.reset()}.
+\end{itemdescr}
+
+\indexlibrarydtor{execution::\exposid{associate-data}}%
+\begin{itemdecl}
+~@\exposid{associate-data}@();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{\exposid{sndr}.has_value()} returns \tcode{false} then no effect;
+otherwise, invokes \tcode{\exposid{sndr}.reset()}
+before invoking \tcode{\exposid{token}.disassociate()}.
+\end{itemdescr}
+
+\indexlibrarymember{release}{execution::\exposid{associate-data}}%
+\begin{itemdecl}
+optional<pair<Token, @\exposid{wrap-sender}@>>
+  release() && noexcept(is_nothrow_move_constructible_v<@\exposid{wrap-sender}@>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \tcode{\exposid{sndr}.has_value()} returns \tcode{false} then
+returns an \tcode{optional} that does not contain a value;
+otherwise returns an \tcode{optional}
+containing a value of type \tcode{pair<Token, \exposid{wrap-sender}>}
+as if by:
+\begin{codeblock}
+return optional(pair(@\exposid{token}@, std::move(*@\exposid{sndr}@)));
+\end{codeblock}
+
+\pnum
+\ensures
+\exposid{sndr} does not contain a value.
+\end{itemdescr}
+
+\pnum
+The name \tcode{associate} denotes a pipeable sender adaptor object.
+For subexpressions \tcode{sndr} and \tcode{token}:
+\begin{itemize}
+\item
+If \tcode{decltype((sndr))} does not satisfy \libconcept{sender}, or
+\tcode{remove_cvref_t<decltype((token))>}
+does not satisfy \libconcept{scope_token}, then
+\tcode{associate(sndr, token)} is ill-formed.
+\item
+Otherwise,
+the expression \tcode{associate(sndr, token)}
+is expression-equivalent to:
+\begin{codeblock}
+transform_sender(@\exposid{get-domain-early}@(sndr),
+                 @\exposid{make-sender}@(associate, @\exposid{associate-data}@(token, sndr)))
+\end{codeblock}
+except that \tcode{sndr} is evaluated only once.
+\end{itemize}
+
+\pnum
+The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
+is specialized for \tcode{associate_t} as follows:
+
+%%FIXME: Where did data-type and FWD-ENV-T come from?
+\indexlibraryglobal{execution::\exposid{impls-for}<associate_t>}%
+\begin{codeblock}
+namespace std::execution {
+  template<>
+  struct @\exposid{impls-for}@<associate_t> : @\exposid{default-impls}@ {
+    static constexpr auto @\exposid{get-state}@ = @\seebelow@;                // \expos
+    static constexpr auto @\exposid{start}@ = @\seebelow@;                    // \expos
+
+    template<class Sndr, class... Env>
+      static consteval void @\exposid{check-types}@() {                     // \expos
+        using associate_data_t = remove_cvref_t<@\exposid{data-type}@<Sndr>>;
+        using child_type_t = typename associate_data_t::@\exposid{wrap-sender}@;
+        (void)get_completion_signatures<child_type_t, @\exposid{FWD-ENV-T}@(Env)...>();
+    }
+  };
+}
+\end{codeblock}
+
+\pnum
+The member \tcode{\exposid{impls-for}<associate_t>::\exposid{get-state}}
+is initialized with a callable object equivalent to the following lambda:
+
+\begin{codeblock}
+[]<class Sndr, class Rcvr>(Sndr&& sndr, Rcvr& rcvr) noexcept(@\seebelow@) {
+  auto [_, data] = std::forward<Sndr>(sndr);
+  auto dataParts = std::move(data).release();
+
+  using scope_tkn = decltype(dataParts->first);
+  using wrap_sender = decltype(dataParts->second);
+  using op_t = connect_result_t<wrap_sender, Rcvr>;
+
+  struct op_state {
+    bool @\exposid{associated}@ = false;    // \expos
+    union {
+      Rcvr* @\exposid{rcvr}@;               // \expos
+      struct {
+        scope_tkn @\exposid{token}@;        // \expos
+        op_t @\exposid{op}@;                // \expos
+      } @\exposid{assoc}@;                  // \expos
+    };
+
+    explicit op_state(Rcvr& r) noexcept
+      : @\exposid{rcvr}@(addressof(r)) {}
+
+    explicit op_state(scope_tkn tkn, wrap_sender&& sndr, Rcvr& r) try
+      : @\exposid{associated}@(true),
+        @\exposid{assoc}@(tkn, connect(std::move(sndr), std::move(r))) {
+    }
+    catch (...) {
+      tkn.disassociate();
+      throw;
+    }
+
+    op_state(op_state&&) = delete;
+
+    ~op_state() {
+      if (@\exposid{associated}@) {
+        @\exposid{assoc}@.@\exposid{op}@.~op_t();
+        @\exposid{assoc}@.@\exposid{token}@.disassociate();
+        @\exposid{assoc}@.@\exposid{token}@.~scope_tkn();
+      }
+    }
+
+    void @\exposid{run}@() noexcept {       // \expos
+      if (@\exposid{associated}@)
+        start(@\exposid{assoc}@.@\exposid{op}@);
+      else
+        set_stopped(std::move(*@\exposid{rcvr}@));
+    }
+  };
+
+  if (dataParts)
+    return op_state{std::move(dataParts->first), std::move(dataParts->second), rcvr};
+  else
+    return op_state{rcvr};
+}
+\end{codeblock}
+
+\pnum
+The expression in the \tcode{noexcept} clause of
+\tcode{\exposid{impls-for}<associate_t>::\exposid{get-state}} is
+\begin{codeblock}
+is_nothrow_constructible_v<remove_cvref_t<Sndr>, Sndr> &&
+is_nothrow_move_constructible_v<@\exposid{wrap-sender}@> &&
+@\exposconcept{nothrow-callable}@<connect_t, @\exposid{wrap-sender}@, Rcvr>
+\end{codeblock}
+where \exposid{wrap-sender} is the type
+\tcode{remove_cvref_t<\exposid{data-type}<Sndr>>::\exposid{wrap-sender}}.
+
+\pnum
+The member \tcode{\exposid{impls-for}<associate_t>::\exposid{start}}
+is initialized with a callable object equivalent to the following lambda:
+\begin{codeblock}
+[](auto& state, auto&) noexcept -> void {
+  state.@\exposid{run}@();
+}
+\end{codeblock}
+
+\pnum
+%%FIXME: What are "sndr" and "token" referring to here?
+The evaluation of \tcode{associate(sndr, token)}
+may cause side effects observable
+via \tcode{token}{'s} associated async scope object.
+
+\rSec3[exec.stop.when]{Exposition-only \tcode{std::execution::\exposid{stop-when}}}
+
+\pnum
+%%FIXME: Should stop-when be declared somewhere as \expos?
+\exposid{stop-when} fuses an additional stop token \tcode{t}
+into a sender so that, upon connecting to a receiver \tcode{r},
+the resulting operation state receives stop requests from both
+\tcode{t} and the token returned from \tcode{get_stop_token(get_env(r))}.
+
+\pnum
+The name \exposid{stop-when} denotes an exposition-only sender adaptor.
+For subexpressions \tcode{sndr} and \tcode{token}:
+\begin{itemize}
+\item
+If \tcode{decltype((sndr))} does not satisfy \libconcept{sender}, or
+\tcode{remove_cvref_t<decltype((token))>}
+does not satisfy \libconcept{stoppable_token},
+then \tcode{\exposid{stop-when}(sndr, token)} is ill-formed.
+
+\item
+Otherwise,
+if \tcode{remove_cvref_t<decltype((token))>} models
+\libconcept{unstoppable_token} then
+\tcode{\exposid{stop-when}(\brk{}sndr, token)} is expression-equivalent to
+\tcode{sndr}.
+
+\item
+Otherwise,
+\tcode{\exposid{stop-when}(sndr, token)} returns a sender \tcode{osndr}.
+%%FIXME: What is rtoken if osndr is not connected to a receiver?
+If \tcode{osndr} is connected to a receiver \tcode{r},
+let \tcode{rtoken} be the result of \tcode{get_stop_token(get_env(r))}.
+
+\begin{itemize}
+\item
+If the type of \tcode{rtoken} models \libconcept{unstoppable_token} then
+the effects of connecting \tcode{osndr} to \tcode{r}
+are equivalent to
+\tcode{connect(write_env(sndr, prop(get_stop_token, token)), r)}.
+
+\item
+Otherwise,
+the effects of connecting \tcode{osndr} to \tcode{r}
+are equivalent to
+\tcode{connect(write_env(sndr, prop(get_stop_token, stoken)), r)}
+where \tcode{stoken} is an object of
+an exposition-only type \exposid{stoken-t} such that:
+  \begin{itemize}
+  \item
+  \exposid{stoken-t} models \libconcept{stoppable_token};
+  \item
+  \tcode{stoken.stop_requested()} returns
+  \tcode{token.stop_requested() || rtoken.stop_reques-\linebreak{}ted()};
+  \item
+  \tcode{stoken.stop_possible()} returns
+  \tcode{token.stop_possible() || rtoken.stop_possible()}; and
+  \item
+  for types \tcode{Fn} and \tcode{Init} such that both
+  \tcode{\libconcept{invocable}<Fn>} and
+  \tcode{\libconcept{constructible_from}<Fn, Init>}
+  are modeled,
+  \tcode{\exposid{stoken-t}::callback_type<Fn>} models
+  \tcode{\exposconcept{stoppable-callback-for}<Fn, \exposid{sto\-ken-t}, Init>}.
+  \begin{tailnote}
+  For an object \tcode{fn} of type \tcode{Fn}
+  constructed from a value, \tcode{init}, of type \tcode{Init},
+  registering \tcode{fn} using
+  \tcode{\exposid{stoken-t}::callback_type<Fn>(stoken, init)}
+  results in an invocation of \tcode{fn} when
+  a callback registered with \tcode{token} or \tcode{rtoken} would be invoked.
+  \tcode{fn} is invoked at most once.
+  \end{tailnote}
+  \end{itemize}
+\end{itemize}
+\end{itemize}
+
+\rSec3[exec.spawn.future]{\tcode{std::execution::spawn_future}}
+
+\pnum
+\tcode{spawn_future} attempts to associate the given input sender
+with the given token's async scope and, on success,
+eagerly starts the input sender;
+the return value is a sender that, when connected and started,
+completes with either
+the result of the eagerly-started input sender or with
+\tcode{set_stopped} if the input sender was not started.
+
+\pnum
+The name \tcode{spawn_future} denotes a customization point object.
+For subexpressions \tcode{sndr}, \tcode{token}, and \tcode{env},
+\begin{itemize}
+\item let \tcode{Sndr} be \tcode{decltype((sndr))},
+\item let \tcode{Token} be \tcode{remove_cvref_t<decltype((token))>}, and
+\item let \tcode{Env} be \tcode{remove_cvref_t<decltype((env))>}.
+\end{itemize}
+If any of
+\tcode{\libconcept{sender}<Sndr>},
+\tcode{\libconcept{scope_token}<Token>}, or
+\tcode{\exposconcept{queryable}<Env>}
+are not satisfied,
+the expression \tcode{spawn_future(sndr, token, env)} is ill-formed.
+
+\pnum
+Let \exposid{spawn-future-state-base} be the exposition-only class template:
+
+\indexlibraryglobal{execution::\exposid{spawn-future-state-base}}%
+\begin{codeblock}
+namespace std::execution {
+  template<class Completions>
+  struct @\exposid{spawn-future-state-base}@;                                   // \expos
+
+  template<class... Sigs>
+  struct @\exposid{spawn-future-state-base}@<completion_signatures<Sigs...>> {  // \expos
+    using @\exposid{variant-t}@ = @\seebelow@;                                    // \expos
+    @\exposid{variant-t}@ @\exposid{result}@;                                               // \expos
+    virtual void @\exposid{complete}@() noexcept = 0;                           // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+Let \tcode{Sigs} be the pack of arguments to
+the \tcode{completion_signatures} specialization provided as
+a parameter to the \exposid{spawn-future-state-base} class template.
+Let \exposid{as-tuple} be an alias template that
+transforms a completion signature \tcode{Tag(Args...)}
+into the tuple specialization \tcode{\exposid{decayed-tuple}<Tag, Args...>}.
+
+\begin{itemize}
+\item
+If \tcode{is_nothrow_constructible_v<decay_t<Arg>, Arg>} is \tcode{true}
+for every type \tcode{Arg}
+in every parameter pack \tcode{Args}
+in every completion signature \tcode{Tag(Args...)}
+in \tcode{Sigs} then
+\exposid{variant-t} denotes the type
+\tcode{variant<monostate, tuple<set_stopped_t>, \placeholder{as-tuple}<Sigs>...>},
+except with duplicate types removed.
+
+\item
+Otherwise
+\exposid{variant-t} denotes the type
+\tcode{variant<monostate, tuple<set_stopped_t>, tuple<set_error_t, exception_ptr>, \placeholder{as-tuple}<Sigs>...>},
+except with duplicate types removed.
+\end{itemize}
+
+\pnum
+Let \exposid{spawn-future-receiver} be the exposition-only class template:
+
+\indexlibraryglobal{execution::\exposid{spawn-future-receiver}}%
+\begin{codeblock}
+namespace std::execution {
+  template<class Completions>
+  struct @\exposid{spawn-future-receiver}@ {                                // \expos
+    using receiver_concept = receiver_t;
+
+    @\exposid{spawn-future-state-base}@<Completions>* @\exposid{state}@;                // \expos
+
+    template<class... T>
+      void set_value(T&&... t) && noexcept {
+        @\exposid{set-complete}@<set_value_t>(std::forward<T>(t)...);
+      }
+
+    template<class E>
+      void set_error(E&& e) && noexcept {
+       @\exposid{set-complete}@<set_error_t>(std::forward<E>(e));
+      }
+
+    void set_stopped() && noexcept {
+       @\exposid{set-complete}@<set_stopped_t>();
+    }
+
+  private:
+    template<class CPO, class... T>
+      void @\exposid{set-complete}@(T&&... t) noexcept {                    // \expos
+        constexpr bool nothrow = (is_nothrow_constructible_v<decay_t<T>, T> && ...);
+        try {
+          @\exposid{state}@->@\exposid{result}@.template emplace<@\exposid{decayed-tuple}@<CPO, T...>>(CPO{},
+                                                                   std::forward<T>(t)...);
+        }
+        catch (...) {
+          if constexpr (!nothrow) {
+            using tuple_t = @\exposid{decayed-tuple}@<set_error_t, exception_ptr>;
+            @\exposid{state}@->@\exposid{result}@.template emplace<tuple_t>(set_error_t{}, current_exception());
+          }
+        }
+        @\exposid{state}@->@\exposid{complete}@();
+      }
+  };
+}
+\end{codeblock}
+
+\pnum
+Let \placeholder{ssource-t} be an unspecified type
+that models \exposconcept{stoppable-source} and
+let \tcode{ssource} be an lvalue of type \placeholder{ssource-t}.
+Let \tcode{\placeholder{stoken-t}} be \tcode{decltype(ssource.get_token())}.
+Let \exposid{future-spawned-sender} be the alias template:
+
+\begin{codeblock}
+template<@\libconcept{sender}@ Sender, class Env>
+using @\exposid{future-spawned-sender}@ =                                   // \expos
+  decltype(write_env(@\exposid{stop-when}@(declval<Sender>(), declval<@\placeholder{stoken-t}@>()), declval<Env>()));
+\end{codeblock}
+
+\pnum
+Let \exposid{spawn-future-state} be the exposition-only class template:
+
+\indexlibraryglobal{execution::\exposid{spawn-future-state}}%
+\begin{codeblock}
+namespace std::execution {
+  template<class Alloc, @\libconcept{scope_token}@ Token, @\libconcept{sender}@ Sender, class Env>
+  struct @\exposid{spawn-future-state}@                                                 // \expos
+    : @\exposid{spawn-future-state-base}@<completion_signatures_of_t<@\exposid{future-spawned-sender}@<Sender, Env>>> {
+    using @\exposid{sigs-t}@ =                                                          // \expos
+      completion_signatures_of_t<@\exposid{future-spawned-sender}@<Sender, Env>>;
+    using @\exposid{receiver-t}@ =                                                      // \expos
+      @\exposid{spawn-future-receiver}@<@\exposid{sigs-t}@>;
+    using @\exposid{op-t}@ =                                                            // \expos
+      connect_result_t<@\exposid{future-spawned-sender}@<Sender, Env>, @\exposid{receiver-t}@>;
+
+    @\exposid{spawn-future-state}@(Alloc alloc, Sender&& sndr, Token token, Env env)    // \expos
+      : @\exposid{alloc}@(std::move(alloc)),
+        @\exposid{op}@(connect(
+          write_env(@\exposid{stop-when}@(std::forward<Sender>(sndr), @\exposid{ssource}@.get_token()), std::move(env)),
+          @\exposid{receiver-t}@(this))),
+        @\exposid{token}@(std::move(token)),
+        @\exposid{associated}@(token.try_associate()) {
+          if (associated)
+            start(@\exposid{op}@);
+          else
+            set_stopped(@\exposid{receiver-t}@(this));
+        }
+
+    void @\exposid{complete}@() noexcept override;                                      // \expos
+    void @\exposid{consume}@(@\libconcept{receiver}@ auto& rcvr) noexcept;                             // \expos
+    void @\exposid{abandon}@() noexcept;                                                // \expos
+
+  private:
+    using @\exposid{alloc-t}@ =                                                         // \expos
+      typename allocator_traits<Alloc>::template rebind_alloc<@\exposid{spawn-future-state}@>;
+
+    @\exposid{alloc-t}@ @\exposid{alloc}@;                                                          // \expos
+    @\exposid{ssource-t}@ @\exposid{ssource}@;                                                      // \expos
+    @\exposid{op-t}@ @\exposid{op}@;                                                                // \expos
+    Token @\exposid{token}@;                                                            // \expos
+    bool @\exposid{associated}@;                                                        // \expos
+
+    void @\exposid{destroy}@() noexcept;                                                // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+For purposes of determining the existence of a data race,
+\exposid{complete}, \exposid{consume}, and \exposid{abandon}
+behave as atomic operations\iref{intro.multithread}.
+These operations on a single object of a type
+that is a specialization of \exposid{spawn-future-state}
+appear to occur in a single total order.
+
+\indexlibrarymember{\exposid{complete}}{execution::\exposid{spawn-future-state}}%
+\begin{itemdecl}
+void @\exposid{complete}@() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\begin{itemize}
+\item
+No effects if this invocation of \exposid{complete} happens before
+an invocation of \exposid{consume} or \exposid{abandon} on \tcode{*this};
+\item
+otherwise,
+if an invocation of \exposid{consume} on \tcode{*this} happens before
+this invocation of \exposid{complete} then
+there is a receiver, \tcode{rcvr}, registered and
+that receiver is completed as if by \tcode{\exposid{consume}(rcvr)};
+\item
+otherwise,
+\exposid{destroy} is invoked.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibrarymember{\exposid{consume}}{execution::\exposid{spawn-future-state}}%
+\begin{itemdecl}
+void @\exposid{consume}@(@\libconcept{receiver}@ auto& rcvr) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\begin{itemize}
+\item
+If this invocation of \exposid{consume} happens before
+an invocation of \exposid{complete} on \tcode{*this} then
+\tcode{rcvr} is registered to be completed when
+\exposid{complete} is subsequently invoked on \tcode{*this};
+
+\item
+otherwise,
+\tcode{rcvr} is completed as if by:
+\begin{codeblock}
+std::move(this->@\exposid{result}@).visit(
+  [&rcvr](auto&& tuple) noexcept {
+    if constexpr (!@\libconcept{same_as}@<remove_reference_t<decltype(tuple)>, monostate>) {
+       apply([&rcvr](auto cpo, auto&&... vals) {
+         cpo(std::move(rcvr), std::move(vals)...);
+       }, std::move(tuple));
+    }
+  });
+\end{codeblock}
+\end{itemize}
+\end{itemdescr}
+
+\indexlibrarymember{\exposid{abandon}}{execution::\exposid{spawn-future-state}}%
+\begin{itemdecl}
+void @\exposid{abandon}@() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\begin{itemize}
+\item
+If this invocation of \exposid{abandon} happens before
+an invocation of \exposid{complete} on \tcode{*this} then
+equivalent to:
+\begin{codeblock}
+@\exposid{ssource}@.request_stop();
+\end{codeblock}
+\item
+otherwise,
+\exposid{destroy} is invoked.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibrarymember{\exposid{destroy}}{execution::\exposid{spawn-future-state}}%
+\begin{itemdecl}
+void @\exposid{destroy}@() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto token = std::move(this->@\exposid{token}@);
+bool associated = this->@\exposid{associated}@;
+
+{
+  auto alloc = std::move(this->@\exposid{alloc}@);
+
+  allocator_traits<@\exposid{alloc-t}@>::destroy(alloc, this);
+  allocator_traits<@\exposid{alloc-t}@>::deallocate(alloc, this, 1);
+}
+
+if (associated)
+  token.disassociate();
+\end{codeblock}
+\end{itemdescr}
+
+\pnum
+The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
+is specialized for \tcode{spawn_future_t} as follows:
+
+\indexlibraryglobal{execution::\exposid{impls-for}<spawn_future_t>}%
+\begin{codeblock}
+namespace std::execution {
+  template<>
+  struct @\exposid{impls-for}@<spawn_future_t> : @\exposid{default-impls}@ {
+    static constexpr auto @\exposid{start}@ = @\seebelow@;                    // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+The member \tcode{\exposid{impls-for}<spawn_future_t>::\exposid{start}}
+is initialized with a callable object equivalent to the following lambda:
+\begin{codeblock}
+[](auto& state, auto& rcvr) noexcept -> void {
+  state->@\exposid{consume}@(rcvr);
+}
+\end{codeblock}
+
+\pnum
+For the expression \tcode{spawn_future(sndr, token, env)}
+let \tcode{new_sender} be the expression \tcode{token.wrap(sndr)} and
+let \tcode{alloc} and \tcode{senv} be defined as follows:
+\begin{itemize}
+\item
+if the expression \tcode{get_allocator(env)} is well-formed, then
+\tcode{alloc} is the result of \tcode{get_allocator(env)} and
+\tcode{senv} is the expression \tcode{env};
+\item
+otherwise,
+if the expression \tcode{get_allocator(get_env(new_sender))} is well-formed, then
+\tcode{alloc} is the result of \tcode{get_allocator(get_env(new_sender))} and
+\tcode{senv} is the expression
+\tcode{\exposid{JOIN-ENV}(prop(get_allocator, alloc), env)};
+\item
+otherwise,
+\tcode{alloc} is \tcode{allocator<void>()} and
+\tcode{senv} is the expression \tcode{env}.
+\end{itemize}
+
+\pnum
+The expression \tcode{spawn_future(sndr, token, env)}
+has the following effects:
+
+\begin{itemize}
+\item
+Uses \tcode{alloc} to allocate and construct an object \tcode{s} of
+a type that is a specialization of \exposid{spawn-future-\brk{}state}
+from \tcode{alloc}, \tcode{token.wrap(sndr)}, \tcode{token}, and \tcode{senv}.
+If an exception is thrown then
+any constructed objects are destroyed and
+any allocated memory is deallocated.
+
+\item
+Constructs an object \tcode{u} of
+a type that is a specialization of \tcode{unique_ptr} such that:
+  \begin{itemize}
+  \item
+  \tcode{u.get()} is equal to the address of \tcode{s}, and
+  \item
+  \tcode{u.get_deleter()(u.release())} is equivalent to
+  \tcode{u.release()->\exposid{abandon}()}.
+  \end{itemize}
+
+\item
+Returns \tcode{\exposid{make-sender}(spawn_future, std::move(u))}.
+\end{itemize}
+
+\pnum
+The expression \tcode{spawn_future(sndr, token)} is expression-equivalent to
+\tcode{spawn_future(sndr, token, ex\-ecution::env<>())}.
+
 \rSec2[exec.consumers]{Sender consumers}
 
 \rSec3[exec.sync.wait]{\tcode{this_thread::sync_wait}}
@@ -5062,6 +5776,190 @@ For an error completion, an exception is thrown.
 For a stopped completion, a disengaged \tcode{optional} object is returned.
 \end{itemize}
 \end{itemize}
+
+\rSec3[exec.spawn]{\tcode{std::execution::spawn}}
+
+\pnum
+\tcode{spawn} attempts to associate the given input sender with
+the given token's async scope and, on success,
+eagerly starts the input sender.
+
+\pnum
+The name \tcode{spawn} denotes a customization point object.
+For subexpressions \tcode{sndr}, \tcode{token}, and \tcode{env},
+\begin{itemize}
+\item let \tcode{Sndr} be \tcode{decltype((sndr))},
+\item let \tcode{Token} be \tcode{remove_cvref_t<decltype((token))>}, and
+\item let \tcode{Env} be \tcode{remove_cvref_t<decltype((env))>}.
+\end{itemize}
+If any of
+\tcode{\libconcept{sender}<Sndr>},
+\tcode{\libconcept{scope_token}<Token>}, or
+\tcode{\exposconcept{queryable}<Env>}
+are not satisfied,
+the expression \tcode{spawn(\brk{}sndr, token, env)} is ill-formed.
+
+\pnum
+Let \exposid{spawn-state-base} be the exposition-only class:
+
+\indexlibraryglobal{execution::\exposid{spawn-state-base}}%
+\begin{codeblock}
+namespace std::execution {
+  struct @\exposid{spawn-state-base}@ {                                 // \expos
+    virtual void @\exposid{complete}@() noexcept = 0;                   // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+Let \exposid{spawn-receiver} be the exposition-only class:
+
+\indexlibraryglobal{execution::\exposid{spawn-receiver}}%
+\begin{codeblock}
+namespace std::execution {
+  struct @\exposid{spawn-receiver}@ {                                   // \expos
+    using receiver_concept = receiver_t;
+
+    @\exposid{spawn-state-base}@* @\exposid{state}@;                                // \expos
+    void set_value() && noexcept { @\exposid{state}@->@\exposid{complete}@(); }
+    void set_stopped() && noexcept { @\exposid{state}@->@\exposid{complete}@(); }
+  };
+}
+\end{codeblock}
+
+\pnum
+Let \exposid{spawn-state} be the exposition-only class template:
+
+\indexlibraryglobal{execution::\exposid{spawn-state}}%
+\begin{codeblock}
+namespace std::execution {
+  template<class Alloc, @\libconcept{scope_token}@ Token, @\libconcept{sender}@ Sender>
+  struct @\exposid{spawn-state}@ : @\exposid{spawn-state-base}@ {                   // \expos
+    using @\exposid{op-t}@ = connect_result_t<Sender, @\exposid{spawn-receiver}@>;  // \expos
+
+    @\exposid{spawn-state}@(Alloc alloc, Sender&& sndr, Token token);   // \expos
+    void @\exposid{complete}@() noexcept override;                      // \expos
+    void @\exposid{run}@();                                             // \expos
+
+  private:
+    using @\exposid{alloc-t}@ =                                         // \expos
+      typename allocator_traits<Alloc>::template rebind_alloc<@\exposid{spawn-state}@>;
+
+    @\exposid{alloc-t}@ @\exposid{alloc}@;                                          // \expos
+    @\exposid{op-t}@ @\exposid{op}@;                                                // \expos
+    Token @\exposid{token}@;                                            // \expos
+
+    void @\exposid{destroy}@() noexcept;                                // \expos
+  };
+}
+\end{codeblock}
+
+\indexlibraryctor{execution::\exposid{spawn-state}}%
+\begin{itemdecl}
+@\exposid{spawn-state}@(Alloc alloc, Sender&& sndr, Token token);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes
+\exposid{alloc} with \tcode{alloc},
+\exposid{token} with \tcode{token}, and
+\exposid{op} with:
+\begin{codeblock}
+connect(std::move(sndr), @\exposid{spawn-receiver}@(this))
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{\exposid{run}}{execution::\exposid{spawn-state}}%
+\begin{itemdecl}
+void @\exposid{run}@();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if (@\exposid{token}@.try_associate())
+  start(@\exposid{op}@);
+else
+  @\exposid{destroy}@();
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{\exposid{complete}}{execution::\exposid{spawn-state}}%
+\begin{itemdecl}
+void @\exposid{complete}@() noexcept override;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto token = std::move(this->@\exposid{token}@);
+
+@\exposid{destroy}@();
+token.disassociate();
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{\exposid{destroy}}{execution::\exposid{spawn-state}}%
+\begin{itemdecl}
+void @\exposid{destroy}@() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto alloc = std::move(this->@\exposid{alloc}@);
+
+allocator_traits<@\exposid{alloc-t}@>::destroy(alloc, this);
+allocator_traits<@\exposid{alloc-t}@>::deallocate(alloc, this, 1);
+\end{codeblock}
+\end{itemdescr}
+
+\pnum
+For the expression \tcode{spawn(sndr, token, env)}
+let \tcode{new_sender} be the expression \tcode{token.wrap(sndr)} and
+let \tcode{alloc} and \tcode{senv} be defined as follows:
+\begin{itemize}
+\item
+if the expression \tcode{get_allocator(env)} is well-formed, then
+\tcode{alloc} is the result of \tcode{get_allocator(env)} and
+\tcode{senv} is the expression \tcode{env},
+\item
+otherwise
+if the expression \tcode{get_allocator(get_env(new_sender))} is well-formed, then
+\tcode{alloc} is the result of \tcode{get_allocator(get_env(new_sender))} and
+\tcode{senv} is the expression \tcode{\exposid{JOIN-ENV}(prop(get_allocator, alloc), env)},
+\item
+otherwise
+\tcode{alloc} is \tcode{allocator<void>()} and
+\tcode{senv} is the expression \tcode{env}.
+\end{itemize}
+
+\pnum
+The expression \tcode{spawn(sndr, token, env)} is of type \tcode{void} and
+has the following effects:
+%%FIXME: Was this supposed to be more than a single bullet?
+\begin{itemize}
+\item
+Uses \tcode{alloc} to allocate and construct an object \tcode{o} of
+type that is a specialization of \tcode{\exposid{spawn-state}} from
+\tcode{alloc}, \tcode{write_env(token.wrap(sndr), senv)}, and \tcode{token}
+and then
+invokes \tcode{o.\exposid{run}()}.
+If an exception is thrown then
+any constructed objects are destroyed and any allocated memory is deallocated.
+\end{itemize}
+
+\pnum
+The expression \tcode{spawn(sndr, token)} is expression-equivalent to
+\tcode{spawn(sndr, token, execution::env<>(\brk{}))}.
 
 \rSec1[exec.util]{Sender/receiver utilities}
 
@@ -5994,5 +6892,578 @@ template<class Value>
 Equivalent to:
 \begin{codeblock}
 return as_awaitable(std::forward<Value>(value), static_cast<Promise&>(*this));
+\end{codeblock}
+\end{itemdescr}
+
+\rSec1[exec.scope]{Execution scope utilities}
+
+\rSec2[exec.scope.concepts]{Execution scope concepts}
+
+\pnum
+The \libconcept{scope_token} concept defines the requirements on
+a type \tcode{Token} that can be used to create associations
+between senders and an async scope.
+
+\pnum
+%%FIXME: Should test-sender and test-env be declared somewhere as \expos?
+Let \placeholder{test-sender} and \placeholder{test-env}
+be unspecified types such that
+\tcode{\libconcept{sender_in}<\placeholder{test-sender}, \placeholder{test-env}>}
+is modeled.
+
+\begin{codeblock}
+namespace std::execution {
+  template<class Token>
+    concept @\deflibconcept{scope_token}@ =
+      @\libconcept{copyable}@<Token> &&
+      requires(const Token token) {
+        { token.try_associate() } -> @\libconcept{same_as}@<bool>;
+        { token.disassociate() } noexcept -> @\libconcept{same_as}@<void>;
+        { token.wrap(declval<@\placeholder{test-sender}@>()) } -> @\libconcept{sender_in}@<@\placeholder{test-env}@>;
+      };
+}
+\end{codeblock}
+
+\pnum
+A type \tcode{Token} models \libconcept{scope_token} only if:
+
+\begin{itemize}
+\item
+no exceptions are thrown from
+copy construction,
+move construction,
+copy assignment, or
+move assignment
+of objects of type \tcode{Token}; and
+
+\item
+given an lvalue \tcode{token} of type (possibly const) \tcode{Token},
+for all expressions \tcode{sndr} such that
+\tcode{decltype((\linebreak{}sndr))} models \libconcept{sender}:
+  \begin{itemize}
+  \item
+  \tcode{token.wrap(sndr)} is a valid expression,
+  \item
+  \tcode{decltype(token.wrap(sndr))} models \libconcept{sender}, and
+  \item
+  \tcode{completion_signatures_of_t<decltype(token.wrap(sndr)), E>}
+  contains the same completion signatures as
+  \tcode{completion_signatures_of_t<decltype((sndr)), E>}
+  for all types \tcode{E} such that
+  \tcode{\libconcept{sender_in}<decltype((sndr)), E>} is modeled.
+  \end{itemize}
+\end{itemize}
+
+\rSec2[exec.counting.scopes]{Counting Scopes}
+
+\rSec3[exec.counting.scopes.general]{General}
+
+\pnum
+Scopes of type \tcode{simple_counting_scope} and \tcode{counting_scope}
+maintain counts of associations.
+Let:
+\begin{itemize}
+\item
+\tcode{Scope} be either \tcode{simple_counting_scope} or \tcode{counting_scope},
+\item
+\tcode{scope} be an object of type \tcode{Scope},
+\item
+\tcode{tkn} be an object of type \tcode{Scope::token}
+obtained from \tcode{scope.get_token()},
+\item
+\tcode{jsndr} be a sender obtained from \tcode{scope.join()}, and
+\item
+\tcode{op} be an operation state obtained from
+connecting \tcode{jsndr} to a receiver.
+\end{itemize}
+During its lifetime \tcode{scope} goes through different states
+which govern what operations are allowed and the result of these operations:
+
+\begin{itemize}
+\item
+\exposid{unused}:
+a newly constructed object starts in the \exposid{unused} state.
+
+\item
+\exposid{open}:
+when \tcode{tkn.try_associate()} is called
+while \tcode{scope} is in the \exposid{unused} state,
+\tcode{scope} moves to the \exposid{open} state.
+
+\item
+\exposid{open-and-joining}:
+when the operation state \tcode{op} is started
+while \tcode{scope} is in the \exposid{unused} or \exposid{open} state,
+\tcode{scope} moves to the \exposid{open-and-joining} state.
+
+\item
+\exposid{closed}:
+when \tcode{scope.close()} is called
+while \tcode{scope} is in the \exposid{open} state,
+\tcode{scope} moves to the \exposid{closed} state.
+
+\item
+\exposid{unused-and-closed}:
+when \tcode{scope.close()} is called
+while \tcode{scope} is in the \exposid{unused} state,
+\tcode{scope} moves to the \exposid{unused-and-closed} state.
+
+\item
+\exposid{closed-and-joining}:
+when \tcode{scope.close()} is called
+while \tcode{scope} is in the \exposid{open-and-joining} state or
+the operation state \tcode{op} is started
+while \tcode{scope} is in
+the \exposid{closed} or \exposid{unused-and-closed} state,
+\tcode{scope} moves to the \exposid{closed-and-joining} state.
+
+\item
+\exposid{joined}:
+when the count of assocations drops to zero
+while \tcode{scope} is in
+the \exposid{open-and-joining} or \exposid{closed-and-joining} state,
+\tcode{scope} moves to the \exposid{joined} state.
+\end{itemize}
+
+\pnum
+\recommended
+For \tcode{simple_counting_scope} and \tcode{counting_scope},
+implementations should store the state and the count of associations
+in a single member of type \tcode{size_t}.
+
+\pnum
+Subclause \ref{exec.counting.scopes} makes use of
+the following exposition-only entities:
+
+\begin{codeblock}
+struct @\exposid{scope-join-t}@ {};     // \expos
+
+enum @\exposid{scope-state-type}@ {     // \expos
+  @\exposid{unused}@,                   // \expos
+  @\exposid{open}@,                     // \expos
+  @\exposid{closed}@,                   // \expos
+  @\exposid{open-and-joining}@,         // \expos
+  @\exposid{closed-and-joining}@,       // \expos
+  @\exposid{unused-and-closed}@,        // \expos
+  @\exposid{joined}@,                   // \expos
+};
+\end{codeblock}
+
+\pnum
+The exposition-only class template \exposid{impls-for}\iref{exec.snd.general}
+is specialized for \exposid{scope-join-t} as follows:
+
+\indexlibraryglobal{execution::\exposid{impls-for}<\exposid{scope-join-t}>}%
+%%FIXME: The declarations of "receiver" below hide the \libconcept of the same name
+\begin{codeblock}
+namespace std::execution {
+  template<>
+  struct @\exposid{impls-for}@<@\exposid{scope-join-t}@> : @\exposid{default-impls}@ {
+    template<class Scope, class Rcvr>
+    struct @\exposid{state}@ {                          // \expos
+      struct @\exposid{rcvr-t}@ {                       // \expos
+        using receiver_concept = receiver_t;
+
+        Rcvr& @\exposid{rcvr}@;                         // \expos
+
+        void set_value() && noexcept {
+          execution::set_value(std::move(@\exposid{rcvr}@));
+        }
+
+        template<class E>
+          void set_error(E&& e) && noexcept {
+            execution::set_error(std::move(@\exposid{rcvr}@), std::forward<E>(e));
+          }
+
+        void set_stopped() && noexcept {
+          execution::set_stopped(std::move(@\exposid{rcvr}@));
+        }
+
+        decltype(auto) get_env() const noexcept {
+          return execution::get_env(@\exposid{rcvr}@);
+        }
+      };
+
+      using @\exposid{sched-sender}@ =                  // \expos
+        decltype(schedule(get_scheduler(get_env(declval<Rcvr&>()))));
+      using @\exposid{op-t}@ =                          // \expos
+        connect_result_t<@\exposid{sched-sender}@, @\exposid{rcvr-t}@>;
+
+      Scope* @\exposid{scope}@;                         // \expos
+      Rcvr& @\exposid{receiver}@;                       // \expos
+      @\exposid{op-t}@ @\exposid{op}@;                              // \expos
+
+      @\exposid{state}@(Scope* scope, Rcvr& rcvr)       // \expos
+        noexcept(@\exposconcept{nothrow-callable}@<connect_t, @\exposid{sched-sender}@, @\exposid{rcvr-t}@>)
+        : @\exposid{scope}@(scope),
+          @\exposid{receiver}@(rcvr),
+          @\exposid{op}@(connect(schedule(get_scheduler(get_env(rcvr))), @\exposid{rcvr-t}@(rcvr))) {}
+
+      void @\exposid{complete}@() noexcept {            // \expos
+        start(@\exposid{op}@);
+      }
+
+      void @\exposid{complete-inline}@() noexcept {     // \expos
+        set_value(std::move(@\exposid{receiver}@));
+      }
+    };
+
+    static constexpr auto @\exposid{get-state}@ =       // \expos
+      []<class Rcvr>(auto&& sender, Rcvr& receiver)
+        noexcept(is_nothrow_constructible_v<@\exposid{state}@<Rcvr>, @\exposid{data-type}@<decltype(sender)>, Rcvr&>) {
+        auto[_, self] = sender;
+        return @\exposid{state}@(self, receiver);
+      };
+
+    static constexpr auto @\exposid{start}@ =           // \expos
+      [](auto& s, auto&) noexcept {
+        if (s.@\exposid{scope}@->@\exposid{start-join-sender}@(s))
+          s.@\exposid{complete-inline}@();
+      };
+  };
+}
+\end{codeblock}
+
+\rSec3[exec.scope.simple.counting]{Simple Counting Scope}
+
+\rSec4[exec.scope.simple.counting.general]{General}
+
+\indexlibraryglobal{execution::simple_counting_scope}%
+\begin{codeblock}
+namespace std::execution {
+  class simple_counting_scope {
+  public:
+    // \ref{exec.simple.counting.token}, token
+    struct token;
+
+    static constexpr size_t max_associations = @\UNSP{\impldef{value of \tcode{std::execution::simple_counting_scope::max_associations}}}@;
+
+    // \ref{exec.simple.counting.ctor}, constructor and destructor
+    simple_counting_scope() noexcept;
+    simple_counting_scope(simple_counting_scope&&) = delete;
+    ~simple_counting_scope();
+
+    // \ref{exec.simple.counting.mem}, members
+    token get_token() noexcept;
+    void close() noexcept;
+    @\libconcept{sender}@ auto join() noexcept;
+
+  private:
+    size_t @\exposid{count}@;                                       // \expos
+    @\exposid{scope-state-type}@ @\exposid{state}@;                             // \expos
+
+    bool @\exposid{try-associate}@() noexcept;                      // \expos
+    void @\exposid{disassociate}@() noexcept;                       // \expos
+    template<class State>
+      bool @\exposid{start-join-sender}@(State& state) noexcept;    // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+For purposes of determining the existence of a data race,
+\tcode{get_token},
+\tcode{close},
+\tcode{join},
+\exposid{try-associate},
+\exposid{disassociate}, and
+\exposid{start-join-sender}
+behave as atomic operations\iref{intro.multithread}.
+These operations on a single object of
+type simple_counting_scope appear to occur in a single total order.
+
+\rSec4[exec.simple.counting.ctor]{Constructor and Destructor}
+
+\indexlibraryctor{execution::simple_counting_scope}%
+\begin{itemdecl}
+simple_counting_scope() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\ensures
+\exposid{count} is \tcode{0} and \exposid{state} is \exposid{unused}.
+\end{itemdescr}
+
+\indexlibrarydtor{execution::simple_counting_scope}%
+\begin{itemdecl}
+~simple_counting_scope();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \exposid{state} is not one of
+\exposid{joined}, \exposid{unused}, or \exposid{unused-and-closed},
+invokes \tcode{terminate}\iref{except.terminate}.
+Otherwise, has no effects.
+\end{itemdescr}
+
+\rSec4[exec.simple.counting.mem]{Members}
+
+\indexlibrarymember{get_token}{execution::simple_counting_scope}%
+\begin{itemdecl}
+token get_token() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+An object \tcode{t} of type \tcode{simple_counting_scope::token} such that
+\tcode{t.\exposid{scope} == this} is \tcode{true}.
+\end{itemdescr}
+
+\indexlibrarymember{close}{execution::simple_counting_scope}%
+\begin{itemdecl}
+void close() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \exposid{state} is
+\begin{itemize}
+\item
+\exposid{unused}, then changes \exposid{state} to \exposid{unused-and-closed};
+\item
+\exposid{open}, then changes \exposid{state} to \exposid{closed};
+\item
+\exposid{open-and-joining},
+then changes \exposid{state} to \exposid{closed-and-joining};
+\item
+otherwise, no effects.
+\end{itemize}
+
+\pnum
+\ensures
+Any subsequent call to \tcode{\exposid{try-associate}()} on \tcode{*this}
+returns \tcode{false}.
+\end{itemdescr}
+
+\indexlibrarymember{join}{execution::simple_counting_scope}%
+\begin{itemdecl}
+@\libconcept{sender}@ auto join() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{\exposid{make-sender}(\exposid{scope-join-t}(), this)}.
+\end{itemdescr}
+
+\indexlibrarymember{\exposid{try-associate}}{execution::simple_counting_scope}%
+\begin{itemdecl}
+bool @\exposid{try-associate}@() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \exposid{count} is equal to \tcode{max_associations}, then no effects.
+Otherwise, if \exposid{state} is
+\begin{itemize}
+\item
+\exposid{unused},
+then increments \exposid{count} and changes \exposid{state} to \exposid{open};
+\item
+\exposid{open} or \exposid{open-and-joining},
+then increments \exposid{count};
+\item
+otherwise, no effects.
+\end{itemize}
+
+\pnum
+\returns
+\tcode{true} if \exposid{count} was incremented, \tcode{false} otherwise.
+\end{itemdescr}
+
+\indexlibrarymember{\exposid{disassociate}}{execution::simple_counting_scope}%
+\begin{itemdecl}
+void @\exposid{disassociate}@() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\exposid{count} is greater than zero.
+
+\pnum
+\effects
+Decrements \exposid{count}.
+If \exposid{count} is zero after decrementing and
+\exposid{state} is \exposid{open-and-joining} or \exposid{closed-and-joining},
+changes \exposid{state} to \exposid{joined} and
+calls \tcode{\exposid{complete}()} on all objects registered with \tcode{*this}.
+\begin{note}
+Calling \tcode{\exposid{complete}()} on any registered object
+can cause \tcode{*this} to be destroyed.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarymember{\exposid{start-join-sender}}{execution::simple_counting_scope}%
+\begin{itemdecl}
+template<class State>
+  bool @\exposid{start-join-sender}@(State& st) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \exposid{state} is
+\begin{itemize}
+\item
+\exposid{unused}, \exposid{unused-and-closed}, or \exposid{joined}, then
+changes \exposid{state} to \exposid{joined} and returns \tcode{true};
+\item
+\exposid{open} or \exposid{open-and-joining}, then
+changes \exposid{state} to \exposid{open-and-joining},
+registers \tcode{st} with \tcode{*this} and returns \tcode{false};
+\item
+\exposid{closed} or \exposid{closed-and-joining}, then
+changes \exposid{state} to \exposid{closed-and-joining},
+registers \tcode{st} with \tcode{*this} and returns \tcode{false}.
+\end{itemize}
+\end{itemdescr}
+
+\rSec4[exec.simple.counting.token]{Token}
+
+\indexlibraryglobal{execution::simple_counting_scope::token}%
+\begin{codeblock}
+namespace std::execution {
+  struct simple_counting_scope::token {
+    template<@\libconcept{sender}@ Sender>
+      Sender&& wrap(Sender&& snd) const noexcept;
+    bool try_associate() const noexcept;
+    void disassociate() const noexcept;
+
+  private:
+    simple_counting_scope* @\exposid{scope}@;   // \expos
+  };
+}
+\end{codeblock}
+
+\indexlibrarymember{wrap}{execution::simple_counting_scope::token}%
+\begin{itemdecl}
+template<@\libconcept{sender}@ Sender>
+  Sender&& wrap(Sender&& snd) const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{std::forward<Sender>(snd)}.
+\end{itemdescr}
+
+\indexlibrarymember{try_associate}{execution::simple_counting_scope::token}%
+\begin{itemdecl}
+bool try_associate() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return \exposid{scope}->\exposid{try-associate}();}
+\end{itemdescr}
+
+\indexlibrarymember{disassociate}{execution::simple_counting_scope::token}%
+\begin{itemdecl}
+void disassociate() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{\exposid{scope}->\exposid{disassociate}()}.
+\end{itemdescr}
+
+\rSec3[exec.scope.counting]{Counting Scope}
+
+\indexlibraryglobal{execution::counting_scope}%
+\indexlibrarymember{token}{execution::counting_scope}%
+\begin{codeblock}
+namespace std::execution {
+  class counting_scope {
+  public:
+    struct token {
+      template<@\libconcept{sender}@ Sender>
+        @\libconcept{sender}@ auto wrap(Sender&& snd) const noexcept(@\seebelow@);
+      bool try_associate() const noexcept;
+      void disassociate() const noexcept;
+
+    private:
+      counting_scope* @\exposid{scope}@;                            // \expos
+    };
+
+    static constexpr size_t max_associations = @\UNSP{\impldef{value of \tcode{std::execution::counting_scope::max_associations}}}@;
+
+    counting_scope() noexcept;
+    counting_scope(counting_scope&&) = delete;
+    ~counting_scope();
+
+    token get_token() noexcept;
+    void close() noexcept;
+    @\libconcept{sender}@ auto join() noexcept;
+    void request_stop() noexcept;
+
+  private:
+    size_t @\exposid{count}@;                                       // \expos
+    @\exposid{scope-state-type}@ @\exposid{state}@;                             // \expos
+    inplace_stop_source @\exposid{s_source}@;                       // \expos
+
+    bool @\exposid{try-associate}@() noexcept;                      // \expos
+    void @\exposid{disassociate}@() noexcept;                       // \expos
+
+    template<class State>
+      bool @\exposid{start-join-sender}@(State& state) noexcept;    // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+\tcode{counting_scope} differs from \tcode{simple_counting_scope} by
+adding support for cancellation.
+Unless specified below, the semantics of members of \tcode{counting_scope}
+are the same as the corresponding members of \tcode{simple_counting_scope}.
+
+\indexlibrarymember{get_token}{execution::counting_scope}%
+\begin{itemdecl}
+token get_token() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+An object \tcode{t} of type \tcode{counting_scope::token} such that
+\tcode{t.\exposid{scope} == this} is \tcode{true}.
+\end{itemdescr}
+
+\indexlibrarymember{request_stop}{execution::counting_scope}%
+\begin{itemdecl}
+void request_stop() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to \tcode{\exposid{s_source}.request_stop()}.
+
+\pnum
+\remarks
+Calls to \tcode{request_stop} do not introduce data races.
+\end{itemdescr}
+
+\indexlibrarymember{wrap}{execution::counting_scope::token}%
+\begin{itemdecl}
+template<@\libconcept{sender}@ Sender>
+  @\libconcept{sender}@ auto counting_scope::token::wrap(Sender&& snd) const
+    noexcept(is_nothrow_constructible_v<remove_cvref_t<Sender>, Sender>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return @\exposid{stop-when}@(std::forward<Sender>(snd), @\exposid{scope}@->@\exposid{s_source}@.get_token());
 \end{codeblock}
 \end{itemdescr}
