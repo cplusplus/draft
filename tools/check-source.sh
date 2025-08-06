@@ -8,6 +8,7 @@ failed=0
 texfiles=$(ls *.tex | grep -v macros.tex | grep -v layout.tex | grep -v tables.tex)
 texlibdesc="support.tex concepts.tex diagnostics.tex memory.tex meta.tex utilities.tex containers.tex iterators.tex ranges.tex algorithms.tex strings.tex text.tex numerics.tex time.tex iostreams.tex threads.tex exec.tex"
 texlib="lib-intro.tex $texlibdesc"
+texnoback=$(ls *.tex | grep -v back.tex)
 
 # Filter that reformats the error message as a "workflow command",
 # for native handling by github actions.
@@ -38,6 +39,10 @@ for f in *.tex; do
     [ $(tail -c 2 $f | wc -l) -eq 1 ] ||
 	echo "$f" | fail 'trailing empty lines' || failed=1
 done
+
+# "floating point" instead of "floating-point"
+grep -in 'floating point' $texnoback |
+    fail '"floating point" should be hyphenated like "floating-point"' || failed=1
 
 # indented \begin{codeblock} / \end{codeblock} (causes unwanted empty space)
 grep -ne '^.\+\\\(begin\|end\){codeblock}' $texfiles |
