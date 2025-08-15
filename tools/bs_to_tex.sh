@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/bash
 
 itemize=0
 empty=0
@@ -31,7 +31,7 @@ sed -e 's,<pre>,\\begin{itemdecl},g' \
     -e 's,`\[\([^\,]\+\)\, *\([^`]\+\)]`,\\crange{\1}{\2},' \
     -e 's,`\([^`]\+\)`,\\tcode{\1},g' \
     $1 | while IFS='' read -r line; do
-    if [[ "$line" =~ '^- ' ]]; then
+    if [[ "$line" =~ ^-  ]]; then
       if ((!itemize)); then
         itemize=1
         echo -E '\begin{itemize}'
