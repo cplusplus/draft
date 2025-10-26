@@ -133,11 +133,15 @@ grep -ne 'template\s\+<' $texlib |
 
 # In library declarations, constexpr should not follow explicit
 grep -ne '\bexplicit\b.*\bconstexpr\b' $texlib |
-    fail 'explicit constexpr' || failed=1
+    fail 'wrong order: explicit constexpr' || failed=1
 
 # In library declarations, static should not follow constexpr
 grep -ne '\bconstexpr\b.*\sstatic\s' $texlib |
-    fail 'constexpr static' || failed=1
+    fail 'wrong order: constexpr static' || failed=1
+
+# In library declarations, type aliases should not use typename
+grep -ne "using.*= typename" $texlib |
+    fail 'type alias with typename' || failed=1
 
 # "Class" heading without namespace
 for f in $texlib; do
