@@ -1727,20 +1727,6 @@ namespace std::execution {
   concept @\defexposconceptnc{completion-tag}@ =                                      // \expos
     @\libconcept{same_as}@<Tag, set_value_t> || @\libconcept{same_as}@<Tag, set_error_t> || @\libconcept{same_as}@<Tag, set_stopped_t>;
 
-  struct @\exposidnc{default-impls}@ {                                        // \expos
-    static constexpr auto @\exposidnc{get-attrs}@ = @\seebelownc@;                // \expos
-    static constexpr auto @\exposidnc{get-env}@ = @\seebelownc@;                  // \expos
-    static constexpr auto @\exposidnc{get-state}@ = @\seebelownc@;                // \expos
-    static constexpr auto @\exposidnc{start}@ = @\seebelownc@;                    // \expos
-    static constexpr auto @\exposidnc{complete}@ = @\seebelownc@;                 // \expos
-
-    template<class Sndr, class... Env>
-      static consteval void @\exposidnc{check-types}@();                      // \expos
-  };
-
-  template<class Tag>
-  struct @\exposidnc{impls-for}@ : @\exposidnc{default-impls}@ {};                          // \expos
-
   template<class Sndr, class Rcvr>                              // \expos
   using @\exposid{state-type}@ = decay_t<@\exposid{call-result-t}@<
     decltype(@\exposid{impls-for}@<tag_of_t<Sndr>>::@\exposid{get-state}@), Sndr, Rcvr&>>;
@@ -1768,7 +1754,26 @@ namespace std::execution {
     Rcvr @\exposidnc{rcvr}@;                                                  // \expos
     @\exposidnc{state-type}@<Sndr, Rcvr> @\exposidnc{state}@;                               // \expos
   };
+}
+\end{codeblock}
 
+\pnum
+The expression in the \tcode{noexcept} clause of
+the constructor of \exposid{basic-state} is
+\begin{codeblock}
+is_nothrow_move_constructible_v<Rcvr> &&
+@\exposconcept{nothrow-callable}@<decltype(@\exposid{impls-for}@<tag_of_t<Sndr>>::@\exposid{get-state}@), Sndr, Rcvr&> &&
+(@\libconcept{same_as}@<@\exposid{state-type}@<Sndr, Rcvr>, @\exposid{get-state-result}@> ||
+ is_nothrow_constructible_v<@\exposid{state-type}@<Sndr, Rcvr>, @\exposid{get-state-result}@>)
+\end{codeblock}
+where \exposid{get-state-result} is
+\begin{codeblock}
+@\exposid{call-result-t}@<decltype(@\exposid{impls-for}@<tag_of_t<Sndr>>::@\exposid{get-state}@), Sndr, Rcvr&>.
+\end{codeblock}
+
+\pnum
+\begin{codeblock}
+namespace std::execution {
   template<class Sndr, class Rcvr, class Index>
     requires @\exposconcept{valid-specialization}@<@\exposid{env-type}@, Index, Sndr, Rcvr>
   struct @\exposidnc{basic-receiver}@ {                                       // \expos
@@ -1801,75 +1806,17 @@ namespace std::execution {
 
     @\exposidnc{basic-state}@<Sndr, Rcvr>* @\exposidnc{op}@;                                // \expos
   };
+}
+\end{codeblock}
 
+\begin{codeblock}
+namespace std::execution {
   constexpr auto @\exposidnc{connect-all}@ = @\seebelownc@;                       // \expos
 
   template<class Sndr, class Rcvr>
   using @\exposidnc{connect-all-result}@ = @\exposidnc{call-result-t}@<                     // \expos
     decltype(@\exposid{connect-all}@), @\exposid{basic-state}@<Sndr, Rcvr>*, Sndr, @\exposid{indices-for}@<Sndr>>;
-
-  template<class Sndr, class Rcvr>
-    requires @\exposconcept{valid-specialization}@<@\exposid{state-type}@, Sndr, Rcvr> &&
-             @\exposconcept{valid-specialization}@<@\exposid{connect-all-result}@, Sndr, Rcvr>
-  struct @\exposidnc{basic-operation}@ : @\exposidnc{basic-state}@<Sndr, Rcvr> {            // \expos
-    using operation_state_concept = operation_state_t;
-    using @\exposidnc{tag-t}@ = tag_of_t<Sndr>;                               // \expos
-
-    @\exposidnc{connect-all-result}@<Sndr, Rcvr> @\exposidnc{inner-ops}@;                   // \expos
-
-    @\exposidnc{basic-operation}@(Sndr&& sndr, Rcvr&& rcvr) noexcept(@\seebelownc@)               // \expos
-      : @\exposid{basic-state}@<Sndr, Rcvr>(std::forward<Sndr>(sndr), std::move(rcvr)),
-        @\exposid{inner-ops}@(@\exposid{connect-all}@(this, std::forward<Sndr>(sndr), @\exposid{indices-for}@<Sndr>()))
-    {}
-
-    void start() & noexcept {
-      auto& [...ops] = @\exposid{inner-ops}@;
-      @\exposid{impls-for}@<tag-t>::@\exposid{start}@(this->@\exposid{state}@, this->@\exposid{rcvr}@, ops...);
-    }
-  };
-
-  template<class Tag, class Data, class... Child>
-  struct @\exposidnc{basic-sender}@ : @\exposidnc{product-type}@<Tag, Data, Child...> {     // \expos
-    using sender_concept = sender_t;
-    using @\exposidnc{indices-for}@ = index_sequence_for<Child...>;           // \expos
-
-    decltype(auto) get_env() const noexcept {
-      auto& [_, data, ...child] = *this;
-      return @\exposid{impls-for}@<Tag>::@\exposid{get-attrs}@(data, child...);
-    }
-
-    template<@\exposconcept{decays-to}@<@\exposid{basic-sender}@> Self, @\libconcept{receiver}@ Rcvr>
-    auto connect(this Self&& self, Rcvr rcvr) noexcept(@\seebelow@)
-      -> @\exposid{basic-operation}@<Self, Rcvr> {
-      return {std::forward<Self>(self), std::move(rcvr)};
-    }
-
-    template<@\exposconcept{decays-to}@<@\exposid{basic-sender}@> Self, class... Env>
-    static constexpr auto get_completion_signatures();
-  };
 }
-\end{codeblock}
-
-\pnum
-It is unspecified whether a specialization of \exposid{basic-sender}
-is an aggregate.
-
-\pnum
-An expression of type \exposid{basic-sender} is usable as
-the initializer of a structured binding declaration\iref{dcl.struct.bind}.
-
-\pnum
-The expression in the \tcode{noexcept} clause of
-the constructor of \exposid{basic-state} is
-\begin{codeblock}
-is_nothrow_move_constructible_v<Rcvr> &&
-@\exposconcept{nothrow-callable}@<decltype(@\exposid{impls-for}@<tag_of_t<Sndr>>::@\exposid{get-state}@), Sndr, Rcvr&> &&
-(@\libconcept{same_as}@<@\exposid{state-type}@<Sndr, Rcvr>, @\exposid{get-state-result}@> ||
- is_nothrow_constructible_v<@\exposid{state-type}@<Sndr, Rcvr>, @\exposid{get-state-result}@>)
-\end{codeblock}
-where \exposid{get-state-result} is
-\begin{codeblock}
-@\exposid{call-result-t}@<decltype(@\exposid{impls-for}@<tag_of_t<Sndr>>::@\exposid{get-state}@), Sndr, Rcvr&>.
 \end{codeblock}
 
 \pnum
@@ -1899,6 +1846,31 @@ otherwise, \tcode{false}.
 \end{itemdescr}
 
 \pnum
+\begin{codeblock}
+namespace std::execution {
+  template<class Sndr, class Rcvr>
+    requires @\exposconcept{valid-specialization}@<@\exposid{state-type}@, Sndr, Rcvr> &&
+             @\exposconcept{valid-specialization}@<@\exposid{connect-all-result}@, Sndr, Rcvr>
+  struct @\exposidnc{basic-operation}@ : @\exposidnc{basic-state}@<Sndr, Rcvr> {            // \expos
+    using operation_state_concept = operation_state_t;
+    using @\exposidnc{tag-t}@ = tag_of_t<Sndr>;                               // \expos
+
+    @\exposidnc{connect-all-result}@<Sndr, Rcvr> @\exposidnc{inner-ops}@;                   // \expos
+
+    @\exposidnc{basic-operation}@(Sndr&& sndr, Rcvr&& rcvr) noexcept(@\seebelownc@)               // \expos
+      : @\exposid{basic-state}@<Sndr, Rcvr>(std::forward<Sndr>(sndr), std::move(rcvr)),
+        @\exposid{inner-ops}@(@\exposid{connect-all}@(this, std::forward<Sndr>(sndr), @\exposid{indices-for}@<Sndr>()))
+    {}
+
+    void start() & noexcept {
+      auto& [...ops] = @\exposid{inner-ops}@;
+      @\exposid{impls-for}@<tag-t>::@\exposid{start}@(this->@\exposid{state}@, this->@\exposid{rcvr}@, ops...);
+    }
+  };
+}
+\end{codeblock}
+
+\pnum
 The expression in the \tcode{noexcept} clause of
 the constructor of \exposid{basic-operation} is:
 \begin{codeblock}
@@ -1907,10 +1879,22 @@ noexcept(@\exposid{connect-all}@(this, std::forward<Sndr>(sndr), @\exposid{indic
 \end{codeblock}
 
 \pnum
-The expression in the \tcode{noexcept} clause of
-the \tcode{connect} member function of \exposid{basic-sender} is:
 \begin{codeblock}
-is_nothrow_constructible_v<@\exposid{basic-operation}@<Self, Rcvr>, Self, Rcvr>
+namespace std::execution {
+  struct @\exposidnc{default-impls}@ {                                        // \expos
+    static constexpr auto @\exposidnc{get-attrs}@ = @\seebelownc@;                // \expos
+    static constexpr auto @\exposidnc{get-env}@ = @\seebelownc@;                  // \expos
+    static constexpr auto @\exposidnc{get-state}@ = @\seebelownc@;                // \expos
+    static constexpr auto @\exposidnc{start}@ = @\seebelownc@;                    // \expos
+    static constexpr auto @\exposidnc{complete}@ = @\seebelownc@;                 // \expos
+
+    template<class Sndr, class... Env>
+      static consteval void @\exposidnc{check-types}@();                      // \expos
+  };
+
+  template<class Tag>
+  struct @\exposidnc{impls-for}@ : @\exposidnc{default-impls}@ {};                          // \expos
+}
 \end{codeblock}
 
 \pnum
@@ -1999,6 +1983,46 @@ When \tcode{e} is a core constant expression,
 the pack \tcode{S, E...} uniquely determines a set of completion signatures.
 \end{note}
 \end{itemdescr}
+
+\pnum
+\begin{codeblock}
+namespace std::execution {
+  template<class Tag, class Data, class... Child>
+  struct @\exposidnc{basic-sender}@ : @\exposidnc{product-type}@<Tag, Data, Child...> {     // \expos
+    using sender_concept = sender_t;
+    using @\exposidnc{indices-for}@ = index_sequence_for<Child...>;           // \expos
+
+    decltype(auto) get_env() const noexcept {
+      auto& [_, data, ...child] = *this;
+      return @\exposid{impls-for}@<Tag>::@\exposid{get-attrs}@(data, child...);
+    }
+
+    template<@\exposconcept{decays-to}@<@\exposid{basic-sender}@> Self, @\libconcept{receiver}@ Rcvr>
+    auto connect(this Self&& self, Rcvr rcvr) noexcept(@\seebelow@)
+      -> @\exposid{basic-operation}@<Self, Rcvr> {
+      return {std::forward<Self>(self), std::move(rcvr)};
+    }
+
+    template<@\exposconcept{decays-to}@<@\exposid{basic-sender}@> Self, class... Env>
+    static constexpr auto get_completion_signatures();
+  };
+}
+\end{codeblock}
+
+\pnum
+It is unspecified whether a specialization of \exposid{basic-sender}
+is an aggregate.
+
+\pnum
+An expression of type \exposid{basic-sender} is usable as
+the initializer of a structured binding declaration\iref{dcl.struct.bind}.
+
+\pnum
+The expression in the \tcode{noexcept} clause of
+the \tcode{connect} member function of \exposid{basic-sender} is:
+\begin{codeblock}
+is_nothrow_constructible_v<@\exposid{basic-operation}@<Self, Rcvr>, Self, Rcvr>
+\end{codeblock}
 
 \indexlibrarymember{get_completion_signatures}{\exposid{basic-sender}}%
 \begin{itemdecl}
