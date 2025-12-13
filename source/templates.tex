@@ -496,15 +496,21 @@ structural types or (possibly multidimensional) arrays thereof.
 \end{itemize}
 
 \pnum
+Certain constructs refer to template parameter objects,
+which are distinct objects with static storage duration and non-volatile const type.
+No two such objects have template-argument-equivalent values\iref{temp.type}.
 An \grammarterm{id-expression} naming
 a constant template parameter of class type \tcode{T}
-denotes a static storage duration object of type \tcode{const T},
-known as a \defn{template parameter object},
-which is template-argument-equivalent\iref{temp.type} to
+denotes the template parameter object of type \tcode{const T},
+which is template-argument-equivalent to
 the corresponding template argument
 after it has been converted
 to the type of the template parameter\iref{temp.arg.nontype}.
-No two template parameter objects are template-argument-equivalent.
+\begin{note}
+There can be template parameter objects of array type\iref{meta.define.static},
+but such an object is never denoted by an \grammarterm{id-expression}
+that names a constant template parameter.
+\end{note}
 \begin{note}
 If an \grammarterm{id-expression} names
 a non-reference constant template parameter,
@@ -572,9 +578,8 @@ for the invented type corresponding to the placeholder\iref{dcl.fct}.
 A \defnadj{default}{template argument} is
 a template argument\iref{temp.arg} specified after \tcode{=}
 in a \grammarterm{template-parameter}.
-A default template argument may be specified for
-any kind of template parameter
-that is not a template parameter pack\iref{temp.variadic}.
+A default template argument shall not be specified for
+a template parameter pack\iref{temp.variadic}.
 A default template argument may be specified in a template declaration.
 A default template argument shall not be specified in
 the \grammarterm{template-parameter-list}{s}
@@ -715,11 +720,16 @@ A template specialization\iref{temp.spec} can be referred to by a
 
 \begin{bnf}
 \nontermdef{template-argument}\br
+  template-argument-name\br
   constant-expression\br
   type-id\br
-  \opt{nested-name-specifier} template-name\br
-  nested-name-specifier \terminal{template} template-name\br
   braced-init-list
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{template-argument-name}\br
+  \opt{nested-name-specifier} identifier\br
+  nested-name-specifier \terminal{template} identifier
 \end{bnf}
 
 \pnum
@@ -890,6 +900,11 @@ D<B<int> > db;
 \end{example}
 
 \pnum
+The component names of a \grammarterm{template-argument-name} are
+those of its \grammarterm{nested-name-specifier} (if any) and
+its \grammarterm{identifier}.
+
+\pnum
 A \grammarterm{template-id} or \grammarterm{splice-specialization-specifier}
 is \defnx{valid}{\idxgram{template-id}!valid} if
 \begin{itemize}
@@ -1051,6 +1066,32 @@ If the $n^\text{th}$ template parameter is
 a template parameter pack\iref{temp.variadic},
 the $n^\text{th}$ template argument is a pack expansion
 whose pattern is the name of the template parameter pack.
+
+\pnum
+If a \grammarterm{template-argument} $A$
+matches the form \grammarterm{template-argument-name},
+it is interpreted as such;
+the \grammarterm{identifier} is looked up
+and its meaning is determined as follows:
+\begin{itemize}
+\item
+If lookup finds an injected-class-name\iref{temp.local}, then:
+\begin{itemize}
+\item
+When $A$ is for a type template template parameter,
+$A$ denotes the corresponding class template.
+\item
+Otherwise, it denotes a \grammarterm{type-name}.
+\end{itemize}
+\item
+Otherwise, if lookup finds a template,
+$A$ denotes that template.
+\item
+Otherwise, if lookup finds a type alias or a type,
+$A$ denotes the underlying type and is interpreted as a \grammarterm{type-id}.
+\item
+Otherwise, $A$ is interpreted as an expression.
+\end{itemize}
 
 \pnum
 In a
@@ -1430,11 +1471,14 @@ for a template
 template parameter
 shall be the name of a template.
 For a \grammarterm{type-tt-parameter},
-the name shall denote a class template or alias template.
+the name shall denote a class template, alias template, or
+type template template parameter.
 For a \grammarterm{variable-tt-parameter},
-the name shall denote a variable template.
+the name shall denote a variable template or
+variable template template parameter.
 For a \grammarterm{concept-tt-parameter},
-the name shall denote a concept.
+the name shall denote a concept or
+concept template parameter.
 Only primary templates are considered when matching the template template
 argument with the corresponding parameter; partial specializations are not
 considered even if their parameter lists match that of the template template
@@ -4373,11 +4417,9 @@ thereof) synthesize a unique type, value, class template,
 variable template, or concept,
 respectively, and substitute it for each occurrence of that parameter
 in the function type of the template.
-\begin{note}
-The type replacing the placeholder
+The type replacing a placeholder
 in the type of the value synthesized for a constant template parameter
-is also a unique synthesized type.
-\end{note}
+is a unique synthesized type.
 
 \pnum
 %FIXME: What's a "synthesized template"? Do we mean the synthesized
@@ -4628,7 +4670,7 @@ Any other \grammarterm{template-id}
 that names a specialization of an alias template is
 a \grammarterm{typedef-name} for a type alias.
 \begin{note}
-An alias template name is never deduced.
+The alias template name is not deduced from such a type\iref{temp.deduct.type}.
 \end{note}
 \begin{example}
 \begin{codeblock}
@@ -5939,8 +5981,6 @@ Expressions of the following form are value-dependent:
 \keyword{sizeof} \terminal{...} \terminal{(} identifier \terminal{)}\br
 fold-expression
 \end{ncsimplebnf}
-unless the \grammarterm{identifier} is a structured binding pack
-whose initializer is not dependent.
 
 \pnum
 A \grammarterm{noexcept-expression}\iref{expr.unary.noexcept}
@@ -6084,7 +6124,7 @@ a dependent type.
 A template argument is also dependent if it is a pack expansion.
 
 \pnum
-A template template parameter is dependent if
+A template template argument is dependent if
 it names a template parameter or
 its terminal name is dependent.
 
@@ -7999,17 +8039,17 @@ g(0);               // error: invalid expression not part of the immediate conte
 template <class T>
   auto h(T) -> decltype([x = T::invalid]() { });
 void h(...);
-h(0);               // error: invalid expression not part of the immediate context
+h(0);               // OK, calls \tcode{h(...)}
 
 template <class T>
   auto i(T) -> decltype([]() -> typename T::invalid { });
 void i(...);
-i(0);               // error: invalid expression not part of the immediate context
+i(0);               // OK, calls \tcode{i(...)}
 
 template <class T>
-  auto j(T t) -> decltype([](auto x) -> decltype(x.invalid) { } (t));   // \#1
-void j(...);                                                            // \#2
-j(0);               // deduction fails on \#1, calls \#2
+  auto j(T t) -> decltype([](auto x) -> decltype(x.invalid) { } (t));
+void j(...);
+j(0);               // OK, calls \tcode{j(...)}
 \end{codeblock}
 \end{example}
 \end{note}
@@ -9391,11 +9431,16 @@ int    x = deduce<77>(a.xm, 62, b.ym);
 \end{note}
 
 \pnum
-If \tcode{P} has a form that contains \tcode{<i>}, and
-if the type of \tcode{i} differs from the type
+If \tcode{P} has a form that contains \tcode{<i>},
+deduction fails unless the type of \tcode{i} is the same as that
 of the corresponding template parameter
+\tcode{p} in the specialization (from \tcode{A})
 of the template named by the enclosing \grammarterm{simple-template-id} or
-\grammarterm{splice-specialization-specifier}, deduction fails.
+\grammarterm{splice-specialization-specifier};
+if the declared type of \tcode{i} contains a placeholder type,
+the corresponding template argument for the purposes of
+placeholder type deduction\iref{dcl.type.auto.deduct}
+is an \grammarterm{id-expression} for \tcode{p}.
 If \tcode{P} has a form that contains \tcode{[i]}, and if the type of
 \tcode{i} is not an integral type, deduction fails.
 \begin{footnote}
@@ -9415,15 +9460,54 @@ template<int i> class A { @\commentellip@ };
 template<short s> void f(A<s>);
 void k1() {
   A<1> a;
-  f(a);             // error: deduction fails for conversion from \tcode{int} to \tcode{short}
-  f<1>(a);          // OK
+  f(a);                 // error: deduction fails for conversion from \tcode{int} to \tcode{short}
+  f<1>(a);              // OK
 }
 
 template<const short cs> class B { };
 template<short s> void g(B<s>);
 void k2() {
   B<1> b;
-  g(b);             // OK, cv-qualifiers are ignored on template parameter types
+  g(b);                 // OK, cv-qualifiers are ignored on template parameter types
+}
+
+template<auto> struct C;
+template<long long x> void f(C<x> *);
+void g(C<0LL> *ap) {
+  f(ap);                // OK, deduces \tcode{long long} value from \tcode{0LL}
+}
+
+template<int> struct D;
+template<auto x> void f(D<x> *);
+void g(D<0LL> *ap) {
+  f(ap);                // OK, deduces \tcode{x} as an \tcode{int} value
+}
+
+template<int &> struct E;
+template<auto x> void f(E<x> *);
+int v;
+void g(E<v> *bp) {
+  f(bp);                // error: type \tcode{int} of \tcode{x} does not match the \tcode{int \&} type
+}                       // of the template parameter in the \tcode{E<v>} specialization of \tcode{E}
+
+template<const int &> struct F;
+template<decltype(auto) x> void f(F<x> *);
+int i;
+void g(F<i> *ap) {
+  f(ap);                // OK, deduces \tcode{x} as a constant template parameter of type \tcode{const int \&}
+}
+
+template <decltype(auto) q> struct G;
+template <auto x> long *f(G<x> *);              // \#1
+template <decltype(auto) x> short *f(G<x> *);   // \#2
+
+const int j = 0;
+short *g(G<(j)> *ap) {  // OK, \tcode{q} has type \tcode{const int \&}
+  return f(ap);         // OK, only \#2 matches
+}
+
+long *g(G<j> *ap) {     // OK, \tcode{q} has type \tcode{int}
+  return f(ap);         // OK, \#1 is more specialized
 }
 \end{codeblock}
 \end{example}
