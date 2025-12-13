@@ -147,7 +147,10 @@ Expressions are categorized according to the taxonomy in \fref{basic.lval}.
 \end{importgraphic}
 
 \begin{itemize}
-\item A \defn{glvalue} is an expression whose evaluation determines the identity of an object, function, or non-static data member.
+\item A \defn{glvalue} is an expression
+whose evaluation determines the identity of
+an object, function, non-static data member, or
+a direct base class relationship.
 \item A \defn{prvalue} is an expression whose evaluation initializes an object
 or computes the value of an operand of an operator,
 as specified by the context in which it appears,
@@ -1486,6 +1489,10 @@ int S::*k = &[:^^S::m:];        // OK
 \end{codeblock}
 \end{example}
 \end{itemize}
+
+\pnum
+A \grammarterm{splice-expression} that designates a direct base class relationship
+shall appear only as the second operand of a class member access.
 
 \pnum
 For an \grammarterm{id-expression} that denotes an overload set,
@@ -3598,6 +3605,10 @@ becomes a class member access\iref{expr.prim.id}
 does not apply to a \grammarterm{splice-expression}.
 \end{note}
 \item
+Otherwise, if $S$ is a direct base class relationship $(\tcode{D}, \tcode{B})$,
+the expression is an lvalue designating $S$.
+The expression has the type \tcode{B}.
+\item
 Otherwise, if $S$ is a variable or a structured binding,
 $S$ shall either have static or thread storage duration or
 shall inhabit a scope enclosing the expression.
@@ -4311,17 +4322,18 @@ is \tcode{T}, the expression \tcode{E1.E2} is a prvalue of type \tcode{T}
 whose value is the value of the enumerator.
 
 \item
-Otherwise, if \tcode{E2} designates a direct base class relationship $(D, B)$
-and the type of \tcode{E1} is \cv{} \tcode{T},
+Otherwise, if \tcode{E2} designates a direct base class relationship $(D, B)$ and
+$D$ is either the cv-unqualified class type of \tcode{E1} or a base class thereof,
+let \cv{} be the cv-qualification of the type of \tcode{E1}.
+\tcode{E1} is implicitly converted to the type ``reference to \cv{}~\tcode{$D$}''
+(where the reference is an lvalue reference if \tcode{E1} is an lvalue
+and an rvalue reference otherwise) and
 the expression designates the direct base class subobject of type $B$
-of the object designated by \tcode{E1}.
+of the object designated by the converted \tcode{E1}.
 If \tcode{E1} is an lvalue,
 then \tcode{E1.E2} is an lvalue;
 otherwise, \tcode{E1.E2} is an xvalue.
-The type of \tcode{E1.E2} is ``\cv{} \tcode{$B$}''.
-\begin{note}
-This can only occur in an expression of the form \tcode{e1.[:e2:]}.
-\end{note}
+The type of \tcode{E1.E2} is \cv{}~\tcode{$B$}.
 \begin{example}
 \begin{codeblock}
 struct B {
@@ -4362,7 +4374,8 @@ of the object expression; see~\ref{class.access.base}.
 
 \pnum
 If \tcode{E2} designates a non-static member
-(possibly after overload resolution) and
+(possibly after overload resolution)
+or direct base class relationship and
 the result of \tcode{E1} is an object whose type
 is not similar\iref{conv.qual} to the type of \tcode{E1},
 the behavior is undefined.
@@ -4962,17 +4975,13 @@ mappings between pointers and integers are otherwise
 \indextext{cast!undefined pointer-to-function}%
 A function pointer can be explicitly converted
 to a function pointer of a different type.
+The function pointer value is unchanged by the conversion.
 \indextext{function call!undefined}%
 \begin{note}
 The effect of calling a function through a pointer to a function
-type\iref{dcl.fct} that is not the same as the type used in the
+type\iref{dcl.fct} that is not call-compatible with the type used in the
 definition of the function is undefined\iref{expr.call}.
 \end{note}
-Except that converting
-a prvalue of type ``pointer to \tcode{T1}'' to the type ``pointer to
-\tcode{T2}'' (where \tcode{T1} and \tcode{T2} are function types) and
-back to its original type yields the original pointer value, the result
-of such a pointer conversion is unspecified.
 
 \pnum
 An object pointer
@@ -6804,9 +6813,11 @@ If the \grammarterm{type-id} designates
 a placeholder type\iref{dcl.spec.auto.general},
 $R$ is ill-formed.
 \item
-Otherwise, if the \grammarterm{type-id} names a type alias
-that is a specialization of an alias template\iref{temp.alias},
-$R$ represents that type alias.
+Otherwise, if the \grammarterm{type-id} is of the form
+\opt{\grammarterm{nested-name-specifier}} \opt{\keyword{template}} \grammarterm{simple-template-id}
+and whose terminal name is a \grammarterm{template-name}
+that names an alias template\iref{temp.alias},
+$R$ represents the type alias so named.
 \item
 Otherwise, $R$ represents the type denoted by the \grammarterm{type-id}.
 \end{itemize}
@@ -8292,30 +8303,12 @@ during translation.
 \end{bnf}
 
 \pnum
-The \defnx{constituent values}{constituent value} of an object $o$ are
-\begin{itemize}
-\item
-if $o$ has scalar type, the value of $o$;
-\item
-otherwise, the constituent values of any direct subobjects of $o$
-other than inactive union members.
-\end{itemize}
-The \defnx{constituent references}{constituent reference} of an object $o$ are
-\begin{itemize}
-\item
-any direct members of $o$ that have reference type, and
-\item
-the constituent references of any direct subobjects of $o$
-other than inactive union members.
-\end{itemize}
-
-\pnum
 The constituent values and constituent references of
 a variable \tcode{x} are defined as follows:
 \begin{itemize}
 \item
 If \tcode{x} declares an object,
-the constituent values and references of that object are
+the constituent values and references of that object\iref{intro.object} are
 constituent values and references of \tcode{x}.
 \item
 If \tcode{x} declares a reference,
@@ -8816,8 +8809,7 @@ constexpr int y = h(1);             // OK, initializes \tcode{y} with the value 
 For the purposes of determining
 whether an expression $E$ is a core constant expression,
 the evaluation of the body of a member function of \tcode{std::allocator<T>}
-as defined in \ref{allocator.members}, where \tcode{T} is a literal type,
-is ignored.
+as defined in \ref{allocator.members}, is ignored.
 
 \pnum
 For the purposes of determining whether $E$ is a core constant expression,
@@ -9181,10 +9173,13 @@ An immediate-escalating expression shall appear only
 in an immediate-escalating function.
 
 \pnum
-An \defnadj{immediate}{function} is a function that is either
+An \defnadj{immediate}{function} is a function that is
 \begin{itemize}
 \item
-declared with the \keyword{consteval} specifier, or
+declared with the \keyword{consteval} specifier,
+\item
+an immediate-escalating function
+whose type is consteval-only\iref{basic.types.general}, or
 \item
 an immediate-escalating function \tcode{\placeholder{F}}
 whose function body contains either
