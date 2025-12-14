@@ -743,6 +743,8 @@ namespace std::execution {
 
   // \ref{exec.scope.concepts}, scope concepts
   template<class Token>
+    concept @\libconcept{scope_association}@ = @\seebelow@;
+  template<class Token>
     concept @\libconcept{scope_token}@ = @\seebelow@;
 
   // \ref{exec.scope.simple.counting}, simple counting scope
@@ -4918,32 +4920,42 @@ Let \exposid{associate-data} be the following exposition-only class template:
 \begin{codeblock}
 namespace std::execution {
   template<@\libconcept{scope_token}@ Token, @\libconcept{sender}@ Sender>
-  struct @\exposid{associate-data}@ {                                       // \expos
-    using @\exposid{wrap-sender}@ =                                         // \expos
+  struct @\exposidnc{associate-data}@ {                                               // \expos
+    using @\exposidnc{wrap-sender}@ =                                                 // \expos
       remove_cvref_t<decltype(declval<Token&>().wrap(declval<Sender>()))>;
+    using @\exposidnc{assoc-t}@ = decltype(declval<Token&>().try_associate());        // \expos
+    using @\exposidnc{sender-ref}@ =                                                  // \expos
+      unique_ptr<@\exposidnc{wrap-sender}@, decltype([](auto* p) noexcept { destroy_at(p); })>;
 
     explicit @\exposid{associate-data}@(Token t, Sender&& s)
       : @\exposid{sndr}@(t.wrap(std::forward<Sender>(s))),
-        @\exposid{token}@(t) {
-      if (!@\exposid{token}@.try_associate())
-        @\exposid{sndr}@.reset();
-    }
+        @\exposid{assoc}@([&] {
+          @\exposid{sender-ref}@ guard{addressof(@\exposid{sndr}@)};
+          auto assoc = t.try_associate();
+          if (assoc) {
+            guard.release();
+          }
+          return assoc;
+        }()) {}
 
     @\exposid{associate-data}@(const @\exposid{associate-data}@& other)
       noexcept(is_nothrow_copy_constructible_v<@\exposid{wrap-sender}@> &&
-               noexcept(other.@\exposid{token}@.try_associate()));
+               noexcept(other.@\exposid{assoc}@.try_associate()));
 
     @\exposid{associate-data}@(@\exposid{associate-data}@&& other)
-      noexcept(is_nothrow_move_constructible_v<@\exposid{wrap-sender}@>);
+      noexcept(is_nothrow_move_constructible_v<@\exposid{wrap-sender}@>)
+      : @\exposid{associate-data}@(std::move(other).release()) {}
 
     ~@\exposid{associate-data}@();
 
-    optional<pair<Token, @\exposid{wrap-sender}@>>
-      release() && noexcept(is_nothrow_move_constructible_v<@\exposid{wrap-sender}@>);
+    pair<@\exposid{assoc-t}@, @\exposid{sender-ref}@> release() && noexcept;
 
   private:
-    optional<@\exposid{wrap-sender}@> @\exposid{sndr}@;  // \expos
-    Token @\exposid{token}@;                 // \expos
+    @\exposidnc{associate-data}@(pair<@\exposidnc{assoc-t}@, @\exposidnc{sender-ref}@> parts);                    // \expos
+    union {
+      @\exposidnc{wrap-sender}@ @\exposidnc{sndr}@;                                                 // \expos
+    };
+    @\exposidnc{assoc-t}@ @\exposidnc{assoc}@;                                                      // \expos
   };
 
   template<@\libconcept{scope_token}@ Token, @\libconcept{sender}@ Sender>
@@ -4953,7 +4965,7 @@ namespace std::execution {
 
 \pnum
 For an \exposid{associate-data} object \tcode{a},
-\tcode{a.\exposid{sndr}.has_value()} is \tcode{true}
+\tcode{bool(a.\exposid{assoc})} is \tcode{true}
 if and only if
 an association was successfully made and is owned by \tcode{a}.
 
@@ -4961,40 +4973,32 @@ an association was successfully made and is owned by \tcode{a}.
 \begin{itemdecl}
 @\exposid{associate-data}@(const @\exposid{associate-data}@& other)
   noexcept(is_nothrow_copy_constructible_v<@\exposid{wrap-sender}@> &&
-           noexcept(other.@\exposid{token}@.try_associate()));
+           noexcept(other.@\exposid{assoc}@.try_associate()));
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \constraints
-\tcode{\libconcept{copy_constructible}<\exposid{wrap-sender}>} is \tcode{true}.
+\exposid{wrap-sender} models \libconcept{copy_constructible}.
 
 \pnum
 \effects
-Value-initializes \exposid{sndr} and
-initializes \exposid{token} with \tcode{other.\exposid{token}}.
-If \tcode{other.\exposid{sndr}.has_value()} is \tcode{false},
-no further effects;
-otherwise,
-calls \tcode{\exposid{token}.try_associate()} and,
-if that returns \tcode{true},
-calls \tcode{\exposid{sndr}.emplace(*other.\exposid{sndr})} and,
-if that exits with an exception,
-calls \tcode{\exposid{token}.disassociate()} before propagating the exception.
+Initializes \exposid{assoc} with \tcode{other.\exposid{assoc}.try_associate()}.
+If \tcode{bool(\exposid{assoc})} is \tcode{true},
+initializes \exposid{sndr} with \tcode{other.\exposid{sndr}}.
 \end{itemdescr}
 
 \indexlibraryctor{execution::\exposid{associate-data}}%
 \begin{itemdecl}
-@\exposid{associate-data}@(@\exposid{associate-data}@&& other)
-  noexcept(is_nothrow_move_constructible_v<@\exposid{wrap-sender}@>);
+@\exposid{associate-data}@(pair<@\exposid{assoc-t}@, @\exposid{sender-ref}@> parts);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects
-Initializes \exposid{sndr} with \tcode{std::move(other.\exposid{sndr})} and
-initializes \exposid{token} with \tcode{std::move(other.\brk{}\exposid{token})} and
-then calls \tcode{other.\exposid{sndr}.reset()}.
+Initializes \exposid{assoc} with \tcode{std::move(parts.first)}.
+If \tcode{bool(\exposid{assoc})} is \tcode{true},
+initializes \exposid{sndr} with \tcode{std::move(*parts.second)}.
 \end{itemdescr}
 
 \indexlibrarydtor{execution::\exposid{associate-data}}%
@@ -5005,32 +5009,22 @@ then calls \tcode{other.\exposid{sndr}.reset()}.
 \begin{itemdescr}
 \pnum
 \effects
-If \tcode{\exposid{sndr}.has_value()} returns \tcode{false} then no effect;
-otherwise, invokes \tcode{\exposid{sndr}.reset()}
-before invoking \tcode{\exposid{token}.disassociate()}.
+If \tcode{bool(\exposid{assoc})} is \tcode{true}, destroys \exposid{sndr}.
 \end{itemdescr}
 
 \indexlibrarymember{release}{execution::\exposid{associate-data}}%
 \begin{itemdecl}
-optional<pair<Token, @\exposid{wrap-sender}@>>
-  release() && noexcept(is_nothrow_move_constructible_v<@\exposid{wrap-sender}@>);
+pair<@\exposid{assoc-t}@, @\exposid{sender-ref}@> release() && noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects
-If \tcode{\exposid{sndr}.has_value()} returns \tcode{false} then
-returns an \tcode{optional} that does not contain a value;
-otherwise returns an \tcode{optional}
-containing a value of type \tcode{pair<Token, \exposid{wrap-sender}>}
-as if by:
-\begin{codeblock}
-return optional(pair(@\exposid{token}@, std::move(*@\exposid{sndr}@)));
-\end{codeblock}
-
-\pnum
-\ensures
-\exposid{sndr} does not contain a value.
+Constructs an object \tcode{u} of type \exposid{sender-ref}
+that is initialized with \tcode{addressof(\exposid{sndr})}
+if \tcode{bool(\exposid{assoc})} is \tcode{true} and
+with \tcode{nullptr} otherwise,
+then returns \tcode{pair\{std::move(\exposid{assoc}), std::\brk move(u)\}}.
 \end{itemdescr}
 
 \pnum
@@ -5080,57 +5074,55 @@ is initialized with a callable object equivalent to the following lambda:
 
 \begin{codeblock}
 []<class Sndr, class Rcvr>(Sndr&& sndr, Rcvr& rcvr) noexcept(@\seebelow@) {
-  auto [_, data] = std::forward<Sndr>(sndr);
-  auto dataParts = std::move(data).release();
+  auto&& [_, data] = std::forward<Sndr>(sndr);
 
-  using scope_tkn = decltype(dataParts->first);
-  using wrap_sender = decltype(dataParts->second);
-  using op_t = connect_result_t<wrap_sender, Rcvr>;
+  using associate_data_t = remove_cvref_t<decltype(data)>;
+  using assoc_t = associate_data_t::@\exposid{assoc-t}@;
+  using sender_ref_t = associate_data_t::@\exposid{sender-ref}@;
+
+  using op_t = connect_result_t<typename sender_ref_t::element_type, Rcvr>;
 
   struct op_state {
-    bool @\exposid{associated}@ = false;    // \expos
+    assoc_t @\exposid{assoc}@;              // \expos
     union {
       Rcvr* @\exposid{rcvr}@;               // \expos
-      struct {
-        scope_tkn @\exposid{token}@;        // \expos
-        op_t @\exposid{op}@;                // \expos
-      } @\exposid{assoc}@;                  // \expos
+      op_t @\exposid{op}@;                  // \expos
     };
 
-    explicit op_state(Rcvr& r) noexcept
-      : @\exposid{rcvr}@(addressof(r)) {}
+    explicit op_state(pair<assoc_t, sender_ref_t> parts, Rcvr& r)
+      : @\exposid{assoc}@(std::move(parts.first)) {
+      if (@\exposid{assoc}@) {
+        ::new (@\placeholdernc{voidify}@(@\exposid{op}@)) op_t(connect(std::move(*parts.second), std::move(r)));
+      } else {
+        @\exposid{rcvr}@ = addressof(r);
+      }
+    }
 
-    explicit op_state(scope_tkn tkn, wrap_sender&& sndr, Rcvr& r) try
-      : @\exposid{associated}@(true),
-        @\exposid{assoc}@(tkn, connect(std::move(sndr), std::move(r))) {
-    }
-    catch (...) {
-      tkn.disassociate();
-      throw;
-    }
+    explicit op_state(associate_data_t&& ad, Rcvr& r)
+      : op_state(std::move(ad).release(), r) {}
+
+    explicit op_state(const associate_data_t& ad, Rcvr& r)
+      requires @\libconcept{copy_constructible}@<associate_data_t>
+      : op_state(associate_data_t(ad).release(), r) {}
 
     op_state(op_state&&) = delete;
 
     ~op_state() {
-      if (@\exposid{associated}@) {
-        @\exposid{assoc}@.@\exposid{op}@.~op_t();
-        @\exposid{assoc}@.@\exposid{token}@.disassociate();
-        @\exposid{assoc}@.@\exposid{token}@.~scope_tkn();
+      if (@\exposid{assoc}@) {
+        @\exposid{op}@.~op_t();
       }
     }
 
     void @\exposid{run}@() noexcept {       // \expos
-      if (@\exposid{associated}@)
-        start(@\exposid{assoc}@.@\exposid{op}@);
-      else
+      if (@\exposid{assoc}@) {
+        start(@\exposid{op}@);
+      } else {
         set_stopped(std::move(*@\exposid{rcvr}@));
+      }
     }
   };
 
-  if (dataParts)
-    return op_state{std::move(dataParts->first), std::move(dataParts->second), rcvr};
-  else
-    return op_state{rcvr};
+  return op_state{std::forward_like<Sndr>(data), @\exposid{rcvr}@};
 }
 \end{codeblock}
 
@@ -5138,8 +5130,8 @@ is initialized with a callable object equivalent to the following lambda:
 The expression in the \tcode{noexcept} clause of
 \tcode{\exposid{impls-for}<associate_t>::\exposid{get-state}} is
 \begin{codeblock}
-is_nothrow_constructible_v<remove_cvref_t<Sndr>, Sndr> &&
-is_nothrow_move_constructible_v<@\exposid{wrap-sender}@> &&
+(is_same_v<Sndr, remove_cvref_t<Sndr>> ||
+ is_nothrow_constructible_v<remove_cvref_t<Sndr>, Sndr>) &&
 @\exposconcept{nothrow-callable}@<connect_t, @\exposid{wrap-sender}@, Rcvr>
 \end{codeblock}
 where \exposid{wrap-sender} is the type
@@ -5389,9 +5381,8 @@ namespace std::execution {
         @\exposid{op}@(connect(
           write_env(@\exposid{stop-when}@(std::forward<Sender>(sndr), @\exposid{ssource}@.get_token()), std::move(env)),
           @\exposid{receiver-t}@(this))),
-        @\exposid{token}@(std::move(token)),
-        @\exposid{associated}@(token.try_associate()) {
-          if (associated)
+        @\exposid{assoc}@(token.try_associate()) {
+          if (@\exposid{assoc}@)
             start(@\exposid{op}@);
           else
             set_stopped(@\exposid{receiver-t}@(this));
@@ -5404,12 +5395,13 @@ namespace std::execution {
   private:
     using @\exposid{alloc-t}@ =                                                         // \expos
       allocator_traits<Alloc>::template rebind_alloc<@\exposid{spawn-future-state}@>;
+    using @\exposid{assoc-t}@ = remove_cvref_t<decltype(declval<Token&>().try_associate())>;  // \expos
+
 
     @\exposid{alloc-t}@ @\exposid{alloc}@;                                                          // \expos
     @\exposid{ssource-t}@ @\exposid{ssource}@;                                                      // \expos
     @\exposid{op-t}@ @\exposid{op}@;                                                                // \expos
-    Token @\exposid{token}@;                                                            // \expos
-    bool @\exposid{associated}@;                                                        // \expos
+    @\exposid{assoc-t}@ @\exposid{assoc}@;                                                          // \expos
 
     void @\exposid{destroy}@() noexcept;                                                // \expos
   };
@@ -5511,18 +5503,10 @@ void @\exposid{destroy}@() noexcept;
 \effects
 Equivalent to:
 \begin{codeblock}
-auto token = std::move(this->@\exposid{token}@);
-bool associated = this->@\exposid{associated}@;
-
-{
-  auto alloc = std::move(this->@\exposid{alloc}@);
-
-  allocator_traits<@\exposid{alloc-t}@>::destroy(alloc, this);
-  allocator_traits<@\exposid{alloc-t}@>::deallocate(alloc, this, 1);
-}
-
-if (associated)
-  token.disassociate();
+auto assoc = std::move(this->@\exposid{assoc}@);
+auto alloc = std::move(this->@\exposid{alloc}@);
+allocator_traits<@\exposid{alloc-t}@>::destroy(alloc, this);
+allocator_traits<@\exposid{alloc-t}@>::deallocate(alloc, this, 1);
 \end{codeblock}
 \end{itemdescr}
 
@@ -5914,17 +5898,17 @@ namespace std::execution {
 
     @\exposid{spawn-state}@(Alloc alloc, Sender&& sndr, Token token);   // \expos
     void @\exposid{complete}@() noexcept override;                      // \expos
-    void @\exposid{run}@();                                             // \expos
+    void @\exposid{run}@() noexcept;                                    // \expos
 
   private:
     using @\exposid{alloc-t}@ =                                         // \expos
       allocator_traits<Alloc>::template rebind_alloc<@\exposid{spawn-state}@>;
+    using @\exposid{assoc-t}@ =                                         // \expos
+      remove_cvref_t<decltype(declval<Token&>().try_associate())>;
 
     @\exposid{alloc-t}@ @\exposid{alloc}@;                                          // \expos
     @\exposid{op-t}@ @\exposid{op}@;                                                // \expos
-    Token @\exposid{token}@;                                            // \expos
-
-    void @\exposid{destroy}@() noexcept;                                // \expos
+    @\exposid{assoc-t}@ @\exposid{assoc}@;                                          // \expos
   };
 }
 \end{codeblock}
@@ -5938,17 +5922,14 @@ namespace std::execution {
 \pnum
 \effects
 Initializes
-\exposid{alloc} with \tcode{alloc},
-\exposid{token} with \tcode{token}, and
-\exposid{op} with:
-\begin{codeblock}
-connect(std::move(sndr), @\exposid{spawn-receiver}@(this))
-\end{codeblock}
+\exposid{alloc} with \tcode{std::move(alloc)},
+\exposid{op} with \tcode{connect(std::move(sndr), \exposid{spawn-re\-ceiv\-er}(this))}, and
+\exposid{assoc} with \tcode{token.try_associate()}.
 \end{itemdescr}
 
 \indexlibrarymember{\exposid{run}}{execution::\exposid{spawn-state}}%
 \begin{itemdecl}
-void @\exposid{run}@();
+void @\exposid{run}@() noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -5956,10 +5937,10 @@ void @\exposid{run}@();
 \effects
 Equivalent to:
 \begin{codeblock}
-if (@\exposid{token}@.try_associate())
+if (@\exposid{assoc}@)
   start(@\exposid{op}@);
 else
-  @\exposid{destroy}@();
+  @\exposid{complete}@();
 \end{codeblock}
 \end{itemdescr}
 
@@ -5973,25 +5954,8 @@ void @\exposid{complete}@() noexcept override;
 \effects
 Equivalent to:
 \begin{codeblock}
-auto token = std::move(this->@\exposid{token}@);
-
-@\exposid{destroy}@();
-token.disassociate();
-\end{codeblock}
-\end{itemdescr}
-
-\indexlibrarymember{\exposid{destroy}}{execution::\exposid{spawn-state}}%
-\begin{itemdecl}
-void @\exposid{destroy}@() noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to:
-\begin{codeblock}
+auto assoc = std::move(this->@\exposid{assoc}@);
 auto alloc = std::move(this->@\exposid{alloc}@);
-
 allocator_traits<@\exposid{alloc-t}@>::destroy(alloc, this);
 allocator_traits<@\exposid{alloc-t}@>::deallocate(alloc, this, 1);
 \end{codeblock}
@@ -7729,9 +7693,67 @@ allocator equal to that used to allocate it.
 \rSec2[exec.scope.concepts]{Execution scope concepts}
 
 \pnum
+The \libconcept{scope_association} concept defines
+the requirements on a type \tcode{Assoc}.
+An object of type \tcode{Assoc} is \defn{engaged}
+if and only if it owns an association with an async scope,
+referred to as its \defnadj{associated}{scope}.
+
+\begin{codeblock}
+namespace std::execution {
+  template<class Assoc>
+    concept @\deflibconcept{scope_association}@ =
+      @\libconcept{movable}@<Assoc> &&
+      is_nothrow_move_constructible_v<Assoc> &&
+      is_nothrow_move_assignable_v<Assoc> &&
+      @\libconcept{default_initializable}@<Assoc> &&
+      requires(const Assoc assoc) {
+        { static_cast<bool>(assoc) } noexcept;
+        { assoc.try_associate() } -> @\libconcept{same_as}@<Assoc>;
+      };
+}
+\end{codeblock}
+
+\pnum
+A type \tcode{Assoc} models \libconcept{scope_association} only if:
+\begin{itemize}
+\item
+a default constructed object of type \tcode{Assoc} is not engaged;
+\item
+for an object \exposid{assoc} of type \tcode{Assoc},
+\tcode{static_cast<bool>(assoc)} is \tcode{true}
+if and only if \tcode{assoc} is engaged;
+\item
+no two distinct objects of type \tcode{Assoc} own the same assocation;
+\item
+for an object \tcode{assoc} of type \tcode{Assoc},
+destroying \tcode{assoc} releases the assocation owned by \tcode{assoc}, if any;
+\item
+for an object \tcode{assoc} of type \tcode{Assoc},
+after it is used as the source operand of a move constructor,
+the \tcode{assoc} is not engaged;
+\item
+for distinct objects \tcode{assoc1} and \tcode{assoc2} of type \tcode{Assoc},
+after evaluating \tcode{assoc1 = std::move(assoc2)},
+the association owned by \tcode{assoc1}, if any, is released and
+\tcode{assoc2} is not engaged;
+\item
+for an object \tcode{assoc} of type \tcode{Assoc} that is engaged,
+\tcode{assoc.try_associate()} either
+returns an object that is not engaged or
+acquires a new association with \tcode{assoc}'s associated scope and
+returns an engaged object that owns that association;
+\item
+for an object \tcode{assoc} of type \tcode{Assoc} that is not engaged,
+\tcode{assoc.try_associate()} returns an object that is not engaged.
+\end{itemize}
+
+\pnum
 The \libconcept{scope_token} concept defines the requirements on
 a type \tcode{Token} that can be used to create associations
 between senders and an async scope.
+Every object of type \tcode{Token} is associated with an async scope
+that is referred to as its \term{associated scope}.
 
 \pnum
 Let \placeholder{test-sender} and \placeholder{test-env}
@@ -7745,8 +7767,7 @@ namespace std::execution {
     concept @\deflibconcept{scope_token}@ =
       @\libconcept{copyable}@<Token> &&
       requires(const Token token) {
-        { token.try_associate() } -> @\libconcept{same_as}@<bool>;
-        { token.disassociate() } noexcept -> @\libconcept{same_as}@<void>;
+        { token.try_associate() } -> @\libconcept{scope_association}@;
         { token.wrap(declval<@\placeholder{test-sender}@>()) } -> @\libconcept{sender_in}@<@\placeholder{test-env}@>;
       };
 }
@@ -7762,7 +7783,14 @@ copy construction,
 move construction,
 copy assignment, or
 move assignment
-of objects of type \tcode{Token}; and
+of objects of type \tcode{Token};
+
+\item
+for an object \tcode{token} of type \tcode{Token},
+\tcode{token.try_associate()} either
+returns an object that is not engaged or
+acquires a new association with \tcode{token}'s associated scope and
+returns an engaged object that owns that association; and
 
 \item
 given an lvalue \tcode{token} of type (possibly const) \tcode{Token},
@@ -7875,6 +7903,9 @@ enum @\exposid{scope-state-type}@ {     // \expos
   @\exposid{unused-and-closed}@,        // \expos
   @\exposid{joined}@,                   // \expos
 };
+
+template<class Scope>
+  struct @\exposid{association-t}@;     // \expos
 \end{codeblock}
 
 \pnum
@@ -7952,6 +7983,26 @@ namespace std::execution {
 }
 \end{codeblock}
 
+\pnum
+\exposid{association-t} is a class template,
+specializations of which model \libconcept{scope_association} and
+contain an exposition-only member \exposid{scope} of type \tcode{Scope*}.
+For a class type \tcode{Scope} and
+an object \tcode{assoc} of type \tcode{\exposid{association-t}<Scope>}:
+\begin{itemize}
+\item
+\tcode{assoc.\exposid{scope}} points to its associated scope,
+\item
+\tcode{assoc} is engaged when \tcode{assoc.\exposid{scope} != nullptr} is \tcode{true},
+\item
+if \tcode{assoc} is engaged,
+then \tcode{assoc.try_associate()} is equivalent to
+\tcode{assoc.\exposid{scope}->\exposid{try-associate}()}, and
+\item
+the association owned by \tcode{assoc}
+is released by invoking \tcode{assoc.\exposid{scope}->\exposid{disassociate}()}.
+\end{itemize}
+
 \rSec3[exec.scope.simple.counting]{Simple Counting Scope}
 
 \rSec4[exec.scope.simple.counting.general]{General}
@@ -7963,6 +8014,8 @@ namespace std::execution {
   public:
     // \ref{exec.simple.counting.token}, token
     struct token;
+
+    using @\exposid{assoc-t}@ = @\exposid{association-t}@<simple_counting_scope>;     // \expos
 
     static constexpr size_t max_associations = @\UNSP{\impldef{value of \tcode{std::execution::simple_counting_scope::max_associations}}}@;
 
@@ -7980,7 +8033,7 @@ namespace std::execution {
     size_t @\exposid{count}@;                                       // \expos
     @\exposid{scope-state-type}@ @\exposid{state}@;                             // \expos
 
-    bool @\exposid{try-associate}@() noexcept;                      // \expos
+    @\exposid{assoc-t}@ @\exposid{try-associate}@() noexcept;                      // \expos
     void @\exposid{disassociate}@() noexcept;                       // \expos
     template<class State>
       bool @\exposid{start-join-sender}@(State& state) noexcept;    // \expos
@@ -8081,7 +8134,7 @@ returns \tcode{false}.
 
 \indexlibrarymember{\exposid{try-associate}}{execution::simple_counting_scope}%
 \begin{itemdecl}
-bool @\exposid{try-associate}@() noexcept;
+@\exposid{assoc-t}@ @\exposid{try-associate}@() noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -8102,7 +8155,10 @@ otherwise, no effects.
 
 \pnum
 \returns
-\tcode{true} if \exposid{count} was incremented, \tcode{false} otherwise.
+If \exposid{count} was incremented,
+an object of type \exposid{assoc-t}
+that is engaged and associated with \tcode{*this}, and
+\tcode{\exposid{assoc-t}()} otherwise.
 \end{itemdescr}
 
 \indexlibrarymember{\exposid{disassociate}}{execution::simple_counting_scope}%
@@ -8161,8 +8217,7 @@ namespace std::execution {
   struct simple_counting_scope::token {
     template<@\libconcept{sender}@ Sender>
       Sender&& wrap(Sender&& snd) const noexcept;
-    bool try_associate() const noexcept;
-    void disassociate() const noexcept;
+    @\exposid{assoc-t}@ try_associate() const noexcept;
 
   private:
     simple_counting_scope* @\exposid{scope}@;   // \expos
@@ -8184,24 +8239,13 @@ template<@\libconcept{sender}@ Sender>
 
 \indexlibrarymember{try_associate}{execution::simple_counting_scope::token}%
 \begin{itemdecl}
-bool try_associate() const noexcept;
+@\exposid{assoc-t}@ try_associate() const noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \effects
 Equivalent to: \tcode{return \exposid{scope}->\exposid{try-associate}();}
-\end{itemdescr}
-
-\indexlibrarymember{disassociate}{execution::simple_counting_scope::token}%
-\begin{itemdecl}
-void disassociate() const noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to \tcode{\exposid{scope}->\exposid{disassociate}()}.
 \end{itemdescr}
 
 \rSec3[exec.scope.counting]{Counting Scope}
@@ -8212,11 +8256,12 @@ Equivalent to \tcode{\exposid{scope}->\exposid{disassociate}()}.
 namespace std::execution {
   class counting_scope {
   public:
+    using @\exposid{assoc-t}@ = @\exposid{association-t}@<counting_scope>;      // \expos
+
     struct token {
       template<@\libconcept{sender}@ Sender>
         @\libconcept{sender}@ auto wrap(Sender&& snd) const noexcept(@\seebelow@);
-      bool try_associate() const noexcept;
-      void disassociate() const noexcept;
+      @\exposid{assoc-t}@ try_associate() const noexcept;
 
     private:
       counting_scope* @\exposid{scope}@;                            // \expos
@@ -8238,7 +8283,7 @@ namespace std::execution {
     @\exposid{scope-state-type}@ @\exposid{state}@;                             // \expos
     inplace_stop_source @\exposid{s_source}@;                       // \expos
 
-    bool @\exposid{try-associate}@() noexcept;                      // \expos
+    @\exposid{assoc-t}@ @\exposid{try-associate}@() noexcept;                   // \expos
     void @\exposid{disassociate}@() noexcept;                       // \expos
 
     template<class State>
@@ -8280,6 +8325,35 @@ Equivalent to \tcode{\exposid{s_source}.request_stop()}.
 Calls to \tcode{request_stop} do not introduce data races.
 \end{itemdescr}
 
+\indexlibrarymember{\exposid{try-associate}}{execution::counting_scope}%
+\begin{itemdecl}
+@\exposid{assoc-t}@ @\exposid{try-associate}@() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+If \exposid{count} is equal to \tcode{max_associations},
+then no effects.
+Otherwise, if \exposid{state} is
+\begin{itemize}
+\item
+\exposid{unused}, then increments \exposid{count} and
+changes \exposid{state} to \exposid{open};
+\item
+\exposid{open} or \exposid{open-and-joining}, then increments \exposid{count};
+\item
+otherwise, no effects.
+\end{itemize}
+
+\pnum
+\returns
+If \exposid{count} was incremented,
+an object of type \exposid{assoc-t}
+that is engaged and associated with \tcode{*this}, and
+\tcode{\exposid{assoc-t}()} otherwise.
+\end{itemdescr}
+
 \indexlibrarymember{wrap}{execution::counting_scope::token}%
 \begin{itemdecl}
 template<@\libconcept{sender}@ Sender>
@@ -8294,6 +8368,17 @@ Equivalent to:
 \begin{codeblock}
 return @\exposid{stop-when}@(std::forward<Sender>(snd), @\exposid{scope}@->@\exposid{s_source}@.get_token());
 \end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{wrap}{execution::counting_scope::token}%
+\begin{itemdecl}
+@\exposid{assoc-t}@ counting_scope::token::try_associate() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to: \tcode{return \exposid{scope}->\exposid{try-associate}();}
 \end{itemdescr}
 
 \rSec1[exec.par.scheduler]{Parallel scheduler}
