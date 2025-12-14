@@ -21226,6 +21226,11 @@ namespace std {
   template<class IndexType, size_t... Extents, class... SliceSpecifiers>
     constexpr auto submdspan_extents(const extents<IndexType, Extents...>&, SliceSpecifiers...);
 
+  // \ref{mdspan.sub.canonical}, \tcode{submdspan} slice canonicalization
+  template<class IndexType, size_t... Extents, class... Slices>
+    constexpr auto submdspan_canonicalize_slices(const extents<IndexType, Extents...>& src,
+                                                 Slices... slices);
+
   // \ref{mdspan.sub.sub}, \tcode{submdspan} function template
   template<class ElementType, class Extents, class LayoutPolicy,
            class AccessorPolicy, class... SliceSpecifiers>
@@ -25463,37 +25468,151 @@ The subset viewed by the created \tcode{mdspan} is determined by
 the \tcode{SliceSpecifier} arguments.
 
 \pnum
-For each function defined in \ref{mdspan.sub} that
-takes a parameter pack named \tcode{slices} as an argument:
-
+Given a signed or unsigned integer type \tcode{IndexType},
+a type $S$ is a
+\defnx{\tcode{submdspan} slice type for \tcode{IndexType}}{\tcode{submdspan}!slice type for \tcode{IndexType}}
+if at least one of the following holds:
 \begin{itemize}
-\item let \tcode{index_type} be
+\item
+  \tcode{is_convertible_v<$S$, full_extent_t>} is \tcode{true};
+\item
+  \tcode{is_convertible_v<$S$, IndexType>} is \tcode{true};
+\item
+  $S$ is a specialization of \tcode{strided_slice} and
+  \tcode{is_convertible_v<$X$, IndexType>} is \tcode{true} for $X$ denoting
+  \tcode{$S$::offset_type},
+  \tcode{$S$::extent_type}, and
+  \tcode{$S$::stride_type}; or
+\item
+  all of the following hold:
   \begin{itemize}
   \item
-  \tcode{M::index_type}
-  if the function is a member of a class \tcode{M},
+    the declaration \tcode{auto [...ls] = std::move(s);} is well-formed
+    for some object \tcode{s} of type $S$,
   \item
-  otherwise,
-  \tcode{remove_reference_t<decltype(src)>::index_type}
-  if the function has a parameter named \tcode{src},
+    \tcode{sizeof...(ls)} is equal to 2, and
   \item
-  otherwise,
-  the same type as the function's template argument \tcode{IndexType};
+    \tcode{(is_convertible_v<decltype(std::move(ls)), IndexType> \&\& ...)} is \tcode{true}.
   \end{itemize}
-\item let \tcode{rank} be the number of elements in \tcode{slices};
-\item let $s_k$ be the $k^\text{th}$ element of \tcode{slices};
-\item let $S_k$ be the type of $s_k$; and
-\item let \tcode{\placeholder{map-rank}} be an \tcode{array<size_t, rank>} such that
-for each $k$ in the range \range{0}{rank},
-\tcode{\placeholder{map-rank}[$k$]} equals:
+\end{itemize}
+
+\pnum
+Given a signed or unsigned integer type \tcode{IndexType},
+a type $S$ is a
+\defnx{canonical \tcode{submdspan} index type for \tcode{IndexType}}{\tcode{submdspan}!canonical index type for \tcode{IndexType}}
+if $S$ is either \tcode{IndexType} or \tcode{constant_wrapper<v>}
+for some value \tcode{v} of type \tcode{IndexType},
+such that \tcode{v} is greater than or equal to zero.
+
+\pnum
+Given a signed or unsigned integer type \tcode{IndexType},
+a type $S$ is a
+\defnx{canonical \tcode{submdspan} slice type for \tcode{IndexType}}{\tcode{submdspan}!canonical slice type for \tcode{IndexType}}
+if exactly one of the following is \tcode{true}:
+\begin{itemize}
+\item
+  $S$ is \tcode{full_extent_t};
+\item
+  $S$ is a canonical \tcode{submdspan} index type for \tcode{IndexType}; or
+\item
+  $S$ is a specialization of \tcode{strided_slice}
+  where all of the following hold:
   \begin{itemize}
   \item
-  \tcode{dynamic_extent}
-  if $S_k$ models \tcode{\libconcept{convertible_to}<index_type>},
+    \tcode{S::offset_type}, \tcode{S::extent_type}, and \tcode{S::stride_type}
+    are all canonical \tcode{submdspan} index types for \tcode{IndexType}; and
   \item
-  otherwise,
-  the number of types $S_j$ with $j < k$ that
-  do not model \tcode{\libconcept{convertible_to}<index_type>}.
+    if \tcode{$S$::stride_type} and \tcode{$S$::extent_type}
+    are both specializations of \tcode{constant_wrapper},
+    then \tcode{$S$::stride_type::value} is greater than zero.
+  \end{itemize}
+\end{itemize}
+
+\pnum
+A type \tcode{S} is a \defnadj{collapsing}{slice type} if
+it is neither \tcode{full_extent_t} nor
+a specialization of \tcode{strided_slice}.
+\begin{note}
+Each collapsing slice type in \tcode{submdspan_mapping}'s parameter pack
+of slice specifier types
+reduces the rank of the result of \tcode{submdspan_mapping} by one.
+\end{note}
+
+\pnum
+A type \tcode{S} is a \defnadj{unit-stride}{slice type} if
+\begin{itemize}
+\item
+  \tcode{S} is a specialization of \tcode{strided_slice}
+  where \tcode{S::stride_type} is a specialization of \tcode{constant_wrapper} and
+  \tcode{S::stride_type::value} is equal to 1, or
+\item
+  \tcode{S} denotes \tcode{full_extent_t}.
+\end{itemize}
+
+\pnum
+Given an object \tcode{e} of type \tcode{E} that is a specialization of \tcode{extents}, and
+an object \tcode{s} of type \tcode{S}
+that is a canonical \tcode{submdspan} slice type for \tcode{E::index_type},
+the \defnx{\tcode{submdspan} slice range of \tcode{s} for the $k^\text{th}$ extent of \tcode{e}}{\tcode{submdspan}!slice range of \tcode{s} for the $k^\text{th}$ extent of \tcode{e}}
+is:
+\begin{itemize}
+\item
+  \range{$0$}{e.extent($k$)},
+  if \tcode{S} is \tcode{full_extent_t};
+\item
+  \range{E::index_type(s.offset)}{E::index_type(s.offset + s.extent)},
+  if \tcode{S} is a specialization of \tcode{stri\-ded_slice}; otherwise
+\item
+  \range{\tcode{E::index_type(s)}}{$\tcode{E::index_type(s)} + 1$}
+\end{itemize}
+
+\pnum
+Given a type \tcode{E} that is a specialization of \tcode{extents},
+a type \tcode{S} is a
+\defnx{valid \tcode{submdspan} slice type for the $k^\text{th}$ extent of \tcode{E}}{\tcode{submdspan}!valid slice type for the $k^\text{th}$ extent of \tcode{E}}
+if \tcode{S} is a canonical slice type for \tcode{E::index_type}, and
+for $x$ equal to \tcode{E::static_extent($k$)},
+either $x$ is equal to \tcode{dynamic_extent}; or
+\begin{itemize}
+\item
+  if \tcode{S} is a specialization of \tcode{strided_slice}:
+  \begin{itemize}
+  \item
+    if \tcode{S::offset_type} is a specialization of \tcode{constant_wrapper},
+    then \tcode{S::offset_type::value} is less than or equal to $x$;
+  \item
+    if \tcode{S::offset_type} is a specialization of \tcode{constant_wrapper},
+    then \tcode{S::extent_type::value} is less than or equal to $x$; and
+  \item
+    if both \tcode{S::offset_type} and \tcode{S::extent_type}
+    are specializations of \tcode{constant_wrapper},
+    then \tcode{S::offset_type::value + S::extent_type::value}
+    is less than or equal to $x$; or
+  \end{itemize}
+\item
+  if $S$ is a specialization of \tcode{constant_wrapper},
+  then \tcode{S::value} is less than \tcode{x}.
+\end{itemize}
+
+\pnum
+Given an object \tcode{e} of type \tcode{E}
+that is a specialization of \tcode{extents} and
+an object \tcode{s} of type \tcode{S},
+\tcode{s} is a
+\defnx{valid \tcode{submdspan} slice for the $k^\text{th}$ extent of \tcode{e}}{\tcode{submdspan}!valid slice for the $k^\text{th}$ extent of \tcode{e}}
+if
+\begin{itemize}
+\item
+  \tcode{S} is a valid \tcode{submdspan} slice type for the $k^\text{th}$ extent of \tcode{E};
+\item
+  the $k^\text{th}$ interval of \tcode{e}
+  contains the \tcode{submdspan} slice range of \tcode{s}
+  for the $k^\text{th}$ extent of \tcode{e}; and
+\item
+  if \tcode{S} is a specialization of \tcode{strided_slice}, then:
+  \begin{itemize}
+  \item \tcode{s.extent} is greater than or equal to zero, and
+  \item either \tcode{s.extent} equals zero or \tcode{s.stride} is greater than zero.
   \end{itemize}
 \end{itemize}
 
@@ -25564,125 +25683,138 @@ the layout mapping requirements\iref{mdspan.layout.policy.reqmts}.
 
 \rSec4[mdspan.sub.helpers]{Exposition-only helpers}
 
-\indexlibraryglobal{\exposid{de-ice}}%
-\indexlibraryglobal{\exposid{first_}}%
+\pnum
+\indexlibraryglobal{\tcode{\placeholder{MAP_RANK}}}%
+For a pack \tcode{p} and an integer $i$,
+let \tcode{\placeholder{MAP_RANK}(p, $i$)} be the number of elements \tcode{p...[$j$]}
+for $0 \le j < i$ whose types are not collapsing slice types.
+
 \begin{itemdecl}
 template<class T>
-  constexpr T @\exposid{de-ice}@(T val) { return val; }
-template<@\exposconcept{integral-constant-like}@ T>
-  constexpr auto @\exposid{de-ice}@(T) { return T::value; }
+  concept @\defexposconcept{is-strided-slice}@ = @\seebelow;@
+\end{itemdecl}
 
-template<class IndexType, size_t k, class... SliceSpecifiers>
-  constexpr IndexType @\exposid{first_}@(SliceSpecifiers... slices);
+\begin{itemdescr}
+\pnum
+The concept \tcode{\exposconcept{is-strided-slice}<T>}
+is satisfied and modeled if and only
+if \tcode{T} is a specialization of \tcode{strided_slice}.
+\end{itemdescr}
+
+\indexlibraryglobal{\exposid{canonical-index}}%
+\begin{itemdecl}
+template<class IndexType, class S>
+  constexpr auto @\exposid{canonical-index}@(S s);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \mandates
-\tcode{IndexType} is a signed or unsigned integer type.
+If \tcode{S} models \exposconcept{integral-constant-like},
+then \tcode{extents<IndexType>::\exposid{index-cast}(S::val\-ue)}
+is representable as a value of type \tcode{IndexType}.
 
-%FIXME: What is $k$ in this itemdescr? Did we mean the \tcode{k} passed to first_? If so, what do we do for de-ice?
 \pnum
-Let $\phi{}_k$ denote the following value:
+\expects
+\tcode{extents<IndexType>::\exposid{index-cast}(std::move(s))}
+is representable as a value of type \tcode{IndexType}.
+
+\pnum
+\effects
+Equivalent to:
 \begin{itemize}
 \item
-$s_k$ if $S_k$ models \tcode{\libconcept{convertible_to}<IndexType>};
+\tcode{return cw<IndexType(S::value)>;}
+if \tcode{S} models \exposconcept{integral-constant-like};
 \item
-otherwise,
-\tcode{get<0>($s_k$)}
-if $S_k$ models \tcode{\exposconcept{index-pair-like}<IndexType>};
+\tcode{return IndexType(std::move(s));} otherwise.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibraryglobal{\exposid{canonical-slice}}
+\begin{itemdecl}
+template<class IndexType, class S>
+  constexpr auto @\exposid{canonical-slice}@(S s);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{S} is a \tcode{submdspan} slice type for \tcode{IndexType}.
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+if constexpr (is_convertible_v<S, full_extent_t>) {
+  return static_cast<full_extent_t>(std::move(s));
+} else if constexpr (is_convertible_v<S, IndexType>) {
+  return @\exposid{canonical-index}@<IndexType>(std::move(s));
+} else if constexpr (@\exposconcept{is-strided-slice}@<S>) {
+  auto c_extent = @\exposid{canonical-index}@<IndexType>(std::move(s.extent));
+  auto c_offset = @\exposid{canonical-index}@<IndexType>(std::move(s.offset));
+  if constexpr (is_same_v<decltype(c_extent), constant_wrapper<IndexType(0)>>) {
+    return strided_slice{
+      .offset = c_offset,
+      .extent = c_extent,
+      .stride = cw<IndexType(1)>
+    };
+  } else {
+    return strided_slice{
+      .offset = c_offset,
+      .extent = c_extent,
+      .stride = @\exposid{canonical-index}@<IndexType>(std::move(s.stride))
+    };
+  }
+} else {
+  auto [s_first, s_last] = std::move(s);
+  auto c_first = @\exposid{canonical-index}@<IndexType>(std::move(s_first));
+  auto c_last  = @\exposid{canonical-index}@<IndexType>(std::move(s_last));
+  return strided_slice{
+    .offset = c_first,
+    .extent = @\exposid{canonical-index}@<IndexType>(c_last - c_first),
+    .stride = cw<IndexType(1)>
+  };
+}
+\end{codeblock}
+\end{itemdescr}
+
+\rSec4[mdspan.sub.canonical]{\tcode{submdspan} slice canonicalization}
+
+\indexlibraryglobal{submdspan_canonicalize_slices}%
+\begin{itemdecl}
+template<class IndexType, size_t... Extents, class... SliceSpecifiers>
+  constexpr auto submdspan_canonicalize_slices(const extents<IndexType, Extents...>& src,
+                                               SliceSpecifiers... slices);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\tcode{sizeof...(SliceSpecifiers)} equals \tcode{sizeof...(Extents)}.
+
+\pnum
+\mandates
+For each rank index $k$ of \tcode{src}:
+\begin{itemize}
 \item
-otherwise,
-\tcode{\exposid{de-ice}($s_k$.offset)}
-if $S_k$ is a specialization of \tcode{strided_slice};
+  \tcode{SliceSpecifiers...[k]}
+  is a \tcode{submdspan} slice type for \tcode{IndexType}, and
 \item
-otherwise,
-\tcode{0}.
+  \tcode{decltype(\exposid{canonical-slice}<IndexType>(slices...[k]))}
+  is a valid \tcode{submdspan} slice type for the $k^\text{th}$ extent of
+  \tcode{extents<IndexType, Extents...>}.
 \end{itemize}
 
 \pnum
 \expects
-$\phi{}_k$ is representable as a value of type \tcode{IndexType}.
+For each rank index $k$ of \tcode{src},
+\tcode{\exposid{canonical-slice}<IndexType>(slices...[k])}
+is a valid \tcode{submdspan} slice for the $k^\text{th}$ extent of \tcode{src}.
 
 \pnum
 \returns
-\tcode{extents<IndexType>::\exposid{index-cast}($\phi{}_k$)}.
-\end{itemdescr}
-
-\indexlibraryglobal{\exposid{last_}}%
-\begin{itemdecl}
-template<size_t k, class Extents, class... SliceSpecifiers>
-  constexpr auto @\exposid{last_}@(const Extents& src, SliceSpecifiers... slices);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\mandates
-\tcode{Extents} is a specialization of \tcode{extents}.
-
-\pnum
-Let \tcode{index_type} be \tcode{typename Extents::index_type}.
-
-%FIXME: What is $k$ in this itemdescr? Don't we want \tcode{k} and not $k$?
-\pnum
-Let $\lambda{}_k$ denote the following value:
-\begin{itemize}
-\item
-\tcode{\exposid{de-ice}($s_k$) + 1}
-if $S_k$ models \tcode{\libconcept{convertible_to}<index_type>}; otherwise
-\item
-\tcode{get<1>($s_k$)}
-if $S_k$ models \tcode{\exposconcept{index-pair-like}<index_type>}; otherwise
-\item
-\tcode{\exposid{de-ice}($s_k$.offset)} \tcode{+}
-\tcode{\exposid{de-ice}($s_k$.extent)}
-if $S_k$ is a specialization of \tcode{strided_slice}; otherwise
-\item
-%FIXME: Note that the paper uses \tcode{k} here.
-\tcode{src.extent(k)}.
-\end{itemize}
-
-\pnum
-\expects
-$\lambda{}_k$ is representable as a value of type \tcode{index_type}.
-
-\pnum
-\returns
-\tcode{Extents::\exposid{index-cast}($\lambda{}_k$)}.
-\end{itemdescr}
-
-\indexlibraryglobal{\exposid{src-indices}}%
-\begin{itemdecl}
-template<class IndexType, size_t N, class... SliceSpecifiers>
-  constexpr array<IndexType, sizeof...(SliceSpecifiers)>
-    @\exposid{src-indices}@(const array<IndexType, N>& indices, SliceSpecifiers... slices);
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\mandates
-\tcode{IndexType} is a signed or unsigned integer type.
-
-\pnum
-\returns
-An \tcode{array<IndexType, sizeof...(SliceSpecifiers)> src_idx} such that
-for each $k$ in the range \range{0}{sizeof...(SliceSpecifiers)},
-\tcode{src_idx[$k$]} equals
-
-\begin{itemize}
-\item
-%FIXME: We're redefining what $k$ is here.
-%FIXME: Also, calling first_ on each $k$ below gives us a set of indeces - how do we assign a set to the src_idx[$k$] above?
-\tcode{\exposid{first_}<IndexType, $k$>(slices...)} for each $k$
-where \tcode{\placeholder{map-rank}[$k$]} equals
-\tcode{dynamic_extent},
-
-\item
-%FIXME: How do we fail the previous \item to get here? There's no "if" test to fail.
-otherwise,
-\tcode{\exposid{first_}<IndexType, $k$>(slices...)} \tcode{+}
-\tcode{indices[\placeholder{map-rank}[$k$]]}.
-\end{itemize}
+\tcode{make_tuple(\exposid{canonical-slice}<IndexType>(slices)...)}.
 \end{itemdescr}
 
 \rSec4[mdspan.sub.extents]{\tcode{submdspan_extents} function}
@@ -25691,82 +25823,70 @@ otherwise,
 \begin{itemdecl}
 template<class IndexType, size_t... Extents, class... SliceSpecifiers>
   constexpr auto submdspan_extents(const extents<IndexType, Extents...>& src,
-                                   SliceSpecifiers... slices);
+                                   SliceSpecifiers... raw_slices);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
+Let \tcode{slices} be the pack intoduced by the following declaration:
+\begin{codeblock}
+auto [...slices] = submdspan_canonicalize_slices(src, raw_slices...);
+\end{codeblock}
+
+\pnum
 \constraints
-\tcode{sizeof...(slices)} equals \tcode{sizeof...(Extents)}.
+\tcode{sizeof...(SliceSpecifiers)} equals \tcode{sizeof...(Extents)}.
 
 \pnum
 \mandates
-For each rank index $k$ of \tcode{src.extents()},
-exactly one of the following is true:
+For each rank index $k$ of \tcode{src}:
 \begin{itemize}
-\item $S_k$ models \tcode{\libconcept{convertible_to}<IndexType>},
-\item $S_k$ models \tcode{\exposconcept{index-pair-like}<IndexType>},
-\item \tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true}, or
-\item $S_k$ is a specialization of \tcode{strided_slice}.
+\item
+  \tcode{SliceSpecifiers...[$k$]}
+  is a \tcode{submdspan} slice type for \tcode{IndexType}, and
+\item
+  \tcode{decltype(slices...[$k$])} is a valid \tcode{submdspan} slice type
+  for the $k^\text{th}$ extent of \tcode{extents<\brk{}Index\-Type, Extents...>}.
 \end{itemize}
 
 \pnum
 \expects
-For each rank index $k$ of \tcode{src.extents()},
-all of the following are \tcode{true}:
-\begin{itemize}
-\item
-if $S_k$ is a specialization of \tcode{strided_slice}
-  \begin{itemize}
-  \item $\tcode{$s_k$.extent} = 0$, or
-  \item $\tcode{$s_k$.stride} > 0$
-  \end{itemize}
-\item
-$0 \le \tcode{\exposid{first_}<IndexType, $k$>(slices...)}$
-$\le \tcode{\exposid{last_}<$k$>(src, slices...)}$
-$\le \tcode{src.extent($k$)}$
-\end{itemize}
+For each rank index $k$ of \tcode{src},
+\tcode{slices...[k]} is a valid \tcode{submdspan} slice
+for the $k^\text{th}$ extent of \tcode{src}.
 
 \pnum
 Let \tcode{SubExtents} be a specialization of \tcode{extents} such that:
 
 \begin{itemize}
 \item
-%FIXME: I think we want the count here, "number" is ambiguous.
-\tcode{SubExtents::rank()} equals the number of $k$ such that
-$S_k$ does not model \tcode{\libconcept{convertible_to}<IndexType>}; and
+\tcode{SubExtents::rank()} equals
+\tcode{\placeholder{MAP_RANK}(slices, Extents::rank())}; and
 
 \item
 for each rank index $k$ of \tcode{Extents} such that
-\tcode{\placeholder{map-rank}[$k$] != dynamic_extent} is \tcode{true},
-\tcode{SubExt\-ents::static_extent(\placeholder{map-rank}[$k$])} equals:
+the type of \tcode{slices...[$k$]} is not a collapsing slice type,
+\tcode{SubExt\-ents::static_extent(\placeholder{MAP_RANK}(slices, $k$))}
+equals the following, where $\Sigma_k$
+denotes the type of \tcode{slices...[$k$]}:
 
   \begin{itemize}
   \item
   \tcode{Extents::static_extent($k$)}
-  if \tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true};
+  if $\Sigma_k$ denotes the \tcode{full_extent_t};
   otherwise
 
   \item
-  \tcode{\exposid{de-ice}(tuple_element_t<1, $S_k$>()) -}
-  \tcode{\exposid{de-ice}(tuple_element_t<0, $S_k$>())}
-  if $S_k$ models \tcode{\exposconcept{index-pair-like}<IndexType>}, and
-  both \tcode{tuple_element_t<0, $S_k$>} and
-  \tcode{tuple_elem\-ent_t<1, $S_k$>}
-  model \exposconcept{integral-constant-like}; otherwise
-
-  \item
   \tcode{0},
-  if $S_k$ is a specialization of \tcode{strided_slice}, whose
-  \tcode{extent_type} models \exposconceptx{integral-cons\-tant-like}{integral-constant-like},
-  for which \tcode{extent_type()} equals zero; otherwise
+  if $\Sigma_k$ is a specialization of \tcode{strided_slice} and
+  \tcode{$\Sigma_k$::extent_type} denotes \tcode{constant_wrapper<IndexType(0)>};
+  otherwise
 
   \item
-  \tcode{1 + (\exposid{de-ice}($S_k$::extent_type()) - 1) /}
-  \tcode{\exposid{de-ice}($S_k$::stride_type())},
-  if $S_k$ is a specialization of \tcode{strided_slice} whose
+  \tcode{1 + (($\Sigma_k$::extent_type::value - 1) / $\Sigma_k$::stride_type::value)},
+  if $\Sigma_k$ is a specialization of \tcode{strided_slice} whose
   \tcode{extent_type} and \tcode{stride_type}
-  model \exposconceptx{integral-cons\-tant-like}{integral-constant-like};
+  denote specializations of \tcode{constant_wrapper};
 
   \item
   otherwise,
@@ -25777,22 +25897,141 @@ for each rank index $k$ of \tcode{Extents} such that
 \pnum
 \returns
 A value \tcode{ext} of type \tcode{SubExtents} such that
-for each $k$
-for which \tcode{\placeholder{map-rank}[$k$] != dynamic_extent} is \tcode{true},
-\tcode{ext.extent(\placeholder{map-rank}[$k$])} equals:
-
+for each rank index $k$ of \tcode{extents<IndexType, Extents...>},
+where the type of \tcode{slices...[$k$]} is not a collapsing slice type,
+\tcode{ext.extent(\placeholder{MAP_RANK}(slices, $k$))}
+equals the following,
+where $\sigma_k$ denotes \tcode{slices...[$k$]}:
 \begin{itemize}
 \item
-\tcode{$s_k$.extent == 0 ? 0 : 1 + (\exposid{de-ice}($s_k$.extent) - 1) / \exposid{de-ice}($s_k$.stride)}
-if $S_k$ is a specialization of \tcode{strided_slice},
-
+  \tcode{$\sigma_k$.extent == 0 ? 0 : 1 + ($\sigma_k$.extent - 1) / $\sigma_k$.stride}
+  if the type of $\sigma_k$ is a specialization of \tcode{strided_slice},
 \item
-otherwise,
-\tcode{\exposid{last_}<$k$>(src, slices...) - \exposid{first_}<IndexType, $k$>(slices...)}.
+  otherwise,
+  $U - L$, where \range{$L$}{$U$} is the \tcode{submdspan} slice range
+  of $\sigma_k$ for the $k^\text{th}$ extent of \tcode{src}.
 \end{itemize}
 \end{itemdescr}
 
 \rSec4[mdspan.sub.map]{Specializations of \tcode{submdspan_mapping}}
+
+\rSec5[mdspan.sub.map.sliceable]{Sliceable layout mapping requirements}
+
+\pnum
+Let:
+\begin{itemize}
+\item
+  \tcode{M} denote a layout mapping class;
+\item
+  \tcode{IT} denote \tcode{M::extent_type::index_type};
+\item
+  \tcode{m} denote a value of type (possibly const) \tcode{M};
+\item
+  \tcode{M_rank} be equal to \tcode{M::extent_type::rank()};
+\item
+  \tcode{valid_slices} denote a pack of (possibly const) objects
+  for which \tcode{sizeof...(valid_slices) == M_rank} is \tcode{true} and,
+  for each rank index $i$ of \tcode{m.extents()},
+  \tcode{valid_slices...[i]} is a valid \tcode{submdspan} slice
+  for the $i^\text{th}$ extent of \tcode{m.extents()};
+\item
+  \tcode{invalid_slices} denote a pack of objects
+  for which \tcode{sizeof...(invalid_slices) == M_rank} is \tcode{true} and
+  there exists an integer $k$ such that the cv-unqualified type
+  of \tcode{invalid_slices...[$k$]} is none of the following:
+  \begin{itemize}
+  \item \tcode{IT},
+  \item \tcode{full_extent_t},
+  \item a specialization of \tcode{constant_wrapper}, or
+  \item a specialization of \tcode{strided_slice}.
+  \end{itemize}
+\end{itemize}
+
+\pnum
+For the purpose of this section,
+the meaning of \tcode{submdspan_mapping} is established
+as if by performing argument-dependent lookup only\iref{basic.lookup.argdep}.
+
+\pnum
+A type \tcode{M} meets the \defn{sliceable layout mapping requirements} if
+\begin{itemize}
+\item
+\tcode{M} meets the layout mapping requirements\iref{mdspan.layout.policy.reqmts},
+\item
+the expression \tcode{submdspan_mapping(m, invalid_slices...)} is ill-formed, and
+\item
+the following expression is well-formed and has the specified semantics:
+\begin{codeblock}
+submdspan_mapping(m, valid_slices...)
+\end{codeblock}
+\end{itemize}
+
+\begin{itemdescr}
+\pnum
+\result
+A type SMR that is a specialization of type submdspan_mapping_result<SM> for some type SM such that
+\begin{itemize}
+\item \tcode{SM} meets the layout mapping requirements\iref{mdspan.layout.policy.reqmts},
+\item \tcode{SM::extents_type} is a specialization of \tcode{extents},
+\item \tcode{SM::extents_type::rank()} equals
+\tcode{\placeholder{MAP_RANK}(valid_slices, M_rank)}, and
+\item \tcode{SM::extents_type::index_type} denotes \tcode{IT}.
+\end{itemize}
+
+\pnum
+\returns
+An object \tcode{smr} of type \tcode{SMR} such that
+\begin{itemize}
+\item
+  \tcode{smr.mapping.extents() == submdspan_extents(m.extents(), valid_slices...)}
+  is \tcode{true};\newline and
+\item
+  for each integer pack \tcode{i}
+  which is a multidimensional index in \tcode{smr.mapping.extents()},\newline
+  \tcode{smr.mapping(i...) + smr.offset == m(j)} is \tcode{true},
+  where \tcode{j} is an integer pack such that
+  \begin{itemize}
+  \item
+    \tcode{sizeof...(j)} is equal to \tcode{M_rank}; and
+  \item
+    for each rank index $\rho$ of \tcode{m.extents()},
+    \tcode{j...[$\rho$]} is equal to the sum of
+    \begin{itemize}
+    \item
+      the lower bound of the submdspan slice range of \tcode{valid_slices...[$\rho$]}
+      for extent $\rho$ of \tcode{m.extents()}, and
+    \item
+      zero if the type of \tcode{valid_slices...[$\rho$]} is a collapsing slice type,
+      \tcode{i...[MAP_RANK(valid_slices,$\rho$)]} otherwise.
+    \end{itemize}
+  \end{itemize}
+\end{itemize}
+\end{itemdescr}
+
+\begin{itemdecl}
+template<class LayoutMapping>
+  concept @\defexposconcept{sliceable-mapping}@ = @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{lm} be an object of type \tcode{LayoutMapping}
+and let \tcode{fe} denote a pack of objects of type \tcode{full_extent_t}
+for which \tcode{sizeof...(fe) == LayoutMapping::extents_type::rank()} is \tcode{true}.
+A type \tcode{LayoutMapping} satisfies \exposconcept{sliceable-mapping} if
+\begin{itemize}
+\item
+  the expression \tcode{submdspan_mapping(m, fe...)} is well-formed
+  when treated as an unevaluated operand, and
+\item
+  the type of that expression is a specialization of
+  \tcode{submdspan_mapping_result}.
+\end{itemize}
+
+\pnum
+A type \tcode{LayoutMapping} models \exposconcept{sliceable-mapping}
+if \tcode{LayoutMapping} meets the sliceable layout mapping requirements.
+\end{itemdescr}
 
 \rSec5[mdspan.sub.map.common]{Common}
 
@@ -25801,37 +26040,19 @@ The following elements apply to all functions in \ref{mdspan.sub.map}.
 
 \pnum
 \constraints
-\tcode{sizeof...(slices)} equals \tcode{extents_type::rank()}.
+\tcode{sizeof...(SpliceSpecifiers)} equals \tcode{extents_type::rank()}.
 
 \pnum
 \mandates
 For each rank index $k$ of \tcode{extents()},
-exactly one of the following is true:
-\begin{itemize}
-\item
-$S_k$ models \tcode{\libconcept{convertible_to}<index_type>},
-\item
-$S_k$ models \tcode{\exposconcept{index-pair-like}<index_type>},
-\item
-\tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true}, or
-\item
-$S_k$ is a specialization of \tcode{strided_slice}.
-\end{itemize}
+\tcode{SliceSpecifiers...[$k$]} is a valid \tcode{submdspan} slice type
+for the $k^\text{th}$ extent of \tcode{Extents}.
 
 \pnum
 \expects
 For each rank index $k$ of \tcode{extents()},
-all of the following are \tcode{true}:
-\begin{itemize}
-\item
-if $S_k$ is a specialization of \tcode{strided_slice},
-\tcode{$s_k$.extent} is equal to zero or
-\tcode{$s_k$.stride} is greater than zero; and
-\item
-$0            \leq \tcode{\exposid{first_}<index_type, $k$>(slices...)} \\
-\hphantom{0 } \leq \tcode{\exposid{last_}<$k$>(extents(), slices...)} \\
-\hphantom{0 } \leq \tcode{extents().extent($k$)}$
-\end{itemize}
+\tcode{slices...[$k$]} is a valid slice
+for the $k^\text{th}$ extent of \tcode{extents()}.
 
 \pnum
 Let \tcode{sub_ext} be
@@ -25842,42 +26063,33 @@ let \tcode{SubExtents} be \tcode{decl\-type(sub_ext)}.
 Let \tcode{sub_strides} be
 an \tcode{array<SubExtents::index_type, SubExtents::rank()>}
 such that for each rank index $k$ of \tcode{extents()}
-for which \tcode{\exposid{map-rank}[$k$]} is not \tcode{dynamic_extent},
-\tcode{sub_strides[\exposid{map-rank}[$k$]]} equals:
+for which the type of \tcode{slices...[$k$]} is not a collapsing slice type,
+\tcode{sub_strides[\placeholder{MAP_RANK}(slices,$k$)]} equals:
 \begin{itemize}
 \item
-\tcode{stride(k) * \exposid{de-ice}($s_k$.stride)}
-if $S_k$ is a specialization of \tcode{strided_slice} and
-\tcode{$s_k$.stride < $s_k$.\linebreak extent} is \tcode{true};
+\tcode{stride(k) * s.stride}
+if the type of \tcode{s} is a specialization of \tcode{strided_slice} and
+\tcode{s.stride < s.ex\-tent} is \tcode{true},
+where \tcode{s} is \tcode{slices...[$k$]};
 \item
 otherwise, \tcode{stride($k$)}.
 \end{itemize}
 
 \pnum
-Let \tcode{P} be a parameter pack
-such that \tcode{is_same_v<make_index_sequence<rank()>, index_sequence<P...>>}
-is \tcode{true}.
+Let \tcode{ls} be a pack of values of \tcode{index_type},
+where the $\rho^\text{th}$ element equals the lower bound
+of the \tcode{submdspan} slice range of \tcode{slices...[$\rho$]}
+for extent $\rho$ of \tcode{extents()}.
 
 \pnum
-If \tcode{\exposid{first_}<index_type, $k$>(slices...)}
+If \tcode{ls...[$k$]}
 equals \tcode{extents().extent($k$)}
 for any rank index $k$ of \tcode{extents()}, then
 let \tcode{offset} be a value of type \tcode{size_t} equal to
-\tcode{(*this).required_span_size()}.
+\tcode{required_span_size()}.
 Otherwise,
 let \tcode{offset} be a value of type \tcode{size_t} equal to
-\tcode{(*this)(\exposid{first_}<index_type, P>(slices...)...)}.
-
-\pnum
-Given a layout mapping type \tcode{M}, a type \tcode{S} is a
-\defnadjx{unit-stride}{slice for \tcode{M}}{slice} if
-\begin{itemize}
-\item \tcode{S} is a specialization of \tcode{strided_slice}
-where \tcode{S::stride_type} models \exposconcept{integral-constant-like}
-and \tcode{S::stride_type::value} equals \tcode{1},
-\item \tcode{S} models \tcode{\exposconcept{index-pair-like}<M::index_type>}, or
-\item \tcode{is_convertible_v<S, full_extent_t>} is \tcode{true}.
-\end{itemize}
+\tcode{operator()(ls...)}.
 
 \rSec5[mdspan.sub.map.left]{\tcode{layout_left} specialization of \tcode{submdspan_mapping}}
 
@@ -25906,15 +26118,15 @@ otherwise,
 if
   \begin{itemize}
   \item
-  for each $k$ in the range \range{0}{SubExtents::rank() - 1)},\newline
-  \tcode{is_convertible_v<$S_k$, full_ext\-ent_t>} is \tcode{true}; and
+  for each $k$ in the range \range{0}{SubExtents::rank() - 1},
+  \tcode{SpliceSpecifiers...[$k$]} denotes \tcode{full_extent_t}; and
   \item
   for $k$ equal to \tcode{SubExtents::rank() - 1},
-  $S_k$ is a unit-stride slice for \tcode{mapping};
+  \tcode{SpliceSpecifiers...[$k$]} is a unit-stride slice type;
   \end{itemize}
 \begin{note}
 If the above conditions are true,
-all $S_k$ with $k$ larger than \tcode{SubExtents::rank() - 1}
+all \tcode{SpliceSpecifiers...[$k$]} with $k$ larger than \tcode{SubExtents\brk{}::rank\brk{}() - 1}
 are convertible to \tcode{index_type}.
 \end{note}
 \item
@@ -25925,17 +26137,17 @@ submdspan_mapping_result{layout_left_padded<S_static>::mapping(sub_ext, stride(@
 \end{codeblock}
 if for a value $u$ for which $u+1$ is
 the smallest value $p$ larger than zero
-for which $S_p$ is a unit-stride slice for \tcode{mapping},
+for which \tcode{SliceSpecifiers...\brk{}[\brk{}p]} is a unit-stride slice type,
 the following conditions are met:
 \begin{itemize}
 \item
-$S_0$ is a unit-stride slice for \tcode{mapping}; and
+\tcode{SliceSpecifiers...[0]} is a unit-stride slice type; and
 \item
-for each $k$ in the range \range{$u$ + 1}{$u$ + SubExtents::rank() - 1},\newline
-\tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true}; and
+for each $k$ in the range \range{$u$ + 1}{$u$ + SubExtents::rank() - 1},
+\tcode{SliceSpecifiers...[$k$]} denotes \tcode{full_extent_t}; and
 \item
 for $k$ equal to \tcode{$u$ + SubExtents::rank() - 1},
-$S_k$ is a unit-stride slice for \tcode{mapping};
+\tcode{SliceSpecifiers...[$k$]} is a unit-stride slice type;
 \end{itemize}
 and where \tcode{S_static} is:
 \begin{itemize}
@@ -25983,14 +26195,15 @@ if
   \begin{itemize}
   \item
   for each $k$ in the range \range{\exposid{rank_} - SubExtents::rank() + 1}{\exposid{rank_}},\newline
-  \tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true}; and
+  \tcode{SliceSpecifiers...[$k$]} denotes \tcode{full_extent_t}; and
   \item
   for $k$ equal to \exposid{rank_} - \tcode{SubExtents::rank()},
-  $S_k$ is a unit-stride slice for \tcode{mapping};
+  \tcode{SliceSpecifiers...[$k$]} is a unit-stride slice type;
   \end{itemize}
 \begin{note}
 If the above conditions are true,
-all $S_k$ with $k < \tcode{\exposid{rank_} - SubExtents::rank()}$
+all \tcode{SliceSpecifiers...[$k$]} with\newline
+$k < \tcode{\exposid{rank_} - SubExtents::rank()}$
 are convertible to \tcode{index_type}.
 \end{note}
 \item
@@ -26001,19 +26214,19 @@ submdspan_mapping_result{layout_right_padded<S_static>::mapping(sub_ext,
 \end{codeblock}
 if for a value $u$ for which $\exposid{rank_} - u - 2$ is
 the largest value $p$ smaller than \tcode{\exposid{rank_} - 1}
-for which $S_p$ is a unit-stride slice for \tcode{mapping},
+for which \tcode{SliceSpecifiers...[p]} is a unit-stride slice type,
 the following conditions are met:
 \begin{itemize}
 \item
 for $k$ equal to \tcode{\exposid{rank_} - 1},
-$S_k$ is a unit-stride slice for \tcode{mapping}; and
+\tcode{SliceSpecifiers...[$k$]} is a unit-stride slice type; and
 \item
 for each $k$ in the range
 \range{\exposid{rank_} - SubExtents::rank() - $u$ + 1}{\exposid{rank_} - $u$ - 1},\newline
-\tcode{is_con\-vertible_v<$S_k$, full_extent_t>} is \tcode{true}; and
+\tcode{SliceSpecifiers...[p]} denotes \tcode{full_extent_t}; and
 \item
-for $k$ equal to \tcode{\exposid{rank_} - SubExtents::rank() - $u$},\newline
-$S_k$ is a unit-stride slice for \tcode{mapping};
+for $k$ equal to \tcode{\exposid{rank_} - SubExtents::rank() - $u$},
+\tcode{SliceSpecifiers...[$k$]} is a unit-stride slice type;
 \end{itemize}
 and where \tcode{S_static} is:
 \begin{itemize}
@@ -26089,7 +26302,7 @@ if
 \item
 \tcode{SubExtents::rank() == 1} is \tcode{true} and
 \item
-$S_0$ is a unit-stride slice for \tcode{mapping};
+\tcode{SliceSpecifiers...[0]} is a unit-stride slice type;
 \end{itemize}
 \item
 otherwise,
@@ -26099,17 +26312,17 @@ submdspan_mapping_result{layout_left_padded<S_static>::mapping(sub_ext, stride(@
 \end{codeblock}
 if for a value $u$
 for which \tcode{$u$ + 1} is the smallest value $p$ larger than zero
-for which $S_p$ is a unit-stride slice for \tcode{mapping},
+for which \tcode{Slice\-Speci\-fiers\brk{}...[\brk{}$p$]} is a unit-stride slice type,
 the following conditions are met:
 \begin{itemize}
 \item
-$S_0$ is a unit-stride slice for \tcode{mapping}; and
+\tcode{SliceSpecifiers...[0]} is a unit-stride slice type; and
 \item
 for each $k$ in the range \range{$u$ + 1}{$u$ + SubExtents::rank() - 1},
-\tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true}; and
+\tcode{SliceSpecifiers...[$k$]} denotes \tcode{full_extent_t}; and
 \item
 for $k$ equal to \tcode{$u$ + SubExtents::rank() - 1},
-$S_k$ is a unit-stride slice for \tcode{mapping};
+\tcode{SliceSpecifiers...[$k$]} is a unit-stride slice type;
 \end{itemize}
 where \tcode{S_static} is:
 \begin{itemize}
@@ -26161,7 +26374,7 @@ if
 \tcode{SubExtents::rank() == 1} is \tcode{true} and
 \item
 for $k$ equal to \tcode{\exposid{rank_} - 1},
-$S_k$ is a unit-stride slice for \tcode{mapping};
+\tcode{SliceSpecifiers...[$k$]} is a unit-stride slice type;
 \end{itemize}
 \item
 otherwise,
@@ -26172,19 +26385,19 @@ submdspan_mapping_result{layout_right_padded<S_static>::mapping(sub_ext,
 if for a value $u$
 for which \tcode{\exposid{rank_} - $u$ - 2}
 is the largest value p smaller than \tcode{\exposid{rank_} - 1}
-for which $S_p$ is a unit-stride slice for \tcode{mapping},
+for which \tcode{SliceSpecifiers...[$p$]} is a unit-stride slice type,
 the following conditions are met:
 \begin{itemize}
 \item
 for $k$ equal to \tcode{\exposid{rank_} - 1},
-$S_k$ is a unit-stride slice for \tcode{mapping}; and
+\tcode{SliceSpecifiers...[$k$]} is a unit-stride slice type; and
 \item
 for each $k$ in the range
-\range{\exposid{rank_} - SubExtents::rank() - $u$ + 1}{\exposid{rank_} - $u$ - 1)},
-\tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true}; and
+\range{\exposid{rank_} - SubExtents::rank() - $u$ + 1}{\exposid{rank_} - $u$ - 1},\newline
+\tcode{SliceSpecifiers...[$k$]} denotes \tcode{full_extent_t}; and
 \item
-for $k$ equal to \tcode{\exposid{rank_} - SubExtents::rank() - $u$},\newline
-$S_k$ is a unit-stride slice for \tcode{mapping};
+for $k$ equal to \tcode{\exposid{rank_} - SubExtents::rank() - $u$},
+\tcode{SliceSpecifiers...[$k$]} is a unit-stride slice type;
 \end{itemize}
 and where \tcode{S_static} is:
 \begin{itemize}
@@ -26222,6 +26435,12 @@ template<class ElementType, class Extents, class LayoutPolicy,
 Let \tcode{index_type} be \tcode{typename Extents::index_type}.
 
 \pnum
+Let \tcode{slices} be the pack introduced by the following declaration:
+\begin{codeblock}
+auto [...slices] = submdspan_canonicalize_slices(src, raw_slices...);
+\end{codeblock}
+
+\pnum
 Let \tcode{sub_map_offset} be the result of
 \tcode{submdspan_mapping(src.mapping(), slices...)}.
 \begin{note}
@@ -26237,70 +26456,26 @@ found by argument-dependent lookup\iref{basic.lookup.argdep}.
 \item
 \tcode{sizeof...(slices)} equals \tcode{Extents::rank()}, and
 \item
-the expression \tcode{submdspan_mapping(src.mapping(), slices...)}
-is well-formed when treated as an unevaluated operand.
+\tcode{LayoutPolicy::mapping<Extents>} models \exposconcept{sliceable-mapping}.
 \end{itemize}
 
 \pnum
 \mandates
+For each rank index $k$ of \tcode{src}:
 \begin{itemize}
 \item
-\tcode{decltype(submdspan_mapping(src.mapping(), slices...))}
-is a specialization of \tcode{submd-\linebreak{}span_mapping_result}.
-
+  \tcode{SliceSpecifiers...[$k$]} is a \tcode{submdspan} slice type
+  for \tcode{index_type}, and
 \item
-\tcode{is_same_v<remove_cvref_t<decltype(sub_map_offset.mapping.extents())>,}
-\tcode{decltype(\linebreak{}submdspan_extents(src.mapping(), slices...))>}
-is \tcode{true}.
-
-\item
-For each rank index $k$ of \tcode{src.extents()},
-exactly one of the following is true:
-  \begin{itemize}
-  \item $S_k$ models \tcode{\libconcept{convertible_to}<index_type>},
-  \item $S_k$ models \tcode{\exposconcept{index-pair-like}<index_type>},
-  \item \tcode{is_convertible_v<$S_k$, full_extent_t>} is \tcode{true}, or
-  \item $S_k$ is a specialization of \tcode{strided_slice}.
-  \end{itemize}
+  \tcode{decltype(slices...[$k$])} is a valid \tcode{submdspan} slice type
+  for the $k^\text{th}$ extent of \tcode{Extents}.
 \end{itemize}
 
 \pnum
 \expects
-\begin{itemize}
-\item
 For each rank index $k$ of \tcode{src.extents()},
-all of the following are \tcode{true}:
-  \begin{itemize}
-  \item
-  if $S_k$ is a specialization of \tcode{strided_slice}
-    \begin{itemize}
-    \item $\tcode{$s_k$.extent} = 0$, or
-    \item $\tcode{$s_k$.stride} > 0$
-    \end{itemize}
-  \item
-  $0 \le \tcode{\exposid{first_}<index_type, $k$>(slices...)}$
-  $\le \tcode{\exposid{last_}<$k$>(src.extents(), slices...)}$
-  $\le \tcode{\linebreak{}src.extent($k$)}$
-  \end{itemize}
-
-\item
-\tcode{sub_map_offset.mapping.extents() == submdspan_extents(src.mapping(), slices...)}\linebreak
-is \tcode{true}; and
-
-\item
-for each integer pack \tcode{I} which is a multidimensional index
-in \tcode{sub_map_offset.mapping.extents()},
-\begin{codeblock}
-sub_map_offset.mapping(I...) + sub_map_offset.offset ==
-  src.mapping()(@\exposid{src-indices}@(array{I...}, slices...))
-\end{codeblock}
-is \tcode{true}.
-\end{itemize}
-
-\begin{note}
-These conditions ensure that the mapping returned by \tcode{submdspan_mapping}
-matches the algorithmically expected index-mapping given the slice specifiers.
-\end{note}
+\tcode{slices...[$k$]} is a valid \tcode{submdspan} slice
+for the $k^\text{th}$ extent of \tcode{src.extents()}.
 
 \pnum
 \effects
