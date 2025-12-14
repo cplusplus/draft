@@ -503,15 +503,15 @@ namespace std {
     template<@\exposconcept{execution-policy}@ Ep, @\exposconcept{nothrow-random-access-iterator}@ I,
              @\exposconcept{nothrow-sized-sentinel-for}@<I> S>
       requires @\libconcept{destructible}@<iter_value_t<I>>
-        I destroy(Ep&& exec, I first, S last) noexcept;                     // freestanding-deleted,
+        I destroy(Ep&& exec, I first, S last);                              // freestanding-deleted,
                                                                             // see \ref{algorithms.parallel.overloads}
     template<@\exposconcept{execution-policy}@ Ep, @\exposconcept{nothrow-sized-random-access-range}@ R>
       requires @\libconcept{destructible}@<range_value_t<R>>
-        borrowed_iterator_t<R> destroy(Ep&& exec, R&& r) noexcept;          // freestanding-deleted,
+        borrowed_iterator_t<R> destroy(Ep&& exec, R&& r);                   // freestanding-deleted,
                                                                             // see \ref{algorithms.parallel.overloads}
     template<@\exposconcept{execution-policy}@ Ep, @\exposconcept{nothrow-random-access-iterator}@ I>
       requires @\libconcept{destructible}@<iter_value_t<I>>
-        I destroy_n(Ep&& exec, I first, iter_difference_t<I> n) noexcept;   // freestanding-deleted,
+        I destroy_n(Ep&& exec, I first, iter_difference_t<I> n);            // freestanding-deleted,
                                                                             // see \ref{algorithms.parallel.overloads}
   }
 
@@ -846,7 +846,7 @@ where \tcode{Args} is zero or more type arguments; otherwise, the instantiation 
 
 \indexlibrarymember{pointer_to}{pointer_traits}%
 \begin{itemdecl}
-static pointer pointer_traits::pointer_to(@\seebelow@ r);
+static constexpr pointer pointer_traits::pointer_to(@\seebelow@ r);
 static constexpr pointer pointer_traits<T*>::pointer_to(@\seebelow@ r) noexcept;
 \end{itemdecl}
 
@@ -4290,13 +4290,13 @@ template<class T, class A>
 \begin{itemdescr}
 \pnum
 \constraints
-\tcode{T} is of the form \tcode{U[]}.
+\tcode{T} is an array of unknown bound.
 
 \pnum
 \returns
-A \tcode{shared_ptr} to an object of type \tcode{U[N]}
-with a default initial value,
-where \tcode{U} is \tcode{remove_extent_t<T>}.
+A \tcode{shared_ptr} to an array of
+\tcode{N} elements of type \tcode{remove_extent_t<T>}
+with a default initial value.
 
 \pnum
 \begin{example}
@@ -4321,7 +4321,7 @@ template<class T, class A>
 \begin{itemdescr}
 \pnum
 \constraints
-\tcode{T} is of the form \tcode{U[N]}.
+\tcode{T} is an array of known bound.
 
 \pnum
 \returns
@@ -4353,13 +4353,13 @@ template<class T, class A>
 \begin{itemdescr}
 \pnum
 \constraints
-\tcode{T} is of the form \tcode{U[]}.
+\tcode{T} is an array of unknown bound.
 
 \pnum
 \returns
-A \tcode{shared_ptr} to an object of type \tcode{U[N]},
-where \tcode{U} is \tcode{remove_extent_t<T>} and
-each array element has an initial value of \tcode{u}.
+A \tcode{shared_ptr} to an array of
+\tcode{N} elements of type \tcode{remove_extent_t<T>}
+where each array element has an initial value of \tcode{u}.
 
 \pnum
 \begin{example}
@@ -4387,7 +4387,7 @@ template<class T, class A>
 \begin{itemdescr}
 \pnum
 \constraints
-\tcode{T} is of the form \tcode{U[N]}.
+\tcode{T} is an array of known bound.
 
 \pnum
 \returns
@@ -4455,8 +4455,8 @@ template<class T, class A>
 
 \pnum
 \returns
-A \tcode{shared_ptr} to an object of type \tcode{U[N]},
-where \tcode{U} is \tcode{remove_extent_t<T>}.
+A \tcode{shared_ptr} to an array of
+\tcode{N} elements of type \tcode{remove_extent_t<T>}.
 
 \pnum
 \begin{example}
@@ -6315,7 +6315,11 @@ constexpr indirect& operator=(indirect&& other)
 \begin{itemdescr}
 \pnum
 \mandates
-\tcode{is_copy_constructible_v<T>} is \tcode{true}.
+If
+\tcode{allocator_traits<Allocator>::propagate_on_container_move_assignment::val\-ue}
+is \tcode{false} and
+\tcode{allocator_traits<Allocator>::is_always_equal::value} is \tcode{false},
+\tcode{is_move_con\-structible_v<T>} is \tcode{true}.
 
 \pnum
 \effects
@@ -6332,28 +6336,20 @@ is \tcode{true}.
 
 \item
 If \tcode{other} is valueless,
-\tcode{*this} becomes valueless and
-the owned object in \tcode{*this}, if any,
-is destroyed using \tcode{allocator_traits<Allocator>::destroy} and
-then the storage is deallocated.
+\tcode{*this} becomes valueless.
 
 \item
 Otherwise,
+if the allocator needs updating or
 if \tcode{\exposid{alloc} == other.\exposid{alloc}} is \tcode{true},
-swaps the owned objects in \tcode{*this} and \tcode{other};
-the owned object in \tcode{other}, if any,
-is then destroyed using \tcode{allocator_traits<Allocator>::destroy} and
-then the storage is deallocated.
+\tcode{*this} takes ownership of the owned object of \tcode{other}.
 
 \item
 Otherwise,
 constructs a new owned object with
 %FIXME: "as the argument as an rvalue" is awkward.
 the owned object of \tcode{other} as the argument as an rvalue,
-using either
-the allocator in \tcode{*this} or
-the allocator in \tcode{other}
-if the allocator needs updating.
+using the allocator in \tcode{*this}.
 
 \item
 The previously owned object in \tcode{*this}, if any,
@@ -7164,7 +7160,10 @@ constexpr polymorphic& operator=(polymorphic&& other)
 \begin{itemdescr}
 \pnum
 \mandates
-If \tcode{allocator_traits<Allocator>::is_always_equal::value} is \tcode{false},
+If
+\tcode{allocator_traits<Allocator>::propagate_on_container_move_assignment::val\-ue}
+is \tcode{false} and
+\tcode{allocator_traits<Allocator>::is_always_equal::value} is \tcode{false},
 \tcode{T} is a complete type.
 
 \pnum
@@ -7181,22 +7180,19 @@ The allocator needs updating if
 is \tcode{true}.
 
 \item
-If \tcode{\exposid{alloc} == other.\exposid{alloc}} is \tcode{true},
-swaps the owned objects in \tcode{*this} and \tcode{other};
-the owned object in \tcode{other}, if any,
-is then destroyed using \tcode{allocator_traits<Allocator>::destroy} and
-then the storage is deallocated.
+If \tcode{other} is valueless, \tcode{*this} becomes valueless.
 
 \item
 Otherwise,
-if \tcode{\exposid{alloc} != other.\exposid{alloc}} is \tcode{true};
-if \tcode{other} is not valueless,
-a new owned object is constructed in \tcode{*this}
-using \tcode{allocator_traits<Allocator>::construct} with
-%FIXME: Cleanup wording.
-the owned object from \tcode{other} as the argument as an rvalue,
-using either the allocator in \tcode{*this} or
-the allocator in \tcode{other} if the allocator needs updating.
+if the allocator needs updating or
+\tcode{\exposid{alloc} == other.\exposid{alloc}} is \tcode{true},
+\tcode{*this} takes ownership of the owned object of \tcode{other}.
+
+\item
+Otherwise,
+constructs a new owned object with the owned object of
+\tcode{other} as the argument as an rvalue,
+using the allocator in \tcode{*this}.
 
 \item
 The previously owned object in \tcode{*this}, if any,

@@ -791,8 +791,7 @@ namespace std::execution {
 For type \tcode{Sndr} and pack of types \tcode{Env},
 let \tcode{CS} be \tcode{completion_signatures_of_t<Sndr, Env...>}.
 Then \tcode{\exposid{single-sender-value-type}<Sndr, Env...>} is ill-formed
-if \tcode{CS} is ill-formed or
-if \tcode{sizeof...(Env) > 1} is \tcode{true};
+if \tcode{CS} is ill-formed;
 otherwise, it is an alias for:
 \begin{itemize}
 \item
@@ -1692,7 +1691,8 @@ The following expressions are \tcode{true}:
 \item \tcode{(\libconcept{sender}<Child> \&\& ...)}
 \item%
 \tcode{\libconcept{dependent_sender}<Sndr> || \libconcept{sender_in}<Sndr>},
-where \tcode{Sndr} is \tcode{\exposid{basic-sender}<Tag, Data,\linebreak{}Child...>}
+where \tcode{Sndr} is
+\tcode{\exposid{basic-sender}<Tag, decay_t<Data>, decay_t<Child>...>}
 as defined below.
 
  \recommended
@@ -1977,7 +1977,7 @@ the \tcode{integer_sequence} specialization denoted by
 \effects
 Equivalent to:
 \begin{codeblock}
-(get_completion_signatures<@\exposid{child-type}@<Sndr, Is>, @\exposid{FWD-ENV-T}@(Env)...>(), ...);
+((void)get_completion_signatures<@\exposid{child-type}@<Sndr, Is>, @\exposid{FWD-ENV-T}@(Env)...>(), ...);
 \end{codeblock}
 
 \pnum
@@ -1999,7 +1999,7 @@ the pack \tcode{S, E...} uniquely determines a set of completion signatures.
 \indexlibrarymember{get_completion_signatures}{\exposid{basic-sender}}%
 \begin{itemdecl}
 template<class Tag, class Data, class... Child>
-  template<class Sndr, class... Env>
+  template<@\exposconcept{decays-to}@<@\exposid{basic-sender}@> Sndr, class... Env>
     constexpr auto @\exposid{basic-sender}@<Tag, Data, Child...>::get_completion_signatures();
 \end{itemdecl}
 
@@ -3812,7 +3812,7 @@ template<class Sndr, class... Env>
 Equivalent to:
 \begin{codeblock}
 auto cs = get_completion_signatures<@\exposid{child-type}@<Sndr>, @\exposid{FWD-ENV-T}@(Env)...>();
-auto fn = []<class... Ts>(set_value_t(*)(Ts...)) {
+auto fn = []<class... Ts>(@\exposid{decayed-typeof}@<@\exposid{set-cpo}@>(*)(Ts...)) {
   if constexpr (!@\libconcept{invocable}@<remove_cvref_t<@\exposid{data-type}@<Sndr>>, Ts...>)
     throw @\placeholder{unspecified-exception}@();
 };
@@ -4424,22 +4424,24 @@ the following exposition-only function template:
 \begin{codeblock}
 template<class Env>
   constexpr auto @\exposid{make-when-all-env}@(inplace_stop_source& stop_src,               // \expos
-                                   Env&& env) noexcept {
-  return @\seebelow@;
-}
+                                   Env&& env) noexcept;
 \end{codeblock}
-Returns an object \tcode{e} such that
+
+\pnum
+\returns
+An object \tcode{e} such that
 \begin{itemize}
 \item
 \tcode{decltype(e)} models \exposconcept{queryable}, and
 \item
 \tcode{e.query(get_stop_token)} is expression-equivalent to
-\tcode{state.\exposid{stop-src}.get_token()}, and
+\tcode{stop_src.get_token()}, and
 \item
 given a query object \tcode{q}
-with type other than \cv{} \tcode{get_stop_token_t} and
-whose type satisfies \exposconceptx{forwarding-\brk{}query}{forwarding-query},
-\tcode{e.query(q)} is expression-equivalent to \tcode{get_env(rcvr).query(q)}.
+with type other than \cv{} \tcode{get_stop_token_t},
+\tcode{e.query(q)} is expression-equivalent to \tcode{env.query(q)}
+if the type of \tcode{q} satisfies \exposconcept{forwarding-query}, and
+ill-formed otherwise.
 \end{itemize}
 
 \pnum
@@ -5166,7 +5168,8 @@ Otherwise,
 if \tcode{remove_cvref_t<decltype((token))>} models
 \libconcept{unstoppable_token} then
 \tcode{\exposid{stop-when}(\brk{}sndr, token)} is expression-equivalent to
-\tcode{sndr}.
+\tcode{(void)token, sndr},
+except that \tcode{token} and \tcode{sndr} are indeterminately sequenced.
 
 \item
 Otherwise,
@@ -6128,7 +6131,7 @@ namespace std::execution {
 
       template<class Fn>
         static constexpr void @\exposid{for-each}@(Fn&& fn) {               // \expos
-          (std::forward<Fn>(fn)(static_cast<Fns*>(nullptr)), ...);
+          (fn(static_cast<Fns*>(nullptr)), ...);
         }
     };
 
@@ -6612,7 +6615,8 @@ namespace std::execution {
   template<class Sndr, class Promise>
     concept @\defexposconcept{awaitable-sender}@ =
       @\exposconcept{single-sender}@<Sndr, env_of_t<Promise>> &&
-      @\libconcept{sender_to}@<Sndr, @\exposid{awaitable-receiver}@> &&    // \seebelow
+      @\libconcept{sender_to}@<Sndr,
+                typename @\exposid{sender-awaitable}@<Sndr, Promise>::@\exposid{awaitable-receiver}@> &&    // \seebelow
       requires (Promise& p) {
         { p.unhandled_stopped() } -> @\libconcept{convertible_to}@<coroutine_handle<>>;
       };
@@ -6754,16 +6758,8 @@ are indeterminately sequenced:
 where \tcode{A} is the type of the expression above.
 \item
 Otherwise, \tcode{(void(p), expr)}
-if \tcode{\exposconcept{is-awaitable}<Expr, U>} is \tcode{true},
-where \tcode{U} is an unspecified class type
-that is not \tcode{Promise} and
-that lacks a member named \tcode{await_transform}.
-
-\expects
-\tcode{\exposconcept{is-awaitable}<Expr, Promise>} is \tcode{true} and
-the expression \tcode{co_await expr}
-in a coroutine with promise type \tcode{U} is expression-equivalent to
-the same expression in a coroutine with promise type \tcode{Promise}.
+if \tcode{decltype(\exposid{GET-AWAITER}(expr))}
+satisfies \tcode{\exposconcept{is-awaiter}<Promise>}.
 \item
 Otherwise, \tcode{\exposid{sender-awaitable}\{\exposid{adapted-expr}, p\}}
 if
@@ -7006,6 +7002,9 @@ namespace std::execution {
         && @\libconcept{scheduler}@<Sch>
     explicit task_scheduler(Sch&& sch, Allocator alloc = {});
 
+    task_scheduler(const task_scheduler&) = default;
+    task_scheduler& operator=(const task_scheduler&) = default;
+
     @\exposid{ts-sender}@ schedule();
 
     friend bool operator==(const task_scheduler& lhs, const task_scheduler& rhs)
@@ -7025,7 +7024,8 @@ namespace std::execution {
 \tcode{task_scheduler} is a class that models
 \libconcept{scheduler}\iref{exec.sched}.
 Given an object \tcode{s} of type \tcode{task_scheduler}, let
-\tcode{\exposid{SCHED}(s)} be the object owned by \tcode{s.\exposid{sch_}}.
+\tcode{\exposid{SCHED}(s)} be the object
+pointed to by the pointer owned by \tcode{s.\exposid{sch_}}.
 
 \indexlibraryctor{task_scheduler}
 \begin{itemdecl}
