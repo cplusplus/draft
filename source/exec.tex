@@ -4223,6 +4223,27 @@ The expression in the \grammarterm{requires-clause} of the lambda above is
 if \tcode{Tag} denotes a type other than \tcode{set_value_t} or
 if the expression \tcode{f(auto(shape), auto(shape), args...)} is well-formed.
 
+\begin{itemdecl}
+template<class Sndr, class... Env>
+  static consteval void \exposid{check-types}();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto cs = get_completion_signatures<@\exposid{child-type}@<Sndr>, @\exposid{FWD-ENV-T}@(Env)...>();
+auto fn = []<class... Ts>(set_value_t(*)(Ts...)) {
+  using data_type = @\exposid{data-type}@<Sndr>;
+  if constexpr (!@\libconcept{invocable}@<remove_cvref_t<@\exposid{child-type}@<data_type>&,
+                           remove_cvref_t<@\exposid{data-type}@<data_type>>, Ts&...>)
+    throw @\placeholder{unspecified-exception}@();
+};
+cs.@\exposid{for-each}@(@\exposid{overload-set}@(fn, [](auto){}));
+\end{codeblock}
+\end{itemdescr}
+
 \pnum
 The exposition-only class template \exposid{impls-for}\iref{exec.snd.expos}
 is specialized for \tcode{bulk_unchunked_t} as follows:
@@ -4231,6 +4252,9 @@ namespace std::execution {
   template<>
   struct @\exposid{impls-for}@<bulk_unchunked_t> : @\exposid{default-impls}@ {
     static constexpr auto @\exposid{complete}@ = @\seebelow@;
+
+    template<class Sndr, class... Env>
+      static consteval void \exposid{check-types}();
   };
 }
 \end{codeblock}
@@ -4272,7 +4296,9 @@ Equivalent to:
 \begin{codeblock}
 auto cs = get_completion_signatures<@\exposid{child-type}@<Sndr>, @\exposid{FWD-ENV-T}@(Env)...>();
 auto fn = []<class... Ts>(set_value_t(*)(Ts...)) {
-  if constexpr (!@\libconcept{invocable}@<remove_cvref_t<@\exposid{data-type}@<Sndr>>, Ts&...>)
+  using data_type = @\exposid{data-type}@<Sndr>;
+  if constexpr (!@\libconcept{invocable}@<remove_cvref_t<@\exposid{child-type}@<data_type>&,
+                           remove_cvref_t<@\exposid{data-type}@<data_type>>, Ts&...>)
     throw @\placeholder{unspecified-exception}@();
 };
 cs.@\exposid{for-each}@(@\exposid{overload-set}@(fn, [](auto){}));
@@ -5394,18 +5420,19 @@ namespace std::execution {
     void @\exposid{abandon}@() noexcept;                                                // \expos
 
   private:
-    using @\exposid{alloc-t}@ =                                                         // \expos
-      allocator_traits<Alloc>::template rebind_alloc<@\exposid{spawn-future-state}@>;
     using @\exposid{assoc-t}@ = remove_cvref_t<decltype(declval<Token&>().try_associate())>;  // \expos
 
-
-    @\exposid{alloc-t}@ @\exposid{alloc}@;                                                          // \expos
+    Alloc @\exposid{alloc}@;                                                                  // \expos
     @\exposid{ssource-t}@ @\exposid{ssource}@;                                                      // \expos
     @\exposid{op-t}@ @\exposid{op}@;                                                                // \expos
     @\exposid{assoc-t}@ @\exposid{assoc}@;                                                          // \expos
 
     void @\exposid{destroy}@() noexcept;                                                // \expos
   };
+
+  template<class Alloc, @\libconcept{scope_token}@ Token, @\libconcept{sender}@ Sender, class Env>        // \expos
+    @\exposid{spawn-future-state}@(Alloc alloc, Sender&& sndr, Token token, Env env)
+      -> @\exposid{spawn-future-state}@<Alloc, Token, Sender, Env>;
 }
 \end{codeblock}
 
@@ -5504,10 +5531,13 @@ void @\exposid{destroy}@() noexcept;
 \effects
 Equivalent to:
 \begin{codeblock}
-auto assoc = std::move(this->@\exposid{assoc}@);
-auto alloc = std::move(this->@\exposid{alloc}@);
-allocator_traits<@\exposid{alloc-t}@>::destroy(alloc, this);
-allocator_traits<@\exposid{alloc-t}@>::deallocate(alloc, this, 1);
+auto associated = std::move(this->@\exposid{associated}@);
+{
+  using traits = allocator_traits<Alloc>::template rebind_traits<@\exposid{spawn-future-state}@>;
+  typename traits::allocator_type alloc(std::move(this->@\exposid{alloc}@));
+  traits::destroy(alloc, this);
+  traits::deallocate(alloc, this, 1);
+}
 \end{codeblock}
 \end{itemdescr}
 
@@ -5561,8 +5591,8 @@ has the following effects:
 
 \begin{itemize}
 \item
-Uses \tcode{alloc} to allocate and construct an object \tcode{s} of
-a type that is a specialization of \exposid{spawn-future-\brk{}state}
+Uses \tcode{alloc} to allocate and construct an object \tcode{s} of type
+\tcode{decltype(\exposid{spawn-future-state}(alloc, token.wrap(sndr), token, senv))}
 from \tcode{alloc}, \tcode{token.wrap(sndr)}, \tcode{token}, and \tcode{senv}.
 If an exception is thrown then
 any constructed objects are destroyed and
@@ -5902,12 +5932,10 @@ namespace std::execution {
     void @\exposid{run}@() noexcept;                                    // \expos
 
   private:
-    using @\exposid{alloc-t}@ =                                         // \expos
-      allocator_traits<Alloc>::template rebind_alloc<@\exposid{spawn-state}@>;
     using @\exposid{assoc-t}@ =                                         // \expos
       remove_cvref_t<decltype(declval<Token&>().try_associate())>;
 
-    @\exposid{alloc-t}@ @\exposid{alloc}@;                                          // \expos
+    Alloc @\exposid{alloc}@;                                            // \expos
     @\exposid{op-t}@ @\exposid{op}@;                                                // \expos
     @\exposid{assoc-t}@ @\exposid{assoc}@;                                          // \expos
   };
@@ -5956,9 +5984,12 @@ void @\exposid{complete}@() noexcept override;
 Equivalent to:
 \begin{codeblock}
 auto assoc = std::move(this->@\exposid{assoc}@);
-auto alloc = std::move(this->@\exposid{alloc}@);
-allocator_traits<@\exposid{alloc-t}@>::destroy(alloc, this);
-allocator_traits<@\exposid{alloc-t}@>::deallocate(alloc, this, 1);
+{
+  using traits = allocator_traits<Alloc>::template rebind_traits<@\exposid{spawn-state}@>;
+  typename traits::allocator_type alloc(this->@\exposid{alloc}@);
+  traits::destroy(alloc, this);
+  traits::deallocate(alloc, this, 1);
+}
 \end{codeblock}
 \end{itemdescr}
 
@@ -5988,9 +6019,9 @@ has the following effects:
 %%FIXME: Was this supposed to be more than a single bullet?
 \begin{itemize}
 \item
-Uses \tcode{alloc} to allocate and construct an object \tcode{o} of
-type that is a specialization of \tcode{\exposid{spawn-state}} from
-\tcode{alloc}, \tcode{write_env(token.wrap(sndr), senv)}, and \tcode{token}
+Uses \tcode{alloc} to allocate and construct an object \tcode{o} of type
+\tcode{decltype(\exposid{spawn-state}(alloc, write_env(token.wrap(sndr), senv), token))}
+from \tcode{alloc}, \tcode{write_env(token.wrap(sndr), senv)}, and \tcode{token}
 and then
 invokes \tcode{o.\exposid{run}()}.
 If an exception is thrown then
