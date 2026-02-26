@@ -11,6 +11,14 @@ function fail() {
     ! sed 's/^\(.\+\.tex\):/file=\1::/;s/^/::error /' | grep .
 }
 
+# If we detect GNU sed (on macOS installed with brew) then we will use it.
+# Otherwise the script can fail on macOS which ships with BSD sed.
+if command -v gsed >/dev/null 2>&1; then
+	GSED=$(command -v gsed)
+	sed() {
+		${GSED} "$@"
+	}
+fi
 
 # Discover "Overfull \[hv]box" and "Reference ... undefined" messages from LaTeX.
 sed -n '/\.tex/{s/^.*\/\([-a-z0-9]\+\.tex\).*$/\1/;h};
