@@ -7957,21 +7957,43 @@ The \tcode{synchronized_pool_resource} and
 are general-purpose memory resources having the following qualities:
 \begin{itemize}
 \item
-Each resource frees its allocated memory on destruction,
-even if \tcode{deallocate} has not been called for some of the allocated blocks.
+A pool resource has an \defn{upstream memory resource},
+supplied on construction, which is used to allocate memory that
+the pool resource subdivides to satisfy calls to its own
+\tcode{do_allocate} member.
+
 \item
-A pool resource consists of a collection of \defn{pools},
-serving requests for different block sizes.
-Each individual pool manages a collection of \defn{chunks}
-that are in turn divided into blocks of uniform size,
-returned via calls to \tcode{do_allocate}.
+A \defn{chunk} is a region of storage allocated
+from the upstream memory resource. A pool resource divides
+each chunk into one or more blocks of the same block size.
+Different chunks can have different block sizes, and different
+numbers of blocks.
+
+\item
+A \defn{pool} is a collection of chunks that all have the same
+block size. Each pool resource contains a collection of pools
+with different block sizes.
+
+\item
+On any call to \tcode{release()}, a pool resource frees all the memory
+it has obtained from its upstream memory resource by calling
+the upstream resource's \tcode{deallocate} function.
+\begin{note}
+This frees all memory returned by the pool resource's \tcode{do_allocate}
+function, even if \tcode{do_deallocate} has not been called for some
+of the allocated blocks.
+\end{note}
+
+\item
 Each call to \tcode{do_allocate(size, alignment)} is dispatched
-to the pool serving the smallest blocks accommodating at least \tcode{size} bytes.
+to the pool serving the smallest blocks that accommodate
+\tcode{size} and \tcode{alignment}.
+
 \item
 When a particular pool is exhausted,
 allocating a block from that pool results in the allocation
-of an additional chunk of memory from the \defn{upstream allocator}
-(supplied at construction), thus replenishing the pool.
+of additional chunks from the upstream memory resource,
+thus replenishing the pool.
 With each successive replenishment,
 the chunk size obtained increases geometrically.
 \begin{note}
@@ -7979,9 +8001,11 @@ By allocating memory in chunks,
 the pooling strategy increases the chance that consecutive allocations
 will be close together in memory.
 \end{note}
+
 \item
-Allocation requests that exceed the largest block size of any pool
-are fulfilled directly from the upstream allocator.
+Allocation requests that exceed the largest block size and/or alignment
+of all pools are fulfilled directly from the upstream memory resource.
+
 \item
 A \tcode{pool_options} struct may be passed to the pool resource constructors
 to tune the largest block size and the maximum chunk size.
@@ -8076,8 +8100,8 @@ size_t max_blocks_per_chunk;
 
 \begin{itemdescr}
 \pnum
-The maximum number of blocks that will be allocated at once
-from the upstream memory resource\iref{mem.res.monotonic.buffer}
+The maximum number of blocks in any single chunk that will be allocated
+from the upstream memory resource\iref{mem.res.pool.overview}
 to replenish a pool.
 If the value of \tcode{max_blocks_per_chunk} is zero or
 is greater than an \impldef{largest supported value to configure the maximum number of blocks to replenish a pool}
