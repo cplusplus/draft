@@ -46,7 +46,7 @@ cat std-grammarindex.ind |
     awk 'BEGIN { def=1 } /^  .item/ { if (def==0) { gsub("[{},]", "", item); print item } item=$NF; def=0; next } /hyperindexformat/ { def=1 }' |
     grep -v -- '-keyword$' |    # xxx-keyword is special
     sed 's/^\(.*\)$/grammar non-terminal \1 has no definition/' |
-    fail || failed=1
+    fail || { cat std-grammarindex.ind; failed=1; }
 
 # Find header index entries missing a definition
 cat std-headerindex.ind |
