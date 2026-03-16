@@ -43,27 +43,27 @@ grep newlabel `ls *.aux | grep -v std.aux` | awk -F '{' '{ print  $2 }' |
 
 # Find grammar index entries missing a definition
 cat std-grammarindex.ind |
-    awk 'BEGIN { def=1 } /^  .item/ { if (def==0) { gsub("[{},]", "", item); print item } item=$NF; def=0; next } /hyperindexformat/ { def=1 }' |
+    awk 'BEGIN { def=1 } /^  .item/ { if (def==0) { gsub("[{},]", "", item); print item } item=$NF; def=0; next } /hyper(x{0,1})indexformat/ { def=1 }' |
     grep -v -- '-keyword$' |    # xxx-keyword is special
     sed 's/^\(.*\)$/grammar non-terminal \1 has no definition/' |
     fail || failed=1
 
 # Find header index entries missing a definition
 cat std-headerindex.ind |
-    awk 'BEGIN { def=1 } /^  .item/ { if (def==0) { gsub("[{},]", "", item); print item } i=NF; while (i > 0 && $i !~ "<[a-z_.]*>") { --i; } item=$i; def=0; next } /hyperindexformat/ { def=1 }' |
+    awk 'BEGIN { def=1 } /^  .item/ { if (def==0) { gsub("[{},]", "", item); print item } i=NF; while (i > 0 && $i !~ "<[a-z_.]*>") { --i; } item=$i; def=0; next } /hyper(x{0,1})indexformat/ { def=1 }' |
     sed 's/^\(.*\)$/header \1 has no definition/' |
     fail || failed=1
 
 # Find concept index entries missing a definition
 cat std-conceptindex.ind |
-    sed 's/.hyperindexformat/\nhyperindexformat/;s/.hyperpage/\nhyperpage/g' |
+    sed 's/.hyper\(x\{0,1\}\)indexformat/\nhyperindexformat/;s/.hyperpage/\nhyperpage/g' |
     awk 'BEGIN { def=1 } /^  .item/ { if (def==0) { gsub("[{},]", "", item); print item } item=$NF; def=0; next } /hyperindexformat/ { def=1 }' |
     sed 's/^\(.*\)$/concept \1 has no definition/' |
     fail || failed=1
 
 # Find undecorated concept names in code blocks
 patt="`cat std-conceptindex.ind |
-       sed 's/.hyperindexformat/\nhyperindexformat/;s/.hyperpage/\nhyperpage/' |
+       sed 's/.hyper\(x\{0,1\}\)indexformat/\nhyperindexformat/;s/.hyperpage/\nhyperpage/' |
        sed -n 's/^  .item.*{\([-a-z_]*\)}.*$/\1/p;s/^  .item.*frenchspacing \([a-z_]*\)}.*$/\1/p'`"
 
 patt="`echo $patt | sed 's/ /\\\\|/g'`"
