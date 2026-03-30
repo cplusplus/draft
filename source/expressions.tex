@@ -6368,23 +6368,45 @@ the deallocation function's name is looked up by
 searching for it in the global scope.
 
 \pnum
-A declaration of a placement deallocation function matches the
-declaration of a placement allocation function if it has the same number
-of parameters and, after parameter transformations\iref{dcl.fct}, all
-parameter types except the first are identical. If
-the lookup finds a single matching deallocation function, that function
-will be called; otherwise, no deallocation function will be called. If
-the lookup finds a usual deallocation
-function
-and that function,
-considered as a placement deallocation function, would have been
-selected as a match for the allocation function, the program is
-ill-formed. For a non-placement allocation function, the normal deallocation
+For a non-placement allocation function, the normal deallocation
 function lookup is used to find the matching deallocation
 function\iref{expr.delete}.
+For a placement allocation function, the selection process is described below.
 In any case,
 the matching deallocation function (if any) shall be non-deleted and
 accessible from the point where the \grammarterm{new-expression} appears.
+
+\pnum
+For a placement allocation function,
+the matching deallocation function is selected as follows:
+\begin{itemize}
+\item
+Each candidate that is a function template is replaced by
+the function template specializations (if any)
+generated using template argument deduction\iref{temp.over,temp.deduct.call}
+with arguments as specified below.
+\item
+Each candidate whose parameter-type-list is not identical to
+that of the allocation function,
+ignoring their respective first parameters,
+is removed from the set of candidates.
+\item
+Each candidate whose associated constraints (if any)
+are not satisfied\iref{temp.constr.constr}
+is removed from the set of candidates.
+\item
+If exactly one function remains, that function is selected.
+\item
+Otherwise, no deallocation function is selected.
+\end{itemize}
+If a usual deallocation function is selected, the program is ill-formed.
+\begin{note}
+A deallocation function with an additional trailing parameter
+compared to the allocation function is never matched,
+even if a default argument is provided.
+\end{note}
+
+\pnum
 \begin{example}
 \begin{codeblock}
 struct S {
@@ -6398,7 +6420,55 @@ struct S {
 S* p = new (0) S;   // error: non-placement deallocation function matches
                     // placement allocation function
 \end{codeblock}
+\end{example}
 
+\begin{example}
+\begin{codeblock}
+struct A {};
+struct T { T(); };
+
+void* operator new(std::size_t s, A& al);       // \#1
+
+template<int = 0>
+void operator delete(void* p, A& al);           // \#2
+
+A al;
+T* p = new (al) T;                              // OK, uses \#1 and \#2.
+\end{codeblock}
+\end{example}
+
+\begin{example}
+\begin{codeblock}
+template<int I>
+struct A {};
+struct T { T(); };
+
+void* operator new(std::size_t s, A<0>& al);    // \#1
+
+template<int I>
+void operator delete(void* p, A<I>& al);
+void operator delete(void* p, A<0>& al);
+
+A<0> al;
+T* p = new (al) T;      // OK, uses \#1. No deallocation function is selected (two candidates remain).
+\end{codeblock}
+\end{example}
+
+\begin{example}
+\begin{codeblock}
+template<int I>
+struct A {};
+struct T { T(); };
+
+void* operator new(std::size_t s, A<0>& al);    // \#1
+
+template<int I> requires (I > 0)
+void operator delete(void* p, A<I>& al);
+void operator delete(void* p, A<0>& al);        // \#2
+
+A<0> al;
+T* p = new (al) T;                              // OK, uses \#1 and \#2.
+\end{codeblock}
 \end{example}
 
 \pnum
