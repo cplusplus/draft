@@ -3900,6 +3900,8 @@ let \exposid{set-cpo} be
 \tcode{set_value}, \tcode{set_error}, and \tcode{set_stopped}, respectively.
 Let the expression \exposid{let-cpo} be one of
 \tcode{let_value}, \tcode{let_error}, or \tcode{let_stopped}.
+Let \exposid{let-tag} denote a unique, empty class type for each of
+\tcode{let_value}, \tcode{let_error}, and \tcode{let_stopped}.
 For a subexpression \tcode{sndr},
 let \tcode{\exposid{let-env}(sndr)} be expression-equivalent to
 the first well-formed expression below:
@@ -3932,18 +3934,33 @@ transform_sender(@\exposid{get-domain-early}@(sndr), @\exposid{make-sender}@(@\e
 except that \tcode{sndr} is evaluated only once.
 
 \pnum
+Let \exposid{let-data} denote the following exposition-only class template:
+\begin{codeblock}
+template<class Sndr, class Fn>
+struct @\exposid{let-data}@ {
+  Sndr @\exposid{sndr}@;    // \expos
+  Fn @\exposid{fn}@;        // \expos
+};
+\end{codeblock}
+
+\pnum
+Then let the expression \tcode{\exposid{let-cpo}.transform_sender(s, es...)}
+be expression-equivalent to:
+\begin{codeblock}
+@\exposid{make-sender}@(@\exposid{let-tag}@{}, @\exposid{let-data}@{s.template @\exposid{get}@<2>(), s.template @\exposid{get}@<1>()})
+\end{codeblock}
+except that \tcode{s} is evaluated only once.
+
+\pnum
 The exposition-only class template \exposid{impls-for}\iref{exec.snd.expos}
-is specialized for \exposid{let-cpo} as follows:
+is specialized for \exposid{let-tag} as follows:
 \indexlibraryglobal{\exposid{impls-for}<\exposid{decayed-typeof}<\exposid{let-cpo}>>}
 \begin{codeblock}
 namespace std::execution {
-  template<class State, class Rcvr, class... Args>
-  void @\exposid{let-bind}@(State& state, Rcvr& rcvr, Args&&... args);      // \expos
-
   template<>
-  struct @\exposid{impls-for}@<@\exposid{decayed-typeof}@<@\exposid{let-cpo}@>> : @\exposid{default-impls}@ {
+  struct @\exposid{impls-for}@<@\exposid{let-tag}@> : @\exposid{default-impls}@ {
     static constexpr auto @\exposid{get-state}@ = @\seebelow@;
-    static constexpr auto @\exposid{complete}@ = @\seebelow@;
+    static constexpr auto @\exposid{start}@ = @\seebelow@;
 
     template<class Sndr, class... Env>
       static consteval void @\exposid{check-types}@();
@@ -4032,24 +4049,98 @@ where \tcode{\placeholder{env-t}} is the pack
 \end{itemdescr}
 
 \pnum
-\tcode{\exposid{impls-for}<\exposid{decayed-typeof}<\exposid{let-cpo}>>::\exposid{get-state}}
+Let \exposid{let-state} denote the following exposition-only class template:
+\begin{codeblock}
+template<class Cpo, class Sndr, class Fn, class Rcvr, class ArgsVariant, class OpsVariant>
+struct @\exposid{let-state}@ {
+  using @\exposid{env_t}@ = decltype(@\exposid{let-env}@(declval<Sndr>())); // \expos
+  Fn @\exposid{fn}@;                // \expos
+  env_t @\exposid{env}@;            // \expos
+  ArgsVariant @\exposid{args}@;     // \expos
+  OpsVariant @\exposid{ops}@;       // \expos
+
+  template<class Tag, class... Ts>
+  constexpr void @\exposid{impl}@(Rcvr& rcvr, Tag tag, Ts&&... ts) noexcept // \expos
+  {
+    using args_t = @\exposid{decayed-tuple}@<Ts...>;
+    using receiver_type = @\exposid{receiver2}@<Rcvr, env_t>;
+    using sender_type = apply_result_t<Fn, args_t&>;
+    if constexpr (is_same_v<Tag, Cpo>) {
+      try {
+        auto& tuple = @\exposid{args}@.template emplace<args_t>(std::forward<Ts>(ts)...);
+        @\exposid{ops}@.template emplace<monostate>();
+        auto&& sndr = apply(std::move(@\exposid{fn}@), tuple);
+        using op_t = connect_result_t<sender_type, receiver_type>;
+        auto mkop2 = [&] {
+          return connect(std::forward<sender_type>(sndr),
+          receiver_type{@\exposid{rcvr}@, @\exposid{env}@});
+        };
+        auto& op = @\exposid{ops}@.template emplace<op_t>(@\exposid{emplace-from}@{mkop2});
+        start(op);
+      } catch (...) {
+        constexpr bool nothrow =
+          is_nothrow_constructible_v<args_t, Ts...> &&
+          is_nothrow_applicable_v<Fn, args_t&> &&
+          noexcept(connect(declval<sender_type>(), receiver_type{@\exposid{rcvr}@, @\exposid{env}@}));
+        if constexpr (!nothrow) {
+          set_error(std::move(@\exposid{rcvr}@), current_exception());
+        }
+      }
+    } else {
+      tag(std::move(@\exposid{rcvr}@), std::forward<Ts>(ts)...);
+    }
+  }
+
+  struct @\exposid{receiver}@ {     // \expos
+    @\exposid{let-state}@& state;   // \expos
+    Rcvr& @\exposid{rcvr}@;         // \expos
+
+    using receiver_concept = receiver_t;
+
+    template<class... Args>
+    constexpr void set_value(Args&&... args) noexcept {
+      @\exposid{state}@.@\exposid{impl}@(@\exposid{rcvr}@, execution::set_value, std::forward<Args>(args)...);
+    }
+    template<class... Args>
+    constexpr void set_error(Args&&... args) noexcept {
+      @\exposid{state}@.@\exposid{impl}@(@\exposid{rcvr}@, execution::set_error, std::forward<Args>(args)...);
+    }
+    template<class... Args>
+    constexpr void set_stopped(Args&&... args) noexcept {
+      @\exposid{state}@.@\exposid{impl}@(@\exposid{rcvr}@, execution::set_stopped, std::forward<Args>(args)...);
+    }
+
+    constexpr env_of_t<const Rcvr&> get_env() const noexcept {
+      return execution::get_env(@\exposid{rcvr}@);
+    }
+
+  };
+
+  using @\exposid{op_t}@ = connect_result_t<Sndr, @\exposid{receiver}@>;        // \expos
+
+  constexpr @\exposid{let-state}@(Sndr&& sndr, Fn fn, Rcvr& rcvr)   // \expos
+    : fn(std::move(fn)), env(@\exposid{let-env}@(sndr)),
+      ops(in_place_type<@\exposid{op_t}@>, std::forward<Sndr>(sndr),
+          @\exposid{receiver}@{*this, rcvr})
+  {}
+
+};
+\end{codeblock}
+
+\pnum
+\tcode{\exposid{impls-for}<\exposid{let-tag}>::\exposid{get-state}}
 is initialized with a callable object equivalent to the following:
 \begin{codeblock}
 []<class Sndr, class Rcvr>(Sndr&& sndr, Rcvr& rcvr) requires @\seebelow@ {
-  auto& [_, fn, child] = sndr;
+  auto& [_, data] = sndr;
+  auto& [child, fn] = data;
+  using child_t = decltype(std::forward_like<Sndr>(child));
   using fn_t = decay_t<decltype(fn)>;
-  using env_t = decltype(@\exposid{let-env}@(child));
   using args_variant_t = @\seebelow@;
-  using ops2_variant_t = @\seebelow@;
-
-  struct @\exposid{state-type}@ {
-    fn_t @\exposid{fn}@;                    // \expos
-    env_t @\exposid{env}@;                  // \expos
-    args_variant_t @\exposid{args}@;        // \expos
-    ops2_variant_t @\exposid{ops2}@;        // \expos
-  };
-  return @\exposid{state-type}@{@\exposid{allocator-aware-forward}@(std::forward_like<Sndr>(fn), rcvr),
-                    @\exposid{let-env}@(child), {}, {}};
+  using ops_variant_t = @\seebelow@;
+  using state_t = @\exposid{let-state}@<@\exposid{decayed-typeof}@<@\exposid{set-cpo}@>, child_t, fn_t, Rcvr,
+                            args_variant_t, ops_variant_t>;
+  return state_t(std::forward_like<Sndr>(child), std::forward_like<Sndr>(fn), @\exposid{rcvr}@);
 }
 \end{codeblock}
 
@@ -4071,10 +4162,12 @@ Given a type \tcode{Tag} and a pack \tcode{Args},
 let \exposid{as-sndr2} be an alias template
 such that \tcode{\exposid{as-sndr2}<Tag(Args...)>} denotes
 the type \tcode{\exposid{call-result-t}<F, decay_t<Args>\&...>}.
-Then \tcode{ops2_variant_t} denotes
+Then \tcode{ops_variant_t} denotes
 the type
 \begin{codeblock}
-variant<monostate, connect_result_t<@\exposid{as-sndr2}@<LetSigs>, @\exposid{receiver2}@<Rcvr, env_t>>...>
+variant<monostate,
+        connect_result_t<child_t, @\exposid{let-state}@::@\exposid{receiver}@>,
+        connect_result_t<@\exposid{as-sndr2}@<LetSigs>, @\exposid{receiver2}@<Rcvr, env_t>>...>
 \end{codeblock}
 except with duplicate types removed.
 
@@ -4084,31 +4177,12 @@ if and only if
 the types \tcode{args_variant_t} and \tcode{ops2_variant_t} are well-formed.
 
 \pnum
-The exposition-only function template \exposid{let-bind}
-has effects equivalent to:
-\begin{codeblock}
-using args_t = @\exposid{decayed-tuple}@<Args...>;
-auto mkop2 = [&] {
-  return connect(
-    apply(std::move(state.fn),
-          state.args.template emplace<args_t>(std::forward<Args>(args)...)),
-    @\exposid{receiver2}@{rcvr, std::move(state.env)});
-};
-start(state.ops2.template emplace<decltype(mkop2())>(@\exposid{emplace-from}@{mkop2}));
-\end{codeblock}
-
-\pnum
-\tcode{\exposid{impls-for}<\exposid{decayed-typeof}<\exposid{let-cpo}>>::\exposid{complete}}
+\tcode{\exposid{impls-for}<\exposid{let-tag}>::\exposid{start}}
 is initialized with a callable object equivalent to the following:
 \begin{codeblock}
-[]<class Tag, class... Args>
-  (auto, auto& state, auto& rcvr, Tag, Args&&... args) noexcept -> void {
-    if constexpr (@\libconcept{same_as}@<Tag, @\exposid{decayed-typeof}@<@\exposid{set-cpo}@>>) {
-      @\exposid{TRY-EVAL}@(rcvr, @\exposid{let-bind}@(state, rcvr, std::forward<Args>(args)...));
-    } else {
-      Tag()(std::move(rcvr), std::forward<Args>(args)...);
-    }
-  }
+[]<class State, class Rcvr>(State& state, Rcvr&) noexcept {
+  start(get<typename State::@\exposid{op_t}@>(state.@\exposid{ops}@));
+}
 \end{codeblock}
 
 \pnum
