@@ -3068,6 +3068,11 @@ namespace std::meta {
   consteval bool has_inaccessible_bases(info r, access_context ctx);
   consteval bool has_inaccessible_subobjects(info r, access_context ctx);
 
+  // \ref{meta.reflection.scope}, scope identification
+  consteval info current_function();
+  consteval info current_class();
+  consteval info current_namespace();
+
   // \ref{meta.reflection.member.queries}, reflection member queries
   consteval vector<info> members_of(info r, access_context ctx);
   consteval vector<info> bases_of(info type, access_context ctx);
@@ -3271,6 +3276,9 @@ namespace std::meta {
 
   consteval size_t tuple_size(info type);
   consteval info tuple_element(size_t index, info type);
+  consteval bool is_applicable_type(info fn, info tuple);
+  consteval bool is_nothrow_applicable_type(info fn, info tuple);
+  consteval info apply_result(info fn, info tuple);
 
   consteval size_t variant_size(info type);
   consteval info variant_alternative(size_t index, info type);
@@ -3284,6 +3292,13 @@ Unless otherwise specified,
 each function, and each specialization of any function template,
 specified in this header
 is a designated addressable function\iref{namespace.std}.
+
+\pnum
+When a function or function template specialization $F$ specified in this header
+throws a \tcode{meta::exception} $E$,
+\tcode{$E$.from()} is a reflection representing $F$ and
+\tcode{$E$.where()} is a \tcode{source_location}
+representing from where the call to $F$ originated.
 
 \pnum
 The behavior of any function specified in namespace \tcode{std::meta} is
@@ -3868,7 +3883,7 @@ static_assert(!has_identifier(r));
   then \tcode{has_identifier(type_of(r))}.
 \item
   Otherwise, \tcode{r} represents a data member description
-  $(T, N, A, W, \mathit{NUA})$\iref{class.mem.general};
+  $(T, N, A, W, \mathit{NUA}, \mathit{ANN})$\iref{class.mem.general};
   \tcode{true} if $N$ is not $\bot$.
   Otherwise, \tcode{false}.
 \end{itemize}
@@ -3915,7 +3930,7 @@ determined as follows:
   respectively.
 \item
   Otherwise, \tcode{r} represents a data member description
-  $(T, N, A, W, NUA)$\iref{class.mem.general};
+  $(T, N, A, W, \mathit{NUA}, \mathit{ANN})$\iref{class.mem.general};
   a \tcode{string_view} or \tcode{u8string_view}, respectively,
   containing the identifier $N$.
 \end{itemize}
@@ -4043,7 +4058,7 @@ consteval info type_of(info r);
   a direct base class relationship $(D, B)$,
   then a reflection of $B$.
 \item
-  Otherwise, for a data member description $(T, N, A, W, \mathit{NUA})$\iref{class.mem.general},
+  Otherwise, for a data member description $(T, N, A, W, \mathit{NUA}, \mathit{ANN})$\iref{class.mem.general},
   a reflection of the type $T$.
 \end{itemize}
 
@@ -4315,7 +4330,7 @@ consteval bool is_bit_field(info r);
 \returns
 \tcode{true} if \tcode{r} represents a bit-field,
 or if \tcode{r} represents a data member description
-$(T, N, A, W, \mathit{NUA})$\iref{class.mem.general}
+$(T, N, A, W, \mathit{NUA},\brk{} \mathit{ANN})$\iref{class.mem.general}
 for which $W$ is not $\bot$.
 Otherwise, \tcode{false}.
 \end{itemdescr}
@@ -5122,60 +5137,16 @@ and \tcode{\exposid{has-type}(r)} is \tcode{true}
 or \tcode{r} represents a function type.
 \end{itemdescr}
 
-\rSec2[meta.reflection.access.context]{Access control context}
+\rSec2[meta.reflection.scope]{Scope identification}
 
 \pnum
-The class \tcode{access_context}
-represents a namespace, class, or function
-from which queries pertaining to access rules may be performed,
-as well as the designating class\iref{class.access.base}, if any.
-
-\indexlibraryglobal{access_context}%
-\pnum
-An \tcode{access_context} has an associated scope and designating class.
-
-\indexlibraryglobal{access_context}%
-\begin{codeblock}
-namespace std::meta {
-  struct access_context {
-    access_context() = delete;
-
-    consteval info scope() const;
-    consteval info designating_class() const;
-
-    static consteval access_context current() noexcept;
-    static consteval access_context unprivileged() noexcept;
-    static consteval access_context unchecked() noexcept;
-    consteval access_context via(info cls) const;
-  };
-}
-\end{codeblock}
+The functions in this subclause retrieve information
+about where in the program they are invoked.
 
 \pnum
-The type \tcode{access_context} is a structural, consteval-only, non-aggregate type.
-Two values \tcode{ac1} and \tcode{ac2} of type \tcode{access_context}
-are template-argument-equivalent\iref{temp.type}
-if \tcode{ac1.scope()} and \tcode{ac2.scope()} are template-argument-equivalent
-and \tcode{ac1.designating_class()} and \tcode{ac2.designating_class()}
-are template-argument-equivalent.
+None of the functions in this subclause
+is an addressable function\iref{namespace.std}.
 
-\begin{itemdecl}
-consteval info @\libmember{scope}{access_context}@() const;
-consteval info @\libmember{designating_class}{access_context}@() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\returns
-The \tcode{access_context}'s associated scope
-and designating class, respectively.
-\end{itemdescr}
-
-\begin{itemdecl}
-static consteval access_context @\libmember{current}{access_context}@() noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
 \pnum
 Given a program point $P$,
 let \tcode{\exposid{eval-point}($P$)} be the following program point:
@@ -5261,14 +5232,152 @@ let \tcode{\exposid{ctx-scope}($S$)} be the following scope:
   where $S'$ is the parent scope of $S$.
 \end{itemize}
 
+Let \tcode{\exposid{CURRENT-SCOPE}($P$)} for a point $P$ be
+a reflection representing the function, class, or namespace
+whose corresponding
+function parameter scope,
+class scope, or
+namespace scope, respectively,
+is \tcode{\exposid{ctx-scope}($S$)},
+where $S$ is the immediate scope of \tcode{\exposid{eval-point}($P$)}.
+
+\indexlibraryglobal{current_function}%
+\begin{itemdecl}
+consteval info current_function();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+An invocation of \tcode{current_function} that appears at a program point $P$
+is value-dependent\iref{temp.dep.contexpr}
+if \tcode{\exposid{eval-point}($P$)}
+is enclosed by a scope corresponding to a templated entity.
+
+\pnum
+Let $S$ be \tcode{\exposid{CURRENT-SCOPE}($P$)},
+where $P$ is the point at which the invocation of
+\tcode{current_function} lexically appears.
+
+\pnum
+\throws
+\tcode{meta::exception} unless $S$ represents a function.
+
+\pnum
+\returns
+$S$.
+\end{itemdescr}
+
+\indexlibraryglobal{current_class}%
+\begin{itemdecl}
+consteval info current_class();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+An invocation of \tcode{current_class} that appears at a program point $P$
+is value-dependent\iref{temp.dep.contexpr}
+if \tcode{\exposid{eval-point}($P$)}
+is enclosed by a scope corresponding to a templated entity.
+
+\pnum
+Let $S$ be \tcode{\exposid{CURRENT-SCOPE}($P$)}
+where $P$ is the point at which the invocation of
+\tcode{current_class} lexically appears.
+
+\pnum
+\throws
+\tcode{meta::exception} unless $S$ represents
+either a class or a member function.
+
+\pnum
+\returns
+$S$ if $S$ represents a class.
+Otherwise, \tcode{parent_of($S$)}.
+\end{itemdescr}
+
+\indexlibraryglobal{current_namespace}%
+\begin{itemdecl}
+consteval info current_namespace();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+An invocation of \tcode{current_namespace} that appears at a program point $P$
+is value-dependent\iref{temp.dep.contexpr}
+if \tcode{\exposid{eval-point}($P$)}
+is enclosed by a scope corresponding to a templated entity.
+
+\pnum
+Let $S$ be \tcode{\exposid{CURRENT-SCOPE}($P$)}
+where $P$ is the point at which the invocation of
+\tcode{current_namespace} lexically appears.
+
+\pnum
+\returns
+$S$ if $S$ represents a namespace.
+Otherwise, a reflection representing the nearest enclosing namespace
+of the entity represented by $S$.
+\end{itemdescr}
+
+\rSec2[meta.reflection.access.context]{Access control context}
+
+\pnum
+The class \tcode{access_context}
+represents a namespace, class, or function
+from which queries pertaining to access rules may be performed,
+as well as the designating class\iref{class.access.base}, if any.
+
+\indexlibraryglobal{access_context}%
+\pnum
+An \tcode{access_context} has an associated scope and designating class.
+
+\indexlibraryglobal{access_context}%
+\begin{codeblock}
+namespace std::meta {
+  struct access_context {
+    access_context() = delete;
+
+    consteval info scope() const;
+    consteval info designating_class() const;
+
+    static consteval access_context current() noexcept;
+    static consteval access_context unprivileged() noexcept;
+    static consteval access_context unchecked() noexcept;
+    consteval access_context via(info cls) const;
+  };
+}
+\end{codeblock}
+
+\pnum
+The type \tcode{access_context} is a structural, consteval-only, non-aggregate type.
+Two values \tcode{ac1} and \tcode{ac2} of type \tcode{access_context}
+are template-argument-equivalent\iref{temp.type}
+if \tcode{ac1.scope()} and \tcode{ac2.scope()} are template-argument-equivalent
+and \tcode{ac1.designating_class()} and \tcode{ac2.designating_class()}
+are template-argument-equivalent.
+
+\begin{itemdecl}
+consteval info @\libmember{scope}{access_context}@() const;
+consteval info @\libmember{designating_class}{access_context}@() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+The \tcode{access_context}'s associated scope
+and designating class, respectively.
+\end{itemdescr}
+
+\begin{itemdecl}
+static consteval access_context @\libmember{current}{access_context}@() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
 \pnum
 \returns
 An \tcode{access_context} whose designating class is the null reflection
-and whose scope represents the function, class, or namespace
-whose corresponding function parameter scope, class scope, or namespace scope, respectively,
-is \tcode{\exposid{ctx-scope}($S$)},
-where $S$ is the immediate scope of \tcode{\exposid{eval-point}($P$)}
-and $P$ is the point at which the invocation of \tcode{current} lexically appears.
+and whose scope is \tcode{\exposid{CURRENT-SCOPE}($P$)},
+where $P$ is the point at which the invocation of \tcode{current} lexically appears.
 
 \pnum
 \remarks
@@ -5831,7 +5940,7 @@ consteval size_t size_of(info r);
 If
 \begin{itemize}
 \item \tcode{r} represents a non-static data member of type $T$ or
-a data member description $(T, N, A, W, \mathit{NUA})$ or
+a data member description $(T, N, A, W, \mathit{NUA},\brk{} \mathit{ANN})$ or
 \item \tcode{dealias(r)} represents a type $T$,
 \end{itemize}
 then \tcode{sizeof($T$)} if $T$ is not a reference type
@@ -5859,7 +5968,7 @@ value,
 variable of non-reference type,
 non-static data member that is not a bit-field,
 direct base class relationship, or
-data member description $(T, N, A, W, \mathit{NUA})$\iref{class.mem.general}
+data member description $(T, N, A, W, \mathit{NUA}, \mathit{ANN})$\iref{class.mem.general}
 where $W$ is $\bot$.
 \item
 If \tcode{dealias(r)} represents a type,
@@ -5892,7 +6001,7 @@ consteval size_t alignment_of(info r);
   corresponding to $M$ of a complete object of type $C$.
 \item
   Otherwise, \tcode{r} represents a data member description
-  $(T, N, A, W, \mathit{NUA})$\iref{class.mem.general}.
+  $(T, N, A, W, \mathit{NUA}, \mathit{ANN})$\iref{class.mem.general}.
   If $A$ is not $\bot$,
   then the value $A$.
   Otherwise, \tcode{alignment_of(\reflexpr{$T$})}.
@@ -5911,7 +6020,7 @@ variable of non-reference type,
 non-static data member that is not a bit-field,
 direct base class relationship, or
 data member description
-$(T, N, A, W, \mathit{NUA})$\iref{class.mem.general}
+$(T, N, A, W, \mathit{NUA}, \mathit{ANN})$\iref{class.mem.general}
 where $W$ is $\bot$.
 \item
 If \tcode{dealias(r)} represents a type,
@@ -5936,7 +6045,7 @@ consteval size_t bit_size_of(info r);
   then $W$.
 \item
   Otherwise, if \tcode{r} represents a data member description
-  $(T, N, A, W, \mathit{NUA})$\iref{class.mem.general}
+  $(T, N, A, W, \mathit{NUA}, \mathit{ANN})$\iref{class.mem.general}
   and $W$ is not $\bot$,
   then $W$.
 \item
@@ -5973,19 +6082,31 @@ consteval vector<info> annotations_of(info item);
 
 \begin{itemdescr}
 \pnum
-Let $E$ be
-\begin{itemize}
-\item
-  the corresponding \grammarterm{base-specifier}
-  if \tcode{item} represents a direct base class relationship,
-\item
-  otherwise, the entity represented by \tcode{item}.
-\end{itemize}
+For a function $F$,
+let $S(F)$ be the set of declarations,
+ignoring any explicit instantiations,
+that declare either $F$ or
+a templated function of which $F$ is a specialization.
 
 \pnum
 \returns
 A \tcode{vector} containing all of the reflections $R$
-representing each annotation applying to each declaration of $E$ that precedes either
+representing each annotation applying to:
+\begin{itemize}
+\item
+  if \tcode{item} represents a function parameter $P$ of a function $F$,
+  then the declaration of $P$ in each declaration of $F$ in $S(F)$,
+\item
+  otherwise, if \tcode{item} represents a function $F$,
+  then each declaration of $F$ in $S(F)$,
+\item
+  otherwise, if \tcode{item} represents
+  a direct base class relationship $(D, B)$,
+  then the corresponding base-specifier in the definition of $D$,
+\item
+  otherwise, each declaration of the entity represented by \tcode{item},
+\end{itemize}
+such that each specified declaration precedes either
 some point in the evaluation context\iref{expr.const.reflect} or
 a point immediately following the \grammarterm{class-specifier}
 of the outermost class for which such a point is in a complete-class context.
@@ -6007,6 +6128,7 @@ type,
 type alias,
 variable,
 function,
+function parameter,
 namespace,
 enumerator,
 direct base class relationship, or
@@ -6483,6 +6605,7 @@ namespace std::meta {
     optional<int> alignment;
     optional<int> bit_width;
     bool no_unique_address = false;
+    vector<info> annotations;
   };
 }
 \end{codeblock}
@@ -6543,7 +6666,7 @@ consteval info data_member_spec(info type, data_member_options options);
 \pnum
 \returns
 A reflection of a data member description
-$(T, N, A, W, \mathit{NUA})$\iref{class.mem.general} where
+$(T, N, A, W, \mathit{NUA}, \mathit{ANN})$\iref{class.mem.general} where
 \begin{itemize}
 \item
   $T$ is the type represented by \tcode{dealias(type)},
@@ -6555,9 +6678,12 @@ $(T, N, A, W, \mathit{NUA})$\iref{class.mem.general} where
   or $\bot$ if \tcode{options.alignment} does not contain a value,
 \item
   $W$ is either the value held by \tcode{options.bit_width}
-  or $\bot$ if \tcode{options.bit_width} does not contain a value, and
+  or $\bot$ if \tcode{options.bit_width} does not contain a value,
 \item
-  $\mathit{NUA}$ is the value held by \tcode{options.no_unique_address}.
+  $\mathit{NUA}$ is the value held by \tcode{options.no_unique_address}, and
+\item
+  $\mathit{ANN}$ is the sequence of values \tcode{constant_of(r)}
+  for each \tcode{r} in \tcode{options.annotations}.
 \end{itemize}
 \begin{note}
 The returned reflection value is primarily useful
@@ -6596,7 +6722,8 @@ it can also be queried by certain other functions in \tcode{std::meta}
   \end{note}
 \item
   if \tcode{options.name} does not contain a value,
-  then \tcode{options.bit_width} contains a value;
+  then \tcode{options.bit_width} contains a value and
+  \tcode{options.annotations} is empty;
 \item
   if \tcode{options.bit_width} contains a value $V$, then
   \begin{itemize}
@@ -6610,12 +6737,17 @@ it can also be queried by certain other functions in \tcode{std::meta}
     $V$ is not negative, and
   \item
     if $V$ equals \tcode{0},
-    then \tcode{options.name} does not contain a value; and
+    then \tcode{options.name} does not contain a value;
   \end{itemize}
   \item
     if \tcode{options.alignment} contains a value,
     it is an alignment value\iref{basic.align}
-    not less than \tcode{alignment_of(type)}.
+    not less than \tcode{alignment_of(type)}; and
+  \item
+    for every reflection \tcode{r} in \tcode{options.annotations},
+    \tcode{\exposid{has-type}(r)} is \tcode{true},
+    \tcode{type_of(r)} represents a non-array object type, and
+    evaluation of \tcode{constant_of(r)} does not exit via an exception.
 \end{itemize}
 \end{itemdescr}
 
@@ -6642,7 +6774,7 @@ template<@\libconcept{reflection_range}@ R = initializer_list<info>>
 Let $C$ be the type represented by \tcode{class_type}
 and $r_K$ be the $K^\text{th}$ reflection value in \tcode{mdescrs}.
 For every $r_K$ in \tcode{mdescrs},
-let $(T_K, N_K, A_K, W_K, \mathit{NUA}_K)$ be
+let $(T_K, N_K, A_K, W_K, \mathit{NUA}_K, \mathit{ANN}_K)$ be
 the corresponding data member description represented by $r_K$.
 
 \pnum
@@ -6721,6 +6853,10 @@ that defines $C$ and has properties as follows:
     If $A_K$ is not $\bot$,
     $M_K$ has the \grammarterm{alignment-specifier} \tcode{alignas($A_K$)}.
     Otherwise, $M_K$ has no \grammarterm{alignment-specifier}.
+  \item
+    For every reflection \tcode{r} in $\mathit{ANN}_K$,
+    $M_K$ has an annotation
+    whose underlying constant\iref{dcl.attr.annotation} is \tcode{r}.
   \end{itemize}
   \item
     For every $r_L$ in \tcode{mdescrs} such that $K < L$,
