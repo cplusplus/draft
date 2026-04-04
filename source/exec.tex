@@ -502,6 +502,9 @@ namespace std::execution {
   template<class Rcvr, class Completions>
     concept @\libconcept{receiver_of}@ = @\seebelow@;
 
+  template<class Rcvr, class ChildOp>
+    concept @\libconcept{inlinable_receiver}@ = @\seebelow@;
+
   struct @\libglobal{set_value_t}@ { @\unspec@ };
   struct @\libglobal{set_error_t}@ { @\unspec@ };
   struct @\libglobal{set_stopped_t}@ { @\unspec@ };
@@ -1229,6 +1232,98 @@ after it executes a completion operation.
 This also implies that any stop callbacks registered on token
 must be destroyed before the invocation of the completion operation.
 \end{note}
+
+\pnum
+\begin{codeblock}
+namespace std::execution {
+  template<class Rcvr, class ChildOp>
+    concept @\deflibconcept{inlinable_receiver}@ = @\libconcept{receiver}@<Rcvr> &&
+      requires (ChildOp* child) {
+        { remove_cvref_t<Rcvr>::make_receiver_for(child) } noexcept
+          -> @\libconcept{same_as}@<remove_cvref_t<Rcvr>>;
+      };
+}
+\end{codeblock}
+
+The \libconcept{inlinable_receiver} concept
+defines the requirements for a receiver
+that can be reconstructed on demand
+from a pointer to the operation state object
+created when the receiver was connected to a sender.
+Given a receiver object \tcode{rcvr} of type \tcode{Rcvr}
+which was connected to a sender producing
+an operation state object \tcode{op} of type \tcode{Op},
+\tcode{Rcvr} models \tcode{\libconcept{inlinable_receiver}<Op>}
+only if the expression \tcode{Rcvr::make_receiver_for(addressof(op))}
+evaluates to a receiver
+that is equal to \tcode{rcvr}\iref{concepts.equality}.
+\begin{note}
+Such a receiver does not need to be stored as a data member of \tcode{op}
+as it can be recreated on demand.
+\end{note}
+\tcode{ChildOp} may be an incomplete type.
+
+\pnum
+Given objects $O_0, \dotsc, O_n$,
+$O_n$ is \defnadj{transitively}{constructed} from $O_0$ if
+\begin{itemize}
+\item
+\tcode{remove_cvref_t<decltype($O_n$)>}
+denotes the same type as
+\tcode{remove_cvref_t<decltype($O_0$)>} and
+\item
+either
+\begin{itemize}
+\item
+$O_1$ was initialized by decay-copying a reference to $O_0$ or
+\item
+$n > 1$ and $O_{n-1}$ is transitively constructed from $O_0$ and
+$O_n$ was initialized from
+a non-const, non-volatile rvalue reference to $O_{n-1}$.
+\end{itemize}
+\end{itemize}
+
+\pnum
+Let $E$ be some well-formed expression \tcode{connect(sndr, rcvr)}.
+$E$ \defn{inlines the receiver} \tcode{rcvr}
+if the lifetimes of all objects transitively constructed from
+\tcode{rcvr} during the evaluation of $E$
+end within the evaluation of $E$.
+
+\begin{note}
+This means such an expression does not store the receiver in the operation state.
+\end{note}
+
+\pnum
+Let $E$ be some well-formed expression \tcode{connect(sndr, rcvr)} where
+\begin{itemize}
+\item
+\tcode{sndr} denotes a sender type defined by this document and
+\item
+$E$ inlines the receiver \tcode{rcvr}.
+\end{itemize}
+Then, let \tcode{op} be the result of the evaluation of $E$, and
+wherever the specification of the operation associated with \tcode{op}
+contains a glvalue
+which would denote an object transitively constructed from \tcode{rcvr},
+that glvalue instead denotes the result of applying
+the temporary materialization conversion to the expression
+\tcode{remove_cvref_t<decltype(rcvr)>::make_receiver_for(addressof(op))}.
+
+\pnum
+Let \tcode{StdRcvr} be a receiver type defined by this document.
+Given some operation state type \tcode{Op},
+it is unspecified whether \tcode{StdRcvr} models \tcode{inlinable_receiver<Op>}.
+
+\pnum
+Let \tcode{StdOp} be some operation state type defined by this document and
+let \tcode{Sndr} and \tcode{Rcvr} be types such that
+\tcode{is_same_v<connect_result_t<Sndr, Rcvr>, StdOp>} is \tcode{true}.
+If \tcode{Rcvr} models \tcode{inlinable_receiver<StdOp>}
+then it is implementation-defined whether,
+given an object \tcode{rcvr} of type \tcode{Rcvr},
+the \tcode{connect} operation which produces an object of type \tcode{StdOp}
+inlines the receiver \tcode{rcvr}.
 
 \rSec2[exec.set.value]{\tcode{execution::set_value}}
 
