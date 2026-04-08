@@ -7404,6 +7404,8 @@ namespace std::execution {
     remove_cvref_t<Rcvr>           @\exposidnc{rcvr}@;        // \expos
     @\exposidnc{own-env-t}@                      @\exposidnc{own-env}@;     // \expos
     Environment                    @\exposidnc{environment}@; // \expos
+    optional<T>                    @\exposidnc{result}@;      // \expos; present only if \tcode{is_void_v<T>} is \tcode{false}
+    exception_ptr                  @\exposidnc{error}@;       // \expos
   };
 }
 \end{codeblock}
@@ -7532,8 +7534,6 @@ namespace std::execution {
     allocator_type    @\exposidnc{alloc}@;            // \expos
     stop_source_type  @\exposidnc{source}@;           // \expos
     stop_token_type   @\exposidnc{token}@;            // \expos
-    optional<T>       @\exposidnc{result}@;           // \expos; present only if \tcode{is_void_v<T>} is \tcode{false}
-    @\exposidnc{error-variant}@     @\exposidnc{errors}@;           // \expos
   };
 }
 \end{codeblock}
@@ -7549,13 +7549,6 @@ and \tcode{\exposid{SCHED}(\placeholder{prom})}
 associated with \tcode{\placeholder{tsk}}
 during evaluation of \tcode{task::\exposid{state}<Rcvr>::start}
 for some receiver \tcode{Rcvr}.
-
-\pnum
-\exposid{error-variant} is a \tcode{variant<monostate,
-remove_cvref_t<E>...>}, with duplicate types removed, where \tcode{E...}
-are the parameter types of the template arguments of the specialization of
-\tcode{execution::completion_signatures} denoted by
-\tcode{error_types}.
 
 \indexlibraryctor{task::promise_type}%
 \begin{itemdecl}
@@ -7596,17 +7589,19 @@ auto final_suspend() noexcept;
 \returns
 An awaitable object of unspecified type\iref{expr.await} whose
 member functions arrange for the completion of the asynchronous
-operation associated with \tcode{\exposid{STATE}(*this)} by invoking:
+operation associated with \tcode{\exposid{STATE}(*this)}.
+Let \tcode{st} be a reference to \tcode{\exposid{STATE}(*this)}.
+The asynchronous completion first destroys the coroutine frame
+using \tcode{st.\exposid{handle}.destroy()} and then invokes:
 \begin{itemize}
 \item
-\tcode{set_error(std::move(\exposid{RCVR}(*this)), std::move(e))}
-if \tcode{\exposid{errors}.index()} is greater than zero and
-\tcode{e} is the value held by \exposid{errors}, otherwise
+\tcode{set_error(std::move(st.\exposid{rcvr}), std::move(st.\exposid{error}))}
+if \tcode{bool(st.\exposid{error})} is \tcode{true}, otherwise
 \item
-\tcode{set_value(std::move(\exposid{RCVR}(*this)))} if \tcode{is_void<T>} is \tcode{true},
+\tcode{set_value(std::move(st.\exposid{rcvr}))} if \tcode{is_void_v<T>} is \tcode{true},
 and otherwise
 \item
- \tcode{set_value(std::move(\exposid{RCVR}(*this)), std::move(*\exposid{result}))}.
+ \tcode{set_value(std::move(st.\exposid{rcvr}), *std::move(st.\exposid{result}))}.
 \end{itemize}
 \end{itemdescr}
 
@@ -7627,7 +7622,12 @@ Let \tcode{\placeholder{Cerr}} be that type.
 An awaitable object of unspecified type\iref{expr.await} whose
 member functions arrange for the calling coroutine to be suspended
 and then completes the asynchronous operation associated with
-\tcode{\exposid{STATE}(*this)} by invoking \tcode{set_error(std::move(\exposid{RCVR}(*this)),
+\tcode{\exposid{STATE}(*this)}.
+Let \tcode{st} be a reference to \tcode{\exposid{STATE}(*this)}.
+Then the asynchronous operation completes by first
+destroying the coroutine frame using \tcode{st.\exposid{handle}.destroy()}
+and then invoking
+\tcode{set_error(std::move(st.\exposid{rcvr}),
 \placeholder{Cerr}(std::move(err.error)))}.
 \end{itemdescr}
 
@@ -7668,7 +7668,8 @@ void unhandled_exception();
 \effects
 If the signature \tcode{set_error_t(exception_ptr)} is not an element
 of \tcode{error_types}, calls \tcode{terminate()}\iref{except.terminate}.
-Otherwise, stores \tcode{current_exception()} into \exposid{errors}.
+Otherwise, stores \tcode{current_exception()} into
+\tcode{\exposid{STATE}(*this).\exposid{error}}.
 \end{itemdescr}
 
 \indexlibrarymember{unhandled_stopped}{task::promise_type}%
@@ -7678,8 +7679,12 @@ coroutine_handle<> unhandled_stopped() noexcept;
 \begin{itemdescr}
 \pnum
 \effects
-Completes the asynchronous operation associated with \tcode{\exposid{STATE}(*this)}
-by invoking \tcode{set_stopped(std::move(\exposid{RCVR}(*this)))}.
+Completes the asynchronous operation associated with \tcode{\exposid{STATE}(*this)}.
+Let \tcode{st} be a reference to \tcode{\exposid{STATE}(*this)}.
+The asynchronous operation is completed by first
+destroying the coroutine frame
+using \tcode{st.\exposid{handle}.destroy()} and then
+invoking \tcode{set_stopped(std::move(st.\exposid{rcvr}))}.
 \end{itemdescr}
 \begin{itemdescr}
 \pnum
