@@ -5314,6 +5314,18 @@ are not satisfied,
 the expression \tcode{spawn_future(sndr, token, env)} is ill-formed.
 
 \pnum
+Let \exposid{try-cancelable} be the exposition-only class:
+
+\indexlibraryglobal{execution::\exposid{try-cancelable}}%
+\begin{codeblock}
+namespace std::execution {
+  struct @\exposid{try-cancelable}@ {                                           // \expos
+    virtual void @\exposid{try-cancel}@() noexcept = 0;                         // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
 Let \exposid{spawn-future-state-base} be the exposition-only class template:
 
 \indexlibraryglobal{execution::\exposid{spawn-future-state-base}}%
@@ -5323,7 +5335,8 @@ namespace std::execution {
   struct @\exposid{spawn-future-state-base}@;                                   // \expos
 
   template<class... Sigs>
-  struct @\exposid{spawn-future-state-base}@<completion_signatures<Sigs...>> {  // \expos
+  struct @\exposid{spawn-future-state-base}@<completion_signatures<Sigs...>>    // \expos
+    : @\exposid{try-cancelable}@ {
     using @\exposid{variant-t}@ = @\seebelow@;                                    // \expos
     @\exposid{variant-t}@ @\exposid{result}@;                                               // \expos
     virtual void @\exposid{complete}@() noexcept = 0;                           // \expos
@@ -5449,6 +5462,11 @@ namespace std::execution {
     void @\exposidnc{complete}@() noexcept override;                                      // \expos
     void @\exposidnc{consume}@(@\libconcept{receiver}@ auto& rcvr) noexcept;                             // \expos
     void @\exposidnc{abandon}@() noexcept;                                                // \expos
+    void @\exposidnc{try-cancel}@() noexcept override {                                   // \expos
+      @\exposid{ssource}@.request_stop();
+      @\exposid{try-set-stopped}@();
+    }
+    void @\exposidnc{try-set-stopped}@() noexcept;                                        // \expos
 
   private:
     using @\exposidnc{assoc-t}@ =                                                         // \expos
@@ -5470,7 +5488,7 @@ namespace std::execution {
 
 \pnum
 For purposes of determining the existence of a data race,
-\exposid{complete}, \exposid{consume}, and \exposid{abandon}
+\exposid{complete}, \exposid{consume}, \exposid{try-set-stopped}, and \exposid{abandon}
 behave as atomic operations\iref{intro.multithread}.
 These operations on a single object of a type
 that is a specialization of \exposid{spawn-future-state}
@@ -5487,13 +5505,18 @@ void @\exposid{complete}@() noexcept;
 \begin{itemize}
 \item
 No effects if this invocation of \exposid{complete} happens before
-an invocation of \exposid{consume} or \exposid{abandon} on \tcode{*this};
+an invocation of
+\exposid{consume}, \exposid{try-set-\linebreak{}stopped}, or \exposid{abandon}
+on \tcode{*this};
 \item
 otherwise,
 if an invocation of \exposid{consume} on \tcode{*this} happens before
-this invocation of \exposid{complete} then
+this invocation of \exposid{complete} and
+no invocation of \exposid{try-set-stopped} on \tcode{*this} happened before
+this invocation of \tcode{complete} then
 there is a receiver, \tcode{rcvr}, registered and
-that receiver is completed as if by \tcode{\exposid{consume}(rcvr)};
+that receiver is deregistered and completed
+as if by \tcode{\exposid{consume}(rcvr)};
 \item
 otherwise,
 \exposid{destroy} is invoked.
@@ -5511,9 +5534,19 @@ void @\exposid{consume}@(@\libconcept{receiver}@ auto& rcvr) noexcept;
 \begin{itemize}
 \item
 If this invocation of \exposid{consume} happens before
-an invocation of \exposid{complete} on \tcode{*this} then
+an invocation of \exposid{complete} on \tcode{*this} and
+no invocation of \exposid{try-set-stopped} on \tcode{*this} happened before
+this invocation of \exposid{consume} then
 \tcode{rcvr} is registered to be completed when
 \exposid{complete} is subsequently invoked on \tcode{*this};
+
+\item
+otherwise,
+if this invocation of \exposid{consume} happens after
+an invocation of \exposid{try-set-stopped} on \tcode{*this} and
+no invocation of \exposid{complete} on \tcode{*this} happened before
+this invocation of \exposid{consume} then
+\tcode{rcvr} is completed as if by \tcode{set_stopped(std::move(rcvr))};
 
 \item
 otherwise,
@@ -5527,7 +5560,31 @@ std::move(this->@\exposid{result}@).visit(
       }, std::move(tuple));
     }
   });
+destroy();
 \end{codeblock}
+\end{itemize}
+\end{itemdescr}
+
+\indexlibrarymember{\exposid{try-set-stopped}}{execution::\exposid{spawn-future-state}}%
+\begin{itemdecl}
+void @\exposid{try-set-stopped}@() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+\begin{itemize}
+\item
+If an invocation of \exposid{consume} on \tcode{*this} happens before
+this invocation of \exposid{try-set-stopped} and
+no invocation of \exposid{complete} on \tcode{*this} happened before
+this invocation of \exposid{try-set-stopped} then
+there is a receiver, \tcode{rcvr}, registered and
+that receiver is deregistered and completed as if by
+\tcode{set_stopped(std::move(rcvr)), \exposid{destroy}()};
+
+\item
+otherwise, no effects.
 \end{itemize}
 \end{itemdescr}
 
@@ -5574,6 +5631,87 @@ auto associated = std::move(this->@\exposid{associated}@);
 \end{itemdescr}
 
 \pnum
+Let \exposid{future-operation} be the exposition-only class template:
+
+\begin{codeblock}
+namespace std::execution {
+  template<class StatePtr, class Rcvr>
+  struct @\exposid{future-operation}@ {                                     // \expos
+    struct @\exposid{callback}@ {                                           // \expos
+      @\exposid{try-cancelable}@* @\exposid{state}@;                                    // \expos
+
+      void operator()() noexcept {
+        @\exposid{state}@->@\exposid{try-cancel}@();
+      };
+    };
+
+    using @\exposid{stop-token-t}@ =                                        // \expos
+      stop_token_of_t<env_of_t<Rcvr>>;
+
+    using @\exposid{stop-callback-t}@ =                                     // \expos
+      stop_callback_for_t<@\exposid{stop-token-t}@, @\exposid{callback}@>;
+
+    struct @\exposid{rcvr-t}@ {                                             // \expos
+      using receiver_concept = receiver_t;
+      @\exposid{future-operation}@* @\exposid{op}@;                                     // \expos
+
+      template<class... T>
+      void set_value(T&&... ts) && noexcept {
+        @\exposid{op}@->@\exposid{set-complete}@<set_value_t>(std::forward<T>(ts)...);
+      }
+
+      template<class E>
+      void set_error(E&& e) && noexcept {
+        @\exposid{op}@->@\exposid{set-complete}@<set_error_t>(std::forward<E>(e));
+      }
+
+      void set_stopped() && noexcept {
+        @\exposid{op}@->@\exposid{set-complete}@<set_stopped_t>();
+      }
+
+      env_of_t<Rcvr> get_env() const noexcept {
+        return execution::get_env(@\exposid{op}@->@\exposid{rcvr}@);
+      }
+    };
+
+    Rcvr @\exposid{rcvr}@;                                                  // \expos
+    StatePtr @\exposid{state}@;                                             // \expos
+    @\exposid{rcvr-t}@ @\exposid{inner}@;                                               // \expos
+    optional<@\exposid{stop-callback-t}@> @\exposid{stopCallback}@;                     // \expos
+
+
+    @\exposid{future-operation}@(StatePtr state, Rcvr rcvr) noexcept        // \expos
+      : @\exposid{rcvr}@(std::move(rcvr)), @\exposid{state}@(std::move(state)), @\exposid{inner}@(this)
+    {}
+
+    @\exposid{future-operation}@(@\exposid{future-operation}@&&) = delete;
+
+    void @\exposid{run}@() & noexcept {                                     // \expos
+      constexpr bool nothrow =
+        is_nothrow_constructible_v<@\exposid{stop-callback-t}@, @\exposid{stop-token-t}@, @\exposid{callback}@>;
+      try {
+        @\exposid{stopCallback}@.emplace(get_stop_token(@\exposid{rcvr}@), @\exposid{callback}@(@\exposid{state}@.get()));
+      }
+      catch (...) {
+        if constexpr (!nothrow) {
+          set_error(std::move(@\exposid{rcvr}@), current_exception());
+          return;
+        }
+      }
+
+      @\exposid{state}@.release()->@\exposid{consume}@(@\exposid{inner}@);
+    }
+
+    template<class CPO, class... T>
+    void @\exposid{set-complete}@(T&&... ts) noexcept {                     // \expos
+      @\exposid{stopCallback}@.reset();
+      CPO{}(std::move(@\exposid{rcvr}@), std::forward<T>(ts)...);
+    }
+  };
+}
+\end{codeblock}
+
+\pnum
 The exposition-only class template \exposid{impls-for}\iref{exec.snd.expos}
 is specialized for \tcode{spawn_future_t} as follows:
 
@@ -5583,6 +5721,7 @@ namespace std::execution {
   template<>
   struct @\exposid{impls-for}@<spawn_future_t> : @\exposid{default-impls}@ {
     static constexpr auto @\exposid{start}@ = @\seebelow@;                    // \expos
+    static constexpr auto @\exposid{get-state}@ = @\seebelow@;                // \expos
   };
 }
 \end{codeblock}
@@ -5591,8 +5730,19 @@ namespace std::execution {
 The member \tcode{\exposid{impls-for}<spawn_future_t>::\exposid{start}}
 is initialized with a callable object equivalent to the following lambda:
 \begin{codeblock}
-[](auto& state, auto& rcvr) noexcept -> void {
-  state->@\exposid{consume}@(rcvr);
+[](auto& state, auto&) noexcept -> void {
+  state.@\exposid{run}@();
+}
+\end{codeblock}
+
+\pnum
+The member \tcode{\exposid{impls-for}<spawn_future_t>::\exposid{get-state}}
+is initialized with a callable object equivalent to the following lambda:
+\begin{codeblock}
+[]<class Sndr, class Rcvr>(Sndr sndr, Rcvr& rcvr) noexcept {
+  auto& [_, data] = sndr;
+  using state_ptr = remove_cvref_t<decltype(data)>;
+  return @\exposid{future-operation}@<state_ptr, Rcvr>(std::move(data), std::move(rcvr));
 }
 \end{codeblock}
 
