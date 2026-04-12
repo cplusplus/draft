@@ -1436,7 +1436,7 @@ struct C {
 
 \pnum
 If an \grammarterm{id-expression} $E$ denotes
-a member $M$ of an anonymous union\iref{class.union.anon} $U$:
+a variant member $M$ of an anonymous union\iref{class.union.anon} $U$:
 \begin{itemize}
 \item
 If $U$ is a non-static data member,
@@ -2238,7 +2238,8 @@ classes.
 \end{note}
 
 \pnum
-The closure type is not an aggregate type\iref{dcl.init.aggr};
+The closure type is not an aggregate type\iref{dcl.init.aggr}
+and is not \tcode{final}\iref{class.pre};
 it is a structural type\iref{term.structural.type} if and only if
 the lambda has no \grammarterm{lambda-capture}.
 An implementation may define the closure type differently from what
@@ -3092,12 +3093,13 @@ std::cout << a << b << c;
 \end{example}
 
 \pnum
-When the \grammarterm{lambda-expression} is evaluated, the entities that are
+The entities that are
 captured by copy are used to direct-initialize each corresponding non-static data member
 of the resulting closure object, and the non-static data members corresponding to the
 \grammarterm{init-capture}{s} are initialized as indicated by the corresponding
 \grammarterm{initializer} (which may be copy- or direct-initialization). (For array members, the array elements are
 direct-initialized in increasing subscript order.) These initializations are performed
+when the \grammarterm{lambda-expression} is evaluated and
 in the (unspecified) order in which the non-static data members are declared.
 \begin{note}
 This ensures that the destructions will occur in the reverse order of the constructions.
@@ -5675,6 +5677,8 @@ of the referenced type.
 When applied to a class, the result is the number of bytes in an object
 of that class including any padding required for placing objects of that
 type in an array.
+The amount and placement of padding in a class type
+is a property of the implementation.
 The result of applying \keyword{sizeof} to a
 potentially-overlapping subobject is
 the size of the type, not the size of the subobject.
@@ -8328,6 +8332,19 @@ It is unspecified whether the value of \tcode{f()} will be \tcode{true} or \tcod
 \rSec2[expr.const.core]{Core constant expressions}
 
 \pnum
+\indextext{type!constexpr-unknown representation}%
+A type has \defnadj{constexpr-unknown}{representation} if it
+\begin{itemize}
+\item is a union,
+\item is a pointer or pointer-to-member type,
+\item is volatile-qualified,
+\item is a class type with a non-static data member of reference type, or
+\item
+has a base class or a non-static member whose
+type has constexpr-unknown representation.
+\end{itemize}
+
+\pnum
 An expression $E$ is a \defnadj{core constant}{expression}
 unless the evaluation of $E$, following the rules of the abstract
 machine\iref{intro.execution}, would evaluate one of the following:
@@ -8505,10 +8522,11 @@ a non-allocating form\iref{new.delete.placement}
 with an allocated type \tcode{T}, where
 \begin{itemize}
 \item
-the placement argument to the \grammarterm{new-expression} points to
-an object whose type is similar to \tcode{T}\iref{conv.qual} or,
-if \tcode{T} is an array type,
-to the first element of an object of a type similar to \tcode{T}, and
+the placement argument to the \grammarterm{new-expression} points
+to an object that is transparently replaceable\iref{basic.life} by
+the object created by the \grammarterm{new-expression}
+or, if \tcode{T} is an array type,
+to the first element of such an object, and
 \item
 the placement argument points to storage
 whose duration began within the evaluation of $E$;
@@ -8553,6 +8571,34 @@ a \grammarterm{yield-expression}\iref{expr.yield};
 a three-way comparison\iref{expr.spaceship},
 relational\iref{expr.rel}, or equality\iref{expr.eq}
 operator where the result is unspecified;
+
+\item
+an equality operator comparing pointers to potentially non-unique objects,
+if the pointer values of the two operands
+are associated with different evaluations\iref{basic.compound} and either
+they can both point to the same offset within
+the same potentially non-unique object or
+one of them points to an object whose
+type has constexpr-unknown representation;
+\begin{example}
+\begin{codeblock}
+constexpr const char *f() { return "foo"; }
+
+constexpr bool b1 = +"foo" == "foo";                // error: non-constant
+constexpr bool b2 = f() == f();                     // error: non-constant
+constexpr const char *p = f();
+constexpr bool b3 = p == p;                         // OK, value of \tcode{b3} is \tcode{true}
+constexpr bool b4 = "xfoo" + 1 == "foo\0y";         // error: non-constant; string literal
+                                                    // object could contain \tcode{"xfoo\textbackslash{}0y"}
+constexpr bool b5 = "foo" == "bar" + 0;             // OK, value of \tcode{b5} is \tcode{false}
+constexpr bool b6 = (const char*)"foo" == "oo";     // OK, value of \tcode{b6} is \tcode{false}; offsets would
+                                                    // be different in a merged string literal object
+
+constexpr std::initializer_list<int *> il1 = { (int *)nullptr };
+constexpr std::initializer_list<unsigned long> il2 = { 0 };
+constexpr bool b7 = il1.begin() == (void *)il2.begin();     // error: non-constant
+\end{codeblock}
+\end{example}
 
 \item
 a \keyword{dynamic_cast}\iref{expr.dynamic.cast} or
@@ -8805,7 +8851,7 @@ constexpr const Base& b = fn(obj);  // error: not a constant expression because 
 \end{itemize}
 or
 \item
-a prvalue core constant expression whose result object\iref{basic.lval}
+a prvalue core constant expression whose result object\iref{basic.lval} (if any)
 satisfies the following constraints:
 \begin{itemize}
 \item
@@ -9161,7 +9207,7 @@ An \defnx{immediate-escalating}{function!immediate-escalating} function is
 the call operator of a lambda that is not declared
 with the \keyword{consteval} specifier,
 \item
-a defaulted special member function
+a non-user-provided defaulted function
 that is not declared with the \keyword{consteval} specifier, or
 \item
 a function that is not a prospective destructor and
