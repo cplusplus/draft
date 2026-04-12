@@ -810,16 +810,16 @@ namespace std {
     // pseudo-mutators
     template<@\exposconcept{constexpr-param}@ T>
       constexpr auto operator++(this T) noexcept
-        -> constant_wrapper<++Y> { return {}; }
+        -> constant_wrapper<(++T::value)> { return {}; }
     template<@\exposconcept{constexpr-param}@ T>
       constexpr auto operator++(this T, int) noexcept
-        -> constant_wrapper<Y++> { return {}; }
+        -> constant_wrapper<(T::value++)> { return {}; }
     template<@\exposconcept{constexpr-param}@ T>
       constexpr auto operator--(this T) noexcept
-        -> constant_wrapper<--Y> { return {}; }
+        -> constant_wrapper<(--T::value)> { return {}; }
     template<@\exposconcept{constexpr-param}@ T>
       constexpr auto operator--(this T, int) noexcept
-        -> constant_wrapper<Y--> { return {}; }
+        -> constant_wrapper<(T::value--)> { return {}; }
 
     template<@\exposconcept{constexpr-param}@ T, @\exposconcept{constexpr-param}@ R>
       constexpr auto operator+=(this T, R) noexcept
@@ -861,9 +861,9 @@ namespace std {
 
     template<@\exposconcept{constexpr-param}@ R>
       constexpr auto operator=(R) const noexcept
-        -> constant_wrapper<X = R::value> { return {}; }
+        -> constant_wrapper<(value = R::value)> { return {}; }
 
-    constexpr operator decltype(auto)() const noexcept { return value; }
+    constexpr operator decltype(value)() const noexcept { return value; }
   };
 }
 \end{codeblock}
@@ -1548,6 +1548,8 @@ The compilation of the
   the initialization \tcode{T t(\exposidnc{VAL}<U>);} is
   well-formed and binds \tcode{t} to
   a temporary object whose lifetime is extended\iref{class.temporary}.
+  The full-expression of the variable initialization is
+  treated as an unevaluated operand\iref{expr.context}.
   Access checking is performed as if in
   a context unrelated to \tcode{T} and \tcode{U}.
   Only the validity of the immediate context of
@@ -1571,6 +1573,8 @@ The compilation of the
   the initialization \tcode{T t = \exposidnc{VAL}<U>;}
   is well-formed and binds \tcode{t} to
   a temporary object whose lifetime is extended\iref{class.temporary}.
+  The full-expression of the variable initialization is
+  treated as an unevaluated operand\iref{expr.context}.
   Access checking is performed as if in
   a context unrelated to \tcode{T} and \tcode{U}.
   Only the validity of the immediate context of
@@ -1639,6 +1643,8 @@ T t(declval<Args>()...);
 \begin{note}
 These tokens are never interpreted as a function declaration.
 \end{note}
+The full-expression of the variable initialization is
+treated as an unevaluated operand\iref{expr.context}.
 Access checking is performed as if in a context unrelated to \tcode{T}
 and any of the \tcode{Args}. Only the validity of the immediate context of the
 variable initialization is considered.
@@ -1937,7 +1943,8 @@ is_base_of_v<int, int>          // \tcode{false}
 \indexlibraryglobal{is_convertible}%
 \pnum
 The predicate condition for a template specialization \tcode{is_convertible<From, To>}
-shall be satisfied if and only if the return expression in the following code would be
+shall be satisfied if and only if
+the return statement\iref{stmt.return} in the following code would be
 well-formed, including any implicit conversions to the return type of the function:
 
 \begin{codeblock}
@@ -1951,9 +1958,11 @@ This requirement gives well-defined results for reference types,
 array types, function types, and \cv{}~\keyword{void}.
 \end{note}
 Access checking is performed
-in a context unrelated to \tcode{To} and \tcode{From}. Only the validity of
-the immediate context of the \grammarterm{expression} of the \tcode{return} statement\iref{stmt.return}
-(including initialization of the returned object or reference) is considered.
+in a context unrelated to \tcode{To} and \tcode{From}.
+The operand of the \tcode{return} statement
+(including initialization of the returned object or reference, if any)
+is treated as an unevaluated operand\iref{expr.context}, and
+only the validity of its immediate context is considered.
 \begin{note}
 The
 initialization can result in side effects such as the
@@ -3416,30 +3425,44 @@ template<ranges::@\libconcept{input_range}@ R>
 
 \begin{itemdescr}
 \pnum
-Let \tcode{T} be \tcode{ranges::range_value_t<R>} and
-$\tcode{\placeholder{e}}_i$ be \tcode{static_cast<T>(*$\tcode{\placeholder{it}}_i$)},
-where $\tcode{\placeholder{it}}_i$ is an iterator to the $i^\text{th}$ element of \tcode{r}.
+Let \tcode{U} be \tcode{ranges::range_value_t<R>} and
+\tcode{T} be \tcode{remove_all_extents_t<U>}.
 
 \pnum
 \mandates
-\tcode{T} is a structural type\iref{temp.param},
-\tcode{is_constructible_v<T, ranges::range_reference_t<R>>} is \tcode{true}, and
-\tcode{T} satisfies \libconcept{copy_constructible}.
+\begin{itemize}
+\item \tcode{T} is a structural type\iref{temp.param},
+\item \tcode{T} satisfies \libconcept{copy_constructible}, and
+\item
+if \tcode{U} is not an array type, then
+\tcode{is_constructible_v<T, ranges::range_reference_t<R>>} is \tcode{true}.
+\end{itemize}
 
 \pnum
 Let $V$ be the pack of values of type \tcode{info}
 of the same size as \tcode{r},
 where the $i^\text{th}$ element is
-\tcode{reflect_constant($\tcode{\placeholder{e}}_i$)}.
+\begin{itemize}
+\item
+\tcode{reflect_constant_array(*$\tcode{\placeholder{it}}_i$)}
+if \tcode{U} is an array type,
+\item
+\tcode{reflect_constant(static_cast<T>(*$\tcode{\placeholder{it}}_i$))}
+otherwise,
+\end{itemize}
+and $\tcode{\placeholder{it}}_i$ is an iterator to
+the $i^\text{th}$ element of \tcode{r}.
 
 \pnum
 Let $P$ be
 \begin{itemize}
 \item
   the template parameter object\iref{temp.param}
-  of type \tcode{const T[sizeof...(\brk{}$V$)]}
-  initialized with\linebreak
-  \tcode{\{[:$V$:]...\}} if \tcode{sizeof...($V$) > 0} is \tcode{true}, otherwise
+  of type \tcode{const T[sizeof...($V$)]},
+  such that \tcode{$P$[$I$]} is template-argument-equivalent\iref{temp.type}
+  to the object represented by \tcode{$V$...[$I$]}
+  for all $I$ in the range \range{0}{sizeof...($V$)}
+  if \tcode{sizeof...($V$) > 0} is \tcode{true}, otherwise
 \item
   the template parameter object of type \tcode{const array<T, 0>}
   initialized with \tcode{\{\}}.
@@ -3451,10 +3474,21 @@ Let $P$ be
 
 \pnum
 \throws
-Any exception thrown by the evaluation of any $\tcode{\placeholder{e}}_i$, or
+Any of
+\begin{itemize}
+\item
+an exception thrown by any operation
+on \tcode{r} or
+on iterators and sentinels referring to \tcode{r},
+\item
+an exception thrown
+by the evaluation of any argument of \tcode{reflect_constant} or
+by any evaluation of \tcode{reflect_constant_array}, or
+\item
 \tcode{meta::exception}
-if evaluation of any \tcode{reflect_constant($\tcode{\placeholder{e}}_i$)}
+if any invocation of \tcode{reflect_constant}
 would exit via an exception.
+\end{itemize}
 
 \pnum
 \begin{note}
@@ -3510,8 +3544,12 @@ template<class T>
 Equivalent to:
 \begin{codeblock}
 using U = remove_cvref_t<T>;
-if constexpr (meta::is_class_type(^^U)) {
-  return addressof(meta::extract<const U&>(meta::reflect_constant(std::forward<T>(t))));
+if constexpr (meta::is_class_type(^^U) || meta::is_union_type(^^U)) {
+  return addressof(meta::extract<const U&>(
+                     meta::reflect_constant(std::forward<T>(t))));
+} else if constexpr (meta::is_array_type(^^U)) {
+  return addressof(meta::extract<const U&>(
+                     meta::reflect_constant_array(std::forward<T>(t))));
 } else {
   return define_static_array(span(addressof(t), 1)).data();
 }
@@ -3815,7 +3853,7 @@ consteval bool has_identifier(info r);
   Otherwise, if \tcode{r} represents the parameter $P$ of  a function $F$,
   then let $S$ be the set of declarations,
   ignoring any explicit instantiations,
-  that precede some point in the evaluation context
+  that are reachable from a point in the evaluation context
   and that declare either $F$ or a templated function
   of which $F$ is a specialization;
   \tcode{true} if
@@ -3901,7 +3939,7 @@ determined as follows:
   Otherwise, if \tcode{r} represents the parameter $P$ of a function $F$,
   then let $S$ be the set of declarations,
   ignoring any explicit instantiations,
-  that precede some point in the evaluation context
+  that are reachable from a point in the evaluation context
   and that declare either $F$
   or a templated function of which $F$ is a specialization;
   the name that was introduced by a declaration in $S$
@@ -4030,7 +4068,7 @@ consteval info type_of(info r);
   \begin{itemize}
   \item
     If $E$ is defined by a declaration $D$
-    that precedes a point $P$ in the evaluation context
+    that is reachable from a point $P$ in the evaluation context
     and $P$ does not occur within an \grammarterm{enum-specifier} of $D$,
     then a reflection of $E$.
   \item
@@ -4662,13 +4700,13 @@ If \tcode{r} represents a parameter $P$ of a function $F$, then:
 \item
   If $F$ is a specialization of a templated function $T$,
   then \tcode{true} if there exists a declaration $D$ of $T$
-  that precedes some point in the evaluation context
+  that is reachable from a point in the evaluation context
   and $D$ specifies a default argument
   for the parameter of $T$ corresponding to $P$.
   Otherwise, \tcode{false}.
 \item
   Otherwise, if there exists a declaration $D$ of $F$
-  that precedes some point in the evaluation context
+  that is reachable from a point in the evaluation context
   and $D$ specifies a default argument for $P$,
   then \tcode{true}.
 \end{itemize}
@@ -5985,8 +6023,9 @@ Let $E$ be
 \pnum
 \returns
 A \tcode{vector} containing all of the reflections $R$
-representing each annotation applying to each declaration of $E$ that precedes either
-some point in the evaluation context\iref{expr.const.reflect} or
+representing each annotation applying to each declaration of $E$
+that is reachable from either
+a point in the evaluation context\iref{expr.const.reflect} or
 a point immediately following the \grammarterm{class-specifier}
 of the outermost class for which such a point is in a complete-class context.
 For any two reflections $R_1$ and $R_2$ in the returned \tcode{vector},
@@ -6611,6 +6650,9 @@ it can also be queried by certain other functions in \tcode{std::meta}
   \item
     if $V$ equals \tcode{0},
     then \tcode{options.name} does not contain a value; and
+  \item
+    if \tcode{options.name} does not contain a value, then
+    \tcode{is_const(type) || is_volatile(type)} is \tcode{false}; and
   \end{itemize}
   \item
     if \tcode{options.alignment} contains a value,

@@ -8847,7 +8847,8 @@ but they now behave as iterators into \tcode{*this}, not into \tcode{x}.
 \pnum
 \throws
 \tcode{length_error} if any of \tcode{x}'s active blocks
-are not within the bounds of \exposid{current-limits}.
+are not within the bounds of \exposid{current-limits},
+as well as any exceptions thrown by the allocator.
 
 \pnum
 \complexity
@@ -10649,6 +10650,18 @@ and clears it otherwise.
 \pnum
 \returns
 \tcode{*this}.
+\end{itemdescr}
+
+\indexlibrarymember{operator bool}{vector<bool>::reference}%
+\begin{itemdecl}
+constexpr reference::operator bool() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if the value of the bit referred to by \tcode{*this} is one,
+\tcode{false} otherwise.
 \end{itemdescr}
 
 \indexlibrarymember{flip}{vector<bool>::reference}%
@@ -19494,8 +19507,8 @@ template<@\exposconcept{container-compatible-range}@<value_type> R>
 \effects
 Adds elements to \exposid{c} as if by:
 \begin{codeblock}
-ranges::for_each(rg, [&](auto&& e) {
-  @\exposid{c}@.insert(@\exposid{c}@.end(), std::forward<decltype(e)>(e));
+ranges::for_each(rg, [&](value_type e) {
+  @\exposid{c}@.insert(@\exposid{c}@.end(), std::move(e));
 });
 \end{codeblock}
 Then,
@@ -20182,8 +20195,8 @@ template<@\exposconcept{container-compatible-range}@<value_type> R>
 \effects
 Adds elements to \exposid{c} as if by:
 \begin{codeblock}
-ranges::for_each(rg, [&](auto&& e) {
-  @\exposid{c}@.insert(@\exposid{c}@.end(), std::forward<decltype(e)>(e));
+ranges::for_each(rg, [&](value_type e) {
+  @\exposid{c}@.insert(@\exposid{c}@.end(), std::move(e));
 });
 \end{codeblock}
 Then, sorts the range of newly inserted elements with respect to \exposid{compare},
@@ -20392,10 +20405,7 @@ namespace std {
     concept @\defexposconcept{integral-constant-like}@ =                    // \expos
       is_integral_v<remove_cvref_t<decltype(T::value)>> &&
       !is_same_v<bool, remove_cvref_t<decltype(T::value)>> &&
-      @\libconcept{convertible_to}@<T, decltype(T::value)> &&
-      @\libconcept{equality_comparable_with}@<T, decltype(T::value)> &&
-      bool_constant<T() == T::value>::value &&
-      bool_constant<static_cast<decltype(T::value)>(T()) == T::value>::value;
+      @\exposconcept{constexpr-wrapper-like}@<T>;
 
   template<class T>
     constexpr size_t @\defexposconcept{maybe-static-ext}@ = dynamic_extent; // \expos
@@ -21289,12 +21299,12 @@ namespace std {
   inline constexpr full_extent_t full_extent{};
 
   template<class IndexType, size_t... Extents, class... SliceSpecifiers>
-    constexpr auto submdspan_extents(const extents<IndexType, Extents...>&, SliceSpecifiers...);
+    constexpr auto subextents(const extents<IndexType, Extents...>&, SliceSpecifiers...);
 
   // \ref{mdspan.sub.canonical}, \tcode{submdspan} slice canonicalization
   template<class IndexType, size_t... Extents, class... Slices>
-    constexpr auto submdspan_canonicalize_slices(const extents<IndexType, Extents...>& src,
-                                                 Slices... slices);
+    constexpr auto canonical_slices(const extents<IndexType, Extents...>& src,
+                                    Slices... slices);
 
   // \ref{mdspan.sub.sub}, \tcode{submdspan} function template
   template<class ElementType, class Extents, class LayoutPolicy,
@@ -25033,7 +25043,7 @@ namespace std {
                 typename MappingType::layout_type>;
 
   template<class MappingType, class AccessorType>
-    mdspan(const typename AccessorType::data_handle_type&, const MappingType&,
+    mdspan(typename AccessorType::data_handle_type, const MappingType&,
            const AccessorType&)
       -> mdspan<typename AccessorType::element_type, typename MappingType::extents_type,
                 typename MappingType::layout_type, AccessorType>;
@@ -25846,11 +25856,12 @@ if constexpr (is_convertible_v<S, full_extent_t>) {
 
 \rSec4[mdspan.sub.canonical]{\tcode{submdspan} slice canonicalization}
 
-\indexlibraryglobal{submdspan_canonicalize_slices}%
+%FIXME: "Slices" is used instead of "SliceSpecifiers" in the synopsis declaration.
+\indexlibraryglobal{canonical_slices}%
 \begin{itemdecl}
 template<class IndexType, size_t... Extents, class... SliceSpecifiers>
-  constexpr auto submdspan_canonicalize_slices(const extents<IndexType, Extents...>& src,
-                                               SliceSpecifiers... slices);
+  constexpr auto canonical_slices(const extents<IndexType, Extents...>& src,
+                                  SliceSpecifiers... slices);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -25882,20 +25893,20 @@ is a valid \tcode{submdspan} slice for the $k^\text{th}$ extent of \tcode{src}.
 \tcode{make_tuple(\exposid{canonical-slice}<IndexType>(slices)...)}.
 \end{itemdescr}
 
-\rSec4[mdspan.sub.extents]{\tcode{submdspan_extents} function}
+\rSec4[mdspan.sub.extents]{\tcode{subextents} function}
 
-\indexlibraryglobal{submdspan_extents}%
+\indexlibraryglobal{subextents}%
 \begin{itemdecl}
 template<class IndexType, size_t... Extents, class... SliceSpecifiers>
-  constexpr auto submdspan_extents(const extents<IndexType, Extents...>& src,
-                                   SliceSpecifiers... raw_slices);
+  constexpr auto subextents(const extents<IndexType, Extents...>& src,
+                            SliceSpecifiers... raw_slices);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 Let \tcode{slices} be the pack introduced by the following declaration:
 \begin{codeblock}
-auto [...slices] = submdspan_canonicalize_slices(src, raw_slices...);
+auto [...slices] = canonical_slices(src, raw_slices...);
 \end{codeblock}
 
 \pnum
@@ -26048,7 +26059,7 @@ A type \tcode{SMR} that is a specialization of type \tcode{submdspan_mapping_res
 An object \tcode{smr} of type \tcode{SMR} such that
 \begin{itemize}
 \item
-  \tcode{smr.mapping.extents() == submdspan_extents(m.extents(), valid_slices...)}
+  \tcode{smr.mapping.extents() == subextents(m.extents(), valid_slices...)}
   is \tcode{true};\newline and
 \item
   for each integer pack \tcode{i}
@@ -26121,7 +26132,7 @@ for the $k^\text{th}$ extent of \tcode{extents()}.
 
 \pnum
 Let \tcode{sub_ext} be
-the result of \tcode{submdspan_extents(extents(), slices...)} and
+the result of \tcode{subextents(extents(), slices...)} and
 let \tcode{SubExtents} be \tcode{decl\-type(sub_ext)}.
 
 \pnum
@@ -26502,7 +26513,7 @@ Let \tcode{index_type} be \tcode{typename Extents::index_type}.
 \pnum
 Let \tcode{slices} be the pack introduced by the following declaration:
 \begin{codeblock}
-auto [...slices] = submdspan_canonicalize_slices(src, raw_slices...);
+auto [...slices] = canonical_slices(src, raw_slices...);
 \end{codeblock}
 
 \pnum
