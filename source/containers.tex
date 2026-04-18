@@ -7980,9 +7980,15 @@ The latter are defined as hard limits.
 The maximum hard limit shall be no larger than
 \tcode{std::allocator_traits<Allocator>::max_size()}.
 \item
-If user-specified limits are not within hard limits, or
+If user-specified limits passed to
+a \tcode{hive} constructor or \tcode{reshape}
+are not within hard limits, or
 if the specified minimum limit is greater than the specified maximum limit,
-the behavior is undefined.
+the behavior is erroneous and the effects are
+\impldef{effects of invalid \tcode{hive} limits}.
+\begin{tailnote}
+This condition can be checked using \tcode{is_within_hard_limits}.
+\end{tailnote}
 \item
 An element block is said to be \defnx{within the bounds}{element block!bounds}
 of a pair of minimum/maximum limits
@@ -8089,6 +8095,7 @@ namespace std {
     constexpr hive_limits block_capacity_limits() const noexcept;
     static constexpr hive_limits block_capacity_default_limits() noexcept;
     static constexpr hive_limits block_capacity_hard_limits() noexcept;
+    static constexpr bool is_within_hard_limits(hive_limits) noexcept;
     void reshape(hive_limits block_limits);
 
     // \ref{hive.modifiers}, modifiers
@@ -8478,7 +8485,9 @@ Otherwise increases \tcode{capacity()} by allocating reserved blocks.
 
 \pnum
 \throws
-\tcode{length_error} if \tcode{n > max_size()},
+\tcode{length_error} if
+satisfying the postcondition
+would cause \tcode{capacity()} to exceed \tcode{max_size()},
 as well as any exceptions thrown by the allocator.
 
 \pnum
@@ -8602,6 +8611,20 @@ the implementation's hard limits.
 \pnum
 \complexity
 Constant.
+\end{itemdescr}
+
+\indexlibrarymember{is_within_hard_limits}{hive}%
+\begin{itemdecl}
+static constexpr bool is_within_hard_limits(hive_limits lim) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+Let \tcode{hl} be \tcode{block_capacity_hard_limits()}.
+
+\pnum
+\returns
+\tcode{hl.min <= lim.min \&\& lim.min <= lim.max \&\& lim.max <= hl.max}.
 \end{itemdescr}
 
 \indexlibrarymember{reshape}{hive}%
@@ -10999,8 +11022,13 @@ namespace std {
 
     friend constexpr bool operator==(const inplace_vector& x,
                                      const inplace_vector& y);
-    friend constexpr @\exposid{synth-three-way-result}@<T>
-      operator<=>(const inplace_vector& x, const inplace_vector& y);
+    friend constexpr auto
+      operator<=>(const inplace_vector& x, const inplace_vector& y)
+        requires requires (const T t) { @\exposid{synth-three-way}@(t, t); }
+      {
+        return lexicographical_compare_three_way(x.begin(), x.end(), y.begin(), y.end(),
+                                                 @\exposid{synth-three-way}@);
+      }
     friend constexpr void swap(inplace_vector& x, inplace_vector& y)
       noexcept(N == 0 || (is_nothrow_swappable_v<T> &&
                           is_nothrow_move_constructible_v<T>))
@@ -11418,6 +11446,26 @@ the assignment operator of \tcode{T} is called the number of times
 equal to the number of elements after the erased elements.
 \end{itemdescr}
 
+\indexlibrarymember{swap}{inplace_vector}%
+\begin{itemdecl}
+constexpr void swap(inplace_vector& x) noexcept(
+  N == 0 || (is_nothrow_swappable_v<T> && is_nothrow_move_constructible_v<T>));
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+\tcode{T} meets the \oldconcept{MoveConstructible} requirements.
+Let $M$ be \tcode{min(size(), x.size())}.
+For each non-negative integer $n < M$,
+\tcode{(*this)[$n$]} is swappable
+with \tcode{x[$n$]}\iref{swappable.requirements}.
+
+\pnum
+\effects
+Exchanges the contents of \tcode{*this} and \tcode{x}.
+\end{itemdescr}
+
 \rSec3[inplace.vector.erasure]{Erasure}
 
 \indexlibrarymember{erase}{inplace_vector}%
@@ -11472,24 +11520,25 @@ The following exposition-only alias templates may appear in deduction guides for
 template<class InputIterator>
   using @\placeholder{iter-value-type}@ = iterator_traits<InputIterator>::value_type;   // \expos
 template<class InputIterator>
-  using @\placeholder{iter-key-type}@ = remove_const_t<
+  using @\placeholder{iter-key-type}@ = remove_cvref_t<
     tuple_element_t<0, @\exposid{iter-value-type}@<InputIterator>>>;                // \expos
 template<class InputIterator>
-  using @\placeholder{iter-mapped-type}@ =
-    tuple_element_t<1, @\exposid{iter-value-type}@<InputIterator>>;                 // \expos
+  using @\placeholder{iter-mapped-type}@ = remove_cvref_t<
+    tuple_element_t<1, @\exposid{iter-value-type}@<InputIterator>>>;                // \expos
 template<class InputIterator>
   using @\placeholder{iter-to-alloc-type}@ = pair<
-    const tuple_element_t<0, @\exposid{iter-value-type}@<InputIterator>>,
-    tuple_element_t<1, @\exposid{iter-value-type}@<InputIterator>>>;                // \expos
+    const @\exposid{iter-key-type}@<InputIterator>,
+    @\exposid{iter-mapped-type}@<InputIterator>>;                                   // \expos
 template<ranges::@\libconcept{input_range}@ Range>
   using @\exposid{range-key-type}@ =
-    remove_const_t<typename ranges::range_value_t<Range>::first_type>;  // \expos
+    remove_cvref_t<tuple_element_t<0, ranges::range_value_t<Range>>>;   // \expos
 template<ranges::@\libconcept{input_range}@ Range>
-  using @\exposid{range-mapped-type}@ = ranges::range_value_t<Range>::second_type; // \expos
+  using @\exposid{range-mapped-type}@ =
+    remove_cvref_t<tuple_element_t<1, ranges::range_value_t<Range>>>;   // \expos
 template<ranges::@\libconcept{input_range}@ Range>
   using @\exposid{range-to-alloc-type}@ =
-    pair<const typename ranges::range_value_t<Range>::first_type,
-         typename ranges::range_value_t<Range>::second_type>;           // \expos
+    pair<const @\exposid{range-key-type}@<Range>,
+         @\exposid{range-mapped-type}@<Range>>;                                     // \expos
 \end{codeblock}
 
 \rSec2[associative.map.syn]{Header \tcode{<map>} synopsis}
@@ -21486,7 +21535,7 @@ template<class OtherIndexType>
 If \tcode{remove_cvref_t<OtherIndexType>} is an integral type other than \tcode{bool},
 then equivalent to \tcode{return i;},
 \item
-otherwise, equivalent to \tcode{return static_cast<index_type>(i);}.
+otherwise, equivalent to \tcode{return static_cast<index_type>(std::forward<OtherIndexType>(\brk{}i));}.
 \end{itemize}
 \begin{note}
 This function will always return an integral type other than \tcode{bool}.
@@ -22433,7 +22482,7 @@ is_same_v<index_sequence_for<Indices...>, index_sequence<P...>>
 is \tcode{true}.
 Equivalent to:
 \begin{codeblock}
-return ((static_cast<index_type>(i) * stride(P)) + ... + 0);
+return ((static_cast<index_type>(std::move(i)) * stride(P)) + ... + 0);
 \end{codeblock}
 \end{itemdescr}
 
@@ -22766,7 +22815,7 @@ is_same_v<index_sequence_for<Indices...>, index_sequence<P...>>
 \end{codeblock}
 is \tcode{true}. Equivalent to:
 \begin{codeblock}
-return ((static_cast<index_type>(i) * stride(P)) + ... + 0);
+return ((static_cast<index_type>(std::move(i)) * stride(P)) + ... + 0);
 \end{codeblock}
 \end{itemdescr}
 
@@ -23130,7 +23179,7 @@ is_same_v<index_sequence_for<Indices...>, index_sequence<P...>>
 is \tcode{true}.
 Equivalent to:
 \begin{codeblock}
-return ((static_cast<index_type>(i) * stride(P)) + ... + 0);
+return ((static_cast<index_type>(std::move(i)) * stride(P)) + ... + 0);
 \end{codeblock}
 \end{itemdescr}
 
@@ -23445,10 +23494,14 @@ otherwise with
 \indexlibraryctor{layout_left_padded::mapping}%
 \begin{itemdecl}
 template<class OtherIndexType>
-constexpr mapping(const extents_type& ext, OtherIndexType pad);
+constexpr mapping(const extents_type& ext, OtherIndexType padding);
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+Let \tcode{pad} be
+\tcode{extents_type::\exposid{index-cast}(std::move(padding))}.
+
 \pnum
 \constraints
 \begin{itemize}
@@ -23464,7 +23517,7 @@ constexpr mapping(const extents_type& ext, OtherIndexType pad);
 \item
 \tcode{pad} is representable as a value of type \tcode{index_type}.
 \item
-\tcode{extents_type::\exposid{index-cast}(pad)} is greater than zero.
+\tcode{pad} is greater than zero.
 \item
 If \exposid{rank_} is greater than one,
 then \tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(pad, ext.extent(0))}
@@ -23478,7 +23531,7 @@ with $k$ in the range of \range{1}{\exposid{rank_}}
 is representable as a value of type \tcode{index_type}.
 \item
 If \tcode{padding_value} is not equal to \tcode{dynamic_extent},
-\tcode{padding_value} equals \tcode{extents_type::\exposid{in\-dex-cast}(pad)}.
+\tcode{padding_value} equals \tcode{pad}.
 \end{itemize}
 
 \pnum
@@ -23755,7 +23808,7 @@ a multidimensional index in \tcode{extents()}\iref{mdspan.overview}.
 
 \pnum
 \returns
-\tcode{((static_cast<index_type>(idxs) * stride(P_rank)) + ... + 0)}.
+\tcode{((static_cast<index_type>(std::move(idxs)) * stride(P_rank)) + ... + 0)}.
 \end{itemdescr}
 
 \begin{itemdecl}
@@ -24082,10 +24135,14 @@ otherwise with
 \indexlibraryctor{layout_right_padded::mapping}%
 \begin{itemdecl}
 template<class OtherIndexType>
-constexpr mapping(const extents_type& ext, OtherIndexType pad);
+constexpr mapping(const extents_type& ext, OtherIndexType padding);
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+Let \tcode{pad} be
+\tcode{extents_type::\exposid{index-cast}(std::move(padding))}.
+
 \pnum
 \constraints
 \begin{itemize}
@@ -24101,7 +24158,7 @@ constexpr mapping(const extents_type& ext, OtherIndexType pad);
 \item
 \tcode{pad} is representable as a value of type \tcode{index_type}.
 \item
-\tcode{extents_type::\exposid{index-cast}(pad)} is greater than zero.
+\tcode{pad} is greater than zero.
 \item
 If \exposid{rank_} is greater than one,
 then \tcode{\exposid{LEAST-MULTIPLE-AT-LEAST}(pad, ext.extent(\exposid{rank_} - 1))}
@@ -24115,7 +24172,7 @@ with $k$ in the range of \range{0}{\exposid{rank_} - 1}
 is representable as a value of type \tcode{index_type}.
 \item
 If \tcode{padding_value} is not equal to \tcode{dynamic_extent},
-\tcode{padding_value} equals \tcode{extents_type::\linebreak \exposid{index-cast}(pad)}.
+\tcode{padding_value} equals \tcode{pad}.
 \end{itemize}
 
 \pnum
@@ -24390,7 +24447,7 @@ a multidimensional index in \tcode{extents()}\iref{mdspan.overview}.
 
 \pnum
 \returns
-\tcode{((static_cast<index_type>(idxs) * stride(P_rank)) + ... + 0)}.
+\tcode{((static_cast<index_type>(std::move(idxs)) * stride(P_rank)) + ... + 0)}.
 \end{itemdescr}
 
 \indexlibrarymember{layout_right_padded::mapping}{is_always_exhaustive}%

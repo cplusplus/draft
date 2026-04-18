@@ -257,7 +257,6 @@ namespace std {
   template<class T> struct is_abstract;
   template<class T> struct is_final;
   template<class T> struct is_aggregate;
-  template<class T> struct is_consteval_only;
 
   template<class T> struct is_signed;
   template<class T> struct is_unsigned;
@@ -510,8 +509,6 @@ namespace std {
     constexpr bool @\libglobal{is_final_v}@ = is_final<T>::value;
   template<class T>
     constexpr bool @\libglobal{is_aggregate_v}@ = is_aggregate<T>::value;
-  template<class T>
-    constexpr bool @\libglobal{is_consteval_only_v}@ = is_consteval_only<T>::value;
   template<class T>
     constexpr bool @\libglobal{is_signed_v}@ = is_signed<T>::value;
   template<class T>
@@ -1196,12 +1193,6 @@ A union is a class type that
   \tcode{struct is_aggregate;}           &
  \tcode{T} is an aggregate type\iref{dcl.init.aggr} &
  \tcode{T} shall be an array type, a complete type, or \cv~\keyword{void}.              \\ \rowsep
-
-\indexlibraryglobal{is_consteval_only}%
-\tcode{template<class T>}\br
-  \tcode{struct is_consteval_only;}           &
- \tcode{T} is consteval-only\iref{basic.types.general} &
- \tcode{remove_all_extents_t<T>} shall be a complete type or \cv~\keyword{void}.        \\ \rowsep
 
 \indexlibrary{\idxcode{is_signed}!class}%
 \tcode{template<class T>}\br
@@ -2932,7 +2923,7 @@ namespace std {
   template<ranges::@\libconcept{input_range}@ R>
     consteval const ranges::range_value_t<R>* define_static_string(R&& r);
   template<ranges::@\libconcept{input_range}@ R>
-    consteval span<const ranges::range_value_t<R>> define_static_array(R&& r);
+    consteval span<const ranges::range_value_t<R>, \seebelow> define_static_array(R&& r);
   template<class T>
     consteval const remove_cvref_t<T>* define_static_object(T&& r);
 }
@@ -3160,7 +3151,6 @@ namespace std::meta {
   consteval bool is_abstract_type(info type);
   consteval bool is_final_type(info type);
   consteval bool is_aggregate_type(info type);
-  consteval bool is_consteval_only_type(info type);
   consteval bool is_signed_type(info type);
   consteval bool is_unsigned_type(info type);
   consteval bool is_bounded_array_type(info type);
@@ -3327,8 +3317,15 @@ static_assert(size_of(^^X<int>) == sizeof(int));    // instantiates \tcode{X<int
 \pnum
 Any function in namespace \tcode{std::meta}
 whose return type is \tcode{string_view} or \tcode{u8string_view}
-returns an object \exposid{V} such that
-\tcode{\exposid{V}.data()[\exposid{V}.size()]} equals \tcode{'\textbackslash 0'}.
+returns an object \tcode{V} such that
+\tcode{V.data()[V.size()]} equals \tcode{'\textbackslash 0'}.
+Each element of the range
+$\tcode{V.data()} + \crange{0}{\tcode{V.size()}}$
+is a potentially non-unique object with static storage duration that
+is usable in constant expressions\iref{intro.object, expr.const};
+a pointer to such an element is not suitable for use as
+a template argument for a constant template parameter of
+pointer type\iref{temp.arg.nontype}.
 \begin{example}
 \begin{codeblock}
 struct C { };
@@ -3514,7 +3511,7 @@ return meta::extract<const ranges::range_value_t<R>*>(meta::reflect_constant_str
 \indexlibraryglobal{define_static_array}%
 \begin{itemdecl}
 template<ranges::@\libconcept{input_range}@ R>
-  consteval span<const ranges::range_value_t<R>> define_static_array(R&& r);
+  consteval span<const ranges::range_value_t<R>, \seebelow> define_static_array(R&& r);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -3525,10 +3522,18 @@ Equivalent to:
 using T = ranges::range_value_t<R>;
 meta::info array = meta::reflect_constant_array(r);
 if (meta::is_array_type(meta::type_of(array))) {
-  return span<const T>(meta::extract<const T*>(array), meta::extent(meta::type_of(array)));
+  return span<const T, @\seebelow@>(meta::extract<const T*>(array),
+                                    meta::extent(meta::type_of(array)));
 } else {
-  return span<const T>();
+  return span<const T, @\seebelow@>(static_cast<const T*>(nullptr), 0);
 }
+
+\pnum
+\remarks
+The second template argument of the returned \tcode{span} type
+is \tcode{static_cast<size_t>(ranges::size(r))}
+if \tcode{ranges::size(r)} is a constant expression, and
+\tcode{dynamic_extent} otherwise.
 \end{codeblock}
 \end{itemdescr}
 
@@ -3905,9 +3910,11 @@ static_assert(!has_identifier(r));
   Otherwise, if \tcode{r} represents a direct base class relationship,
   then \tcode{has_identifier(type_of(r))}.
 \item
-  Otherwise, \tcode{r} represents a data member description
+  Otherwise, if \tcode{r} represents a data member description
   $(T, N, A, W, \mathit{NUA})$\iref{class.mem.general};
   \tcode{true} if $N$ is not $\bot$.
+  Otherwise, \tcode{false}.
+\item
   Otherwise, \tcode{false}.
 \end{itemize}
 \end{itemdescr}
@@ -6843,7 +6850,6 @@ consteval bool @\libglobal{is_polymorphic_type}@(info type);
 consteval bool @\libglobal{is_abstract_type}@(info type);
 consteval bool @\libglobal{is_final_type}@(info type);
 consteval bool @\libglobal{is_aggregate_type}@(info type);
-consteval bool @\libglobal{is_consteval_only_type}@(info type);
 consteval bool @\libglobal{is_signed_type}@(info type);
 consteval bool @\libglobal{is_unsigned_type}@(info type);
 consteval bool @\libglobal{is_bounded_array_type}@(info type);
