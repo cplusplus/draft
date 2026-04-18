@@ -16563,6 +16563,8 @@ template<size_t Bytes> using @\exposidnc{integer-from} = \seebelownc@;          
 
 template<class T, class Abi>
   constexpr @\exposidnc{simd-size-type} \exposidnc{simd-size-v} = \seebelownc@;                  // \expos
+template<class T, class Abi>
+  constexpr @\exposidnc{simd-size-type} \exposidnc{mask-size-v} = \seebelownc@;                  // \expos
 template<class T> constexpr size_t @\exposidnc{mask-element-size} = \seebelownc@;    // \expos
 
 template<class From, class To>
@@ -16649,6 +16651,19 @@ otherwise.
 \end{itemdescr}
 
 \begin{itemdecl}
+template<class T, class Abi>
+  constexpr @\exposid{simd-size-type} \exposid{mask-size-v}@ = @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\tcode{\exposid{mask-size-v}<T, Abi>} denotes
+the width of \tcode{basic_mask<Bytes, Abi>}
+if the specialization \tcode{basic_mask<Bytes, Abi>} is enabled, or
+\tcode{0} otherwise.
+\end{itemdescr}
+
+\begin{itemdecl}
 template<class T> constexpr size_t @\exposid{mask-element-size}@ = @\seebelow@;
 \end{itemdecl}
 
@@ -16722,26 +16737,26 @@ translation unit boundaries (e.g., function calls or I/O).
 An implementation defines ABI tag types as necessary for the following aliases.
 
 \pnum
-\tcode{\exposid{deduce-abi-t}<T, N>} is defined if
+\tcode{\exposid{deduce-abi-t}<T, N>} names an ABI tag type if and only if
 \begin{itemize}
 \item \tcode{T} is a vectorizable type,
 \item \tcode{N} is greater than zero, and
 \item \tcode{N} is not larger than an implementation-defined maximum.
 \end{itemize}
+Otherwise, \tcode{\exposid{deduce-abi-t}<T, N>} names an unspecified type.
 The \impldef{maximum width for \tcode{vec} and \tcode{mask}} maximum for
 \tcode{N} is not smaller than 64 and can differ depending on \tcode{T}.
 
 \pnum
-Where present, \tcode{\exposid{deduce-abi-t}<T, N>} names an ABI tag type such
-that
+If \tcode{\exposid{deduce-abi-t}<T, N>} names an ABI tag type,
+the following is \tcode{true}:
 \begin{itemize}
- \item
-   \tcode{\exposid{simd-size-v}<T, \exposid{deduce-abi-t}<T, N>>} equals
-   \tcode{N}, \item \tcode{basic_vec<T, \exposid{deduce-abi-t}<T, N>>} is
-   enabled\iref{simd.overview}, and
- \item
-   \tcode{basic_mask<sizeof(T),
-   \exposid{deduce-abi-t}<\exposid{integer-from}<sizeof(T)>, N>>} is enabled.
+\item
+  \tcode{\exposid{simd-size-v}<T, \exposid{deduce-abi-t}<T, N>>}
+  equals \tcode{N}, and
+\item
+  \tcode{basic_vec<T, \exposid{deduce-abi-t}<T, N>>}
+  is enabled\iref{simd.overview}.
 \end{itemize}
 
 \pnum
@@ -16995,12 +17010,11 @@ namespace std::simd {
     constexpr auto chunk(const basic_mask<Bytes, Abi>& x) noexcept;
 
   template<class T, class... Abis>
-    constexpr basic_vec<T, @\exposid{deduce-abi-t}@<T, (basic_vec<T, Abis>::size() + ...)>>
-      cat(const basic_vec<T, Abis>&...) noexcept;
+    constexpr resize_t<(basic_vec<T, Abis>::size() + ...),
+      basic_vec<T, Abis...[0]>> cat(const basic_vec<T, Abis>&...) noexcept;
   template<size_t Bytes, class... Abis>
-    constexpr basic_mask<Bytes, @\exposid{deduce-abi-t}@<@\exposid{integer-from}@<Bytes>,
-                              (basic_mask<Bytes, Abis>::size() + ...)>>
-      cat(const basic_mask<Bytes, Abis>&...) noexcept;
+    constexpr resize_t<(basic_mask<Bytes, Abis>::size() + ...)>,
+      basic_mask<Bytes, Abis...[0]>> cat(const basic_mask<Bytes, Abis>&...) noexcept;
 
   // \ref{simd.alg}, algorithms
   template<class T, class Abi>
@@ -17441,9 +17455,9 @@ namespace std::simd {
   template<@\exposconcept{simd-complex}@ V> constexpr V pow(const V& x, const V& y);
 
   // \ref{simd.mask.class}, class template \tcode{basic_mask}
-  template<size_t Bytes, class Abi = @\exposid{native-abi}@<@\exposid{integer-from}@<Bytes>>> class basic_mask;
+  template<size_t Bytes, class Abi> class basic_mask;
   template<class T, @\exposid{simd-size-type}@ N = @\exposid{simd-size-v}@<T, @\exposid{native-abi}@<T>>>
-    using @\libmember{mask}{simd}@ = basic_mask<sizeof(T), @\exposid{deduce-abi-t}@<T, N>>;
+    using @\libmember{mask}{simd}@ = vec<T, N>::mask_type;
 
   // \ref{simd.mask.reductions}, reductions
   template<size_t Bytes, class Abi>
@@ -17627,8 +17641,7 @@ The member \tcode{type} is present if and only if
 \begin{itemize}
 \item \tcode{V} is a data-parallel type,
 \item \tcode{T} is a vectorizable type, and
-\item \tcode{\exposid{deduce-abi-t}<T, V::size()>} has a member type
-  \tcode{type}.
+\item \tcode{\exposid{deduce-abi-t}<T, V::size()>} names an ABI tag type.
 \end{itemize}
 
 \pnum
@@ -17653,34 +17666,33 @@ template<@\exposid{simd-size-type}@ N, class V> struct resize { using type = @\s
 
 \begin{itemdescr}
 \pnum
-Let \tcode{T} denote
+Let \tcode{Abi1} denote an ABI tag
 \begin{itemize}
  \item
-   \tcode{typename V::value_type} if \tcode{V} is a specialization of
-   \tcode{basic_vec},
+   such that \tcode{\exposid{simd-size-v}<typename V::value_type, Abi1>}
+   equals \tcode{N} if \tcode{V} is a specialization of \tcode{basic_vec},
  \item
-   otherwise \tcode{\exposid{integer-from}<\exposid{mask-element-size}<V>>} if
-   \tcode{V} is a specialization of \tcode{basic_mask}.
+   otherwise such that
+   \tcode{\exposid{mask-size-v}<\exposid{mask-element-size}<V>, Abi1>}
+   equals \tcode{N} if \tcode{V} is a specialization of \tcode{basic_mask}.
 \end{itemize}
 
 \pnum
 The member \tcode{type} is present if and only if
 \begin{itemize}
-\item \tcode{V} is a data-parallel type, and
-\item \tcode{\exposid{deduce-abi-t}<T, N>} has a member type \tcode{type}.
+\item
+  \tcode{V} is a data-parallel type, and
+\item
+  there exists at least one ABI tag
+  that satisfies the above constraints for \tcode{Abi1}.
 \end{itemize}
 
 \pnum
-If \tcode V is a specialization of \tcode{basic_vec}, let \tcode{Abi1} denote an
-ABI tag such that \tcode{basic_vec<T, Abi1>::\brk{}size()} equals \tcode{N}.
-If \tcode V is a specialization of \tcode{basic_mask}, let \tcode{Abi1}
-denote an ABI tag such that \tcode{basic_mask<sizeof(T), Abi1>::size()} equals \tcode{N}.
-
-\pnum
-Where present, the member typedef \tcode{type} names \tcode{basic_vec<T, Abi1>}
-if \tcode V is a specialization of \tcode{basic_vec} or
-\tcode{basic_mask<sizeof(T), Abi1>} if \tcode V is a specialization of
-\tcode{basic_mask}.
+Where present, the member typedef \tcode{type} names
+\tcode{basic_vec<typename V::value_type, Abi1>}
+if \tcode{V} is a specialization of \tcode{basic_vec}, or
+\tcode{basic_mask<\exposid{mask-element-size}<V>, Abi1>}
+if \tcode{V} is a specialization of \tcode{basic_mask}.
 \end{itemdescr}
 
 \rSec2[simd.flags]{Load and store flags}
@@ -18105,7 +18117,8 @@ The specialization of \tcode{basic_vec<T, Abi>} is
 \begin{itemize}
  \item
     enabled, if \tcode{T} is a vectorizable type, and there exists value
-    \tcode{N} in the range \crange{1}{64}, such that \tcode{Abi} is
+    \tcode{N} in the range \crange{1}{64},
+    such that \tcode{Abi} names the ABI tag denoted by
     \tcode{\exposid{deduce-abi-t}<T, N>},
  \item
    otherwise, disabled, if \tcode{T} is not a vectorizable type,
@@ -18120,10 +18133,22 @@ deleted copy assignment.
 In addition only the \tcode{value_type}, \tcode{abi_type}, and
 \tcode{mask_type} members are present.
 
-If \tcode{basic_vec<T, Abi>} is enabled, then \tcode{basic_vec<T, Abi>} is
-trivially copyable, default-initialization of an object of such a type
-default-initializes all elements, and value-initialization value-initializes
-all elements\iref{dcl.init.general}.
+If \tcode{basic_vec<T, Abi>} is enabled, then
+\begin{itemize}
+\item
+  \tcode{basic_vec<T, Abi>} is trivially copyable,
+\item
+  default-initialization of an object of such a type
+  default-initializes all elements,
+\item
+  value-initialization value-initializes all elements\iref{dcl.init.general},
+\item
+  \tcode{basic_vec<T, Abi>::mask_type} is an alias
+  for an enabled specialization of \tcode{basic_mask}, and
+\item
+  \tcode{basic_vec<T, Abi>::size()} is equal to
+  \tcode{basic_vec<T, Abi>::mask_type::size()}.
+\end{itemize}
 
 \pnum
 \recommended
@@ -19739,28 +19764,14 @@ Equivalent to: \tcode{return chunk<resize_t<N, basic_mask<Bytes, Abi>>>(x);}
 \indexlibrarymember{cat}{simd}
 \begin{itemdecl}
 template<class T, class... Abis>
-  constexpr vec<T, (basic_vec<T, Abis>::size() + ...)>
-    cat(const basic_vec<T, Abis>&... xs) noexcept;
+  constexpr resize_t<(basic_vec<T, Abis>::size() + ...),
+    basic_vec<T, Abis...[0]>> cat(const basic_vec<T, Abis>&... xs) noexcept;
 template<size_t Bytes, class... Abis>
-  constexpr basic_mask<Bytes, @\exposid{deduce-abi-t}@<@\exposid{integer-from}@<Bytes>,
-                            (basic_mask<Bytes, Abis>::size() + ...)>>
-    cat(const basic_mask<Bytes, Abis>&... xs) noexcept;
+  constexpr resize_t<(basic_mask<Bytes, Abis>::size() + ...),
+    basic_mask<Bytes, Abis...[0]>> cat(const basic_mask<Bytes, Abis>&... xs) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
-\pnum
-\constraints
-\begin{itemize}
- \item
-   For the first overload \tcode{vec<T, (basic_vec<T, Abis>::size() + ...)>}
-   is enabled.
- \item
-   For the second overload
-   \tcode{basic_mask<Bytes,
-   \exposid{deduce-abi-t}<\exposid{integer-from}<Bytes>,
-   (basic_mask<Bytes, Abis>::size() + ...)>>} is enabled.
-\end{itemize}
-
 \pnum
 \returns
 A data-parallel object initialized with the concatenated values in the
@@ -20830,8 +20841,7 @@ namespace std::simd {
     constexpr default_sentinel_t @\libmember{end}{basic_mask}@() const noexcept { return {}; }
     constexpr default_sentinel_t @\libmember{cend}{basic_mask}@() const noexcept { return {}; }
 
-    static constexpr integral_constant<@\exposid{simd-size-type}@, @\exposid{simd-size-v}@<@\exposid{integer-from}@<Bytes>, Abi>>
-      @\libmember{size}{basic_mask}@ {};
+    static constexpr integral_constant<@\exposid{simd-size-type}@, @\exposid{mask-size-v}@<Bytes, Abi>> @\libmember{size}{basic_mask}@ {};
 
     constexpr basic_mask() noexcept = default;
 
@@ -20919,9 +20929,9 @@ The specialization of \tcode{basic_mask<Bytes, Abi>} is:
    is equal to \tcode{sizeof(T)},
  \item
    otherwise, enabled, if there exists a vectorizable type \tcode{T} and a
-   value \tcode{N} in the range \crange{1}{64} such that \tcode{Bytes} is equal
-   to \tcode{sizeof(T)} and \tcode{Abi} is \tcode{\exposid{deduce-abi-t}<T,
-   N>},
+   value \tcode{N} in the range \crange{1}{64}
+   such that \tcode{Bytes} is equal to \tcode{sizeof(T)} and
+   \tcode{Abi} names the ABI tag denoted by \tcode{\exposid{decude-abi-t}<T, N>},
  \item
    otherwise, it is \impldef{set of enabled \tcode{basic_mask<Bytes, Abi>}
    specializations} if such a specialization is enabled.
