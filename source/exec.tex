@@ -8858,24 +8858,6 @@ for operations launched via calls to \tcode{parallel_scheduler_backend}.
 \end{note}
 
 \pnum
-A \defnx{bulk chunked proxy for \tcode{rcvr}
-with callable \tcode{f} and arguments \tcode{args}}{proxy!bulk chunked}
-is a proxy \tcode{r} for \tcode{rcvr}
-with base \tcode{system_context_replaceability::bulk_item_receiver_proxy}
-such that
-\tcode{r.execute(i, j)} for indices \tcode{i} and \tcode{j}
-has effects equivalent to \tcode{f(i, j, args...)}.
-
-\pnum
-A \defnx{bulk unchunked proxy for \tcode{rcvr}
-with callable \tcode{f} and arguments \tcode{args}}{proxy!bulk unchunked}
-is a proxy \tcode{r} for \tcode{rcvr}
-with base \tcode{system_context_replaceability::bulk_item_receiver_proxy}
-such that
-\tcode{r.execute(i, i + 1)} for index \tcode{i}
-has effects equivalent to \tcode{f(i, args...)}.
-
-\pnum
 Let \tcode{b} be \tcode{\exposid{BACKEND-OF}(sch)},
 let \tcode{sndr} be the object returned by \tcode{schedule(sch)}, and
 let \tcode{rcvr} be a receiver.
@@ -8897,46 +8879,93 @@ All other completion operations are forwarded unchanged.
 \end{itemize}
 
 \pnum
-\tcode{parallel_scheduler} provides a customized implementation of
-the \tcode{bulk_chunked} algorithm\iref{exec.bulk}.
-If a receiver \tcode{rcvr} is connected to the sender
-returned by \tcode{bulk_chunked(sndr, pol, shape, f)} and
+The expression \tcode{get_domain(sch)}
+returns an expression of exposition-only type
+\exposid{parallel-scheduler-do\-main}, that is equivalent with:
+
+\begin{codeblock}
+struct @\exposid{parallel-scheduler-domain}@ {
+  template<@\exposconcept{sender-for}@<bulk_chunked_t> Sndr, @\exposconcept{queryable}@ Env>
+  static constexpr decltype(auto)
+    transform_sender(set_value_t, Sndr&& sndr, const Env& env) const noexcept {
+      return @\seebelow@;
+    }
+  template<@\exposconcept{sender-for}@<bulk_unchunked_t> Sndr, @\exposconcept{queryable}@ Env>
+  static constexpr decltype(auto)
+    transform_sender(set_value_t, Sndr&& sndr, const Env& env) const noexcept {
+      return @\seebelow@;
+    }
+};
+\end{codeblock}
+
+\pnum
+For argument \tcode{sndr} of the above \tcode{transform_sender},
+let \tcode{child}, \tcode{pol}, \tcode{shape} and \tcode{f}
+be defined by the following declarations:
+\begin{codeblock}
+auto& [_, data, child] = sndr;
+auto& [pol, shape, f] = data;
+\end{codeblock}
+
+\pnum
+Let \tcode{p} be
+\begin{itemize}
+\item
+\tcode{true}, if the type of the expression \tcode{pol} is
+\cv{}~\tcode{parallel_policy} or \cv{}~\tcode{parallel_unsequenced_policy};
+\item
+\impldef{parallelism flag for an implementation-defined execution policy},
+if \tcode{pol} is an implementation-defined execution policy;
+\item
+\tcode{false}, otherwise.
+\end{itemize}
+
+\pnum
+The \tcode{transform_sender} overload
+that accepts senders with tag \tcode{bulk_chunked_t}
+returns a sender such that if it is connected to a receiver \tcode{rcvr} and
 the resulting operation state is started, then:
 \begin{itemize}
 \item
-If \tcode{sndr} completes with values \tcode{vals},
+If \tcode{child} completes with values \tcode{vals},
 let \tcode{args} be a pack of lvalue subexpressions designating \tcode{vals},
-then \tcode{b.schedule_bulk_chunked(shape, r, s)} is called, where
+then \tcode{b.schedule_bulk_chunked(p ? shape : 1, r, s)} is called, where
 \begin{itemize}
 \item
-\tcode{r} is a bulk chunked proxy for \tcode{rcvr}
-with callable \tcode{f} and arguments \tcode{args} and
+\tcode{r} is a proxy for \tcode{rcvr}
+with base \tcode{system_context_replaceability::bulk_item_receiver_proxy}
+such that \tcode{r.execute(i, j)} for indices \tcode{i} and \tcode{j}
+has effects equivalent to
+\tcode{f(i, j, args...)} if \tcode{p} is true and
+\tcode{f(0, shape, args...)} otherwise; and
 \item
 \tcode{s} is a preallocated backend storage for \tcode{r}.
 \end{itemize}
 \item
 All other completion operations are forwarded unchanged.
 \end{itemize}
-\begin{note}
-Customizing the behavior of \tcode{bulk_chunked}
-affects the default implementation of \tcode{bulk}.
-\end{note}
 
 \pnum
-\tcode{parallel_scheduler} provides a customized implementation of
-the \tcode{bulk_unchunked} algorithm\iref{exec.bulk}.
-If a receiver \tcode{rcvr} is connected to the sender
-returned by \tcode{bulk_unchunked(sndr, pol, shape, f)} and
+The \tcode{transform_sender} overload
+that accepts senders with tag \tcode{bulk_unchunked_t}
+returns a sender such that if it is connected to a receiver \tcode{rcvr} and
 the resulting operation state is started, then:
 \begin{itemize}
 \item
-If \tcode{sndr} completes with values \tcode{vals},
+If \tcode{child} completes with values \tcode{vals},
 let \tcode{args} be a pack of lvalue subexpressions designating \tcode{vals},
-then \tcode{b.schedule_bulk_unchunked(shape, r, s)} is called, where
+then \tcode{b.schedule_bulk_unchunked(p ? shape : 1, r, s)} is called, where
 \begin{itemize}
 \item
-\tcode{r} is a bulk unchunked proxy for \tcode{rcvr}
-with callable \tcode{f} and arguments \tcode{args} and
+\tcode{r} is a proxy for \tcode{rcvr}
+with base \tcode{system_context_replaceability::bulk_item_receiver_proxy}
+such that \tcode{r.execute(i, i + 1)} for index \tcode{i}
+has effects equivalent to
+\tcode{f(i, args...)} if \tcode{p} is true and
+\begin{codeblock}
+for (decltype(shape) i = 0; i < shape; i++) { f(i, args...); }
+\end{codeblock}
+otherwise; and
 \item
 \tcode{s} is a preallocated backend storage for \tcode{r}.
 \end{itemize}
@@ -8972,8 +9001,6 @@ allow users to replace the default implementation of \tcode{parallel_scheduler}.
 \begin{codeblock}
 namespace std::execution::system_context_replaceability {
   struct @\libglobal{receiver_proxy}@ {
-    virtual ~receiver_proxy() = default;
-
   protected:
     virtual bool @\exposidnc{query-env}@(@\unspecnc@) noexcept = 0;   // \expos
 
@@ -8983,7 +9010,7 @@ namespace std::execution::system_context_replaceability {
     virtual void set_stopped() noexcept = 0;
 
     template<class P, @\exposconcept{class-type}@ Query>
-      optional<P> try_query(Query q) noexcept;
+      optional<P> try_query(Query q) const noexcept;
   };
 
   struct @\libglobal{bulk_item_receiver_proxy}@ : receiver_proxy {
@@ -9005,7 +9032,7 @@ corresponding to different iterations.
 
 \begin{itemdecl}
 template<class P, @\exposconcept{class-type}@ Query>
-  optional<P> @\libglobal{try_query}@(Query q) noexcept;
+  optional<P> @\libglobal{try_query}@(Query q) const noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -9025,11 +9052,14 @@ of supported queries; or
 \tcode{P} is not a member of an implementation-defined set
 of supported result types for \tcode{Query}; or
 \item
-the expression \tcode{q(env)} is not well-formed or
-does not have type \cv{} \tcode{P},
+the expression \tcode{q(env)} is not well-formed,
 \end{itemize}
 then returns \tcode{nullopt}.
-Otherwise, returns \tcode{q(env)}.
+Otherwise, if \tcode{q(env)} has type \cv{}~\tcode{P},
+then returns \tcode{q(env)}.
+Otherwise, returns an
+\impldef{return value of \tcode{receiver_proxy::try_query}} value
+of type \tcode{optional<P>}.
 
 \pnum
 \remarks
@@ -9038,6 +9068,19 @@ in the implementation-defined set of supported queries, and
 \tcode{inplace_stop_token} is a member
 of the implementation-defined set of supported result types
 for \tcode{get_stop_token_t}.
+
+\pnum
+\recommended
+If \tcode{P} is \tcode{inplace_stop_token} and
+\tcode{T} is a type other than \tcode{inplace_stop_token}
+that models \libconcept{stoppable_token},
+\tcode{try_query} should return an object of type \tcode{inplace_stop_token}
+such that until one of
+\tcode{set_value},
+\tcode{set_error} or
+\tcode{set_stopped}
+is called on \tcode{*this},
+all calls to \tcode{try_query} return equivalent \tcode{inplace_stop_token} objects.
 \end{itemdescr}
 
 \rSec2[exec.sysctxrepl.query]{\tcode{query_parallel_scheduler_backend}}
