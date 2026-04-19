@@ -225,15 +225,6 @@ namespace std {
     };
   template<size_t I> constexpr in_place_index_t<I> in_place_index{};
 
-  // \tcode{constant_arg} argument tag%
-\indexlibraryglobal{constant_arg_t}%
-\indexlibraryglobal{constant_arg}
-  template<auto V>
-    struct constant_arg_t {
-      explicit constant_arg_t() = default;
-    };
-  template<auto V> constexpr constant_arg_t<V> constant_arg{};
-
   // \ref{variant.monostate}, class \tcode{monostate}%
 \indexlibraryglobal{monostate}
   struct monostate;
@@ -15254,9 +15245,11 @@ namespace std {
     // \ref{func.wrap.ref.ctor}, constructors and assignment operators
     template<class F> function_ref(F*) noexcept;
     template<class F> constexpr function_ref(F&&) noexcept;
-    template<auto f> constexpr function_ref(constant_arg_t<f>) noexcept;
-    template<auto f, class U> constexpr function_ref(constant_arg_t<f>, U&&) noexcept;
-    template<auto f, class T> constexpr function_ref(constant_arg_t<f>, @\cv{}@ T*) noexcept;
+    template<auto c, class F> constexpr function_ref(constant_wrapper<c, F>) noexcept;
+    template<auto c, class F, class U>
+      constexpr function_ref(constant_wrapper<c, F>, U&&) noexcept;
+    template<auto c, class F, class T>
+      constexpr function_ref(constant_wrapper<c, F>, @\cv{}@ T*) noexcept;
 
     constexpr function_ref(const function_ref&) noexcept = default;
     constexpr function_ref& operator=(const function_ref&) noexcept = default;
@@ -15276,10 +15269,10 @@ namespace std {
   // \ref{func.wrap.ref.deduct}, deduction guides
   template<class F>
     function_ref(F*) -> function_ref<F>;
-  template<auto f>
-    function_ref(constant_arg_t<f>) -> function_ref<@\seebelow@>;
-  template<auto f, class T>
-    function_ref(constant_arg_t<f>, T&&) -> function_ref<@\seebelow@>;
+  template<auto c, class F0>
+    function_ref(constant_wrapper<c, F0>) -> function_ref<@\seebelow@>;
+  template<auto c, class F, class T>
+    function_ref(constant_wrapper<c, F>, T&&) -> function_ref<@\seebelow@>;
 }
 \end{codeblock}
 
@@ -15387,21 +15380,27 @@ is expression-equivalent\iref{defns.expression.equivalent} to
 
 \indexlibraryctor{function_ref}%
 \begin{itemdecl}
-template<auto f> constexpr function_ref(constant_arg_t<f>) noexcept;
+template<auto c, class F> constexpr function_ref(constant_wrapper<c, F> f) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
-\pnum
-Let \tcode{F} be \tcode{decltype(f)}.
-
 \pnum
 \constraints
 \tcode{\exposid{is-invocable-using}<const F\&>} is \tcode{true}.
 
 \pnum
 \mandates
+\begin{itemize}
+\item
 If \tcode{is_pointer_v<F> || is_member_pointer_v<F>} is \tcode{true},
-then \tcode{f != nullptr} is \tcode{true}.
+then \tcode{f.value != nullptr} is \tcode{true}, and
+\item
+if \tcode{ArgTypes} is not an empty pack and
+all types in \tcode{remove_cvref_t<ArgTypes>...}
+satisfy \exposconcept{constexpr-param} then
+\tcode{constant_wrapper<\placeholdernc{INVOKE}(f.value, remove_cvref_t<ArgTypes>::\newline value...)>}
+is not a valid type.
+\end{itemize}
 
 \pnum
 \effects
@@ -15417,14 +15416,13 @@ is expression-equivalent\iref{defns.expression.equivalent} to
 
 \indexlibraryctor{function_ref}%
 \begin{itemdecl}
-template<auto f, class U>
-  constexpr function_ref(constant_arg_t<f>, U&& obj) noexcept;
+template<auto c, class F, class U>
+  constexpr function_ref(constant_wrapper<c, F> f, U&& obj) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
-Let \tcode{T} be \tcode{remove_reference_t<U>} and
-\tcode{F} be \tcode{decltype(f)}.
+Let \tcode{T} be \tcode{remove_reference_t<U>}.
 
 \pnum
 \constraints
@@ -15436,7 +15434,7 @@ Let \tcode{T} be \tcode{remove_reference_t<U>} and
 \pnum
 \mandates
 If \tcode{is_pointer_v<F> || is_member_pointer_v<F>} is \tcode{true},
-then \tcode{f != nullptr} is \tcode{true}.
+then \tcode{f.value != nullptr} is \tcode{true}.
 
 \pnum
 \effects
@@ -15446,19 +15444,16 @@ Initializes
 such that
 \tcode{\placeholder{thunk}(\exposid{bound-entity}, \placeholder{call-args}...)}
 is expression-equivalent\iref{defns.expression.equivalent} to
-\tcode{invoke_r<R>(f, static_cast<\cv{} T\&>(obj), \placeholder{call-args}...)}.
+\tcode{invoke_r<R>(f.value, static_cast<\cv{} T\&>(obj), \placeholder{call-args}...)}.
 \end{itemdescr}
 
 \indexlibraryctor{function_ref}%
 \begin{itemdecl}
-template<auto f, class T>
-  constexpr function_ref(constant_arg_t<f>, @\cv{}@ T* obj) noexcept;
+template<auto c, class F>
+  constexpr function_ref(constant_wrapper<c, F> f, @\cv{}@ T* obj) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
-\pnum
-Let \tcode{F} be \tcode{decltype(f)}.
-
 \pnum
 \constraints
 \tcode{\exposid{is-invocable-using}<const F\&, \cv{} T*>} is \tcode{true}.
@@ -15466,7 +15461,7 @@ Let \tcode{F} be \tcode{decltype(f)}.
 \pnum
 \mandates
 If \tcode{is_pointer_v<F> || is_member_pointer_v<F>} is \tcode{true},
-then \tcode{f != nullptr} is \tcode{true}.
+then \tcode{f.value != nullptr} is \tcode{true}.
 
 \pnum
 \expects
@@ -15481,7 +15476,7 @@ Initializes
 such that
 \tcode{\placeholder{thunk}(\exposid{bound-entity}, \placeholder{call-args}...)}
 is expression-equivalent\iref{defns.expression.equivalent} to
-\tcode{invoke_r<R>(f, obj, \placeholder{call-args}...)}.
+\tcode{invoke_r<R>(f.value, obj, \placeholder{call-args}...)}.
 \end{itemdescr}
 
 \indexlibrarymember{operator=}{function_ref}%
@@ -15495,7 +15490,7 @@ template<class T> function_ref& operator=(T) = delete;
 \begin{itemize}
 \item \tcode{T} is not the same type as \tcode{function_ref},
 \item \tcode{is_pointer_v<T>} is \tcode{false}, and
-\item \tcode{T} is not a specialization of \tcode{constant_arg_t}.
+\item \tcode{T} is not a specialization of \tcode{constant_wrapper}.
 \end{itemize}
 \end{itemdescr}
 
@@ -15527,13 +15522,13 @@ template<class F>
 \end{itemdescr}
 
 \begin{itemdecl}
-template<auto f>
-  function_ref(constant_arg_t<f>) -> function_ref<@\seebelow@>;
+template<auto c, class F0>
+  function_ref(constant_wrapper<c, F0>) -> function_ref<@\seebelow@>;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
-Let \tcode{F} be \tcode{remove_pointer_t<decltype(f)>}.
+Let \tcode{F} be \tcode{remove_pointer_t<F0>}.
 
 \pnum
 \constraints
@@ -15545,14 +15540,11 @@ The deduced type is \tcode{function_ref<F>}.
 \end{itemdescr}
 
 \begin{itemdecl}
-template<auto f, class T>
-  function_ref(constant_arg_t<f>, T&&) -> function_ref<@\seebelow@>;
+template<auto c, class F, class T>
+  function_ref(constant_wrapper<c, F>, T&&) -> function_ref<@\seebelow@>;
 \end{itemdecl}
 
 \begin{itemdescr}
-\pnum
-Let \tcode{F} be \tcode{decltype(f)}.
-
 \pnum
 \constraints
 %FIXME: R and E should be defined outside of these constraints.
