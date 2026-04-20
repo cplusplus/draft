@@ -7447,33 +7447,31 @@ the lifetime of the object to which \tcode{\placeholder{o}} refers, and
 \begin{codeblock}
 namespace std::execution {
   class @\libglobal{task_scheduler}@ {
-    class @\exposidnc{ts-sender}@;                    // \expos
+    class @\exposid{ts-domain}@;                      // \expos
 
-    template<@\libconcept{receiver}@ R>
-      class @\exposidnc{state}@;                      // \expos
+    template<@\libconcept{scheduler}@ Sch>
+      class @\exposid{backend-for}@;                  // \expos
 
   public:
     using scheduler_concept = scheduler_t;
 
     template<class Sch, class Allocator = allocator<void>>
-      requires (!@\libconcept{same_as}@<task_scheduler, remove_cvref_t<Sch>>)
-        && @\libconcept{scheduler}@<Sch>
+      requires (!@\libconcept{same_as}@<task_scheduler, remove_cvref_t<Sch>>) && @\libconcept{scheduler}@<Sch>
     explicit task_scheduler(Sch&& sch, Allocator alloc = {});
 
     task_scheduler(const task_scheduler&) = default;
     task_scheduler& operator=(const task_scheduler&) = default;
 
-    @\exposid{ts-sender}@ schedule();
+    @\seebelow@ schedule();
 
-    friend bool operator==(const task_scheduler& lhs, const task_scheduler& rhs)
-        noexcept;
+    friend bool operator==(const task_scheduler& lhs, const task_scheduler& rhs) noexcept;
     template<class Sch>
-      requires (!@\libconcept{same_as}@<task_scheduler, Sch>)
-      && @\libconcept{scheduler}@<Sch>
+      requires (!@\libconcept{same_as}@<task_scheduler, Sch>) && @\libconcept{scheduler}@<Sch>
     friend bool operator==(const task_scheduler& lhs, const Sch& rhs) noexcept;
 
   private:
-    shared_ptr<void> @\exposidnc{sch_}@; // \expos
+    // see \ref{exec.sysctxrepl.psb}
+    shared_ptr<system_context_replaceability::parallel_scheduler_backend> @\exposidnc{sch_}@;   // \expos
   };
 }
 \end{codeblock}
@@ -7484,6 +7482,10 @@ namespace std::execution {
 Given an object \tcode{s} of type \tcode{task_scheduler}, let
 \tcode{\exposid{SCHED}(s)} be the object
 pointed to by the pointer owned by \tcode{s.\exposid{sch_}}.
+The expression \tcode{get_forward_progress_guarantee(s)} is equivalent to
+\tcode{get_forward_progress_guarantee(\exposid{SCHED}(s))}.
+The expression \tcode{get_completion_domain<set_value_t>(s)} is equivalent to
+\tcode{task_scheduler::\exposid{ts-domain}()}.
 
 \indexlibraryctor{task_scheduler}
 \begin{itemdecl}
@@ -7498,8 +7500,10 @@ explicit task_scheduler(Sch&& sch, Allocator alloc = {});
 
 \pnum
 \effects
-Initialize \exposid{sch_} with
-\tcode{allocate_shared<remove_cvref_t<Sch>>(alloc,\brk{} std::forward<Sch>\brk{}(sch))}.
+Initializes \exposid{sch_} with:
+\begin{codeblock}
+allocate_shared<@\exposid{backend-for}@<remove_cvref_t<Sch>>>(alloc, std::forward<Sch>(sch))
+\end{codeblock}
 
 \pnum
 \recommended
@@ -7508,20 +7512,8 @@ allocated memory for small scheduler objects.
 
 \pnum
 \remarks
-Any allocations performed by construction of \exposid{ts-sender} or
-\exposid{state} objects resulting from calls on \tcode{*this} are
+Any allocations performed by calls on \tcode{*this} are
 performed using a copy of \tcode{alloc}.
-\end{itemdescr}
-
-\indexlibrarymember{scheduler}{task_scheduler}%
-\begin{itemdecl}
-@\exposid{ts-sender}@ schedule();
-\end{itemdecl}
-\begin{itemdescr}
-\pnum
-\effects
-Returns an object of type \exposid{ts-sender} containing a sender
-initialized with \tcode{sched\-ule(\brk{}\exposid{SCHED}\brk{}(*this))}.
 \end{itemdescr}
 
 \indexlibrarymember{operator==}{task_scheduler}%
@@ -7549,73 +7541,204 @@ otherwise \tcode{\exposid{SCHED}(lhs) == rhs}.
 \end{itemdescr}
 
 \pnum
+For an lvalue \tcode{r} of a type derived from \tcode{receiver_proxy},
+let \tcode{\exposid{WRAP-RCVR}(r)} be an object of a type
+that models \libconcept{receiver} and
+whose completion handlers result in
+invoking the corresponding completion handlers of \tcode{r}.
 \begin{codeblock}
 namespace std::execution {
-  class task_scheduler::@\exposidnc{ts-sender}@ {     // \expos
+  template<@\libconcept{scheduler}@ Sch>
+  class task_scheduler::@\exposid{backend-for}@
+    : public system_context_replaceability::parallel_scheduler_backend {        // \expos
   public:
-    using sender_concept = sender_t;
+    explicit @\exposid{backend-for}@(Sch sch) : @\exposid{sched_}@(std::move(sch)) {}
 
-    template<@\libconcept{receiver}@ Rcvr>
-      @\exposid{state}@<Rcvr> connect(Rcvr&& rcvr) &&;
+    void schedule(receiver_proxy& r, span<byte> s) noexcept override;
+    void schedule_bulk_chunked(size_t shape, bulk_item_receiver_proxy& r,
+                               span<byte> s) noexcept override;
+    void schedule_bulk_unchunked(size_t shape, bulk_item_receiver_proxy& r,
+                                 span<byte> s) noexcept override;
+
+  private:
+    Sch @\exposid{sched_}@;
   };
 }
 \end{codeblock}
-\exposid{ts-sender} is an exposition-only class that models
-\libconcept{sender}\iref{exec.snd} and for which
-\tcode{completion_signatures_of_t<\exposid{ts-sender}, E>} denotes
-\tcode{completion_signatures<set_value_t()>}
-if \tcode{unstoppable_token<stop_token_of_t<E>>} is \tcode{true}, and
-otherwise \tcode{completion_signatures<set_value_t(), set_stopped_t()>}.
 
 \pnum
-Let \tcode{\placeholder{sch}} be an object of type \tcode{task_scheduler}
-and let \tcode{sndr} be an object of type \exposid{ts-sender} obtained
-from \tcode{schedule(\placeholder{sch})}.
-Then \tcode{get_completion_scheduler<set_value_t>(get_env(sndr)) == \placeholder{sch}}
-is \tcode{true}.
-The object \tcode{\exposid{SENDER}(sndr)} is the sender object contained by
-\tcode{sndr} or an object move constructed from it.
+Let \tcode{env} be a pack of subexpressions, and
+let \exposid{just-sndr-like} be a sender
+whose only value completion signature is \tcode{set_value_t()} and
+for which the expression
+\tcode{get_completion_scheduler<set_value_t>(get_env(\exposid{just-sndr-like)}, env...)}
+is expression-equivalent to
+\tcode{get_completion_scheduler<set_value_t>(\exposid{sched_}, env...)}.
 
-\indexlibrarymember{connect}{task_scheduler::\exposid{ts-sender}}%
 \begin{itemdecl}
-template<@\libconcept{receiver}@ Rcvr>
-  @\exposid{state}@<Rcvr> connect(Rcvr&& rcvr) &&;
+void schedule(receiver_proxy& r, span<byte> s) noexcept override;
 \end{itemdecl}
+
 \begin{itemdescr}
 \pnum
 \effects
-Let \tcode{\placeholder{r}} be an object of a type that models \libconcept{receiver}
-and whose completion handlers result in invoking the corresponding
-completion handlers of \tcode{rcvr} or copy thereof.
-Returns an object of type \tcode{\exposid{state}<Rcvr>} containing
-an operation state object initialized with \tcode{connect(\exposid{SENDER}(*this),
-std::move(\placeholder{r}))}.
+Constructs an operation state \tcode{os}
+with \tcode{connect(schedule(\exposid{sched_}), \exposid{WRAP-RCVR}(r))} and
+calls \tcode{start(os)}.
 \end{itemdescr}
 
-\pnum
-\begin{codeblock}
-namespace std::execution {
-  template<@\libconcept{receiver}@ R>
-  class task_scheduler::@\exposidnc{state}@ {         // \expos
-  public:
-    using operation_state_concept = operation_state_t;
-
-    void start() & noexcept;
-  };
-}
-\end{codeblock}
-\exposid{state} is an exposition-only class template whose
-specializations model \libconcept{operation_state}\iref{exec.opstate}.
-
-\indexlibrarymember{start}{task_scheduler::\exposid{state}}%
 \begin{itemdecl}
-void start() & noexcept;
+void schedule_bulk_chunked(size_t shape, bulk_item_receiver_proxy& r,
+                           span<byte> s) noexcept override;
 \end{itemdecl}
+
 \begin{itemdescr}
 \pnum
 \effects
-Equivalent to \tcode{start(st)} where \tcode{st} is the operation
-state object contained by \tcode{*this}.
+Let \tcode{chunk_size} be an integer less than or equal to \tcode{shape},
+let \tcode{num_chunks} be \tcode{(shape + chunk_size - 1) / chunk_size}, and
+let \tcode{fn} be a function object such that
+for an integer \tcode{i},
+\tcode{fn(i)} calls \tcode{r.execute(i * chunk_size, m)},
+where \tcode{m} is the lesser of \tcode{(i + 1) * chunk_size} and \tcode{shape}.
+Constructs an operation state \tcode{os} as if with
+\begin{codeblock}
+connect(bulk(@\exposid{just-sndr-like}@, par, num_chunks, fn), @\exposid{WRAP-RCVR}@(r))
+\end{codeblock}
+and calls \tcode{start(os)}.
+\end{itemdescr}
+
+\begin{itemdecl}
+void schedule_bulk_unchunked(size_t shape, bulk_item_receiver_proxy& r,
+                             span<byte> s) noexcept override;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Let \tcode{fn} be a function object such that
+for an integer \tcode{i},
+\tcode{fn(i)} is equivalent to \tcode{r.execute(i, i + 1)}.
+Constructs an operation state \tcode{os} as if with
+\begin{codeblock}
+connect(bulk(@\exposid{just-sndr-like}@, par, shape, fn), @\exposid{WRAP-RCVR}@(r))
+\end{codeblock}
+and calls \tcode{start(os)}.
+\end{itemdescr}
+
+\begin{itemdecl}
+@\seebelow@ schedule();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+A prvalue \exposid{ts-sndr} whose type models \libconcept{sender} such that:
+\begin{itemize}
+\item
+\tcode{get_completion_scheduler<set_value_t>(get_env(\exposid{ts-sndr}))}
+is equal to \tcode{*this.}
+\item
+\tcode{get_completion_domain<set_value_t>(get_env(\exposid{ts-sndr}))}
+is expression-equivalent to \tcode{\exposid{ts-do\-main}()}.
+\item
+If a receiver \tcode{rcvr} is connected to \exposid{ts-sndr} and
+the resulting operation state is started,
+calls \tcode{\exposid{sch_}->schedule(r, s)}, where
+\begin{itemize}
+\item
+\tcode{r} is a proxy for \tcode{rcvr} with base
+\tcode{system_context_replaceability::receiver_proxy}\iref{exec.par.scheduler}
+and
+\item
+\tcode{s} is a preallocated backend storage for \tcode{r}.
+\end{itemize}
+\item
+For any type \tcode{E},
+\tcode{completion_signatures_of_t<decltype(\exposid{ts-sndr}), E>} denotes
+\tcode{completion_signatures<set_value_t()>} if
+\tcode{\libconcept{unstoppable_token}<stop_token_of_t<E>>} is \tcode{true}, and
+otherwise \tcode{completion_signatures<set_value_t(), set_stopped_t()>}.
+\end{itemize}
+\end{itemdescr}
+
+\begin{codeblock}
+namespace std::execution {
+  class task_scheduler::@\exposid{ts-domain}@ : public default_domain {     // \expos
+  public:
+    template<class BulkSndr, class Env>
+      static constexpr auto transform_sender(set_value_t, BulkSndr&& bulk_sndr, const Env& env)
+        noexcept(@\seebelow@);
+  };
+}
+\end{codeblock}
+
+\begin{itemdecl}
+template<class BulkSndr, class Env>
+  static constexpr auto transform_sender(BulkSndr&& bulk_sndr, const Env& env)
+    noexcept(is_nothrow_constructible_v<decay_t<BulkSndr>, BulkSndr>);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constraints
+\begin{itemize}
+\item
+\tcode{\libconcept{sender_in}<BulkSndr, Env>} is \tcode{true},
+\item
+\tcode{auto(std::forward<BulkSndr>(bulk_sndr))} is well-formed, and
+\item
+either
+\begin{itemize}
+\item
+\tcode{\exposconcept{sender-for}<BulkSndr, bulk_chunked_t>} or
+\item
+\tcode{\exposconcept{sender-for}<BulkSndr, bulk_un\-chunked_t>}
+\end{itemize}
+is \tcode{true}.
+\end{itemize}
+
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+auto& [_, data, child] = bulk_sndr;
+auto& [_, shape, fn] = data;
+auto sch = @\exposidnc{call-with-default}@(get_completion_scheduler<set_value_t>,
+                             @\exposidnc{not-a-scheduler}@(), get_env(child), @\exposidnc{FWD-ENV}@(env));
+return @$e$@;
+\end{codeblock}
+where $e$ is \tcode{\exposid{not-a-sender}()}
+if the type of \tcode{sch} is not \tcode{task_scheduler};
+otherwise, it is a prvalue whose type models \libconcept{sender} such that,
+if it is connected to a receiver \tcode{rcvr} and
+the resulting operation state is started,
+\tcode{child} is connected to an unspecified receiver \tcode{R} and started.
+The expression \tcode{get_env(R)}
+is expression-equivalent to \tcode{\exposid{FWD-ENV}(get_env(\exposid{rcvr-copy}))},
+where \exposid{rcvr-copy} is an lvalue subexpression
+designating an object decay-copied from \tcode{rcvr}.
+
+If \tcode{child} completes with an error or a stopped completion,
+the completion operation is forwarded unchanged to \tcode{rcvr}.
+Otherwise, let \tcode{args} be a pack of lvalue subexpressions
+designating objects decay-copied from the value result datums.
+Then:
+\begin{itemize}
+\item
+If \tcode{bulk_sndr} was the result of the evaluation of
+an expression equivalent to \tcode{bulk_chunked(child, policy, shape, fn)} or
+a copy of such,
+then \tcode{\exposid{sch_}->schedule_bulk_chunked(shape, r, s)} is called
+where \tcode{r} is a bulk chunked proxy\iref{exec.par.scheduler}
+for \tcode{rcvr} with callable \tcode{fn} and arguments \tcode{args}, and
+\tcode{s} is a preallocated backend storage for \tcode{r}.
+\item
+Otherwise, calls \tcode{\exposid{sch_}->schedule_bulk_unchunked(shape, r, s)}
+where \tcode{r} is a bulk unchunked proxy for \tcode{rcvr}
+with callable \tcode{fn} and arguments \tcode{args}, and
+\tcode{s} is a preallocated backend storage for \tcode{r}.
+\end{itemize}
 \end{itemdescr}
 
 \rSec2[exec.task]{\tcode{execution::task}}
