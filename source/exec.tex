@@ -463,6 +463,7 @@ namespace std::execution {
   // \ref{exec.queries}, queries
   struct @\libglobal{get_domain_t}@ { @\unspec@ };
   struct @\libglobal{get_scheduler_t}@ { @\unspec@ };
+  struct @\libglobal{get_start_scheduler_t}@ { @\unspec@ };
   struct @\libglobal{get_delegation_scheduler_t}@ { @\unspec@ };
   struct @\libglobal{get_forward_progress_guarantee_t}@ { @\unspec@ };
   template<class CPO>
@@ -473,6 +474,7 @@ namespace std::execution {
 
   inline constexpr get_domain_t @\libglobal{get_domain}@{};
   inline constexpr get_scheduler_t @\libglobal{get_scheduler}@{};
+  inline constexpr get_start_scheduler_t @\libglobal{get_start_scheduler}@{};
   inline constexpr get_delegation_scheduler_t @\libglobal{get_delegation_scheduler}@{};
   enum class forward_progress_guarantee;
   inline constexpr get_forward_progress_guarantee_t @\libglobal{get_forward_progress_guarantee}@{};
@@ -734,14 +736,6 @@ namespace std::execution {
   template<class E>
     with_error(E) -> with_error<E>;
 
-  template<@\libconcept{scheduler}@ Sch>
-  struct change_coroutine_scheduler {
-    using type = remove_cvref_t<Sch>;
-    type scheduler;
-  };
-  template<@\libconcept{scheduler}@ Sch>
-    change_coroutine_scheduler(Sch) -> change_coroutine_scheduler<Sch>;
-
   // \ref{exec.task}, class template \tcode{task}
   template<class T, class Environment>
     class @\libglobal{task}@;
@@ -995,6 +989,34 @@ its type satisfies \libconcept{scheduler}.
 \pnum
 \tcode{forwarding_query(execution::get_scheduler)} is
 a core constant expression and has value \tcode{true}.
+
+\rSec2[exec.get.start.scheduler]{\tcode{execution::get_start_scheduler}}
+
+\pnum
+\tcode{get_start_scheduler} asks a queryable object
+for the scheduler an operation will be or was started on.
+
+\pnum
+The name \tcode{get_start_scheduler} denotes a query object.
+For a subexpression \tcode{env},
+\tcode{get_start_scheduler(\brk{}env)} is expression-equivalent to
+\tcode{\exposid{MANDATE-NOTHROW}(\exposid{AS-CONST}(env).query(get_start_scheduler))}.
+
+\mandates
+If the expression above is well-formed,
+its type satisfies \libconcept{scheduler}.
+
+\pnum
+\tcode{forwarding_query(execution::get_start_scheduler)}
+is a core constant expression and has value \tcode{true}.
+
+\pnum
+Given subexpressions \tcode{sndr} and \tcode{rcvr}
+such that \tcode{sender_to<decltype((sndr)), decltype((rcvr))>} is \tcode{true}
+and the expression \tcode{get_start_scheduler(get_env(rcvr))} is well-formed,
+an operation state that is the result of calling \tcode{connect(sndr, rcvr)}
+shall, if it is started, be started on an execution agent
+associated with the scheduler \tcode{get_start_scheduler(get_env(rcvr))}.
 
 \rSec2[exec.get.delegation.scheduler]{\tcode{execution::get_delegation_scheduler}}
 
@@ -1308,6 +1330,24 @@ both well-formed with the same type and value:
 A scheduler type's destructor shall not block
 pending completion of any receivers
 connected to the sender objects returned from \tcode{schedule}.
+
+\pnum
+The exposition-only \exposconcept{infallible-scheduler} concept
+defines the requirements of a scheduler type
+whose \tcode{schedule} asynchronous operation
+can only complete with \tcode{set_value} unless stop can be requested:
+\begin{codeblock}
+template<class Sch, class Env>
+  concept @\defexposconcept{infallible-scheduler}@ =
+    @\libconcept{scheduler}@<Sch> &&
+    (@\libconcept{same_as}@<completion_signatures<set_value_t()>,
+             completion_signatures_of_t<decltype(schedule(declval<Sch>())), Env>> ||
+     (!@\libconcept{unstoppable_token}@<stop_token_of_t<Env>> &&
+      (@\libconcept{same_as}@<completion_signatures<set_value_t(), set_stopped_t()>,
+               completion_signatures_of_t<decltype(schedule(declval<Sch>())), Env>> ||
+       @\libconcept{same_as}@<completion_signatures<set_stopped_t(), set_value_t()>,
+               completion_signatures_of_t<decltype(schedule(declval<Sch>())), Env>>)));
+\end{codeblock}
 
 \rSec1[exec.recv]{Receivers}
 
@@ -1684,6 +1724,26 @@ There is no requirement that two such exception objects have the same type.
 \rSec2[exec.snd.expos]{Exposition-only entities}
 
 \pnum
+Given an expression \tcode{sndr},
+whose type is any sender type defined in the standard library,
+it is unspecified
+whether the expression \tcode{sndr.affine_on()} is well-formed.
+If that expression is well-formed,
+then the evaluation thereof meets the semantic requirements of
+the \tcode{affine_on}\iref{exec.affine.on} algorithm.
+
+\pnum
+Given an expression \tcode{sndr},
+whose type is any sender type defined in the standard library,
+and an expression \tcode{p},
+whose type is a promise type,
+it is unspecified
+whether the expression \tcode{sndr.as_awaitable(p)} is well-formed.
+If that expression is well-formed,
+then the evaluation thereof meets the semantic requirements of
+the \tcode{as_awaitable}\iref{exec.as.awaitable} algorithm.
+
+\pnum
 Subclause \ref{exec.snd} makes use of the following exposition-only entities.
 
 \pnum
@@ -1757,7 +1817,7 @@ if that expression is well-formed or \tcode{envs} is an empty pack, and
 For a scheduler \tcode{sch},
 \tcode{\exposid{SCHED-ENV}(sch)} is an expression \tcode{o}
 whose type satisfies \exposconcept{queryable}
-such that \tcode{o.query(\brk{}get_scheduler)} is a prvalue
+such that \tcode{o.query(\brk{}get_start_scheduler)} is a prvalue
 with the same type and value as \tcode{sch}, and
 such that \tcode{o.query(get_domain)} is expression-equivalent to
 \tcode{sch.query(get_domain)}.
@@ -3865,7 +3925,7 @@ has effects equivalent to:
 \begin{codeblock}
 auto&& [_, data, child] = out_sndr;
 if constexpr (@\libconcept{scheduler}@<decltype(data)>) {
-  auto orig_sch = @\exposid{call-with-default}@(get_scheduler, @\exposid{not-a-scheduler}@(), env);
+  auto orig_sch = @\exposid{call-with-default}@(get_start_scheduler, @\exposid{not-a-scheduler}@(), env);
   return continues_on(
     starts_on(std::forward_like<OutSndr>(data), std::forward_like<OutSndr>(child)),
     std::move(orig_sch));
@@ -3891,7 +3951,8 @@ that results from connecting \tcode{out_sndr} with \tcode{out_rcvr}.
 Calling \tcode{start(op)} shall
 \begin{itemize}
 \item
-remember the current scheduler, \tcode{get_scheduler(get_env(rcvr))};
+remember the current scheduler,
+which is obtained by \tcode{get_start_scheduler(get_env(rcvr))};
 \item
 start \tcode{sndr} on an execution agent belonging to
 \tcode{sch}'s associated execution resource;
@@ -5968,6 +6029,10 @@ namespace std::this_thread {
       return @\exposid{loop}@->get_scheduler();
     }
 
+    auto query(execution::get_start_scheduler_t) const noexcept {
+      return @\exposid{loop}@->get_scheduler();
+    }
+
     auto query(execution::get_delegation_scheduler_t) const noexcept {
       return @\exposid{loop}@->get_scheduler();
     }
@@ -6753,10 +6818,11 @@ class @\exposid{run-loop-sender}@;
 \pnum
 \exposid{run-loop-sender} is an exposition-only type
 that satisfies \libconcept{sender}.
-\tcode{completion_signatures_of_t<\exposid{run-\linebreak{}loop-sender}>} is
-\begin{codeblock}
-completion_signatures<set_value_t(), set_error_t(exception_ptr), set_stopped_t()>
-\end{codeblock}
+Let \tcode{E} be the type of an environment.
+If \tcode{unstoppable_token<stop_token_of_t<E>>} is \tcode{true}, then
+\tcode{completion_signatures_of_t<\exposid{run-loop-sen\-der}, E>} is
+\tcode{completion_signatures<set_value_t()>}.
+Otherwise, it is \tcode{completion_signatures<set_value_t(), set_stopped_t()>}.
 
 \pnum
 An instance of \exposid{run-loop-sender} remains valid
@@ -7115,27 +7181,40 @@ are indeterminately sequenced:
 \tcode{\exposconcept{is-awaitable}<A, Promise>} is \tcode{true},
 where \tcode{A} is the type of the expression above.
 \item
+Otherwise,
+\begin{codeblock}
+@\exposid{adapt-for-await-completion}@(transform_sender(expr, get_env(p))).as_awaitable(p)
+\end{codeblock}
+if this expression is well-formed,
+\tcode{\libconcept{sender_in}<Expr, env_of_t<Promise>>} is \tcode{true}, and
+\tcode{\exposid{single-sen\-der-value-type}<Expr, env_of_t<Promise>>}
+is well-formed,
+except that \tcode{p} is only evaluated once.
+\item
 Otherwise, \tcode{(void(p), expr)}
 if \tcode{decltype(\exposid{GET-AWAITER}(expr))}
 satisfies \tcode{\exposconcept{is-awaiter}<Promise>}.
 \item
-Otherwise, \tcode{\exposid{sender-awaitable}\{\exposid{adapted-expr}, p\}}
-if
+Otherwise,
 \begin{codeblock}
-@\exposid{has-queryable-await-completion-adaptor}@<Expr>
+@\exposid{sender-awaitable}@{@\exposid{adapt-for-await-completion}@(transform_sender(expr, get_env(p))), p}
 \end{codeblock}
-and
-\begin{codeblock}
-@\exposid{awaitable-sender}@<decltype((@\exposid{adapted-expr}@)), Promise>
-\end{codeblock}
-are both satisfied, where \exposid{adapted-expr} is
-\tcode{get_await_completion_adaptor(get_env(expr))(expr)},
-except that \tcode{expr} is evaluated only once.
-\item
-Otherwise, \tcode{\exposid{sender-awaitable}\{expr, p\}}
-if \tcode{\exposconcept{awaitable-sender}<Expr, Promise>} is \tcode{true}.
+if \tcode{sender_in<Expr, env_of_t<Promise>>} is \tcode{true} and
+\tcode{\exposid{single-sender-value-type}<Expr, env_of_t<Promise>>}
+is well-formed,
+except that \tcode{p} is only evaluated once.
 \item
 Otherwise, \tcode{(void(p), expr)}.
+\end{itemize}
+
+\pnum
+\tcode{\exposid{adapt-for-await-completion}(s)} is expression-equivalent to
+\begin{itemize}
+\item
+\tcode{get_await_completion_adaptor(get_env(s))(s)} if that is well-formed,
+except that \tcode{s} is evaluated only once,
+\item
+otherwise, \tcode{s}.
 \end{itemize}
 
 \rSec2[exec.with.awaitable.senders]{\tcode{execution::with_awaitable_senders}}
@@ -7226,42 +7305,84 @@ return as_awaitable(std::forward<Value>(value), static_cast<Promise&>(*this));
 
 \pnum
 \tcode{affine_on} adapts a sender into one that completes on
-the specified scheduler.
+the receiver's scheduler.
 If the algorithm determines that the adapted sender already completes
 on the correct scheduler it can avoid any scheduling operation.
 
 \pnum
 The name \tcode{affine_on} denotes a pipeable sender adaptor
 object.
-For subexpressions \tcode{sch} and \tcode{sndr}, if \tcode{decltype((sch))}
-does not satisfy \libconcept{scheduler}, or \tcode{decltype((sndr))}
-does not satisfy \libconcept{sender}, \tcode{affine_on(sndr, sch)}
+For a subexpression \tcode{sndr}, if \tcode{decltype((\brk{}sndr))}
+does not satisfy \libconcept{sender}, \tcode{affine_on(sndr)}
 is ill-formed.
 
 \pnum
-Otherwise, the expression \tcode{affine_on(sndr, sch)} is
-expression-equivalent to
-\tcode{\exposid{make-sender}(affine_on, sch, sndr)}.
+Otherwise, the expression \tcode{affine_on(sndr)} is
+expression-equivalent to \tcode{\exposid{make-sender}(affine_on, env<>(), sndr)}.
+
+\pnum
+For a subexpression \tcode{sch} whose type models \libconcept{scheduler},
+let \tcode{\exposid{UNSTOPPABLE-SCHEDULER}(sch)} be an expression \tcode{e}
+whose type models \libconcept{scheduler} such that:
+\begin{itemize}
+\item
+\tcode{schedule(e)} is expression-equivalent to \tcode{unstoppable(schedule(sch))}.
+\item
+For any query object \tcode{q} and pack of subexpressions \tcode{args...},
+\tcode{e.query(q, args...)} is expression-equivalent to
+\tcode{sch.query(q, args...)}.
+\item
+The expression \tcode{e == \exposid{UNSTOPPABLE-SCHEDULER}(other)}
+is expression-equivalent to \tcode{sch == other}.
+\end{itemize}
+
+\pnum
+Let \tcode{sndr} and \tcode{ev} be subexpressions
+such that \tcode{Sndr} is \tcode{decltype((sndr))}.
+If \tcode{\exposconcept{sender-for}<Sndr, affine_on_t>} is \tcode{false},
+then the expression \tcode{affine_on.transform_sender(sndr, ev)} is ill-formed;
+otherwise, it is equal to:
+\begin{codeblock}
+auto& [_, _, child] = sndr;
+if constexpr (requires { std::forward_like<Sndr>(child).affine_on(); }) {
+  return std::forward_like<Sndr>(child).affine_on();
+} else {
+  return continues_on(std::forward_like<Sndr>(child),
+                      @\exposidnc{UNSTOPPABLE-SCHEDULER}@(get_start_scheduler(ev)));
+}
+\end{codeblock}
+
+\pnum
+\recommended
+Implementations should provide \tcode{affine_on} member functions
+for senders that are known to resume on the scheduler where they were started.
+Example senders for which that is the case are
+\tcode{just},
+\tcode{just_error},
+\tcode{just_stopped},
+\tcode{read_env}, and
+\tcode{write_env}.
 
 \pnum
 Let \tcode{\placeholder{out_sndr}} be a subexpression denoting a sender
-returned from \tcode{affine_on(sndr, sch)} or one equal to such,
+returned from \tcode{affine_on(sndr)} or one equal to such,
 and let \tcode{\placeholder{OutSndr}} be the type \tcode{decltype((\placeholder{out_sndr}))}.
 Let \tcode{\placeholder{out_rcvr}} be a subexpression denoting a receiver that
-has an environment of type \tcode{Env} such that \tcode{\libconcept{sender_in}<\placeholder{OutSndr}, Env>}
-is \tcode{true}.
+has an environment of type \tcode{Env}.
+If \tcode{get_start_scheduler(get_env(\placeholder{out_rcvr}))} is ill-formed or
+does not satisfy \tcode{\exposconcept{infallible-scheduler}<Env>},
+then evaluation of
+the expression \tcode{get_completion_signatures<OutSndr, Env>()}
+exits with an exception.
 Let \tcode{\placeholder{op}} be an lvalue referring to the operation state that
 results from connecting \tcode{\placeholder{out_sndr}} to \tcode{\placeholder{out_rcvr}}.
 Calling \tcode{start(\placeholder{op})} will start \tcode{sndr} on the current
 execution agent and execute completion operations on \tcode{\placeholder{out_rcvr}}
 on an execution agent of the execution resource associated with
-\tcode{sch}.
+\tcode{\placeholder{sch}}.
 If the current execution resource is the same as the execution
-resource associated with \tcode{sch}, the completion operation on
+resource associated with \tcode{\placeholder{sch}}, the completion operation on
 \tcode{\placeholder{out_rcvr}} may be called before \tcode{start(\placeholder{op})} completes.
-If scheduling onto \tcode{sch} fails, an error completion on
-\tcode{\placeholder{out_rcvr}} shall be executed on an unspecified execution
-agent.
 
 \rSec2[exec.inline.scheduler]{\tcode{execution::inline_scheduler}}
 
@@ -7372,6 +7493,10 @@ explicit task_scheduler(Sch&& sch, Allocator alloc = {});
 \end{itemdecl}
 \begin{itemdescr}
 \pnum
+\mandates
+\tcode{Sch} satisfies \tcode{\exposconcept{infallible-scheduler}<env<>>}.
+
+\pnum
 \effects
 Initialize \exposid{sch_} with
 \tcode{allocate_shared<remove_cvref_t<Sch>>(alloc,\brk{} std::forward<Sch>\brk{}(sch))}.
@@ -7437,14 +7562,10 @@ namespace std::execution {
 \end{codeblock}
 \exposid{ts-sender} is an exposition-only class that models
 \libconcept{sender}\iref{exec.snd} and for which
-\tcode{completion_signatures_of_t<\exposid{ts-sender}>} denotes:
-\begin{codeblock}
-completion_signatures<
-  set_value_t(),
-  set_error_t(error_code),
-  set_error_t(exception_ptr),
-  set_stopped_t()>
-\end{codeblock}
+\tcode{completion_signatures_of_t<\exposid{ts-sender}, E>} denotes
+\tcode{completion_signatures<set_value_t()>}
+if \tcode{unstoppable_token<stop_token_of_t<E>>} is \tcode{true}, and
+otherwise \tcode{completion_signatures<set_value_t(), set_stopped_t()>}.
 
 \pnum
 Let \tcode{\placeholder{sch}} be an object of type \tcode{task_scheduler}
@@ -7525,7 +7646,7 @@ namespace std::execution {
   public:
     using sender_concept = sender_t;
     using allocator_type = @\seebelow@;
-    using scheduler_type = @\seebelow@;
+    using start_scheduler_type = @\seebelow@;
     using stop_source_type = @\seebelow@;
     using stop_token_type = decltype(declval<stop_source_type>().get_token());
     using error_types = @\seebelow@;
@@ -7562,7 +7683,7 @@ are determined based on the \tcode{Environment} parameter:
 \item \tcode{allocator_type} is \tcode{Environment::allocator_type}
 if that \grammarterm{qualified-id} is valid and denotes a type,
 \tcode{allocator<byte>} otherwise.
-\item \tcode{scheduler_type} is \tcode{Environment::scheduler_type}
+\item \tcode{start_scheduler_type} is \tcode{Environment::start_scheduler_type}
 if that \grammarterm{qualified-id} is valid and denotes a type,
 \tcode{task_scheduler} otherwise.
 \item \tcode{stop_source_type} is \tcode{Environment::stop_source_type}
@@ -7752,8 +7873,8 @@ with \tcode{*this} as follows:
 \item \tcode{\exposid{STATE}(\placeholder{prom})} is \tcode{*this}.
 \item \tcode{\exposid{RCVR}(\placeholder{prom})} is \exposid{rcvr}.
 \item \tcode{\exposid{SCHED}(\placeholder{prom})} is the object initialized
-with \tcode{scheduler_type(get_scheduler(get_env(\exposid{rcvr})))}
-if that expression is valid and \tcode{scheduler_type()} otherwise.
+with \tcode{start_scheduler_type(get_start_scheduler(get_env(\exposid{rcvr})))}
+if that expression is valid and \tcode{start_scheduler_type()} otherwise.
 If neither of these expressions is valid, the program is ill-formed.
 \end{itemize}
 Finally, invokes \tcode{\exposid{handle}.resume()}.
@@ -7808,8 +7929,6 @@ namespace std::execution {
 
     template<@\libconcept{sender}@ Sender>
       auto await_transform(Sender&& sndr);
-    template<class Sch>
-      auto await_transform(change_coroutine_scheduler<Sch> sch);
 
     @\unspec@ get_env() const noexcept;
 
@@ -7909,24 +8028,10 @@ template<@\libconcept{sender}@ Sender>
 \begin{itemdescr}
 \pnum
 \returns
-If \tcode{\libconcept{same_as}<inline_scheduler, scheduler_type>} is \tcode{true}
-returns \tcode{as_awaitable(\brk{}std::\brk{}for\-ward<Sender>(sndr), *this)};
-otherwise returns
-\tcode{as_awaitable(affine_on(\brk{}std::\brk{}for\-ward<Sen\-der>(sndr), \exposid{SCHED}(*this)), *this)}.
-\end{itemdescr}
-
-\indexlibrarymember{await_transform}{task::promise_type}%
-\begin{itemdecl}
-template<class Sch>
-  auto await_transform(change_coroutine_scheduler<Sch> sch);
-\end{itemdecl}
-\begin{itemdescr}
-\pnum
-\effects
-Equivalent to:
-\begin{codeblock}
-return as_awaitable(just(exchange(@\exposid{SCHED}@(*this), scheduler_type(sch.scheduler))), *this);
-\end{codeblock}
+If \tcode{\libconcept{same_as}<inline_scheduler, start_scheduler_type>}
+is \tcode{true},
+returns \tcode{as_awaitable(\brk{}std::forward<Sender>(sndr), *this)};
+otherwise returns \tcode{as_awaitable(affine_on(std::for-\linebreak{}ward<Sender>(sndr)), *this)}.
 \end{itemdescr}
 
 \indexlibrarymember{unhandled_exception}{task::promise_type}%
@@ -7992,7 +8097,8 @@ Equivalent to \tcode{\exposid{result}.emplace(std::forward<V>(v))}.
 \returns
 An object \tcode{env} such that queries are forwarded as follows:
 \begin{itemize}
-\item \tcode{env.query(get_scheduler)} returns \tcode{scheduler_type(\exposid{SCHED}(*this))}.
+\item \tcode{env.query(get_start_scheduler)} returns
+\tcode{start_scheduler_type(\exposid{SCHED}(*this))}.
 \item \tcode{env.query(get_allocator)} returns
 \tcode{allocator_type(get_allocator(get_env(\exposid{RCVR}(*this))\brk{}))}
 if this expression is well-formed and
@@ -8324,7 +8430,7 @@ namespace std::execution {
       };
 
       using @\exposid{sched-sender}@ =                  // \expos
-        decltype(schedule(get_scheduler(get_env(declval<Rcvr&>()))));
+        decltype(schedule(get_start_scheduler(get_env(declval<Rcvr&>()))));
       using @\exposid{op-t}@ =                          // \expos
         connect_result_t<@\exposid{sched-sender}@, @\exposid{rcvr-t}@>;
 
@@ -8336,7 +8442,7 @@ namespace std::execution {
         noexcept(@\exposconcept{nothrow-callable}@<connect_t, @\exposid{sched-sender}@, @\exposid{rcvr-t}@>)
         : @\exposid{scope}@(scope),
           @\exposid{receiver}@(rcvr),
-          @\exposid{op}@(connect(schedule(get_scheduler(get_env(rcvr))), @\exposid{rcvr-t}@(rcvr))) {}
+          @\exposid{op}@(connect(schedule(get_start_scheduler(get_env(rcvr))), @\exposid{rcvr-t}@(rcvr))) {}
 
       void @\exposid{complete}@() noexcept {            // \expos
         start(@\exposid{op}@);
