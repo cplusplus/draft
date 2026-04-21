@@ -95,7 +95,7 @@ a = (((a + 32760) + b) + 5);
 \end{codeblock}
 due to the associativity and precedence of these operators. Thus, the
 result of the sum \tcode{(a + 32760)} is next added to \tcode{b}, and
-that result is then added to 5 which results in the value assigned to
+that result is then added to \tcode{5} which results in the value assigned to
 \tcode{a}. On a machine in which overflows produce an exception and in
 which the range of values representable by an \tcode{int} is
 \crange{-32768}{+32767}, the implementation cannot rewrite this
@@ -147,7 +147,10 @@ Expressions are categorized according to the taxonomy in \fref{basic.lval}.
 \end{importgraphic}
 
 \begin{itemize}
-\item A \defn{glvalue} is an expression whose evaluation determines the identity of an object, function, or non-static data member.
+\item A \defn{glvalue} is an expression
+whose evaluation determines the identity of
+an object, function, non-static data member, or
+a direct base class relationship.
 \item A \defn{prvalue} is an expression whose evaluation initializes an object
 or computes the value of an operand of an operator,
 as specified by the context in which it appears,
@@ -714,11 +717,15 @@ See also~\ref{basic.lval}.
 \indextext{conversion!array-to-pointer}%
 \indextext{decay!array|see{conversion, array-to-pointer}}%
 \indextext{decay!function|see{conversion, function-to-pointer}}%
-An lvalue or rvalue of type ``array of \tcode{N} \tcode{T}'' or ``array
+An expression $E$ of type ``array of \tcode{N} \tcode{T}'' or ``array
 of unknown bound of \tcode{T}'' can be converted to a prvalue of type
 ``pointer to \tcode{T}''.
-The temporary materialization conversion\iref{conv.rval} is applied.
-The result is a pointer to the first element of the array.
+If $E$ is a prvalue,
+the temporary materialization conversion\iref{conv.rval} is applied.
+If the result of $E$ (possibly converted) is an object
+whose type is similar to the type of $E$,
+the result is a pointer to the first element of the array;
+otherwise, the behavior is undefined.
 
 \rSec2[conv.func]{Function-to-pointer conversion}
 
@@ -1063,7 +1070,8 @@ that necessitates this conversion is ill-formed.
 If \tcode{v} is a null pointer value,
 the result is a null pointer value.
 Otherwise,
-if \tcode{B} is a virtual base class of \tcode{D} and
+if \tcode{B} is a virtual base class of \tcode{D}
+or is a base class of a virtual base class of \tcode{D} and
 \tcode{v} does not point to an object
 whose type is similar\iref{conv.qual} to \tcode{D} and
 that is
@@ -1428,7 +1436,7 @@ struct C {
 
 \pnum
 If an \grammarterm{id-expression} $E$ denotes
-a member $M$ of an anonymous union\iref{class.union.anon} $U$:
+a variant member $M$ of an anonymous union\iref{class.union.anon} $U$:
 \begin{itemize}
 \item
 If $U$ is a non-static data member,
@@ -1481,6 +1489,10 @@ int S::*k = &[:^^S::m:];        // OK
 \end{codeblock}
 \end{example}
 \end{itemize}
+
+\pnum
+A \grammarterm{splice-expression} that designates a direct base class relationship
+shall appear only as the second operand of a class member access.
 
 \pnum
 For an \grammarterm{id-expression} that denotes an overload set,
@@ -1592,6 +1604,35 @@ If $E$ is not declared \keyword{mutable},
 the type of such an identifier will typically be \keyword{const} qualified.
 \end{note}
 
+\begin{example}
+\begin{codeblock}
+void f() {
+  float x, &r = x;
+
+  [=]() -> decltype((x)) {      // lambda returns \tcode{float const\&} because this lambda is not \tcode{mutable} and
+                                // \tcode{x} is an lvalue
+    decltype(x) y1;             // \tcode{y1} has type \tcode{float}
+    decltype((x)) y2 = y1;      // \tcode{y2} has type \tcode{float const\&}
+    decltype(r) r1 = y1;        // \tcode{r1} has type \tcode{float\&}
+    decltype((r)) r2 = y2;      // \tcode{r2} has type \tcode{float const\&}
+    return y2;
+  };
+
+  [=](decltype((x)) y) {
+    decltype((x)) z = x;        // OK, \tcode{y} has type \tcode{float\&}, \tcode{z} has type \tcode{float const\&}
+  };
+
+  [=] {
+    [](decltype((x)) y) {};     // OK, lambda takes a parameter of type \tcode{float const\&}
+
+    [x=1](decltype((x)) y) {
+      decltype((x)) z = x;      // OK, \tcode{y} has type \tcode{int\&}, \tcode{z} has type \tcode{int const\&}
+    };
+  };
+}
+\end{codeblock}
+\end{example}
+
 \pnum
 Otherwise,
 if the \grammarterm{unqualified-id}
@@ -1604,7 +1645,7 @@ and the result is that copy.
 Otherwise,
 if the \grammarterm{unqualified-id}
 names a result binding\iref{dcl.contract.res}
-attached to a function \placeholder{f}
+attached to a function
 with return type \tcode{U},
 \begin{itemize}
 \item
@@ -1750,36 +1791,6 @@ and the postcondition assertion
 is sequenced before the initialization of the result object\iref{expr.call},
 $E$ refers to the most recently initialized such temporary object.
 
-
-\begin{example}
-\begin{codeblock}
-void f() {
-  float x, &r = x;
-
-  [=]() -> decltype((x)) {      // lambda returns \tcode{float const\&} because this lambda is not \tcode{mutable} and
-                                // \tcode{x} is an lvalue
-    decltype(x) y1;             // \tcode{y1} has type \tcode{float}
-    decltype((x)) y2 = y1;      // \tcode{y2} has type \tcode{float const\&}
-    decltype(r) r1 = y1;        // \tcode{r1} has type \tcode{float\&}
-    decltype((r)) r2 = y2;      // \tcode{r2} has type \tcode{float const\&}
-    return y2;
-  };
-
-  [=](decltype((x)) y) {
-    decltype((x)) z = x;        // OK, \tcode{y} has type \tcode{float\&}, \tcode{z} has type \tcode{float const\&}
-  };
-
-  [=] {
-    [](decltype((x)) y) {};     // OK, lambda takes a parameter of type \tcode{float const\&}
-
-    [x=1](decltype((x)) y) {
-      decltype((x)) z = x;      // OK, \tcode{y} has type \tcode{int\&}, \tcode{z} has type \tcode{int const\&}
-    };
-  };
-}
-\end{codeblock}
-\end{example}
-
 \pnum
 An \defnadj{implicitly movable}{entity} is
 a variable with automatic storage duration
@@ -1877,12 +1888,16 @@ typename template [:^^TCls:]<3>::type v5 = 5;   // OK, same as \tcode{v3}
 A \grammarterm{nested-name-specifier} is \defn{declarative} if it is part of
 \begin{itemize}
 \item
-a \grammarterm{class-head-name},
+a \grammarterm{class-head-name}\iref{class.pre},
 \item
-an \grammarterm{enum-head-name},
+an \grammarterm{enum-head-name}\iref{dcl.enum},
 \item
 a \grammarterm{qualified-id}
-that is the \grammarterm{id-expression} of a \grammarterm{declarator-id}, or
+that is the \grammarterm{id-expression}
+of a \grammarterm{declarator-id}\iref{dcl.decl.general},
+\item
+an \grammarterm{elaborated-type-specifier}
+of an explicit instantiation\iref{temp.explicit}, or
 \item
 a declarative \grammarterm{nested-name-specifier}.
 \end{itemize}
@@ -2019,7 +2034,7 @@ shall be an \grammarterm{identifier} that denotes a pack.
 
 \pnum
 The \grammarterm{constant-expression} shall be
-a converted constant expression\iref{expr.const} of type \tcode{std::size_t}
+a converted constant expression\iref{expr.const.const} of type \tcode{std::size_t}
 whose value $V$, termed the index,
 is such that $0 \le V < \tcode{sizeof...($P$)}$.
 
@@ -2223,7 +2238,8 @@ classes.
 \end{note}
 
 \pnum
-The closure type is not an aggregate type\iref{dcl.init.aggr};
+The closure type is not an aggregate type\iref{dcl.init.aggr}
+and is not \tcode{final}\iref{class.pre};
 it is a structural type\iref{term.structural.type} if and only if
 the lambda has no \grammarterm{lambda-capture}.
 An implementation may define the closure type differently from what
@@ -2231,9 +2247,7 @@ is described below provided this does not alter the observable behavior of the p
 other than by changing:
 \begin{itemize}
 \item the size and/or alignment of the closure type,
-\item whether the closure type is trivially copyable\iref{class.prop},
-\item whether the closure type is trivially relocatable\iref{class.prop},
-\item whether the closure type is replaceable\iref{class.prop}, or
+\item whether the closure type is trivially copyable\iref{class.prop}, or
 \item whether the closure type is a standard-layout class\iref{class.prop}.
 \end{itemize}
 
@@ -2787,7 +2801,8 @@ auto y = [&r = x, x = x+1]()->int {
             return x+2;
          }();                               // Updates \tcode{::x} to 6, and initializes \tcode{y} to 7.
 
-auto z = [a = 42](int a) { return 1; };     // error: parameter and conceptual local variable have the same name
+auto z = [a = 42](int a) { return 1; };     // error: parameter and conceptual local variable
+                                            // have the same name
 auto counter = [i=0]() mutable -> decltype(i) {     // OK, returns \tcode{int}
   return i++;
 };
@@ -3078,12 +3093,13 @@ std::cout << a << b << c;
 \end{example}
 
 \pnum
-When the \grammarterm{lambda-expression} is evaluated, the entities that are
+The entities that are
 captured by copy are used to direct-initialize each corresponding non-static data member
 of the resulting closure object, and the non-static data members corresponding to the
 \grammarterm{init-capture}{s} are initialized as indicated by the corresponding
 \grammarterm{initializer} (which may be copy- or direct-initialization). (For array members, the array elements are
 direct-initialized in increasing subscript order.) These initializations are performed
+when the \grammarterm{lambda-expression} is evaluated and
 in the (unspecified) order in which the non-static data members are declared.
 \begin{note}
 This ensures that the destructions will occur in the reverse order of the constructions.
@@ -3354,8 +3370,8 @@ and a \grammarterm{nested-requirement}.
 \begin{bnf}
 \nontermdef{type-requirement}\br
     \keyword{typename} \opt{nested-name-specifier} type-name \terminal{;}\br
-    \keyword{typename} splice-specifier\br
-    \keyword{typename} splice-specialization-specifier
+    \keyword{typename} splice-specifier \terminal{;}\br
+    \keyword{typename} splice-specialization-specifier \terminal{;}
 \end{bnf}
 
 \pnum
@@ -3376,7 +3392,7 @@ template<typename T> concept C = requires {
   typename T::inner;        // required nested member name
   typename S<T>;            // required valid\iref{temp.names} \grammarterm{template-id}; fails if \tcode{T::type} does not exist as a type
                             // to which \tcode{0} can be implicitly converted
-  typename Ref<T>;          // required alias template substitution, fails if \tcode{T} is void
+  typename Ref<T>;          // required alias template substitution, fails if \tcode{T} is \tcode{void}
   typename [:T::r1:];       // fails if \tcode{T::r1} is not a reflection of a type
   typename [:T::r2:]<int>;  // fails if \tcode{T::r2} is not a reflection of a template \tcode{Z} for which \tcode{Z<int>} is a type
 };
@@ -3546,7 +3562,7 @@ constexpr auto j = e<([:^^h:])>;        // OK
 \end{example}
 
 \pnum
-For a \grammarterm{splice-expression} of the form \grammarterm{splice-specifier},
+For a \grammarterm{splice-expression} $E$ of the form \grammarterm{splice-specifier},
 let $S$ be the construct designated by \grammarterm{splice-specifier}.
 \begin{itemize}
 \item
@@ -3589,13 +3605,31 @@ becomes a class member access\iref{expr.prim.id}
 does not apply to a \grammarterm{splice-expression}.
 \end{note}
 \item
+Otherwise, if $S$ is a direct base class relationship $(\tcode{D}, \tcode{B})$,
+the expression is an lvalue designating $S$.
+The expression has the type \tcode{B}.
+\item
 Otherwise, if $S$ is a variable or a structured binding,
 $S$ shall either have static or thread storage duration or
 shall inhabit a scope enclosing the expression.
-The expression is an lvalue referring to the object or function $X$
-associated with or referenced by $S$,
-has the same type as that of $S$, and
+The expression $E$ is an lvalue referring to the object or function $X$
+associated with or referenced by $S$, and
 is a bit-field if and only if $X$ is a bit-field.
+If $E$ appears in the predicate of a contract assertion C\iref{basic.contract}
+and $S$ is
+\begin{itemize}
+\item
+a variable declared outside of $C$
+of object type \tcode{T},
+\item
+a variable declared outside of $C$
+of type ``reference to \tcode{T}'', or
+\item
+a structured binding of type \tcode{T}
+whose corresponding variable is declared outside of $C$,
+\end{itemize}
+then the type of $E$ is \tcode{const T},
+otherwise $E$ has the same type as that of $S$.
 \begin{note}
 The type of a \grammarterm{splice-expression}
 designating a variable or structured binding of reference type
@@ -4027,7 +4061,7 @@ to type \tcode{\keyword{void}*}\iref{conv.ptr}.
 After these conversions, if the
 argument does not have arithmetic, enumeration, pointer, pointer-to-member,
 or class type, the program is ill-formed.
-Passing a potentially-evaluated argument
+Passing a potentially evaluated argument
 of a scoped enumeration type\iref{dcl.enum} or
 of a class type\iref{class} having
 an eligible non-trivial copy constructor\iref{special,class.copy.ctor},
@@ -4164,7 +4198,9 @@ the \grammarterm{id-expression} is a \grammarterm{qualified-id}.
 For a dot that is followed by an expression
 that designates a static member or an enumerator,
 the first expression is a discarded-value expression\iref{expr.context};
-if the expression after the dot designates a non-static data member,
+if the expression after the dot designates a
+non-static data member\iref{class.mem.general} or
+a direct base class relationship\iref{class.derived.general},
 the first expression shall be a glvalue.
 A postfix expression that is followed by an arrow
 shall be a prvalue having pointer type.
@@ -4300,17 +4336,18 @@ is \tcode{T}, the expression \tcode{E1.E2} is a prvalue of type \tcode{T}
 whose value is the value of the enumerator.
 
 \item
-Otherwise, if \tcode{E2} designates a direct base class relationship $(D, B)$
-and the type of \tcode{E1} is \cv{} \tcode{T},
+Otherwise, if \tcode{E2} designates a direct base class relationship $(D, B)$ and
+$D$ is either the cv-unqualified class type of \tcode{E1} or a base class thereof,
+let \cv{} be the cv-qualification of the type of \tcode{E1}.
+\tcode{E1} is implicitly converted to the type ``reference to \cv{}~\tcode{$D$}''
+(where the reference is an lvalue reference if \tcode{E1} is an lvalue
+and an rvalue reference otherwise) and
 the expression designates the direct base class subobject of type $B$
-of the object designated by \tcode{E1}.
+of the object designated by the converted \tcode{E1}.
 If \tcode{E1} is an lvalue,
 then \tcode{E1.E2} is an lvalue;
 otherwise, \tcode{E1.E2} is an xvalue.
-The type of \tcode{E1.E2} is ``\cv{} \tcode{$B$}''.
-\begin{note}
-This can only occur in an expression of the form \tcode{e1.[:e2:]}.
-\end{note}
+The type of \tcode{E1.E2} is \cv{}~\tcode{$B$}.
 \begin{example}
 \begin{codeblock}
 struct B {
@@ -4351,7 +4388,8 @@ of the object expression; see~\ref{class.access.base}.
 
 \pnum
 If \tcode{E2} designates a non-static member
-(possibly after overload resolution) and
+(possibly after overload resolution)
+or direct base class relationship and
 the result of \tcode{E1} is an object whose type
 is not similar\iref{conv.qual} to the type of \tcode{E1},
 the behavior is undefined.
@@ -4951,17 +4989,13 @@ mappings between pointers and integers are otherwise
 \indextext{cast!undefined pointer-to-function}%
 A function pointer can be explicitly converted
 to a function pointer of a different type.
+The function pointer value is unchanged by the conversion.
 \indextext{function call!undefined}%
 \begin{note}
 The effect of calling a function through a pointer to a function
-type\iref{dcl.fct} that is not the same as the type used in the
+type\iref{dcl.fct} that is not call-compatible with the type used in the
 definition of the function is undefined\iref{expr.call}.
 \end{note}
-Except that converting
-a prvalue of type ``pointer to \tcode{T1}'' to the type ``pointer to
-\tcode{T2}'' (where \tcode{T1} and \tcode{T2} are function types) and
-back to its original type yields the original pointer value, the result
-of such a pointer conversion is unspecified.
 
 \pnum
 An object pointer
@@ -5431,7 +5465,7 @@ transfers control to its caller or resumer.
 \end{bnf}
 
 \pnum
-An \grammarterm{await-expression} shall appear only as a potentially-evaluated
+An \grammarterm{await-expression} shall appear only as a potentially evaluated
 expression within the \grammarterm{compound-statement} of a
 \grammarterm{function-body} or \grammarterm{lambda-expression},
 in either case
@@ -5657,6 +5691,8 @@ of the referenced type.
 When applied to a class, the result is the number of bytes in an object
 of that class including any padding required for placing objects of that
 type in an array.
+The amount and placement of padding in a class type
+is a property of the implementation.
 The result of applying \keyword{sizeof} to a
 potentially-overlapping subobject is
 the size of the type, not the size of the subobject.
@@ -5701,7 +5737,7 @@ The result of \keyword{sizeof} and \tcode{\keyword{sizeof}...} is a prvalue of t
 \tcode{std::size_t}.
 \begin{note}
 A \keyword{sizeof} expression
-is an integral constant expression\iref{expr.const}.
+is an integral constant expression\iref{expr.const.const}.
 The \grammarterm{typedef-name} \tcode{std::size_t} is declared in the standard header
 \libheader{cstddef}\iref{cstddef.syn,support.types.layout}.
 \end{note}
@@ -5720,7 +5756,7 @@ to one of those types.
 The result is a prvalue of type \tcode{std::size_t}.
 \begin{note}
 An \keyword{alignof} expression
-is an integral constant expression\iref{expr.const}.
+is an integral constant expression\iref{expr.const.const}.
 The \grammarterm{typedef-name} \tcode{std::size_t} is declared in the standard header
 \libheader{cstddef}\iref{cstddef.syn,support.types.layout}.
 \end{note}
@@ -5754,7 +5790,7 @@ the full-expression of the operand is potentially-throwing\iref{except.spec}, an
 \tcode{true} otherwise.
 \begin{note}
 A \grammarterm{noexcept-expression}
-is an integral constant expression\iref{expr.const}.
+is an integral constant expression\iref{expr.const.const}.
 \end{note}
 \indextext{expression!unary|)}
 
@@ -5898,7 +5934,7 @@ to the associated array type.
 \pnum
 Every \grammarterm{constant-expression} in a
 \grammarterm{noptr-new-declarator} shall be a converted constant
-expression\iref{expr.const} of type \tcode{std::size_t} and
+expression\iref{expr.const.const} of type \tcode{std::size_t} and
 its value shall be greater than zero.
 \begin{example}
 Given the definition \tcode{int n = 42},
@@ -5953,7 +5989,8 @@ its value is such that the size of the allocated object would exceed the
 \impldef{maximum size of an allocated object} limit\iref{implimits}; or
 
 \item
-the \grammarterm{new-initializer} is a \grammarterm{braced-init-list} and the
+the \grammarterm{new-initializer} is a \grammarterm{braced-init-list}
+or a parenthesized \grammarterm{expression-list} and the
 number of array elements for which initializers are provided (including the
 terminating \tcode{'\textbackslash 0'} in a \grammarterm{string-literal}\iref{lex.string}) exceeds the
 number of elements to initialize.
@@ -5962,7 +5999,7 @@ number of elements to initialize.
 If the value of the \grammarterm{expression} is invalid after converting to \tcode{std::size_t}:
 \begin{itemize}
 \item
-if the \grammarterm{expression} is a potentially-evaluated core constant expression,
+if the \grammarterm{expression} is a potentially evaluated core constant expression,
 the program is ill-formed;
 \item
 otherwise, an allocation function is not called; instead
@@ -5983,17 +6020,24 @@ function is called to allocate an array with no elements.
 
 \pnum
 If the allocated type is an array,
-the \grammarterm{new-initializer} is a \grammarterm{braced-init-list}, and
+the \grammarterm{new-initializer} is a \grammarterm{braced-init-list}
+or a parenthesized \grammarterm{expression-list}, and
 the \grammarterm{expression}
-is potentially-evaluated and not a core constant expression,
-the semantic constraints of copy-initializing a hypothetical element of
-the array from an empty initializer list
-are checked\iref{dcl.init.list}.
+is potentially evaluated and not a core constant expression,
+the semantic constraints of initializing a hypothetical element of
+the array are checked as follows:
+\begin{itemize}
+\item
+If the \grammarterm{new-initializer} is a \grammarterm{braced-init-list},
+the hypothetical element is copy-initialized
+from an empty initializer list\iref{dcl.init.list}.
+\item
+Otherwise, the hypothetical element is value-initialized\iref{dcl.init.general}.
+\end{itemize}
 \begin{note}
 The array can contain more elements than there are
-elements in the \grammarterm{braced-init-list},
-requiring initialization of the remainder of the array elements from
-an empty initializer list.
+elements in the \grammarterm{new-initializer},
+requiring initialization of the remainder of the array elements as appropriate.
 \end{note}
 
 \pnum
@@ -6071,7 +6115,7 @@ the allocation of another \grammarterm{new-expression}.
 
 \pnum
 During an evaluation of a constant expression,
-a call to a replaceable allocation function is always omitted\iref{expr.const}.
+a call to a replaceable allocation function is always omitted\iref{expr.const.core}.
 
 \pnum
 The implementation may
@@ -6234,7 +6278,7 @@ it indicates failure to allocate storage by throwing a
 \indextext{\idxcode{bad_alloc}}%
 \indexlibraryglobal{bad_alloc}%
 \tcode{std::bad_alloc}
-exception\iref{basic.stc.dynamic.allocation,except,bad.alloc};
+exception\iref{basic.stc.dynamic.allocation,except.throw,bad.alloc};
 it returns a non-null pointer otherwise. If the allocation function
 has a non-throwing exception specification,
 it returns null to indicate failure to allocate storage
@@ -6324,23 +6368,45 @@ the deallocation function's name is looked up by
 searching for it in the global scope.
 
 \pnum
-A declaration of a placement deallocation function matches the
-declaration of a placement allocation function if it has the same number
-of parameters and, after parameter transformations\iref{dcl.fct}, all
-parameter types except the first are identical. If
-the lookup finds a single matching deallocation function, that function
-will be called; otherwise, no deallocation function will be called. If
-the lookup finds a usual deallocation
-function
-and that function,
-considered as a placement deallocation function, would have been
-selected as a match for the allocation function, the program is
-ill-formed. For a non-placement allocation function, the normal deallocation
+For a non-placement allocation function, the normal deallocation
 function lookup is used to find the matching deallocation
 function\iref{expr.delete}.
+For a placement allocation function, the selection process is described below.
 In any case,
 the matching deallocation function (if any) shall be non-deleted and
 accessible from the point where the \grammarterm{new-expression} appears.
+
+\pnum
+For a placement allocation function,
+the matching deallocation function is selected as follows:
+\begin{itemize}
+\item
+Each candidate that is a function template is replaced by
+the function template specializations (if any)
+generated using template argument deduction\iref{temp.over,temp.deduct.call}
+with arguments as specified below.
+\item
+Each candidate whose parameter-type-list is not identical to
+that of the allocation function,
+ignoring their respective first parameters,
+is removed from the set of candidates.
+\item
+Each candidate whose associated constraints (if any)
+are not satisfied\iref{temp.constr.constr}
+is removed from the set of candidates.
+\item
+If exactly one function remains, that function is selected.
+\item
+Otherwise, no deallocation function is selected.
+\end{itemize}
+If a usual deallocation function is selected, the program is ill-formed.
+\begin{note}
+A deallocation function with an additional trailing parameter
+compared to the allocation function is never matched,
+even if a default argument is provided.
+\end{note}
+
+\pnum
 \begin{example}
 \begin{codeblock}
 struct S {
@@ -6354,7 +6420,55 @@ struct S {
 S* p = new (0) S;   // error: non-placement deallocation function matches
                     // placement allocation function
 \end{codeblock}
+\end{example}
 
+\begin{example}
+\begin{codeblock}
+struct A {};
+struct T { T(); };
+
+void* operator new(std::size_t s, A& al);       // \#1
+
+template<int = 0>
+void operator delete(void* p, A& al);           // \#2
+
+A al;
+T* p = new (al) T;                              // OK, uses \#1 and \#2.
+\end{codeblock}
+\end{example}
+
+\begin{example}
+\begin{codeblock}
+template<int I>
+struct A {};
+struct T { T(); };
+
+void* operator new(std::size_t s, A<0>& al);    // \#1
+
+template<int I>
+void operator delete(void* p, A<I>& al);
+void operator delete(void* p, A<0>& al);
+
+A<0> al;
+T* p = new (al) T;      // OK, uses \#1. No deallocation function is selected (two candidates remain).
+\end{codeblock}
+\end{example}
+
+\begin{example}
+\begin{codeblock}
+template<int I>
+struct A {};
+struct T { T(); };
+
+void* operator new(std::size_t s, A<0>& al);    // \#1
+
+template<int I> requires (I > 0)
+void operator delete(void* p, A<I>& al);
+void operator delete(void* p, A<0>& al);        // \#2
+
+A<0> al;
+T* p = new (al) T;                              // OK, uses \#1 and \#2.
+\end{codeblock}
 \end{example}
 
 \pnum
@@ -6677,13 +6791,13 @@ An unparenthesized \grammarterm{reflect-expression}
 that represents a template shall not be followed by \tcode{<}.
 \begin{example}
 \begin{codeblock}
-static_assert(std::meta::is_type(^^int()));     // \tcode{\caret\caret} applies to the type-id \tcode{int()}
+static_assert(std::meta::is_type(^^int()));     // \tcode{\caret\caret} applies to the \grammarterm{type-id} \tcode{int()}
 
 template<bool> struct X {};
 consteval bool operator<(std::meta::info, X<false>) { return false; }
 consteval void g(std::meta::info r, X<false> xv) {
   r == ^^int && true;       // error: \tcode{\caret\caret} applies to the \grammarterm{type-id} \tcode{int\&\&}
-  r == ^^int & true;        // error: \tcode{\caret\caret} applies to the type-id \tcode{int\&}
+  r == ^^int & true;        // error: \tcode{\caret\caret} applies to the \grammarterm{type-id} \tcode{int\&}
   r == (^^int) && true;     // OK
   r == ^^int &&&& true;     // error: \tcode{int \&\&\&\&} is not a valid \grammarterm{type-id}
   ^^X < xv;                 // error: \grammarterm{reflect-expression} that represents a template is followed by \tcode{<}
@@ -6785,9 +6899,11 @@ If the \grammarterm{type-id} designates
 a placeholder type\iref{dcl.spec.auto.general},
 $R$ is ill-formed.
 \item
-Otherwise, if the \grammarterm{type-id} names a type alias
-that is a specialization of an alias template\iref{temp.alias},
-$R$ represents that type alias.
+Otherwise, if the \grammarterm{type-id} is of the form
+\opt{\grammarterm{nested-name-specifier}} \opt{\keyword{template}} \grammarterm{simple-template-id}
+and whose terminal name is a \grammarterm{template-name}
+that names an alias template\iref{temp.alias},
+$R$ represents the type alias so named.
 \item
 Otherwise, $R$ represents the type denoted by the \grammarterm{type-id}.
 \end{itemize}
@@ -7201,18 +7317,13 @@ or a complete object results in undefined behavior.
 \end{note}
 
 \pnum
-\indextext{\idxcode{ptrdiff_t}!implementation-defined type of}%
-\indextext{subtraction!implementation-defined pointer}%
 \indextext{\idxcode{ptrdiff_t}}%
 \indextext{comparison!undefined pointer}%
-When two pointer expressions \tcode{P} and \tcode{Q} are subtracted,
-the type of the result is an \impldef{type of \tcode{ptrdiff_t}} signed
-integral type; this type shall be the same type that is named by
-\tcode{std::ptrdiff_t} in the \libheader{cstddef}
-header\iref{support.types.layout}.
+The result of subtracting two pointer expressions \tcode{P} and \tcode{Q}
+is a prvalue of type \tcode{std::ptrdiff_t}\iref{support.types.layout}.
 \begin{itemize}
 \item If \tcode{P} and \tcode{Q} both evaluate to null pointer values,
-the result is 0.
+the value is 0.
 \item Otherwise, if \tcode{P} and \tcode{Q} point to, respectively,
 array elements $i$ and $j$
 of the same array object \tcode{x},
@@ -8257,22 +8368,10 @@ has three arguments, the second of which has the value
 \end{example}
 \end{note}
 
-\rSec1[expr.const]{Constant expressions}%
+\rSec1[expr.const]{Constant evaluation}%
 \indextext{expression!constant}
 
-\pnum
-Certain contexts require expressions that satisfy additional
-requirements as detailed in this subclause; other contexts have different
-semantics depending on whether or not an expression satisfies these requirements.
-Expressions that satisfy these requirements,
-assuming that copy elision\iref{class.copy.elision} is not performed,
-are called
-\indexdefn{expression!constant}%
-\defnx{constant expressions}{constant expression}.
-\begin{note}
-Constant expressions can be evaluated
-during translation.
-\end{note}
+\rSec2[expr.const.general]{General}
 
 \begin{bnf}
 \nontermdef{constant-expression}\br
@@ -8280,200 +8379,53 @@ during translation.
 \end{bnf}
 
 \pnum
-The \defnx{constituent values}{constituent value} of an object $o$ are
-\begin{itemize}
-\item
-if $o$ has scalar type, the value of $o$;
-\item
-otherwise, the constituent values of any direct subobjects of $o$
-other than inactive union members.
-\end{itemize}
-The \defnx{constituent references}{constituent reference} of an object $o$ are
-\begin{itemize}
-\item
-any direct members of $o$ that have reference type, and
-\item
-the constituent references of any direct subobjects of $o$
-other than inactive union members.
-\end{itemize}
-
-\pnum
-The constituent values and constituent references of
-a variable \tcode{x} are defined as follows:
-\begin{itemize}
-\item
-If \tcode{x} declares an object,
-the constituent values and references of that object are
-constituent values and references of \tcode{x}.
-\item
-If \tcode{x} declares a reference,
-that reference is a constituent reference of \tcode{x}.
-\end{itemize}
-For any constituent reference \tcode{r} of a variable \tcode{x},
-if \tcode{r} is bound to a temporary object or subobject thereof
-whose lifetime is extended to that of \tcode{r},
-the constituent values and references of that temporary object
-are also constituent values and references of \tcode{x}, recursively.
-
-\pnum
-An object $o$ is \defn{constexpr-referenceable} from a point $P$ if
-\begin{itemize}
-\item
-$o$ has static storage duration, or
-\item
-$o$ has automatic storage duration, and, letting \tcode{v} denote
-\begin{itemize}
-\item
-the variable corresponding to $o$'s complete object or
-\item
-the variable to whose lifetime that of $o$ is extended,
-\end{itemize}
-the smallest scope enclosing \tcode{v} and the smallest scope enclosing $P$
-that are neither
-\begin{itemize}
-\item
-block scopes nor
-\item
-function parameter scopes associated with
-a \grammarterm{requirement-parameter-list}
-\end{itemize}
-are the same function parameter scope.
-\end{itemize}
-\begin{example}
-\begin{codeblock}
-struct A {
-  int m;
-  const int& r;
-};
-void f() {
-  static int sx;
-  thread_local int tx;                  // \tcode{tx} is never constexpr-referenceable
-  int ax;
-  A aa = {1, 2};
-  static A sa = {3, 4};
-  // The objects \tcode{sx}, \tcode{ax}, and \tcode{aa.m}, \tcode{sa.m}, and the temporaries to which \tcode{aa.r} and \tcode{sa.r} are bound, are constexpr-referenceable.
-  auto lambda = [] {
-    int ay;
-    // The objects \tcode{sx}, \tcode{sa.m}, and \tcode{ay} (but not \tcode{ax} or \tcode{aa}), and the
-    // temporary to which \tcode{sa.r} is bound, are constexpr-referenceable.
-  };
-}
-\end{codeblock}
-\end{example}
-
-\pnum
-An object or reference \tcode{x} is
-\defn{constexpr-representable} at a point $P$ if,
-for each constituent value of \tcode{x} that points to or past an object $o$,
-and for each constituent reference of \tcode{x} that refers to an object $o$,
-$o$ is constexpr-referenceable from $P$.
-
-\pnum
-\indextext{contract evaluation semantics!ignore}
-A variable \tcode{v} is \defn{constant-initializable} if
-\begin{itemize}
-\item
-the full-expression of its initialization is a constant expression
-when interpreted as a \grammarterm{constant-expression}
-with all contract assertions
-using the ignore evaluation semantic\iref{basic.contract.eval},
+Certain contexts require expressions that satisfy additional
+requirements as detailed in \ref{expr.const}; other contexts have different
+semantics depending on whether or not an expression satisfies these requirements.
+Expressions that satisfy these requirements,
+assuming that copy elision\iref{class.copy.elision} is not performed,
+are called constant expressions.
 \begin{note}
-Within this evaluation,
-\tcode{std::is_constant_evaluated()}\iref{meta.const.eval}
-returns \keyword{true}.
+Certain constant expressions are evaluated during translation\iref{lex.phases}.
 \end{note}
+
+\pnum
+\recommended
+Implementations should provide consistent results of floating-point evaluations,
+irrespective of whether the evaluation is performed
+during translation or during program execution.
 \begin{note}
-The initialization, when evaluated,
-can still evaluate contract assertions
-with other evaluation semantics,
-resulting in a diagnostic or ill-formed program
-if a contract violation occurs.
+Since this document
+imposes no restrictions on the accuracy of floating-point operations, it is unspecified whether the
+evaluation of a floating-point expression during translation yields the same result as the
+evaluation of the same expression (or the same operations on the same values) during program
+execution.
+\begin{example}
+\begin{codeblock}
+bool f() {
+    char array[1 + int(1 + 0.2 - 0.1 - 0.1)];   // Must be evaluated during translation
+    int size = 1 + int(1 + 0.2 - 0.1 - 0.1);    // May be evaluated at runtime
+    return sizeof(array) == size;
+}
+\end{codeblock}
+It is unspecified whether the value of \tcode{f()} will be \tcode{true} or \tcode{false}.
+\end{example}
 \end{note}
-\item
-immediately after the initializing declaration of \tcode{v},
-the object or reference \tcode{x} declared by \tcode{v}
-is constexpr-representable, and
-\item
-if \tcode{x} has static or thread storage duration,
-\tcode{x} is constexpr-representable at the nearest point
-whose immediate scope is a namespace scope
-that follows the initializing declaration of \tcode{v}.
-\end{itemize}
+
+\rSec2[expr.const.core]{Core constant expressions}
 
 \pnum
-A constant-initializable variable is \defn{constant-initialized}
-if either it has an initializer or
-its type is const-default-constructible\iref{dcl.init.general}.
-\begin{example}
-\begin{codeblock}
-void f() {
-  int ax = 0;                   // \tcode{ax} is constant-initialized
-  thread_local int tx = 0;      // \tcode{tx} is constant-initialized
-  static int sx;                // \tcode{sx} is not constant-initialized
-  static int& rss = sx;         // \tcode{rss} is constant-initialized
-  static int& rst = tx;         // \tcode{rst} is not constant-initialized
-  static int& rsa = ax;         // \tcode{rsa} is not constant-initialized
-  thread_local int& rts = sx;   // \tcode{rts} is constant-initialized
-  thread_local int& rtt = tx;   // \tcode{rtt} is not constant-initialized
-  thread_local int& rta = ax;   // \tcode{rta} is not constant-initialized
-  int& ras = sx;                // \tcode{ras} is constant-initialized
-  int& rat = tx;                // \tcode{rat} is not constant-initialized
-  int& raa = ax;                // \tcode{raa} is constant-initialized
-}
-\end{codeblock}
-\end{example}
-
-\pnum
-A variable is \defn{potentially-constant} if
-it is constexpr or
-it has reference or non-volatile const-qualified integral or enumeration type.
-
-\pnum
-A constant-initialized potentially-constant variable $V$ is
-\defn{usable in constant expressions} at a point $P$ if
-$V$'s initializing declaration $D$ is reachable from $P$ and
+\indextext{type!constexpr-unknown representation}%
+A type has \defnadj{constexpr-unknown}{representation} if it
 \begin{itemize}
-\item $V$ is constexpr,
-\item $V$ is not initialized to a TU-local value, or
-\item $P$ is in the same translation unit as $D$.
+\item is a union,
+\item is a pointer or pointer-to-member type,
+\item is volatile-qualified,
+\item is a class type with a non-static data member of reference type, or
+\item
+has a base class or a non-static member whose
+type has constexpr-unknown representation.
 \end{itemize}
-An object or reference is
-\defn{potentially usable in constant expressions} at point $P$ if it is
-\begin{itemize}
-\item
-the object or reference declared by a variable
-that is usable in constant expressions at $P$,
-\item
-a temporary object of non-volatile const-qualified literal type
-whose lifetime is extended\iref{class.temporary}
-to that of a variable that is usable in constant expressions at $P$,
-\item
-a template parameter object\iref{temp.param},
-\item
-a string literal object\iref{lex.string},
-\item
-a non-mutable subobject of any of the above, or
-\item
-a reference member of any of the above.
-\end{itemize}
-An object or reference is \defn{usable in constant expressions} at point $P$
-if it is an object or reference
-that is potentially usable in constant expressions at $P$ and
-is constexpr-representable at $P$.
-\begin{example}
-\begin{codeblock}
-struct A {
-  int* const & r;
-};
-void f(int x) {
-  constexpr A a = {&x};
-  static_assert(a.r == &x);             // OK
-  [&] {
-    static_assert(a.r != nullptr);      // error: \tcode{a.r} is not usable in constant expressions at this point
-  }();
-}
-\end{codeblock}
-\end{example}
 
 \pnum
 An expression $E$ is a \defnadj{core constant}{expression}
@@ -8622,6 +8574,13 @@ points to an object whose type is similar to \tcode{T};
 a \keyword{reinterpret_cast}\iref{expr.reinterpret.cast};
 
 \item
+pointer arithmetic\iref{expr.add} where
+one (possibly converted) operand
+points to the first element of an array of unknown bound and
+the other (possibly converted) operand
+is of integral type with non-zero value;
+
+\item
 a modification of an object\iref{expr.assign,expr.post.incr,expr.pre.incr}
 unless it is applied to a non-volatile lvalue of literal type
 that refers to a non-volatile object
@@ -8646,10 +8605,11 @@ a non-allocating form\iref{new.delete.placement}
 with an allocated type \tcode{T}, where
 \begin{itemize}
 \item
-the placement argument to the \grammarterm{new-expression} points to
-an object whose type is similar to \tcode{T}\iref{conv.qual} or,
-if \tcode{T} is an array type,
-to the first element of an object of a type similar to \tcode{T}, and
+the placement argument to the \grammarterm{new-expression} points
+to an object that is transparently replaceable\iref{basic.life} by
+the object created by the \grammarterm{new-expression}
+or, if \tcode{T} is an array type,
+to the first element of such an object, and
 \item
 the placement argument points to storage
 whose duration began within the evaluation of $E$;
@@ -8680,6 +8640,11 @@ all of its implicit copies created by invocations of
 are destroyed within the evaluation of $E$;
 
 \item
+a \grammarterm{throw-expression}\iref{expr.throw} with no operand,
+unless there is a currently handled exception
+whose exception object was constructed within the evaluation of $E$;
+
+\item
 an \grammarterm{await-expression}\iref{expr.await};
 
 \item
@@ -8689,6 +8654,34 @@ a \grammarterm{yield-expression}\iref{expr.yield};
 a three-way comparison\iref{expr.spaceship},
 relational\iref{expr.rel}, or equality\iref{expr.eq}
 operator where the result is unspecified;
+
+\item
+an equality operator comparing pointers to potentially non-unique objects,
+if the pointer values of the two operands
+are associated with different evaluations\iref{basic.compound} and either
+they can both point to the same offset within
+the same potentially non-unique object or
+one of them points to an object whose
+type has constexpr-unknown representation;
+\begin{example}
+\begin{codeblock}
+constexpr const char *f() { return "foo"; }
+
+constexpr bool b1 = +"foo" == "foo";                // error: non-constant
+constexpr bool b2 = f() == f();                     // error: non-constant
+constexpr const char *p = f();
+constexpr bool b3 = p == p;                         // OK, value of \tcode{b3} is \tcode{true}
+constexpr bool b4 = "xfoo" + 1 == "foo\0y";         // error: non-constant; string literal
+                                                    // object could contain \tcode{"xfoo\textbackslash{}0y"}
+constexpr bool b5 = "foo" == "bar" + 0;             // OK, value of \tcode{b5} is \tcode{false}
+constexpr bool b6 = (const char*)"foo" == "oo";     // OK, value of \tcode{b6} is \tcode{false}; offsets would
+                                                    // be different in a merged string literal object
+
+constexpr std::initializer_list<int *> il1 = { (int *)nullptr };
+constexpr std::initializer_list<unsigned long> il2 = { 0 };
+constexpr bool b7 = il1.begin() == (void *)il2.begin();     // error: non-constant
+\end{codeblock}
+\end{example}
 
 \item
 a \keyword{dynamic_cast}\iref{expr.dynamic.cast} or
@@ -8792,8 +8785,7 @@ constexpr int y = h(1);             // OK, initializes \tcode{y} with the value 
 For the purposes of determining
 whether an expression $E$ is a core constant expression,
 the evaluation of the body of a member function of \tcode{std::allocator<T>}
-as defined in \ref{allocator.members}, where \tcode{T} is a literal type,
-is ignored.
+as defined in \ref{allocator.members}, is ignored.
 
 \pnum
 For the purposes of determining whether $E$ is a core constant expression,
@@ -8848,7 +8840,7 @@ During the evaluation of an expression $E$ as a core constant expression,
 all \grammarterm{id-expression}s, \grammarterm{splice-expression}s, and
 uses of \tcode{*\keyword{this}}
 that refer to an object or reference
-whose lifetime did not begin with the evaluation of $E$
+whose lifetime did not begin within the evaluation of $E$
 are treated as referring to a specific instance of that object or reference
 whose lifetime and that of all subobjects (including all union members)
 includes the entire constant evaluation.
@@ -8913,20 +8905,85 @@ constexpr auto& gallagher = typeid(trident);    // error: constexpr-unknown dyna
 \end{codeblock}
 \end{example}
 
+\rSec2[expr.const.const]{Constant expressions}
+
 \pnum
-An object \tcode{a} is said to have \defnadj{constant}{destruction} if
+A \defnadj{constant}{expression} is either
 \begin{itemize}
 \item
-  it is not of class type nor (possibly multidimensional) array thereof, or
+a glvalue core constant expression $E$ for which
+\begin{itemize}
 \item
-  it is of class type or (possibly multidimensional) array thereof,
-  that class type has a constexpr destructor\iref{dcl.constexpr}, and
-  for a hypothetical expression $E$
-  whose only effect is to destroy \tcode{a},
-  $E$ would be a core constant expression
-  if the lifetime of \tcode{a} and its non-mutable subobjects
-  (but not its mutable subobjects) were considered to start within $E$.
+$E$ refers to a non-immediate function,
+\item
+$E$ designates an object \tcode{o}, and
+if the complete object of \tcode{o} is of consteval-only type then so is $E$,
+\begin{example}
+\begin{codeblock}
+struct Base { };
+struct Derived : Base { std::meta::info r; };
+
+consteval const Base& fn(const Derived& derived) { return derived; }
+
+constexpr Derived obj{.r=^^::};     // OK
+constexpr const Derived& d = obj;   // OK
+constexpr const Base& b = fn(obj);  // error: not a constant expression because \tcode{Derived}
+                                    // is a consteval-only type but \tcode{Base} is not.
+\end{codeblock}
+\end{example}
 \end{itemize}
+or
+\item
+a prvalue core constant expression whose result object\iref{basic.lval} (if any)
+satisfies the following constraints:
+\begin{itemize}
+\item
+each constituent reference refers to an object or a non-immediate function,
+\item
+no constituent value of scalar type is an indeterminate or erroneous value\iref{basic.indet},
+\item
+no constituent value of pointer type is a pointer to an immediate function or
+an invalid pointer value\iref{basic.compound},
+\item
+no constituent value of pointer-to-member type designates an immediate function, and
+\item
+unless the value is of consteval-only type,
+\begin{itemize}
+\item
+no constituent value of pointer-to-member type points to
+a direct member of a consteval-only class type,
+\item
+no constituent value of pointer type points to or past an object
+whose complete object is of consteval-only type, and
+\item
+no constituent reference refers to an object
+whose complete object is of consteval-only type.
+\end{itemize}
+\end{itemize}
+\end{itemize}
+\begin{note}
+A glvalue core constant expression
+that either refers to or points to an unspecified object
+is not a constant expression.
+\end{note}
+\begin{example}
+\begin{codeblock}
+consteval int f() { return 42; }
+consteval auto g() { return f; }
+consteval int h(int (*p)() = g()) { return p(); }
+constexpr int r = h();                          // OK
+constexpr auto e = g();                         // error: a pointer to an immediate function is
+                                                // not a permitted result of a constant expression
+
+struct S {
+  int x;
+  constexpr S() {}
+};
+int i() {
+  constexpr S s;                                // error: \tcode{s.x} has erroneous value
+}
+\end{codeblock}
+\end{example}
 
 \pnum
 An \defnadj{integral constant}{expression}
@@ -8992,111 +9049,199 @@ and as the constant expression of a \grammarterm{splice-specifier}\iref{basic.sp
 \end{note}
 \indextext{contextually converted constant expression of type \tcode{bool}|see{conversion, contextual}}%
 \indextext{conversion!contextual to constant expression of type \tcode{bool}}%
+
+\pnum
 A \term{contextually converted constant expression of type \tcode{bool}} is
 an expression, contextually converted to \keyword{bool}\iref{conv},
 where the converted expression is a constant expression and
 the conversion sequence contains only the conversions above.
 
+\rSec2[expr.const.init]{Constant initialization}
+
 \pnum
-A \defnadj{constant}{expression} is either
+The constituent values and constituent references of
+a variable \tcode{x} are defined as follows:
 \begin{itemize}
 \item
-a glvalue core constant expression $E$ for which
+If \tcode{x} declares an object,
+the constituent values and references of that object\iref{intro.object} are
+constituent values and references of \tcode{x}.
+\item
+If \tcode{x} declares a reference,
+that reference is a constituent reference of \tcode{x}.
+\end{itemize}
+For any constituent reference \tcode{r} of a variable \tcode{x},
+if \tcode{r} is bound to a temporary object or subobject thereof
+whose lifetime is extended to that of \tcode{r},
+the constituent values and references of that temporary object
+are also constituent values and references of \tcode{x}, recursively.
+
+\pnum
+An object $o$ is \defn{constexpr-referenceable} from a point $P$ if
 \begin{itemize}
 \item
-$E$ refers to a non-immediate function,
+$o$ has static storage duration, or
 \item
-$E$ designates an object \tcode{o}, and
-if the complete object of \tcode{o} is of consteval-only type then so is $E$,
+$o$ has automatic storage duration, and, letting \tcode{v} denote
+\begin{itemize}
+\item
+the variable corresponding to $o$'s complete object or
+\item
+the variable to whose lifetime that of $o$ is extended,
+\end{itemize}
+the smallest scope enclosing \tcode{v} and the smallest scope enclosing $P$
+that are neither
+\begin{itemize}
+\item
+block scopes nor
+\item
+function parameter scopes associated with
+a \grammarterm{requirement-parameter-list}
+\end{itemize}
+are the same function parameter scope.
+\end{itemize}
 \begin{example}
 \begin{codeblock}
-struct Base { };
-struct Derived : Base { std::meta::info r; };
-
-consteval const Base& fn(const Derived& derived) { return derived; }
-
-constexpr Derived obj{.r=^^::};     // OK
-constexpr const Derived& d = obj;   // OK
-constexpr const Base& b = fn(obj);  // error: not a constant expression because \tcode{Derived}
-                                    // is a consteval-only type but \tcode{Base} is not.
-\end{codeblock}
-\end{example}
-\end{itemize}
-or
-\item
-a prvalue core constant expression whose result object\iref{basic.lval}
-satisfies the following constraints:
-\begin{itemize}
-\item
-each constituent reference refers to an object or a non-immediate function,
-\item
-no constituent value of scalar type is an indeterminate or erroneous value\iref{basic.indet},
-\item
-no constituent value of pointer type is a pointer to an immediate function or
-an invalid pointer value\iref{basic.compound},
-\item
-no constituent value of pointer-to-member type designates an immediate function, and
-\item
-unless the value is of consteval-only type,
-\begin{itemize}
-\item
-no constituent value of pointer-to-member type points to
-a direct member of a consteval-only class type,
-\item
-no constituent value of pointer type points to or past an object
-whose complete object is of consteval-only type, and
-\item
-no constituent reference refers to an object
-whose complete object is of consteval-only type.
-\end{itemize}
-\end{itemize}
-\end{itemize}
-\begin{note}
-A glvalue core constant expression
-that either refers to or points to an unspecified object
-is not a constant expression.
-\end{note}
-\begin{example}
-\begin{codeblock}
-consteval int f() { return 42; }
-consteval auto g() { return f; }
-consteval int h(int (*p)() = g()) { return p(); }
-constexpr int r = h();                          // OK
-constexpr auto e = g();                         // error: a pointer to an immediate function is
-                                                // not a permitted result of a constant expression
-
-struct S {
-  int x;
-  constexpr S() {}
+struct A {
+  int m;
+  const int& r;
 };
-int i() {
-  constexpr S s;                                // error: \tcode{s.x} has erroneous value
+void f() {
+  static int sx;
+  thread_local int tx;                  // \tcode{tx} is never constexpr-referenceable
+  int ax;
+  A aa = {1, 2};
+  static A sa = {3, 4};
+  // The objects \tcode{sx}, \tcode{ax}, and \tcode{aa.m}, \tcode{sa.m}, and the temporaries to which \tcode{aa.r} and \tcode{sa.r} are bound, are constexpr-referenceable.
+  auto lambda = [] {
+    int ay;
+    // The objects \tcode{sx}, \tcode{sa.m}, and \tcode{ay} (but not \tcode{ax} or \tcode{aa}), and the
+    // temporary to which \tcode{sa.r} is bound, are constexpr-referenceable.
+  };
 }
 \end{codeblock}
 \end{example}
 
 \pnum
-\recommended
-Implementations should provide consistent results of floating-point evaluations,
-irrespective of whether the evaluation is performed
-during translation or during program execution.
+An object or reference \tcode{x} is
+\defn{constexpr-representable} at a point $P$ if,
+for each constituent value of \tcode{x} that points to or past an object $o$,
+and for each constituent reference of \tcode{x} that refers to an object $o$,
+$o$ is constexpr-referenceable from $P$.
+
+\pnum
+\indextext{contract evaluation semantics!ignore}
+A variable \tcode{v} is \defn{constant-initializable} if
+\begin{itemize}
+\item
+the full-expression of its initialization is a constant expression
+when interpreted as a \grammarterm{constant-expression}
+with all contract assertions
+using the ignore evaluation semantic\iref{basic.contract.eval},
 \begin{note}
-Since this document
-imposes no restrictions on the accuracy of floating-point operations, it is unspecified whether the
-evaluation of a floating-point expression during translation yields the same result as the
-evaluation of the same expression (or the same operations on the same values) during program
-execution.
+In the course of this determination,
+\tcode{std::is_constant_evaluated()}\iref{meta.const.eval}
+has the value \keyword{true}.
+\end{note}
+\begin{note}
+Furthermore, if the initialization is manifestly constant-evaluated,
+its evaluation during translation
+can still evaluate contract assertions
+with other evaluation semantics,
+resulting in a diagnostic or ill-formed program
+if a contract violation occurs.
+\end{note}
+\item
+immediately after the initializing declaration of \tcode{v},
+the object or reference \tcode{x} declared by \tcode{v}
+is constexpr-representable, and
+\item
+if \tcode{x} has static or thread storage duration,
+\tcode{x} is constexpr-representable at the nearest point
+whose immediate scope is a namespace scope
+that follows the initializing declaration of \tcode{v}.
+\end{itemize}
+
+\pnum
+A constant-initializable variable is \defn{constant-initialized}
+if either it has an initializer or
+its type is const-default-constructible\iref{dcl.init.general}.
 \begin{example}
 \begin{codeblock}
-bool f() {
-    char array[1 + int(1 + 0.2 - 0.1 - 0.1)];   // Must be evaluated during translation
-    int size = 1 + int(1 + 0.2 - 0.1 - 0.1);    // May be evaluated at runtime
-    return sizeof(array) == size;
+void f() {
+  int ax = 0;                   // \tcode{ax} is constant-initialized
+  thread_local int tx = 0;      // \tcode{tx} is constant-initialized
+  static int sx;                // \tcode{sx} is not constant-initialized
+  static int& rss = sx;         // \tcode{rss} is constant-initialized
+  static int& rst = tx;         // \tcode{rst} is not constant-initialized
+  static int& rsa = ax;         // \tcode{rsa} is not constant-initialized
+  thread_local int& rts = sx;   // \tcode{rts} is constant-initialized
+  thread_local int& rtt = tx;   // \tcode{rtt} is not constant-initialized
+  thread_local int& rta = ax;   // \tcode{rta} is not constant-initialized
+  int& ras = sx;                // \tcode{ras} is constant-initialized
+  int& rat = tx;                // \tcode{rat} is not constant-initialized
+  int& raa = ax;                // \tcode{raa} is constant-initialized
 }
 \end{codeblock}
-It is unspecified whether the value of \tcode{f()} will be \tcode{true} or \tcode{false}.
 \end{example}
-\end{note}
+
+\pnum
+A variable is \defn{potentially-constant} if
+it is constexpr or
+it has reference or non-volatile const-qualified integral or enumeration type.
+
+\pnum
+A constant-initialized potentially-constant variable $V$ is
+\defn{usable in constant expressions} at a point $P$ if
+$V$'s initializing declaration $D$ is reachable from $P$ and
+\begin{itemize}
+\item $V$ is constexpr,
+\item $V$ is not initialized to a TU-local value, or
+\item $P$ is in the same translation unit as $D$.
+\end{itemize}
+
+\pnum
+An object or reference is
+\defn{potentially usable in constant expressions} at point $P$ if it is
+\begin{itemize}
+\item
+the object or reference declared by a variable
+that is usable in constant expressions at $P$,
+\item
+a temporary object of non-volatile const-qualified literal type
+whose lifetime is extended\iref{class.temporary}
+to that of a variable that is usable in constant expressions at $P$,
+\item
+a template parameter object\iref{temp.param},
+\item
+a string literal object\iref{lex.string},
+\item
+a non-mutable subobject of any of the above, or
+\item
+a reference member of any of the above.
+\end{itemize}
+
+\pnum
+An object or reference is \defn{usable in constant expressions} at point $P$
+if it is an object or reference
+that is potentially usable in constant expressions at $P$ and
+is constexpr-representable at $P$.
+\begin{example}
+\begin{codeblock}
+struct A {
+  int* const & r;
+};
+void f(int x) {
+  constexpr A a = {&x};
+  static_assert(a.r == &x);             // OK
+  [&] {
+    static_assert(a.r != nullptr);      // error: \tcode{a.r} is not usable in constant expressions at this point
+  }();
+}
+\end{codeblock}
+\end{example}
+
+\rSec2[expr.const.imm]{Immediate functions}
 
 \pnum
 An expression or conversion is in an \defn{immediate function context}
@@ -9113,7 +9258,7 @@ its enclosing statement is enclosed\iref{stmt.pre} by
 the \grammarterm{compound-statement} of a consteval if statement\iref{stmt.if}.
 \end{itemize}
 An invocation is an \defn{immediate invocation}
-if it is a potentially-evaluated explicit or implicit invocation of
+if it is a potentially evaluated explicit or implicit invocation of
 an immediate function and
 is not in an immediate function context.
 An aggregate initialization is an immediate invocation
@@ -9125,7 +9270,7 @@ that has a subexpression that is an immediate-escalating expression.
 \indexdefn{conversion!immediate-escalating}%
 \indexdefn{immediate-escalating!expression|see{expression, immediate-escalating}}%
 \indexdefn{immediate-escalating!conversion|see{conversion, immediate-escalating}}%
-A potentially-evaluated expression or conversion is \defn{immediate-escalating}
+A potentially evaluated expression or conversion is \defn{immediate-escalating}
 if it is neither initially in an immediate function context
 nor a subexpression of an immediate invocation, and
 \begin{itemize}
@@ -9146,20 +9291,24 @@ An \defnx{immediate-escalating}{function!immediate-escalating} function is
 the call operator of a lambda that is not declared
 with the \keyword{consteval} specifier,
 \item
-a defaulted special member function
+a non-user-provided defaulted function
 that is not declared with the \keyword{consteval} specifier, or
 \item
-a function that results from the instantiation
+a function that is not a prospective destructor and
+that results from the instantiation
 of a templated entity defined with the \keyword{constexpr} specifier.
 \end{itemize}
 An immediate-escalating expression shall appear only
 in an immediate-escalating function.
 
 \pnum
-An \defnadj{immediate}{function} is a function that is either
+An \defnadj{immediate}{function} is a function that is
 \begin{itemize}
 \item
-declared with the \keyword{consteval} specifier, or
+declared with the \keyword{consteval} specifier,
+\item
+an immediate-escalating function
+whose type is consteval-only\iref{basic.types.general}, or
 \item
 an immediate-escalating function \tcode{\placeholder{F}}
 whose function body contains either
@@ -9175,6 +9324,8 @@ a base or member subobject\iref{class.base.init}
 are considered to be part of the function body\iref{dcl.fct.def.general}.
 \end{tailnote}
 \end{itemize}
+
+\pnum
 \begin{example}
 \begin{codeblock}
 consteval int id(int i) { return i; }
@@ -9241,52 +9392,7 @@ const int i3 = l(3);    // static initialization; value of \tcode{3}
 \end{codeblock}
 \end{example}
 
-\pnum
-An expression or conversion is \defn{manifestly constant-evaluated}
-if it is:
-\begin{itemize}
-\item a \grammarterm{constant-expression}, or
-\item the condition of a constexpr if statement\iref{stmt.if}, or
-\item an immediate invocation, or
-\item the result of substitution into an atomic constraint expression
-to determine whether it is satisfied\iref{temp.constr.atomic}, or
-\item the initializer of a variable
-that is usable in constant expressions or
-has constant initialization\iref{basic.start.static}.
-\begin{footnote}
-Testing this condition
-can involve a trial evaluation of its initializer,
-with evaluations of contract assertions
-using the ignore evaluation semantic\iref{basic.contract.eval},
-as described above.
-\end{footnote}
-\begin{example}
-\begin{codeblock}
-template<bool> struct X {};
-X<std::is_constant_evaluated()> x;                      // type \tcode{X<true>}
-int y;
-const int a = std::is_constant_evaluated() ? y : 1;     // dynamic initialization to 1
-double z[a];                                            // error: \tcode{a} is not usable
-                                                        // in constant expressions
-const int b = std::is_constant_evaluated() ? 2 : y;     // static initialization to 2
-int c = y + (std::is_constant_evaluated() ? 2 : y);     // dynamic initialization to \tcode{y+y}
-
-constexpr int f() {
-  const int n = std::is_constant_evaluated() ? 13 : 17; // \tcode{n} is 13
-  int m = std::is_constant_evaluated() ? 13 : 17;       // \tcode{m} can be 13 or 17 (see below)
-  char arr[n] = {}; // char[13]
-  return m + sizeof(arr);
-}
-int p = f();                                            // \tcode{m} is 13; initialized to 26
-int q = p + f();                                        // \tcode{m} is 17 for this call; initialized to 56
-\end{codeblock}
-\end{example}
-\end{itemize}
-\begin{note}
-Except for a \grammarterm{static_assert-message},
-a manifestly constant-evaluated expression
-is evaluated even in an unevaluated operand\iref{term.unevaluated.operand}.
-\end{note}
+\rSec2[expr.const.reflect]{Reflection}
 
 \pnum
 The evaluation of an expression can introduce
@@ -9334,6 +9440,8 @@ letting $P$ be a point whose immediate scope is that to which $E$ belongs,
 there is a function parameter scope or class scope
 that encloses exactly one of $C$ or $P$.
 \end{itemize}
+
+\pnum
 \begin{example}
 \begin{codeblock}
 struct S0 {
@@ -9383,50 +9491,156 @@ consteval {                                 // \#1
   std::meta::define_aggregate(^^S7, {});    // error: consteval block \#1 does not enclose itself,
                                             // but encloses \tcode{S7}
 
+  struct S8;                                // local class
   consteval {                               // \#2
     std::meta::define_aggregate(^^S6, {});  // error: consteval block \#1 encloses
                                             // consteval block \#2 but not \tcode{S6}
 
-    std::meta::define_aggregate(^^S7, {});  // OK, consteval block \#1 encloses both \#2 and \tcode{S7}
+    std::meta::define_aggregate(^^S8, {});  // OK, consteval block \#1 encloses both \#2 and \tcode{S8}
   }
 }
 \end{codeblock}
 \end{example}
 
 \pnum
-The \defn{evaluation context} is a set of program points
-that determines the behavior of certain functions
-used for reflection\iref{meta.reflection}.
+During an evaluation $V$\iref{intro.execution} of
+an expression, conversion, or initialization $E$
+as a core constant expression, the
+\indextext{point of!evaluation}%
+\indextext{point!of evaluation}%
+\indextext{evaluation!point of evaluation, during}%
+\defnx{point of evaluation of $E$ during $V$}{point of evaluation during evaluation}
+is the program point $P$ determined as follows:
+\begin{itemize}
+\item
+If $E$ is a potentially-evaluated subexpression of
+a default member initializer $I$, and
+$V$ is the evaluation of $E$ in the evaluation of $I$
+as an immediate subexpression of a (possibly aggregate) initialization, then
+$P$ is the point of evaluation of that initialization.
+\begin{tailnote}
+For example,
+$E$ can be an immediate invocation in a default member initializer
+used by an aggregate initialization appearing at $P$.
+\end{tailnote}
+
+\item
+Otherwise,
+if $E$ is a potentially-evaluated subexpression of
+a default argument $A$\iref{dcl.fct.default}, and
+$V$ is the evaluation of $E$ in the evaluation of $A$ as
+an immediate subexpression of a function call\iref{expr.call}, then
+$P$ is the point of evaluation of that function call.
+
+\item
+Otherwise,
+$P$ is the point at which $E$ appears.
+\end{itemize}
 During the evaluation $V$ of an expression $E$ as a core constant expression,
-the evaluation context of an evaluation $X$\iref{intro.execution}
-consists of the following points:
+the \defnadj{evaluation}{context} of an evaluation $X$
+during $V$ is the set $C$ of program points determined as follows:
 \begin{itemize}
 \item
-The program point $\textit{EVAL-PT}(L)$,
-where $L$ is the point at which $E$ appears, and
-where $\textit{EVAL-PT}(P)$, for a point $P$,
-is a point $R$ determined as follows:
+If $X$ occurs during the evaluation $Y$ of
+a manifestly constant-evaluated expression,
+where $Y$ occurs during $V$, then
+$C$ is the evaluation context of $X$ during $Y$.
+\item
+Otherwise, $C$ contains
+  \begin{itemize}
+  \item
+  the point of evaluation of $E$ during $V$ and
+  each synthesized point in the instantiation context thereof and
+  \item
+  each synthesized point corresponding to an injected declaration
+  produced by any evaluation executed during $V$ that
+  is sequenced before $X$\iref{intro.execution}.
+  \end{itemize}
+\end{itemize}
+\begin{note}
+The evaluation context determines the behavior of certain functions
+used for reflection\iref{meta.reflection}.
+\end{note}
+\begin{example}
+\begin{codeblock}
+struct S;
+consteval std::size_t f(int p) {
+  constexpr std::size_t r = /* @\tcode{Q}@ */
+    std::meta::is_complete_type(^^S) ? 1 : 2;   // \#1
+  if (!std::meta::is_complete_type(^^S)) {      // \#2
+    std::meta::define_aggregate(^^S, {});
+  }
+  return (p > 0) ? f(p - 1) : r;
+}
+
+consteval {
+  if (f(1) != 2) {
+    throw;                                      // OK, not evaluated
+  }
+}
+\end{codeblock}
+During each evaluation of
+\tcode{std::meta::is_complete_type(\caret\caret{}S)}
+at \#1\iref{meta.reflection.queries} that is
+executed during the evaluation of \tcode{f(1) != 2},
+the evaluation context contains \tcode{Q},
+but does not contain the synthesized point
+associated with the injected declaration of \tcode{S}.
+However, the synthesized point is in the evaluation context of
+\tcode{std::meta::is_complete_type(\caret\caret{}S)} at \#2
+during the evaluation of \tcode{f(0)}.
+\end{example}
+
+\rSec2[expr.const.defns]{Further definitions}
+
+\pnum
+An expression or conversion is \defn{manifestly constant-evaluated}
+if it is
 \begin{itemize}
-\item
-If a potentially-evaluated subexpression\iref{intro.execution} of
-a default member initializer $I$ appears at $P$, and
-a (possibly aggregate) initialization during $V$ is using $I$,
-then $R$ is $\textit{EVAL-PT}(Q)$
-where $Q$ is the point at which that initialization appears.
-\item
-Otherwise, if a potentially-evaluated subexpression of
-a default argument\iref{dcl.fct.default} appears at $P$, and
-an invocation of a function\iref{expr.call} during $V$
-is using that default argument,
-then $R$ is $\textit{EVAL-PT}(Q)$
-where $Q$ is the point at which that invocation appears.
-\item
-Otherwise, $R$ is $P$.
+\item a \grammarterm{constant-expression}, or
+\item the condition of a constexpr if statement\iref{stmt.if}, or
+\item the expression corresponding to
+a \grammarterm{consteval-block-declaration}\iref{dcl.pre}, or
+\item an immediate invocation, or
+\item the result of substitution into an atomic constraint expression
+to determine whether it is satisfied\iref{temp.constr.atomic}, or
+\item the initializer of a variable
+that is usable in constant expressions or
+has constant initialization\iref{basic.start.static}.
+\begin{footnote}
+Testing this condition
+can involve a notional evaluation of its initializer,
+with evaluations of contract assertions
+using the ignore evaluation semantic\iref{basic.contract.eval},
+as described above.
+\end{footnote}
+\begin{example}
+\begin{codeblock}
+template<bool> struct X {};
+X<std::is_constant_evaluated()> x;                      // type \tcode{X<true>}
+int y;
+const int a = std::is_constant_evaluated() ? y : 1;     // dynamic initialization to 1
+double z[a];                                            // error: \tcode{a} is not usable
+                                                        // in constant expressions
+const int b = std::is_constant_evaluated() ? 2 : y;     // static initialization to 2
+int c = y + (std::is_constant_evaluated() ? 2 : y);     // dynamic initialization to \tcode{y+y}
+
+constexpr int f() {
+  const int n = std::is_constant_evaluated() ? 13 : 17; // \tcode{n} is 13
+  int m = std::is_constant_evaluated() ? 13 : 17;       // \tcode{m} can be 13 or 17 (see below)
+  char arr[n] = {};                                     // \tcode{char[13]}
+  return m + sizeof(arr);
+}
+int p = f();                                            // \tcode{m} is 13; initialized to 26
+int q = p + f();                                        // \tcode{m} is 17 for this call; initialized to 56
+\end{codeblock}
+\end{example}
 \end{itemize}
-\item
-Each synthesized point corresponding to an injected declaration produced by
-any evaluation sequenced before $X$\iref{intro.execution}.
-\end{itemize}
+\begin{note}
+Except for a \grammarterm{static_assert-message},
+a manifestly constant-evaluated expression
+is evaluated even in an unevaluated operand\iref{term.unevaluated.operand}.
+\end{note}
 
 \pnum
 \indextext{expression!potentially constant evaluated}%
@@ -9437,7 +9651,7 @@ if it is:
 a manifestly constant-evaluated expression,
 
 \item
-a potentially-evaluated expression\iref{basic.def.odr},
+a potentially evaluated expression\iref{basic.def.odr},
 
 \item
 an immediate subexpression of a \grammarterm{braced-init-list},
@@ -9469,6 +9683,21 @@ that is potentially constant evaluated, or
 
 \item
 a potentially-constant variable named by a potentially constant evaluated expression.
+\end{itemize}
+
+\pnum
+An object \tcode{a} is said to have \defnadj{constant}{destruction} if
+\begin{itemize}
+\item
+  it is not of class type nor (possibly multidimensional) array thereof, or
+\item
+  it is of class type or (possibly multidimensional) array thereof,
+  that class type has a constexpr destructor\iref{dcl.constexpr}, and
+  for a hypothetical expression $E$
+  whose only effect is to destroy \tcode{a},
+  $E$ would be a core constant expression
+  if the lifetime of \tcode{a} and its non-mutable subobjects
+  (but not its mutable subobjects) were considered to start within $E$.
 \end{itemize}
 
 \indextext{expression|)}

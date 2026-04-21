@@ -107,22 +107,6 @@ struct S {};
 
 \rSec2[diff.cpp23.dcl.dcl]{\ref{dcl}: declarations}
 
-\diffref{dcl.decl.general}
-\change
-Introduction of \tcode{trivially_relocatable_if_eligible} and
-\tcode{replaceable_if_eligible} as identifiers with special meaning\iref{lex.name}.
-\rationale
-Support declaration of trivially relocatable and replaceable types\iref{class.prop}.
-\effect
-Valid \CppXXIII{} code can become ill-formed.
-\begin{example}
-\begin{codeblock}
-struct C {};
-struct C replaceable_if_eligible {};    // was well-formed (new variable \tcode{replaceable_if_eligible})
-                                        // now ill-formed (redefines \tcode{C})
-\end{codeblock}
-\end{example}
-
 \diffref{dcl.init.list}
 \change
 Pointer comparisons between \tcode{initializer_list} objects' backing arrays
@@ -238,6 +222,23 @@ Type deduction from \#1 does not succeed;
 type deductions from \#2 and \#3 both succeed.
 \end{example}
 
+\rSec2[diff.cpp23.cpp]{\ref{cpp}: preprocessing directives}
+
+\diffref{cpp.replace.general}
+\change
+Additional restrictions on macro names.
+\rationale
+Avoid hard to diagnose or non-portable constructs.
+\effect
+Keywords,
+names of identifiers with special meaning\iref{lex.name},
+and (unless otherwise specified) \grammarterm{attribute-token}{s}
+specified in \ref{dcl.attr}
+may not be used as macro names.
+For example, valid \CppXXIII{} code that
+defines \tcode{post} or \tcode{pre} as macros
+is invalid in this revision of \Cpp{}.
+
 \rSec2[diff.cpp23.library]{\ref{library}: library introduction}
 
 \diffref{headers}
@@ -262,17 +263,6 @@ The following \Cpp{} headers are new:
 Valid \CppXXIII{} code that \tcode{\#include}{s} headers with these names may be
 invalid in this revision of \Cpp{}.
 
-\diffref{res.on.macro.definitions}
-\change
-Additional restrictions on macro names.
-\rationale
-Avoid hard to diagnose or non-portable constructs.
-\effect
-Names of special identifiers may not be used as macro names.
-Valid \CppXXIII{} code that defines \tcode{replaceable_if_eligible} or
-\tcode{trivially_relocatable_if_eligible} as macros is invalid
-in this revision of \Cpp{}.
-
 \rSec2[diff.cpp23.mem]{\ref{mem}: memory management library}
 
 \diffref{c.malloc}
@@ -284,32 +274,6 @@ The C standard library does not define this behavior.
 \effect
 Valid \CppXXIII{} code that calls \tcode{realloc}
 with a non-null pointer and a size of zero is erroneous and may change behavior.
-
-\rSec2[diff.cpp23.containers]{\ref{containers}: containers library}
-
-\diffref{span.overview}
-\change
-\tcode{span<const T>} is constructible from \tcode{initializer_list<T>}.
-\rationale
-Permit passing a braced initializer list to a function taking \tcode{span}.
-\effect
-Valid \CppXXIII{} code that relies on the lack of this constructor
-may refuse to compile, or change behavior in this revision of \Cpp{}.
-\begin{example}
-\begin{codeblock}
-void one(pair<int, int>);       // \#1
-void one(span<const int>);      // \#2
-void t1() { one({1, 2}); }      // ambiguous between \#1 and \#2; previously called \#1
-
-void two(span<const int, 2>);
-void t2() { two({{1, 2}}); }    // ill-formed; previously well-formed
-
-void *a[10];
-int x = span<void* const>{a, 0}.size();     // \tcode{x} is \tcode{2}; previously \tcode{0}
-any b[10];
-int y = span<const any>{b, b + 10}.size();  // \tcode{y} is \tcode{2}; previously \tcode{10}
-\end{codeblock}
-\end{example}
 
 \rSec2[diff.cpp23.strings]{\ref{strings}: strings library}
 
@@ -2943,11 +2907,10 @@ Seldom.
 
 \diffref{basic.types}
 \change
-C allows ``compatible types'' in several places, \Cpp{} does not.\\
+C allows mixing between ``compatible types'' in several places where \Cpp{} does not.\\
 For example,
-otherwise-identical \keyword{struct} types with different tag names
-are ``compatible'' in C but are distinctly different types
-in \Cpp{}.
+enumerated types are ``compatible'' with their underlying types in C but, in \Cpp{},
+enumerations are types distinct from their underlying types.
 \rationale
 Stricter type checking is essential for \Cpp{}.
 \effect
@@ -2955,9 +2918,8 @@ Deletion of semantically well-defined feature.
 \difficulty
 Semantic transformation.
 The ``typesafe linkage'' mechanism will find many, but not all,
-of such problems.
-Those problems not found by typesafe linkage will continue to
-function properly,
+such problems.
+Some cases are allowed by \Cpp{}
 according to the ``layout compatibility rules'' of this
 document.
 \howwide
@@ -3041,6 +3003,33 @@ a \keyword{bool} lvalue
 (for instance, via the C typedef in \libheaderref{stdbool.h})
 is ill-formed in \Cpp{}.
 
+\diffref{expr.unary.op}
+\change
+In certain contexts,
+taking the address of a dereferenced null or past-the-end pointer value
+is well-defined in C (and yields the original pointer value),
+but results in undefined behavior in \Cpp{}.
+\begin{example}
+\begin{codeblock}
+void f() {
+  char *p = nullptr;
+  char *p2 = &*p;       // well-defined in C, undefined behavior in \Cpp{}
+  char *p3 = &p[0];     // well-defined in C, undefined behavior in \Cpp{}
+  int a[5];
+  int *q = &a[5];       // well-defined in C, undefined behavior in \Cpp{}
+}
+\end{codeblock}
+\end{example}
+\rationale
+Consistent treatment of lvalues in \Cpp{}.
+\effect
+Well-formed and well-defined C code exhibits undefined behavior in \Cpp{}.
+\difficulty
+Syntactic transformation to pointer arithmetic
+and possible addition of a check for null pointer values.
+\howwide
+Occasionally.
+
 \diffref{expr.sizeof,expr.cast}
 \change
 In \Cpp{}, types can only be defined in declarations, not in expressions.\\
@@ -3078,8 +3067,8 @@ using a unary \tcode{+}.
 \begin{codeblock}
 int arr1[5];
 int arr2[5];
-int same = arr1 == arr2;        // valid C, ill-formed C++
-int idem = arr1 == +arr2;       // valid in both C and C++
+int same = arr1 == arr2;        // valid C, ill-formed \Cpp{}
+int idem = arr1 == +arr2;       // valid \Cpp{}, constraint violation in C
 \end{codeblock}
 \end{example}
 \howwide
@@ -3164,6 +3153,24 @@ For several years, many existing C implementations have produced warnings in
 this case.
 
 \rSec2[diff.dcl]{\ref{dcl}: declarations}
+
+\diffref{dcl.pre}
+\change
+In \Cpp{}, no declaration of a variable can have \cv{} \tcode{void} type.
+In C, this is allowed, unless the declaration is a definition.
+\begin{example}
+\begin{codeblock}
+extern void x;  // valid C, invalid in \Cpp{}
+\end{codeblock}
+\end{example}
+\rationale
+Stricter type checking in \Cpp{}.
+\effect
+Deletion of semantically well-defined feature.
+\difficulty
+Syntactic transformation.
+\howwide
+Seldom.
 
 \diffref{dcl.stc}
 \change
@@ -3431,14 +3438,15 @@ Common.
 
 \diffref{dcl.enum}
 \change
-In \Cpp{}, the type of an enumerator is its enumeration. In C, the type of an enumerator is \keyword{int}.
+In \Cpp{}, the type of an enumerator is its enumeration. In C, the type of an enumerator is an integer type.
 
 \begin{example}
 \begin{codeblock}
 enum e { A };
-sizeof(A) == sizeof(int)        // in C
-sizeof(A) == sizeof(e)          // in \Cpp{}
-/* and @sizeof(int)@ is not necessarily equal to @sizeof(e)@ */
+void f() {
+  auto x = A;
+  int *p = &x;                  // valid C, invalid \Cpp{}
+}
 \end{codeblock}
 \end{example}
 
@@ -3450,10 +3458,6 @@ Change to semantics of well-defined feature.
 Semantic transformation.
 \howwide
 Seldom.
-The only time this affects existing C code is when the size of an
-enumerator is taken.
-Taking the size of an enumerator is not a
-common C coding practice.
 
 \diffref{dcl.align}
 \change

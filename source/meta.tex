@@ -69,6 +69,47 @@ The type \tcode{make_integer_sequence<T, N>} is an alias for the type
 \end{note}
 \end{itemdescr}
 
+\rSec2[intseq.binding]{Structured binding support}
+
+\indexlibraryglobal{tuple_size}%
+\indexlibraryglobal{tuple_element}%
+\begin{itemdecl}
+template<class T, T... Values>
+  struct tuple_size<integer_sequence<T, Values...>>
+    : integral_constant<size_t, sizeof...(Values)> { };
+
+template<size_t I, class T, T... Values>
+  struct tuple_element<I, integer_sequence<T, Values...>> {
+    using type = T;
+  };
+template<size_t I, class T, T... Values>
+  struct tuple_element<I, const integer_sequence<T, Values...>> {
+    using type = T;
+  };
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+$\tcode{I} < \tcode{sizeof...(Values)}$.
+\end{itemdescr}
+
+\indexlibrarymember{get}{integer_sequence}%
+\begin{itemdecl}
+template<size_t I, class T, T... Values>
+  constexpr T get(integer_sequence<T, Values...>) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+$\tcode{I} < \tcode{sizeof...(Values)}$.
+
+\pnum
+\returns
+\tcode{Values...[I]}.
+\end{itemdescr}
+
 \rSec1[type.traits]{Metaprogramming and type traits}
 
 \rSec2[type.traits.general]{General}
@@ -127,7 +168,7 @@ A \defnoldconcept{TransformationTrait}
 modifies a property
 of a type. It shall be a class template that takes one
 template type argument and, optionally, additional arguments that help
-define the modification. It shall define a publicly accessible nested type
+define the modification. It shall declare a publicly accessible nested type
 named \tcode{type}, which shall be a synonym for the modified type.
 
 \pnum
@@ -164,22 +205,6 @@ namespace std {
   using @\libglobal{true_type}@  = bool_constant<true>;
   using @\libglobal{false_type}@ = bool_constant<false>;
 
-  // \ref{const.wrap.class}, class template \tcode{constant_wrapper}
-  template<class T>
-    struct @\exposidnc{cw-fixed-value}@;                                      // \expos
-
-  template<@\exposidnc{cw-fixed-value}@ X, class = typename decltype(X)::@\exposid{type}@>
-    struct constant_wrapper;
-
-  template<class T>
-    concept @\defexposconceptnc{constexpr-param}@ =                                   // \expos
-      requires { typename constant_wrapper<T::value>; };
-
-  struct @\exposidnc{cw-operators}@;                                          // \expos
-
-  template<@\exposid{cw-fixed-value}@ X>
-    constexpr auto @\libglobal{cw}@ = constant_wrapper<X>{};
-
   // \ref{meta.unary.cat}, primary type categories
   template<class T> struct is_void;
   template<class T> struct is_null_pointer;
@@ -210,16 +235,14 @@ namespace std {
   template<class T> struct is_const;
   template<class T> struct is_volatile;
   template<class T> struct is_trivially_copyable;
-  template<class T> struct is_trivially_relocatable;
-  template<class T> struct is_replaceable;
   template<class T> struct is_standard_layout;
   template<class T> struct is_empty;
   template<class T> struct is_polymorphic;
   template<class T> struct is_abstract;
   template<class T> struct is_final;
   template<class T> struct is_aggregate;
-  template<class T> struct is_consteval_only;
 
+  template<class T> struct is_structural;
   template<class T> struct is_signed;
   template<class T> struct is_unsigned;
   template<class T> struct is_bounded_array;
@@ -263,7 +286,6 @@ namespace std {
   template<class T> struct is_nothrow_swappable;
 
   template<class T> struct is_nothrow_destructible;
-  template<class T> struct is_nothrow_relocatable;
 
   template<class T> struct is_implicit_lifetime;
 
@@ -461,8 +483,6 @@ namespace std {
   template<class T>
     constexpr bool @\libglobal{is_trivially_copyable_v}@ = is_trivially_copyable<T>::value;
   template<class T>
-    constexpr bool @\libglobal{is_trivially_relocatable_v}@ = is_trivially_relocatable<T>::value;
-  template<class T>
     constexpr bool @\libglobal{is_standard_layout_v}@ = is_standard_layout<T>::value;
   template<class T>
     constexpr bool @\libglobal{is_empty_v}@ = is_empty<T>::value;
@@ -475,7 +495,7 @@ namespace std {
   template<class T>
     constexpr bool @\libglobal{is_aggregate_v}@ = is_aggregate<T>::value;
   template<class T>
-    constexpr bool @\libglobal{is_consteval_only_v}@ = is_consteval_only<T>::value;
+    constexpr bool @\libglobal{is_structural_v}@ = is_structural<T>::value;
   template<class T>
     constexpr bool @\libglobal{is_signed_v}@ = is_signed<T>::value;
   template<class T>
@@ -545,11 +565,7 @@ namespace std {
   template<class T>
     constexpr bool @\libglobal{is_nothrow_destructible_v}@ = is_nothrow_destructible<T>::value;
   template<class T>
-    constexpr bool @\libglobal{is_nothrow_relocatable_v}@ = is_nothrow_relocatable<T>::value;
-  template<class T>
     constexpr bool @\libglobal{is_implicit_lifetime_v}@ = is_implicit_lifetime<T>::value;
-  template<class T>
-    constexpr bool @\libglobal{is_replaceable_v}@ = is_replaceable<T>::value;
   template<class T>
     constexpr bool @\libglobal{has_virtual_destructor_v}@ = has_virtual_destructor<T>::value;
   template<class T>
@@ -615,7 +631,8 @@ namespace std {
 
   // \ref{meta.const.eval}, constant evaluation context
   constexpr bool is_constant_evaluated() noexcept;
-  consteval bool is_within_lifetime(const auto*) noexcept;
+  template<class U = void, class T>
+    consteval bool is_within_lifetime(const T*) noexcept;
 }
 \end{codeblock}
 
@@ -646,269 +663,6 @@ its associated \grammarterm{typedef-name}{s}
 \tcode{true_type} and \tcode{false_type}
 are used as base classes to define
 the interface for various type traits.
-
-\rSec2[const.wrap.class]{Class template \tcode{constant_wrapper}}
-
-\begin{codeblock}
-namespace std {
-  template<class T>
-  struct @\exposidnc{cw-fixed-value}@ {                                                         // \expos
-    using @\exposidnc{type}@ = T;                                                               // \expos
-    constexpr @\exposidnc{cw-fixed-value}@(@\exposidnc{type}@ v) noexcept : @\exposidnc{data}@(v) {}
-    T @\exposidnc{data}@;                                                                       // \expos
-  };
-
-  template<class T, size_t Extent>
-  struct @\exposidnc{cw-fixed-value}@<T[Extent]> {                                              // \expos
-    using @\exposidnc{type}@ = T[Extent];                                                       // \expos
-    constexpr @\exposidnc{cw-fixed-value}@(T (&arr)[Extent]) noexcept;
-    T @\exposidnc{data}@[Extent];                                                               // \expos
-  };
-
-  template<class T, size_t Extent>
-    @\exposidnc{cw-fixed-value}@(T (&)[Extent]) -> @\exposidnc{cw-fixed-value}@<T[Extent]>;                   // \expos
-
-  struct @\exposidnc{cw-operators}@ {                                                           // \expos
-    // unary operators
-    template<@\exposconcept{constexpr-param}@ T>
-      friend constexpr auto operator+(T) noexcept -> constant_wrapper<(+T::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ T>
-      friend constexpr auto operator-(T) noexcept -> constant_wrapper<(-T::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ T>
-      friend constexpr auto operator~(T) noexcept -> constant_wrapper<(~T::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ T>
-      friend constexpr auto operator!(T) noexcept -> constant_wrapper<(!T::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ T>
-      friend constexpr auto operator&(T) noexcept -> constant_wrapper<(&T::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ T>
-      friend constexpr auto operator*(T) noexcept -> constant_wrapper<(*T::value)>
-        { return {}; }
-
-    // binary operators
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator+(L, R) noexcept -> constant_wrapper<(L::value + R::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator-(L, R) noexcept -> constant_wrapper<(L::value - R::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator*(L, R) noexcept -> constant_wrapper<(L::value * R::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator/(L, R) noexcept -> constant_wrapper<(L::value / R::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator%(L, R) noexcept -> constant_wrapper<(L::value % R::value)>
-        { return {}; }
-
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator<<(L, R) noexcept -> constant_wrapper<(L::value << R::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator>>(L, R) noexcept -> constant_wrapper<(L::value >> R::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator&(L, R) noexcept -> constant_wrapper<(L::value & R::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator|(L, R) noexcept -> constant_wrapper<(L::value | R::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator^(L, R) noexcept -> constant_wrapper<(L::value ^ R::value)>
-        { return {}; }
-
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      requires (!is_constructible_v<bool, decltype(L::value)> ||
-                !is_constructible_v<bool, decltype(R::value)>)
-        friend constexpr auto operator&&(L, R) noexcept
-          -> constant_wrapper<(L::value && R::value)>
-            { return {}; }
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      requires (!is_constructible_v<bool, decltype(L::value)> ||
-                !is_constructible_v<bool, decltype(R::value)>)
-        friend constexpr auto operator||(L, R) noexcept
-          -> constant_wrapper<(L::value || R::value)>
-            { return {}; }
-
-    // comparisons
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator<=>(L, R) noexcept
-        -> constant_wrapper<(L::value <=> R::value)>
-          { return {}; }
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator<(L, R) noexcept -> constant_wrapper<(L::value < R::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator<=(L, R) noexcept -> constant_wrapper<(L::value <= R::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator==(L, R) noexcept -> constant_wrapper<(L::value == R::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator!=(L, R) noexcept -> constant_wrapper<(L::value != R::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator>(L, R) noexcept -> constant_wrapper<(L::value > R::value)>
-        { return {}; }
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator>=(L, R) noexcept -> constant_wrapper<(L::value >= R::value)>
-        { return {}; }
-
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator,(L, R) noexcept = delete;
-    template<@\exposconcept{constexpr-param}@ L, @\exposconcept{constexpr-param}@ R>
-      friend constexpr auto operator->*(L, R) noexcept -> constant_wrapper<L::value->*(R::value)>
-        { return {}; }
-
-    // call and index
-    template<@\exposconcept{constexpr-param}@ T, @\exposconcept{constexpr-param}@... Args>
-      constexpr auto operator()(this T, Args...) noexcept
-        requires requires { constant_wrapper<T::value(Args::value...)>(); }
-          { return constant_wrapper<T::value(Args::value...)>{}; }
-    template<@\exposconcept{constexpr-param}@ T, @\exposconcept{constexpr-param}@... Args>
-      constexpr auto operator[](this T, Args...) noexcept
-        -> constant_wrapper<(T::value[Args::value...])>
-          { return {}; }
-
-    // pseudo-mutators
-    template<@\exposconcept{constexpr-param}@ T>
-      constexpr auto operator++(this T) noexcept
-        requires requires(T::value_type x) { ++x; }
-          { return constant_wrapper<[] { auto c = T::value; return ++c; }()>{}; }
-    template<@\exposconcept{constexpr-param}@ T>
-      constexpr auto operator++(this T, int) noexcept
-        requires requires(T::value_type x) { x++; }
-          { return constant_wrapper<[] { auto c = T::value; return c++; }()>{}; }
-
-    template<@\exposconcept{constexpr-param}@ T>
-      constexpr auto operator--(this T) noexcept
-        requires requires(T::value_type x) { --x; }
-          { return constant_wrapper<[] { auto c = T::value; return --c; }()>{}; }
-    template<@\exposconcept{constexpr-param}@ T>
-      constexpr auto operator--(this T, int) noexcept
-        requires requires(T::value_type x) { x--; }
-          { return constant_wrapper<[] { auto c = T::value; return c--; }()>{}; }
-
-    template<@\exposconcept{constexpr-param}@ T, @\exposconcept{constexpr-param}@ R>
-      constexpr auto operator+=(this T, R) noexcept
-        requires requires(T::value_type x) { x += R::value; }
-          { return constant_wrapper<[] { auto v = T::value; return v += R::value; }()>{}; }
-    template<@\exposconcept{constexpr-param}@ T, @\exposconcept{constexpr-param}@ R>
-      constexpr auto operator-=(this T, R) noexcept
-        requires requires(T::value_type x) { x -= R::value; }
-          { return constant_wrapper<[] { auto v = T::value; return v -= R::value; }()>{}; }
-    template<@\exposconcept{constexpr-param}@ T, @\exposconcept{constexpr-param}@ R>
-      constexpr auto operator*=(this T, R) noexcept
-        requires requires(T::value_type x) { x *= R::value; }
-          { return constant_wrapper<[] { auto v = T::value; return v *= R::value; }()>{}; }
-    template<@\exposconcept{constexpr-param}@ T, @\exposconcept{constexpr-param}@ R>
-      constexpr auto operator/=(this T, R) noexcept
-        requires requires(T::value_type x) { x /= R::value; }
-          { return constant_wrapper<[] { auto v = T::value; return v /= R::value; }()>{}; }
-    template<@\exposconcept{constexpr-param}@ T, @\exposconcept{constexpr-param}@ R>
-      constexpr auto operator%=(this T, R) noexcept
-        requires requires(T::value_type x) { x %= R::value; }
-          { return constant_wrapper<[] { auto v = T::value; return v %= R::value; }()>{}; }
-    template<@\exposconcept{constexpr-param}@ T, @\exposconcept{constexpr-param}@ R>
-      constexpr auto operator&=(this T, R) noexcept
-        requires requires(T::value_type x) { x &= R::value; }
-          { return constant_wrapper<[] { auto v = T::value; return v &= R::value; }()>{}; }
-    template<@\exposconcept{constexpr-param}@ T, @\exposconcept{constexpr-param}@ R>
-      constexpr auto operator|=(this T, R) noexcept
-        requires requires(T::value_type x) { x |= R::value; }
-          { return constant_wrapper<[] { auto v = T::value; return v |= R::value; }()>{}; }
-    template<@\exposconcept{constexpr-param}@ T, @\exposconcept{constexpr-param}@ R>
-      constexpr auto operator^=(this T, R) noexcept
-        requires requires(T::value_type x) { x ^= R::value; }
-          { return constant_wrapper<[] { auto v = T::value; return v ^= R::value; }()>{}; }
-    template<@\exposconcept{constexpr-param}@ T, @\exposconcept{constexpr-param}@ R>
-      constexpr auto operator<<=(this T, R) noexcept
-        requires requires(T::value_type x) { x <<= R::value; }
-          { return constant_wrapper<[] { auto v = T::value; return v <<= R::value; }()>{}; }
-    template<@\exposconcept{constexpr-param}@ T, @\exposconcept{constexpr-param}@ R>
-      constexpr auto operator>>=(this T, R) noexcept
-        requires requires(T::value_type x) { x >>= R::value; }
-          { return constant_wrapper<[] { auto v = T::value; return v >>= R::value; }()>{}; }
-  };
-
-  template<@\exposid{cw-fixed-value}@ X, class>
-  struct @\libglobal{constant_wrapper}@ : @\exposid{cw-operators}@ {
-    static constexpr const auto & value = X.@\exposid{data}@;
-    using type = constant_wrapper;
-    using value_type = decltype(X)::@\exposid{type}@;
-
-    template<@\exposconcept{constexpr-param}@ R>
-      constexpr auto operator=(R) const noexcept
-        requires requires(value_type x) { x = R::value; }
-          { return constant_wrapper<[] { auto v = value; return v = R::value; }()>{}; }
-
-    constexpr operator decltype(auto)() const noexcept { return value; }
-  };
-}
-\end{codeblock}
-
-\pnum
-The class template \tcode{constant_wrapper} aids in metaprogramming by ensuring
-that the evaluation of expressions comprised entirely of \tcode{constant_wrapper}
-are core constant expressions\iref{expr.const},
-regardless of the context in which they appear.
-In particular, this enables use of \tcode{constant_wrapper} values
-that are passed as arguments to constexpr functions to be used in constant expressions.
-
-\pnum
-\begin{note}
-The unnamed second template parameter to \tcode{constant_wrapper} is present
-to aid argument-dependent lookup\iref{basic.lookup.argdep}
-in finding overloads for which \tcode{constant_wrapper}'s wrapped value is a suitable argument,
-but for which the \tcode{constant_wrapper} itself is not.
-\end{note}
-
-\pnum
-\begin{example}
-\begin{codeblock}
-  constexpr auto initial_phase(auto quantity_1, auto quantity_2) {
-    return quantity_1 + quantity_2;
-  }
-
-  constexpr auto middle_phase(auto tbd) {
-    return tbd;
-  }
-
-  void final_phase(auto gathered, auto available) {
-    if constexpr (gathered == available)
-      std::cout << "Profit!\n";
-  }
-
-  void impeccable_underground_planning() {
-    auto gathered_quantity = middle_phase(initial_phase(std::cw<42>, std::cw<13>));
-    static_assert(gathered_quantity == 55);
-    auto all_available = std::cw<55>;
-    final_phase(gathered_quantity, all_available);
-  }
-
-  void deeply_flawed_underground_planning() {
-    constexpr auto gathered_quantity = middle_phase(initial_phase(42, 13));
-    constexpr auto all_available = 55;
-    final_phase(gathered_quantity, all_available);  // error: \tcode{gathered == available}
-                                                    // is not a constant expression
-  }
-\end{codeblock}
-\end{example}
-
-\begin{itemdecl}
-constexpr @\exposid{cw-fixed-value}@(T (&arr)[Extent]) noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\effects
-Initialize elements of \exposid{data} with corresponding elements of \tcode{arr}.
-\end{itemdescr}
 
 \rSec2[meta.unary]{Unary type traits}
 
@@ -1135,20 +889,6 @@ the cv-qualification is subject to adjustment\iref{expr.type}.
  \tcode{remove_all_extents_t<T>} shall be a complete type or
  \cv{}~\keyword{void}.                               \\ \rowsep
 
-\indexlibraryglobal{is_trivially_relocatable}%
-\tcode{template<class T>}\br
- \tcode{struct is_trivially_relocatable;} &
- \tcode{T} is a trivially relocatable type\iref{basic.types.general} &
- \tcode{remove_all_extents_t<T>} shall be a complete type or
- \cv{}~\keyword{void}. \\ \rowsep
-
-\indexlibraryglobal{is_replaceable}%
-\tcode{template<class T>}\br
- \tcode{struct is_replaceable;} &
- \tcode{T} is a replaceable type\iref{basic.types.general} &
- \tcode{remove_all_extents_t<T>} shall be a complete type or
- \cv{}~\keyword{void}. \\ \rowsep
-
 \indexlibraryglobal{is_standard_layout}%
 \tcode{template<class T>}\br
  \tcode{struct is_standard_layout;}                 &
@@ -1195,10 +935,10 @@ A union is a class type that
  \tcode{T} is an aggregate type\iref{dcl.init.aggr} &
  \tcode{T} shall be an array type, a complete type, or \cv~\keyword{void}.              \\ \rowsep
 
-\indexlibraryglobal{is_consteval_only}%
+\indexlibraryglobal{is_structural}%
 \tcode{template<class T>}\br
-  \tcode{struct is_consteval_only;}           &
- \tcode{T} is consteval-only\iref{basic.types.general} &
+  \tcode{struct is_structural;}           &
+ \tcode{T} is a structural type\iref{temp.param} &
  \tcode{remove_all_extents_t<T>} shall be a complete type or \cv~\keyword{void}.        \\ \rowsep
 
 \indexlibrary{\idxcode{is_signed}!class}%
@@ -1517,16 +1257,6 @@ The compilation of the
   \cv{}~\keyword{void}, or an array of unknown
   bound.                \\ \rowsep
 
-\indexlibraryglobal{is_nothrow_relocatable}%
-\tcode{template<class T>}\br
- \tcode{struct is_nothrow_relocatable;} &
- \tcode{is_trivially_relocatable_v<T> ||}
- \tcode{(is_nothrow_move_constructible_v<}
- \tcode{remove_all_extents_t<T>> \&\& is_nothrow_destructible_v<}
- \tcode{remove_all_extents_t<T>>)} &
- \tcode{remove_all_extents_t<T>} shall be a complete type or
- \cv{}~\keyword{void}. \\ \rowsep
-
 \indexlibraryglobal{is_implicit_lifetime}%
 \tcode{template<class T>}\br
   \tcode{struct is_implicit_lifetime;} &
@@ -1556,6 +1286,8 @@ The compilation of the
   the initialization \tcode{T t(\exposidnc{VAL}<U>);} is
   well-formed and binds \tcode{t} to
   a temporary object whose lifetime is extended\iref{class.temporary}.
+  The full-expression of the variable initialization is
+  treated as an unevaluated operand\iref{expr.context}.
   Access checking is performed as if in
   a context unrelated to \tcode{T} and \tcode{U}.
   Only the validity of the immediate context of
@@ -1579,6 +1311,8 @@ The compilation of the
   the initialization \tcode{T t = \exposidnc{VAL}<U>;}
   is well-formed and binds \tcode{t} to
   a temporary object whose lifetime is extended\iref{class.temporary}.
+  The full-expression of the variable initialization is
+  treated as an unevaluated operand\iref{expr.context}.
   Access checking is performed as if in
   a context unrelated to \tcode{T} and \tcode{U}.
   Only the validity of the immediate context of
@@ -1647,6 +1381,8 @@ T t(declval<Args>()...);
 \begin{note}
 These tokens are never interpreted as a function declaration.
 \end{note}
+The full-expression of the variable initialization is
+treated as an unevaluated operand\iref{expr.context}.
 Access checking is performed as if in a context unrelated to \tcode{T}
 and any of the \tcode{Args}. Only the validity of the immediate context of the
 variable initialization is considered.
@@ -1945,7 +1681,8 @@ is_base_of_v<int, int>          // \tcode{false}
 \indexlibraryglobal{is_convertible}%
 \pnum
 The predicate condition for a template specialization \tcode{is_convertible<From, To>}
-shall be satisfied if and only if the return expression in the following code would be
+shall be satisfied if and only if
+the return statement\iref{stmt.return} in the following code would be
 well-formed, including any implicit conversions to the return type of the function:
 
 \begin{codeblock}
@@ -1959,9 +1696,11 @@ This requirement gives well-defined results for reference types,
 array types, function types, and \cv{}~\keyword{void}.
 \end{note}
 Access checking is performed
-in a context unrelated to \tcode{To} and \tcode{From}. Only the validity of
-the immediate context of the \grammarterm{expression} of the \tcode{return} statement\iref{stmt.return}
-(including initialization of the returned object or reference) is considered.
+in a context unrelated to \tcode{To} and \tcode{From}.
+The operand of the \tcode{return} statement
+(including initialization of the returned object or reference, if any)
+is treated as an unevaluated operand\iref{expr.context}, and
+only the validity of its immediate context is considered.
 \begin{note}
 The
 initialization can result in side effects such as the
@@ -2302,7 +2041,7 @@ argument passing.
  \tcode{template<class... T>} \tcode{struct common_type;}
  &
  Unless this trait is specialized,
- the member \tcode{type} is defined or omitted as specified below.
+ the member \tcode{type} is declared or omitted as specified below.
  If it is omitted, there shall be no member \tcode{type}.
  Each type in the template parameter pack \tcode{T} shall be
  complete, \cv{}~\keyword{void}, or an array of unknown bound. \\ \rowsep
@@ -2318,7 +2057,7 @@ argument passing.
 
 \tcode{template<class... T>} \tcode{struct \libglobal{common_reference};}
  &
- The member \grammarterm{typedef-name} \tcode{type} is defined or omitted
+ The member \grammarterm{typedef-name} \tcode{type} is declared or omitted
  as specified below. Each type in the parameter pack \tcode{T} shall
  be complete or \cv{} \keyword{void}. \\ \rowsep
 
@@ -2454,7 +2193,7 @@ If any of the types computed above is ill-formed, then
 
 \pnum
 For the \tcode{common_type} trait applied to a template parameter pack \tcode{T} of types,
-the member \tcode{type} shall be either defined or not present as follows:
+the member \tcode{type} shall be either declared or not present as follows:
 
 \begin{itemize}
 \item If \tcode{sizeof...(T)} is zero, there shall be no member \tcode{type}.
@@ -2527,7 +2266,7 @@ No diagnostic is required for a violation of this Note's rules.
 
 \pnum
 For the \tcode{common_reference} trait applied to a parameter pack
-\tcode{T} of types, the member \tcode{type} shall be either defined or not
+\tcode{T} of types, the member \tcode{type} shall be either declared or not
 present as follows:
 \begin{itemize}
 \item If \tcode{sizeof...(T)} is zero, there shall be no member \tcode{type}.
@@ -2597,7 +2336,7 @@ No diagnostic is required for a violation of these rules.
 
 \pnum
 \begin{example}
-Given these definitions:
+Given these declarations:
 \begin{codeblock}
 using PF1 = bool  (&)();
 using PF2 = short (*)(long);
@@ -2852,14 +2591,21 @@ constexpr void f(unsigned char *p, int n) {
 
 \indexlibraryglobal{is_within_lifetime}%
 \begin{itemdecl}
-consteval bool is_within_lifetime(const auto* p) noexcept;
+template<class U = void, class T>
+  consteval bool is_within_lifetime(const T* p) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
+\mandates
+\tcode{static_cast<const volatile U*>(p)} is well-formed.
+
+\pnum
 \returns
 \tcode{true} if \tcode{p} is a pointer to an object that is
-within its lifetime\iref{basic.life}; otherwise, \tcode{false}.
+within its lifetime\iref{basic.life} and
+\tcode{static_cast<const volatile U*>(p)} is a constant subexpression;
+otherwise, \tcode{false}.
 
 \pnum
 \remarks
@@ -2910,6 +2656,7 @@ static_assert(*engaged);
 
 \indexheader{meta}%
 \begin{codeblock}
+#include <compare>              // see \ref{compare.syn}
 #include <initializer_list>     // see \ref{initializer.list.syn}
 
 namespace std {
@@ -2930,7 +2677,7 @@ namespace std {
   template<ranges::@\libconcept{input_range}@ R>
     consteval const ranges::range_value_t<R>* define_static_string(R&& r);
   template<ranges::@\libconcept{input_range}@ R>
-    consteval span<const ranges::range_value_t<R>> define_static_array(R&& r);
+    consteval span<const ranges::range_value_t<R>, \seebelow> define_static_array(R&& r);
   template<class T>
     consteval const remove_cvref_t<T>* define_static_object(T&& r);
 }
@@ -3028,7 +2775,7 @@ namespace std::meta {
   consteval bool is_function_parameter(info r);
   consteval bool is_explicit_object_parameter(info r);
   consteval bool has_default_argument(info r);
-  consteval bool has_ellipsis_parameter(info r);
+  consteval bool is_vararg_function(info r);
 
   consteval bool is_template(info r);
   consteval bool is_function_template(info r);
@@ -3075,6 +2822,11 @@ namespace std::meta {
   consteval bool has_inaccessible_bases(info r, access_context ctx);
   consteval bool has_inaccessible_subobjects(info r, access_context ctx);
 
+  // \ref{meta.reflection.scope}, scope identification
+  consteval info current_function();
+  consteval info current_class();
+  consteval info current_namespace();
+
   // \ref{meta.reflection.member.queries}, reflection member queries
   consteval vector<info> members_of(info r, access_context ctx);
   consteval vector<info> bases_of(info type, access_context ctx);
@@ -3096,7 +2848,7 @@ namespace std::meta {
 
   // \ref{meta.reflection.extract}, value extraction
   template<class T>
-    consteval T extract(info);
+    consteval T extract(info r);
 
   // \ref{meta.reflection.substitute}, reflection substitution
   template<class R>
@@ -3109,9 +2861,9 @@ namespace std::meta {
 
   // \ref{meta.reflection.result}, expression result reflection
   template<class T>
-    consteval info reflect_constant(const T& value);
+    consteval info reflect_constant(T expr);
   template<class T>
-    consteval info reflect_object(T& object);
+    consteval info reflect_object(T& expr);
   template<class T>
     consteval info reflect_function(T& fn);
 
@@ -3120,7 +2872,7 @@ namespace std::meta {
   consteval info data_member_spec(info type, data_member_options options);
   consteval bool is_data_member_spec(info r);
   template<@\libconcept{reflection_range}@ R = initializer_list<info>>
-    consteval info define_aggregate(info type_class, R&&);
+    consteval info define_aggregate(info type_class, R&& mdescrs);
 
   // associated with \ref{meta.unary.cat}, primary type categories
   consteval bool is_void_type(info type);
@@ -3152,15 +2904,13 @@ namespace std::meta {
   consteval bool is_const_type(info type);
   consteval bool is_volatile_type(info type);
   consteval bool is_trivially_copyable_type(info type);
-  consteval bool is_trivially_relocatable_type(info type);
-  consteval bool is_replaceable_type(info type);
   consteval bool is_standard_layout_type(info type);
   consteval bool is_empty_type(info type);
   consteval bool is_polymorphic_type(info type);
   consteval bool is_abstract_type(info type);
   consteval bool is_final_type(info type);
   consteval bool is_aggregate_type(info type);
-  consteval bool is_consteval_only_type(info type);
+  consteval bool is_structural_type(info type);
   consteval bool is_signed_type(info type);
   consteval bool is_unsigned_type(info type);
   consteval bool is_bounded_array_type(info type);
@@ -3207,7 +2957,6 @@ namespace std::meta {
   consteval bool is_nothrow_swappable_type(info type);
 
   consteval bool is_nothrow_destructible_type(info type);
-  consteval bool is_nothrow_relocatable_type(info type);
 
   consteval bool is_implicit_lifetime_type(info type);
 
@@ -3281,6 +3030,9 @@ namespace std::meta {
 
   consteval size_t tuple_size(info type);
   consteval info tuple_element(size_t index, info type);
+  consteval bool is_applicable_type(info fn, info tuple);
+  consteval bool is_nothrow_applicable_type(info fn, info tuple);
+  consteval info apply_result(info fn, info tuple);
 
   consteval size_t variant_size(info type);
   consteval info variant_alternative(size_t index, info type);
@@ -3294,6 +3046,13 @@ Unless otherwise specified,
 each function, and each specialization of any function template,
 specified in this header
 is a designated addressable function\iref{namespace.std}.
+
+\pnum
+When a function or function template specialization $F$ specified in this header
+throws a \tcode{meta::exception} $E$,
+\tcode{$E$.from()} is a reflection representing $F$ and
+\tcode{$E$.where()} is a \tcode{source_location}
+representing from where the call to $F$ originated.
 
 \pnum
 The behavior of any function specified in namespace \tcode{std::meta} is
@@ -3328,8 +3087,15 @@ static_assert(size_of(^^X<int>) == sizeof(int));    // instantiates \tcode{X<int
 \pnum
 Any function in namespace \tcode{std::meta}
 whose return type is \tcode{string_view} or \tcode{u8string_view}
-returns an object \exposid{V} such that
-\tcode{\exposid{V}.data()[\exposid{V}.size()]} equals \tcode{'\textbackslash 0'}.
+returns an object \tcode{V} such that
+\tcode{V.data()[V.size()]} equals \tcode{'\textbackslash 0'}.
+Each element of the range
+$\tcode{V.data()} + \crange{0}{\tcode{V.size()}}$
+is a potentially non-unique object with static storage duration that
+is usable in constant expressions\iref{intro.object, expr.const};
+a pointer to such an element is not suitable for use as
+a template argument for a constant template parameter of
+pointer type\iref{temp.arg.nontype}.
 \begin{example}
 \begin{codeblock}
 struct C { };
@@ -3362,7 +3128,7 @@ consteval bool is_string_literal(const char32_t* p);
 \returns
 \begin{itemize}
 \item
-  If \tcode{p} points to an unspecified object\iref{expr.const},
+  If \tcode{p} points to an unspecified object\iref{expr.const.core},
   \tcode{false}.
 \item
   Otherwise, if \tcode{p} points to a subobject
@@ -3400,8 +3166,8 @@ Let \tcode{CharT} be \tcode{ranges::range_value_t<R>}.
 \pnum
 Let $V$ be the pack of values of type \tcode{CharT}
 whose elements are the corresponding elements of \tcode{r},
-except that if \tcode{r} refers to a string literal object,
-then $V$ does not include the trailing null terminator of \tcode{r}.
+except that if \tcode{r} is a reference to a string literal object,
+then $V$ does not include the terminating \unicode{0000}{null} character of \tcode{r}.
 
 \pnum
 Let $P$ be the template parameter object\iref{temp.param}
@@ -3426,31 +3192,46 @@ template<ranges::@\libconcept{input_range}@ R>
 
 \begin{itemdescr}
 \pnum
-Let \tcode{T} be \tcode{ranges::range_value_t<R>}.
+Let \tcode{U} be \tcode{ranges::range_value_t<R>} and
+\tcode{T} be \tcode{remove_all_extents_t<U>}.
 
 \pnum
 \mandates
-\tcode{T} is a structural type\iref{temp.param},
-\tcode{is_constructible_v<T, ranges::range_reference_t<R>>} is \tcode{true}, and
-\tcode{is_copy_constructible_v<T>} is \tcode{true}.
+\begin{itemize}
+\item \tcode{T} is a structural type\iref{temp.param},
+\item \tcode{T} satisfies \libconcept{copy_constructible}, and
+\item
+if \tcode{U} is not an array type, then
+\tcode{is_constructible_v<T, ranges::range_reference_t<R>>} is \tcode{true}.
+\end{itemize}
 
 \pnum
 Let $V$ be the pack of values of type \tcode{info}
 of the same size as \tcode{r},
-where the $i^\text{th}$ element is \tcode{reflect_constant($\tcode{e}_i$)},
-where $\tcode{e}_i$ is the $i^\text{th}$ element of \tcode{r}.
+where the $i^\text{th}$ element is
+\begin{itemize}
+\item
+\tcode{reflect_constant_array(*$\tcode{\placeholder{it}}_i$)}
+if \tcode{U} is an array type,
+\item
+\tcode{reflect_constant(static_cast<T>(*$\tcode{\placeholder{it}}_i$))}
+otherwise,
+\end{itemize}
+and $\tcode{\placeholder{it}}_i$ is an iterator to
+the $i^\text{th}$ element of \tcode{r}.
 
 \pnum
 Let $P$ be
 \begin{itemize}
 \item
-  If \tcode{sizeof...($V$) > 0} is \tcode{true},
-  then the template parameter object\iref{temp.param}
-  of type \tcode{const T[\brk{}sizeof...(\brk{}$V$)]}
-  initialized with \tcode{\{[:$V$:]...\}}.
+  the template parameter object\iref{temp.param}
+  of type \tcode{const T[sizeof...($V$)]},
+  such that \tcode{$P$[$I$]} is template-argument-equivalent\iref{temp.type}
+  to the object represented by \tcode{$V$...[$I$]}
+  for all $I$ in the range \range{0}{sizeof...($V$)}
+  if \tcode{sizeof...($V$) > 0} is \tcode{true}, otherwise
 \item
-  Otherwise, the template parameter object
-  of type \tcode{const array<T, 0>}
+  the template parameter object of type \tcode{const array<T, 0>}
   initialized with \tcode{\{\}}.
 \end{itemize}
 
@@ -3460,9 +3241,21 @@ Let $P$ be
 
 \pnum
 \throws
-\tcode{meta::exception} unless
-\tcode{reflect_constant(e)} is a constant subexpression
-for every element \tcode{e} of \tcode{r}.
+Any of
+\begin{itemize}
+\item
+an exception thrown by any operation
+on \tcode{r} or
+on iterators and sentinels referring to \tcode{r},
+\item
+an exception thrown
+by the evaluation of any argument of \tcode{reflect_constant} or
+by any evaluation of \tcode{reflect_constant_array}, or
+\item
+\tcode{meta::exception}
+if any invocation of \tcode{reflect_constant}
+would exit via an exception.
+\end{itemize}
 
 \pnum
 \begin{note}
@@ -3488,7 +3281,7 @@ return meta::extract<const ranges::range_value_t<R>*>(meta::reflect_constant_str
 \indexlibraryglobal{define_static_array}%
 \begin{itemdecl}
 template<ranges::@\libconcept{input_range}@ R>
-  consteval span<const ranges::range_value_t<R>> define_static_array(R&& r);
+  consteval span<const ranges::range_value_t<R>, \seebelow> define_static_array(R&& r);
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -3499,10 +3292,18 @@ Equivalent to:
 using T = ranges::range_value_t<R>;
 meta::info array = meta::reflect_constant_array(r);
 if (meta::is_array_type(meta::type_of(array))) {
-  return span<const T>(meta::extract<const T*>(array), meta::extent(meta::type_of(array)));
+  return span<const T, @\seebelow@>(meta::extract<const T*>(array),
+                                    meta::extent(meta::type_of(array)));
 } else {
-  return span<const T>();
+  return span<const T, @\seebelow@>(static_cast<const T*>(nullptr), 0);
 }
+
+\pnum
+\remarks
+The second template argument of the returned \tcode{span} type
+is \tcode{static_cast<size_t>(ranges::size(r))}
+if \tcode{ranges::size(r)} is a constant expression, and
+\tcode{dynamic_extent} otherwise.
 \end{codeblock}
 \end{itemdescr}
 
@@ -3518,8 +3319,12 @@ template<class T>
 Equivalent to:
 \begin{codeblock}
 using U = remove_cvref_t<T>;
-if constexpr (meta::is_class_type(^^U)) {
-  return addressof(meta::extract<const U&>(meta::reflect_constant(std::forward<T>(t))));
+if constexpr (meta::is_class_type(^^U) || meta::is_union_type(^^U)) {
+  return addressof(meta::extract<const U&>(
+                     meta::reflect_constant(std::forward<T>(t))));
+} else if constexpr (meta::is_array_type(^^U)) {
+  return addressof(meta::extract<const U&>(
+                     meta::reflect_constant_array(std::forward<T>(t))));
 } else {
   return define_static_array(span(addressof(t), 1)).data();
 }
@@ -3784,8 +3589,19 @@ consteval bool has_identifier(info r);
   Otherwise, if \tcode{r} represents an unnamed entity,
   then \tcode{false}.
 \item
-  Otherwise, if \tcode{r} represents a class type,
+  Otherwise, if \tcode{r} represents a type alias,
   then \tcode{!has_template_arguments(r)}.
+\item
+  Otherwise, if \tcode{r} represents a type,
+  then \tcode{true} if
+  \begin{itemize}
+  \item
+    \tcode{r} represents a cv-unqualified class type and
+    \tcode{has_template_arguments(r)} is \tcode{false}, or
+  \item
+    \tcode{r} represents a cv-unqualified enumeration type.
+  \end{itemize}
+  Otherwise, \tcode{false}.
 \item
   Otherwise, if \tcode{r} represents a function,
   then \tcode{true} if \tcode{has_template_arguments(r)} is \tcode{false}
@@ -3812,7 +3628,7 @@ consteval bool has_identifier(info r);
   Otherwise, if \tcode{r} represents the parameter $P$ of  a function $F$,
   then let $S$ be the set of declarations,
   ignoring any explicit instantiations,
-  that precede some point in the evaluation context
+  that are reachable from a point in the evaluation context
   and that declare either $F$ or a templated function
   of which $F$ is a specialization;
   \tcode{true} if
@@ -3854,9 +3670,6 @@ static_assert(!has_identifier(r));
   was instantiated from a structured binding pack.
   Otherwise, \tcode{true}.
 \item
-  Otherwise, if \tcode{r} represents a type alias,
-  then \tcode{!has_template_arguments(r)}.
-\item
   Otherwise, if \tcode{r} represents an
   enumerator,
   non-static-data member,
@@ -3867,9 +3680,11 @@ static_assert(!has_identifier(r));
   Otherwise, if \tcode{r} represents a direct base class relationship,
   then \tcode{has_identifier(type_of(r))}.
 \item
-  Otherwise, \tcode{r} represents a data member description
-  $(T, N, A, W, \mathit{NUA})$\iref{class.mem.general};
+  Otherwise, if \tcode{r} represents a data member description
+  $(T, N, A, W, \mathit{NUA}, \mathit{ANN})$\iref{class.mem.general};
   \tcode{true} if $N$ is not $\bot$.
+  Otherwise, \tcode{false}.
+\item
   Otherwise, \tcode{false}.
 \end{itemize}
 \end{itemdescr}
@@ -3901,7 +3716,7 @@ determined as follows:
   Otherwise, if \tcode{r} represents the parameter $P$ of a function $F$,
   then let $S$ be the set of declarations,
   ignoring any explicit instantiations,
-  that precede some point in the evaluation context
+  that are reachable from a point in the evaluation context
   and that declare either $F$
   or a templated function of which $F$ is a specialization;
   the name that was introduced by a declaration in $S$
@@ -3915,7 +3730,7 @@ determined as follows:
   respectively.
 \item
   Otherwise, \tcode{r} represents a data member description
-  $(T, N, A, W, NUA)$\iref{class.mem.general};
+  $(T, N, A, W, \mathit{NUA}, \mathit{ANN})$\iref{class.mem.general};
   a \tcode{string_view} or \tcode{u8string_view}, respectively,
   containing the identifier $N$.
 \end{itemize}
@@ -4030,7 +3845,7 @@ consteval info type_of(info r);
   \begin{itemize}
   \item
     If $E$ is defined by a declaration $D$
-    that precedes a point $P$ in the evaluation context
+    that is reachable from a point $P$ in the evaluation context
     and $P$ does not occur within an \grammarterm{enum-specifier} of $D$,
     then a reflection of $E$.
   \item
@@ -4043,7 +3858,7 @@ consteval info type_of(info r);
   a direct base class relationship $(D, B)$,
   then a reflection of $B$.
 \item
-  Otherwise, for a data member description $(T, N, A, W, \mathit{NUA})$\iref{class.mem.general},
+  Otherwise, for a data member description $(T, N, A, W, \mathit{NUA}, \mathit{ANN})$\iref{class.mem.general},
   a reflection of the type $T$.
 \end{itemize}
 
@@ -4085,7 +3900,7 @@ consteval info object_of(info r);
   and if that variable is a reference $R$, then either
   \begin{itemize}
   \item
-    $R$ is usable in constant expressions\iref{expr.const}, or
+    $R$ is usable in constant expressions\iref{expr.const.init}, or
   \item
     the lifetime of $R$ began within the core constant expression
     currently under evaluation.
@@ -4124,6 +3939,10 @@ Equivalent to:
 \begin{codeblock}
 if constexpr (is_annotation(@$R$@)) {
   return @$C$@;
+} else if constexpr (is_array_type(type_of(@$R$@))) {
+  return reflect_constant_array([: @$R$@ :]);
+} else if constexpr (is_function_type(type_of(@$R$@))) {
+  return reflect_function([: @$R$@ :]);
 } else {
   return reflect_constant([: @$R$@ :]);
 }
@@ -4311,7 +4130,7 @@ consteval bool is_bit_field(info r);
 \returns
 \tcode{true} if \tcode{r} represents a bit-field,
 or if \tcode{r} represents a data member description
-$(T, N, A, W, \mathit{NUA})$\iref{class.mem.general}
+$(T, N, A, W, \mathit{NUA},\brk{} \mathit{ANN})$\iref{class.mem.general}
 for which $W$ is not $\bot$.
 Otherwise, \tcode{false}.
 \end{itemdescr}
@@ -4344,7 +4163,7 @@ Otherwise, let $T$ be \tcode{dealias(r)}.
 
 \pnum
 \returns
-\tcode{true} if \tcode{T} represents a const or volatile type, respectively,
+\tcode{true} if $T$ represents a const or volatile type, respectively,
 or a const- or volatile-qualified function type, respectively.
 Otherwise, \tcode{false}.
 \end{itemdescr}
@@ -4404,13 +4223,11 @@ representing an object or variable having dynamic storage duration.
 \indexlibraryglobal{has_internal_linkage}%
 \indexlibraryglobal{has_module_linkage}%
 \indexlibraryglobal{has_external_linkage}%
-\indexlibraryglobal{has_c_language_linkage}%
 \indexlibraryglobal{has_linkage}%
 \begin{itemdecl}
 consteval bool has_internal_linkage(info r);
 consteval bool has_module_linkage(info r);
 consteval bool has_external_linkage(info r);
-consteval bool has_c_language_linkage(info r);
 consteval bool has_linkage(info r);
 \end{itemdecl}
 
@@ -4426,8 +4243,24 @@ namespace
 whose name has
 internal linkage,
 module linkage,
-C language linkage, or
+external linkage, or
 any linkage, respectively\iref{basic.link}.
+Otherwise, \tcode{false}.
+\end{itemdescr}
+
+\indexlibraryglobal{has_c_language_linkage}%
+\begin{itemdecl}
+consteval bool has_c_language_linkage(info r);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{true} if \tcode{r} represents a
+variable,
+function, or
+function type
+with C language linkage.
 Otherwise, \tcode{false}.
 \end{itemdescr}
 
@@ -4644,29 +4477,29 @@ If \tcode{r} represents a parameter $P$ of a function $F$, then:
 \item
   If $F$ is a specialization of a templated function $T$,
   then \tcode{true} if there exists a declaration $D$ of $T$
-  that precedes some point in the evaluation context
+  that is reachable from a point in the evaluation context
   and $D$ specifies a default argument
   for the parameter of $T$ corresponding to $P$.
   Otherwise, \tcode{false}.
 \item
   Otherwise, if there exists a declaration $D$ of $F$
-  that precedes some point in the evaluation context
+  that is reachable from a point in the evaluation context
   and $D$ specifies a default argument for $P$,
   then \tcode{true}.
 \end{itemize}
 Otherwise, \tcode{false}.
 \end{itemdescr}
 
-\indexlibraryglobal{has_ellipsis_parameter}%
+\indexlibraryglobal{is_vararg_function}%
 \begin{itemdecl}
-consteval bool has_ellipsis_parameter(info r);
+consteval bool is_vararg_function(info r);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \returns
 \tcode{true} if \tcode{r} represents a function or function type
-that has an ellipsis in its parameter-type-list\iref{dcl.fct}.
+that is a vararg function\iref{dcl.fct}.
 Otherwise, \tcode{false}.
 \end{itemdescr}
 
@@ -4910,12 +4743,9 @@ consteval info dealias(info r);
 \begin{itemdescr}
 \pnum
 \returns
-A reflection representing the underlying entity of what \tcode{r} represents.
-
-\pnum
-\throws
-\tcode{meta::exception} unless
-\tcode{r} represents an entity.
+If \tcode{r} represents an entity, then
+a reflection representing the underlying entity of what \tcode{r} represents.
+Otherwise, \tcode{r}.
 
 \pnum
 \begin{example}
@@ -5107,61 +4937,16 @@ and \tcode{\exposid{has-type}(r)} is \tcode{true}
 or \tcode{r} represents a function type.
 \end{itemdescr}
 
-\rSec2[meta.reflection.access.context]{Access control context}
+\rSec2[meta.reflection.scope]{Scope identification}
 
 \pnum
-The \tcode{access_context} class is a non-aggregate type
-that represents a namespace, class, or function
-from which queries pertaining to access rules may be performed,
-as well as the designating class\iref{class.access.base}, if any.
-
-\indexlibraryglobal{access_context}%
-\pnum
-An \tcode{access_context} has an associated scope and designating class.
-
-\indexlibraryglobal{access_context}%
-\begin{codeblock}
-namespace std::meta {
-  struct access_context {
-    access_context() = delete;
-
-    consteval info scope() const;
-    consteval info designating_class() const;
-
-    static consteval access_context current() noexcept;
-    static consteval access_context unprivileged() noexcept;
-    static consteval access_context unchecked() noexcept;
-    consteval access_context via(info cls) const;
-  };
-}
-\end{codeblock}
+The functions in this subclause retrieve information
+about where in the program they are invoked.
 
 \pnum
-\tcode{access_context} is a structural type.
-Two values \tcode{ac1} and \tcode{ac2} of type \tcode{access_context}
-are template-argument-equivalent\iref{temp.type}
-if \tcode{ac1.scope()} and \tcode{ac2.scope()}
-are template-argument-equivalent
-and \tcode{ac1.desig\-nating_class()} and \tcode{ac2.desig\-nating_class()}
-are template-argument-equivalent.
+None of the functions in this subclause
+is an addressable function\iref{namespace.std}.
 
-\begin{itemdecl}
-consteval info @\libmember{scope}{access_context}@() const;
-consteval info @\libmember{designating_class}{access_context}@() const;
-\end{itemdecl}
-
-\begin{itemdescr}
-\pnum
-\returns
-The \tcode{access_context}'s associated scope
-and designating class, respectively.
-\end{itemdescr}
-
-\begin{itemdecl}
-static consteval access_context @\libmember{current}{access_context}@() noexcept;
-\end{itemdecl}
-
-\begin{itemdescr}
 \pnum
 Given a program point $P$,
 let \tcode{\exposid{eval-point}($P$)} be the following program point:
@@ -5248,13 +5033,152 @@ let \tcode{\exposid{ctx-scope}($S$)} be the following scope:
 \end{itemize}
 
 \pnum
+Let \tcode{\exposid{CURRENT-SCOPE}($P$)} for a point $P$ be
+a reflection representing the function, class, or namespace
+whose corresponding
+function parameter scope,
+class scope, or
+namespace scope, respectively,
+is \tcode{\exposid{ctx-scope}($S$)},
+where $S$ is the immediate scope of \tcode{\exposid{eval-point}($P$)}.
+
+\indexlibraryglobal{current_function}%
+\begin{itemdecl}
+consteval info current_function();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+An invocation of \tcode{current_function} that appears at a program point $P$
+is value-dependent\iref{temp.dep.constexpr}
+if \tcode{\exposid{eval-point}($P$)}
+is enclosed by a scope corresponding to a templated entity.
+
+\pnum
+Let $S$ be \tcode{\exposid{CURRENT-SCOPE}($P$)},
+where $P$ is the point at which the invocation of
+\tcode{current_function} lexically appears.
+
+\pnum
+\returns
+$S$.
+
+\pnum
+\throws
+\tcode{meta::exception} unless $S$ represents a function.
+\end{itemdescr}
+
+\indexlibraryglobal{current_class}%
+\begin{itemdecl}
+consteval info current_class();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+An invocation of \tcode{current_class} that appears at a program point $P$
+is value-dependent\iref{temp.dep.constexpr}
+if \tcode{\exposid{eval-point}($P$)}
+is enclosed by a scope corresponding to a templated entity.
+
+\pnum
+Let $S$ be \tcode{\exposid{CURRENT-SCOPE}($P$)}
+where $P$ is the point at which the invocation of
+\tcode{current_class} lexically appears.
+
+\pnum
+\returns
+$S$ if $S$ represents a class.
+Otherwise, \tcode{parent_of($S$)}.
+
+\pnum
+\throws
+\tcode{meta::exception} unless $S$ represents
+either a class or a member function.
+\end{itemdescr}
+
+\indexlibraryglobal{current_namespace}%
+\begin{itemdecl}
+consteval info current_namespace();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+An invocation of \tcode{current_namespace} that appears at a program point $P$
+is value-dependent\iref{temp.dep.constexpr}
+if \tcode{\exposid{eval-point}($P$)}
+is enclosed by a scope corresponding to a templated entity.
+
+\pnum
+Let $S$ be \tcode{\exposid{CURRENT-SCOPE}($P$)}
+where $P$ is the point at which the invocation of
+\tcode{current_namespace} lexically appears.
+
+\pnum
+\returns
+$S$ if $S$ represents a namespace.
+Otherwise, a reflection representing the nearest enclosing namespace
+of the entity represented by $S$.
+\end{itemdescr}
+
+\rSec2[meta.reflection.access.context]{Access control context}
+
+\pnum
+The class \tcode{access_context}
+represents a namespace, class, or function
+from which queries pertaining to access rules may be performed,
+as well as the designating class\iref{class.access.base}, if any.
+
+\indexlibraryglobal{access_context}%
+\pnum
+An \tcode{access_context} has an associated scope and designating class.
+
+\indexlibraryglobal{access_context}%
+\begin{codeblock}
+namespace std::meta {
+  struct access_context {
+    access_context() = delete;
+
+    consteval info scope() const;
+    consteval info designating_class() const;
+
+    static consteval access_context current() noexcept;
+    static consteval access_context unprivileged() noexcept;
+    static consteval access_context unchecked() noexcept;
+    consteval access_context via(info cls) const;
+  };
+}
+\end{codeblock}
+
+\pnum
+The type \tcode{access_context} is a structural, consteval-only, non-aggregate type.
+Two values \tcode{ac1} and \tcode{ac2} of type \tcode{access_context}
+are template-argument-equivalent\iref{temp.type}
+if \tcode{ac1.scope()} and \tcode{ac2.scope()} are template-argument-equivalent
+and \tcode{ac1.designating_class()} and \tcode{ac2.designating_class()}
+are template-argument-equivalent.
+
+\begin{itemdecl}
+consteval info @\libmember{scope}{access_context}@() const;
+consteval info @\libmember{designating_class}{access_context}@() const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+The \tcode{access_context}'s associated scope
+and designating class, respectively.
+\end{itemdescr}
+
+\begin{itemdecl}
+static consteval access_context @\libmember{current}{access_context}@() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
 \returns
 An \tcode{access_context} whose designating class is the null reflection
-and whose scope represents the function, class, or namespace
-whose corresponding function parameter scope, class scope, or namespace scope, respectively,
-is \tcode{\exposid{ctx-scope}($S$)},
-where $S$ is the immediate scope of \tcode{\exposid{eval-point}($P$)}
-and $P$ is the point at which the invocation of \tcode{current} lexically appears.
+and whose scope is \tcode{\exposid{CURRENT-SCOPE}($P$)},
+where $P$ is the point at which the invocation of \tcode{current} lexically appears.
 
 \pnum
 \remarks
@@ -5429,14 +5353,8 @@ do not consider whether a declaration of that entity is reachable from $P$.
 \pnum
 \throws
 \tcode{meta::exception} if
-\begin{itemize}
-\item
   \tcode{r} represents a class member
-  for which \tcode{\exposid{PARENT-CLS}(r)} is an incomplete class or
-\item
-  \tcode{r} represents a direct base class relationship $(D, B)$
-  for which $D$ is incomplete.
-\end{itemize}
+  for which \tcode{\exposid{PARENT-CLS}(r)} is an incomplete class.
 
 \pnum
 \begin{example}
@@ -5473,13 +5391,14 @@ Otherwise, \tcode{false}.
 
 \pnum
 \throws
-\tcode{meta::exception} unless
+\tcode{meta::exception} if
 \begin{itemize}
 \item
-  \tcode{nonstatic_data_members_of(\brk{}r, access_context::\brk{}unchecked())}
-  is a constant subexpression and
+  the evaluation of
+  \tcode{nonstatic_data_members_of(r, access_context::unchecked())}
+  would exit via an exception or
 \item
-  \tcode{r} does not represent a closure type.
+  \tcode{r} represents a closure type.
 \end{itemize}
 \end{itemdescr}
 
@@ -5496,9 +5415,9 @@ Otherwise, \tcode{false}.
 
 \pnum
 \throws
-\tcode{meta::exception} unless
+\tcode{meta::exception} if the evaluation of
 \tcode{bases_of(r, access_context::unchecked())}
-is a constant subexpression.
+would exit via an exception.
 \end{itemdescr}
 
 \indexlibraryglobal{has_inaccessible_subobjects}%
@@ -5563,9 +5482,9 @@ if a $Q$-members-of-eligible declaration of $M$ members-of-precedes $P$,
 and $M$ is
 \begin{itemize}
 \item
-  a class or enumeration type
+  a class or enumeration type,
 \item
-  a type alias
+  a type alias,
 \item
   a class template, function template,
   variable template, alias template, or concept,
@@ -5822,7 +5741,7 @@ consteval size_t size_of(info r);
 If
 \begin{itemize}
 \item \tcode{r} represents a non-static data member of type $T$ or
-a data member description $(T, N, A, W, \mathit{NUA})$ or
+a data member description $(T, N, A, W, \mathit{NUA},\brk{} \mathit{ANN})$ or
 \item \tcode{dealias(r)} represents a type $T$,
 \end{itemize}
 then \tcode{sizeof($T$)} if $T$ is not a reference type
@@ -5850,8 +5769,8 @@ value,
 variable of non-reference type,
 non-static data member that is not a bit-field,
 direct base class relationship, or
-data member description $(T, N, A, W, \mathit{NUA})$\iref{class.mem.general}
-where $W$ is not $\bot$.
+data member description $(T, N, A, W, \mathit{NUA}, \mathit{ANN})$\iref{class.mem.general}
+where $W$ is $\bot$.
 \item
 If \tcode{dealias(r)} represents a type,
 then \tcode{is_complete_type(r)} is \tcode{true}.
@@ -5883,7 +5802,7 @@ consteval size_t alignment_of(info r);
   corresponding to $M$ of a complete object of type $C$.
 \item
   Otherwise, \tcode{r} represents a data member description
-  $(T, N, A, W, \mathit{NUA})$\iref{class.mem.general}.
+  $(T, N, A, W, \mathit{NUA}, \mathit{ANN})$\iref{class.mem.general}.
   If $A$ is not $\bot$,
   then the value $A$.
   Otherwise, \tcode{alignment_of(\reflexpr{$T$})}.
@@ -5901,7 +5820,9 @@ object,
 variable of non-reference type,
 non-static data member that is not a bit-field,
 direct base class relationship, or
-data member description.
+data member description
+$(T, N, A, W, \mathit{NUA}, \mathit{ANN})$\iref{class.mem.general}
+where $W$ is $\bot$.
 \item
 If \tcode{dealias(r)} represents a type,
 then \tcode{is_complete_type(r)} is \tcode{true}.
@@ -5925,7 +5846,7 @@ consteval size_t bit_size_of(info r);
   then $W$.
 \item
   Otherwise, if \tcode{r} represents a data member description
-  $(T, N, A, W, \mathit{NUA})$\iref{class.mem.general}
+  $(T, N, A, W, \mathit{NUA}, \mathit{ANN})$\iref{class.mem.general}
   and $W$ is not $\bot$,
   then $W$.
 \item
@@ -5962,20 +5883,33 @@ consteval vector<info> annotations_of(info item);
 
 \begin{itemdescr}
 \pnum
-Let $E$ be
-\begin{itemize}
-\item
-  the corresponding \grammarterm{base-specifier}
-  if \tcode{item} represents a direct base class relationship,
-\item
-  otherwise, the entity represented by \tcode{item}.
-\end{itemize}
+For a function $F$,
+let $S(F)$ be the set of declarations,
+ignoring any explicit instantiations,
+that declare either $F$ or
+a templated function of which $F$ is a specialization.
 
 \pnum
 \returns
 A \tcode{vector} containing all of the reflections $R$
-representing each annotation applying to each declaration of $E$ that precedes either
-some point in the evaluation context\iref{expr.const} or
+representing each annotation applying to:
+\begin{itemize}
+\item
+  if \tcode{item} represents a function parameter $P$ of a function $F$,
+  then the declaration of $P$ in each declaration of $F$ in $S(F)$,
+\item
+  otherwise, if \tcode{item} represents a function $F$,
+  then each declaration of $F$ in $S(F)$,
+\item
+  otherwise, if \tcode{item} represents
+  a direct base class relationship $(D, B)$,
+  then the corresponding \grammarterm{base-specifier}
+  in the definition of $D$,
+\item
+  otherwise, each declaration of the entity represented by \tcode{item},
+\end{itemize}
+such that each specified declaration is reachable from either
+some point in the evaluation context\iref{expr.const.reflect} or
 a point immediately following the \grammarterm{class-specifier}
 of the outermost class for which such a point is in a complete-class context.
 For any two reflections $R_1$ and $R_2$ in the returned \tcode{vector},
@@ -5996,6 +5930,7 @@ type,
 type alias,
 variable,
 function,
+function parameter,
 namespace,
 enumerator,
 direct base class relationship, or
@@ -6058,7 +5993,8 @@ is \tcode{true}, preserving their order.
 \tcode{meta::exception} unless
 \begin{itemize}
 \item
-  \tcode{annotations_of(item)} is a constant expression and
+  the evaluation of
+  \tcode{annotations_of(item)} would not exit via an exception and
 \item
   \tcode{dealias(type)} represents a type and
   \tcode{is_complete_type(type)} is \tcode{true}.
@@ -6182,7 +6118,8 @@ such that \tcode{$R$ == r} is \tcode{true}.
   and the cv-unqualified types of \tcode{T} and \tcode{U} are the same,
 \item
   \tcode{U} is an array type,
-  \tcode{T} is a pointer type, and
+  \tcode{T} is a pointer type,
+  \tcode{remove_extent_t<U>*} and \tcode{T} are similar types, and
   the value \tcode{r} represents is convertible to \tcode{T}, or
 \item
   \tcode{U} is a closure type,
@@ -6217,6 +6154,19 @@ if constexpr (is_reference_type(^^T)) {
 
 \rSec2[meta.reflection.substitute]{Reflection substitution}
 
+\pnum
+Let \tcode{\placeholder{TARG-SPLICE}(x)} be:
+\begin{itemize}
+\item
+\tcode{template [: x :]} if \tcode{is_template(x)} is \tcode{true}, otherwise
+
+\item
+\tcode{typename [: x :]} if \tcode{is_type(x)} is \tcode{true}, otherwise
+
+\item
+\tcode{([: x :])}.
+\end{itemize}
+
 \begin{itemdecl}
 template<class R>
 concept @\deflibconcept{reflection_range}@ =
@@ -6237,7 +6187,7 @@ in order.
 
 \pnum
 \returns
-\tcode{true} if \tcode{Z<[:Args:]...>} is a valid \grammarterm{template-id}\iref{temp.names}
+\tcode{true} if \tcode{Z<\placeholder{TARG-SPLICE}(Args)...>} is a valid \grammarterm{template-id}\iref{temp.names}
 that does not name a function
 whose type contains an undeduced placeholder type.
 Otherwise, \tcode{false}.
@@ -6251,7 +6201,7 @@ usable as a template argument\iref{temp.arg}.
 
 \pnum
 \begin{note}
-If forming \tcode{Z<[:Args:]...>} leads to a failure
+If forming \tcode{Z<\placeholder{TARG-SPLICE}(Args)...>} leads to a failure
 outside of the immediate context,
 the program is ill-formed.
 \end{note}
@@ -6272,7 +6222,7 @@ in order.
 
 \pnum
 \returns
-\tcode{\reflexpr{Z<[:Args:]...>}}.
+\tcode{\reflexpr{Z<\placeholder{TARG-SPLICE}(Args)...>}}.
 
 \pnum
 \throws
@@ -6281,7 +6231,7 @@ in order.
 
 \pnum
 \begin{note}
-If forming \tcode{Z<[:Args:]...>} leads to a failure outside of the immediate context,
+If forming \tcode{Z<\placeholder{TARG-SPLICE}(Args)...>} leads to a failure outside of the immediate context,
 the program is ill-formed.
 \end{note}
 
@@ -6403,9 +6353,11 @@ A reflection of the object designated by \tcode{expr}.
 
 \pnum
 \throws
-\tcode{meta::exception} unless
-\tcode{expr} is suitable for use as a constant template argument
-for a constant template parameter of type \tcode{T\&}\iref{temp.arg.nontype}.
+\tcode{meta::exception} if
+\tcode{E} is not suitable for use as a constant template argument
+for a constant template parameter of type \tcode{T\&}\iref{temp.arg.nontype},
+where \tcode{E} is an lvalue constant expression that
+computes the object that \tcode{expr} refers to.
 \end{itemdescr}
 
 \indexlibraryglobal{reflect_function}%
@@ -6425,9 +6377,11 @@ A reflection of the function designated by \tcode{fn}.
 
 \pnum
 \throws
-\tcode{meta::exception} unless
-\tcode{fn} is suitable for use as a constant template argument
-for a constant template parameter of type \tcode{T\&}\iref{temp.arg.nontype}.
+\tcode{meta::exception} if
+\tcode{F} is not suitable for use as a constant template argument
+for a constant template parameter of type \tcode{T\&}\iref{temp.arg.nontype},
+where \tcode{F} is an lvalue constant expression that
+computes the function that \tcode{fn} refers to.
 \end{itemdescr}
 
 \rSec2[meta.reflection.define.aggregate]{Reflection class definition generation}
@@ -6453,6 +6407,7 @@ namespace std::meta {
     optional<int> alignment;
     optional<int> bit_width;
     bool no_unique_address = false;
+    vector<info> annotations;
   };
 }
 \end{codeblock}
@@ -6513,7 +6468,7 @@ consteval info data_member_spec(info type, data_member_options options);
 \pnum
 \returns
 A reflection of a data member description
-$(T, N, A, W, \mathit{NUA})$\iref{class.mem.general} where
+$(T, N, A, W, \mathit{NUA}, \mathit{ANN})$\iref{class.mem.general} where
 \begin{itemize}
 \item
   $T$ is the type represented by \tcode{dealias(type)},
@@ -6525,9 +6480,12 @@ $(T, N, A, W, \mathit{NUA})$\iref{class.mem.general} where
   or $\bot$ if \tcode{options.alignment} does not contain a value,
 \item
   $W$ is either the value held by \tcode{options.bit_width}
-  or $\bot$ if \tcode{options.bit_width} does not contain a value, and
+  or $\bot$ if \tcode{options.bit_width} does not contain a value,
 \item
-  $\mathit{NUA}$ is the value held by \tcode{options.no_unique_address}.
+  $\mathit{NUA}$ is the value held by \tcode{options.no_unique_address}, and
+\item
+  $\mathit{ANN}$ is the sequence of values \tcode{constant_of(r)}
+  for each \tcode{r} in \tcode{options.annotations}.
 \end{itemize}
 \begin{note}
 The returned reflection value is primarily useful
@@ -6548,28 +6506,26 @@ it can also be queried by certain other functions in \tcode{std::meta}
   \item
     \tcode{holds_alternative<u8string>(options.name->\exposid{contents})} is \tcode{true}
     and \tcode{get<u8string>(\brk{}options.name->\exposid{contents})}
-    contains a valid identifier\iref{lex.name}
-    that is not a keyword\iref{lex.key}
+    contains the spelling of a valid \grammarterm{token}
+    that is an \grammarterm{identifier}\iref{lex.name}
     when interpreted with UTF-8, or
   \item
     \tcode{holds_alternative<string>(options.name->\exposid{contents})} is \tcode{true}
     and \tcode{get<string>(opt\-ions.name->\exposid{contents})}
-    contains a valid identifier\iref{lex.name}
-    that is not a keyword\iref{lex.key}
+    contains the spelling of a valid \grammarterm{token}
+    that is an \grammarterm{identifier}\iref{lex.name}
     when interpreted with the ordinary literal encoding;
   \end{itemize}
   \begin{note}
-  The name corresponds to the spelling of an identifier~token
-  after phase~6 of translation\iref{lex.phases}.
   Lexical constructs like
-  \grammarterm{universal-character-name}s\iref{lex.universal.char} are not processed
-  and will cause evaluation to fail.
+  \grammarterm{universal-character-name}s\iref{lex.universal.char} are not processed.
   For example, \tcode{R"(\textbackslash u03B1)"} is an invalid identifier
   and is not interpreted as \tcode{"$\alpha$"}.
   \end{note}
 \item
   if \tcode{options.name} does not contain a value,
-  then \tcode{options.bit_width} contains a value;
+  then \tcode{options.bit_width} contains a value and
+  \tcode{options.annotations} is empty;
 \item
   if \tcode{options.bit_width} contains a value $V$, then
   \begin{itemize}
@@ -6578,15 +6534,25 @@ it can also be queried by certain other functions in \tcode{std::meta}
   \item
     \tcode{options.alignment} does not contain a value,
   \item
-    \tcode{options.no_unique_address} is \tcode{false}, and
+    \tcode{options.no_unique_address} is \tcode{false},
+  \item
+    $V$ is not negative, and
   \item
     if $V$ equals \tcode{0},
     then \tcode{options.name} does not contain a value; and
+  \item
+    if \tcode{options.name} does not contain a value, then
+    \tcode{is_const(type) || is_volatile(type)} is \tcode{false}; and
   \end{itemize}
   \item
     if \tcode{options.alignment} contains a value,
     it is an alignment value\iref{basic.align}
-    not less than \tcode{alignment_of(type)}.
+    not less than \tcode{alignment_of(type)}; and
+  \item
+    for every reflection \tcode{r} in \tcode{options.annotations},
+    \tcode{\exposid{has-type}(r)} is \tcode{true},
+    \tcode{type_of(r)} represents a non-array object type, and
+    evaluation of \tcode{constant_of(r)} does not exit via an exception.
 \end{itemize}
 \end{itemdescr}
 
@@ -6610,15 +6576,17 @@ template<@\libconcept{reflection_range}@ R = initializer_list<info>>
 
 \begin{itemdescr}
 \pnum
-Let $C$ be the class represented by \tcode{class_type}
+Let $C$ be the type represented by \tcode{class_type}
 and $r_K$ be the $K^\text{th}$ reflection value in \tcode{mdescrs}.
 For every $r_K$ in \tcode{mdescrs},
-let $(T_K, N_K, A_K, W_K, \mathit{NUA}_K)$ be
+let $(T_K, N_K, A_K, W_K, \mathit{NUA}_K, \mathit{ANN}_K)$ be
 the corresponding data member description represented by $r_K$.
 
 \pnum
 \constantwhen
 \begin{itemize}
+\item
+  \tcode{class_type} represents a cv-unqualified class type;
 \item
   $C$ is incomplete from every point in the evaluation context;
   \begin{note}
@@ -6637,9 +6605,9 @@ the corresponding data member description represented by $r_K$.
   then either:
   \begin{itemize}
   \item
-    \tcode{$N_K$ != $N_L$} is \tcode{true} or
+    $N_K$ is not the same identifier as $N_L$ or
   \item
-    \tcode{$N_K$ == u8"_"} is \tcode{true}.
+    $N_K$ is the identifier \tcode{_} (\ucode{005f} low line).
     \begin{note}
     Every provided identifier is unique or \tcode{"_"}.
     \end{note}
@@ -6648,7 +6616,7 @@ the corresponding data member description represented by $r_K$.
 
 \pnum
 \effects
-Produces an injected declaration $D$\iref{expr.const}
+Produces an injected declaration $D$\iref{expr.const.reflect}
 that defines $C$ and has properties as follows:
 \begin{itemize}
 \item
@@ -6659,7 +6627,7 @@ that defines $C$ and has properties as follows:
   follows immediately after the core constant expression
   currently under evaluation.
 \item
-  The characteristic sequence of $D$\iref{expr.const}
+  The characteristic sequence of $D$\iref{expr.const.reflect}
   is the sequence of reflection values $r_K$.
 \item
   If $C$ is a specialization of a templated class $T$,
@@ -6668,6 +6636,7 @@ that defines $C$ and has properties as follows:
 \item
   For each $r_K$,
   there is a corresponding entity $M_K$
+  with public access
   belonging to the class scope of $D$
   with the following properties:
   \begin{itemize}
@@ -6675,7 +6644,7 @@ that defines $C$ and has properties as follows:
     If $N_K$ is $\bot$,
     $M_K$ is an unnamed bit-field.
     Otherwise, $M_K$ is a non-static data member whose name is the identifier
-    determined by the character sequence encoded by $N_K$ in UTF-8.
+    $N_K$.
   \item
     The type of $M_K$ is $T_K$.
   \item
@@ -6689,6 +6658,10 @@ that defines $C$ and has properties as follows:
     If $A_K$ is not $\bot$,
     $M_K$ has the \grammarterm{alignment-specifier} \tcode{alignas($A_K$)}.
     Otherwise, $M_K$ has no \grammarterm{alignment-specifier}.
+  \item
+    For every reflection \tcode{r} in $\mathit{ANN}_K$,
+    $M_K$ has an annotation
+    whose underlying constant\iref{dcl.attr.annotation} is \tcode{r}.
   \end{itemize}
   \item
     For every $r_L$ in \tcode{mdescrs} such that $K < L$,
@@ -6699,6 +6672,12 @@ that defines $C$ and has properties as follows:
 \pnum
 \returns
 \tcode{class_type}.
+
+\pnum
+\remarks
+If $C$ is a specialization of a templated class and
+it has not been instantiated,
+$C$ is treated as an explicit specialization.
 \end{itemdescr}
 
 \rSec2[meta.reflection.traits]{Reflection type traits}
@@ -6757,15 +6736,13 @@ consteval bool @\libglobal{is_member_pointer_type}@(info type);
 consteval bool @\libglobal{is_const_type}@(info type);
 consteval bool @\libglobal{is_volatile_type}@(info type);
 consteval bool @\libglobal{is_trivially_copyable_type}@(info type);
-consteval bool @\libglobal{is_trivially_relocatable_type}@(info type);
-consteval bool @\libglobal{is_replaceable_type}@(info type);
 consteval bool @\libglobal{is_standard_layout_type}@(info type);
 consteval bool @\libglobal{is_empty_type}@(info type);
 consteval bool @\libglobal{is_polymorphic_type}@(info type);
 consteval bool @\libglobal{is_abstract_type}@(info type);
 consteval bool @\libglobal{is_final_type}@(info type);
 consteval bool @\libglobal{is_aggregate_type}@(info type);
-consteval bool @\libglobal{is_consteval_only_type}@(info type);
+consteval bool @\libglobal{is_structural_type}@(info type);
 consteval bool @\libglobal{is_signed_type}@(info type);
 consteval bool @\libglobal{is_unsigned_type}@(info type);
 consteval bool @\libglobal{is_bounded_array_type}@(info type);
@@ -6812,7 +6789,6 @@ consteval bool @\libglobal{is_nothrow_swappable_with_type}@(info type1, info typ
 consteval bool @\libglobal{is_nothrow_swappable_type}@(info type);
 
 consteval bool @\libglobal{is_nothrow_destructible_type}@(info type);
-consteval bool @\libglobal{is_nothrow_relocatable_type}@(info type);
 
 consteval bool @\libglobal{is_implicit_lifetime_type}@(info type);
 
@@ -6882,6 +6858,41 @@ consteval info @\libglobal{unwrap_ref_decay}@(info type);
 \end{codeblock}
 
 \pnum
+For a function or function template $F$ defined in this subclause,
+let $C$ be its associated class template.
+For the evaluation of a call to $F$,
+let $S$ be the specialization of $C$ in terms of which the call is specified.
+\begin{itemize}
+\item
+  If
+  \begin{itemize}
+  \item
+    the template arguments of $S$ violate a condition specified
+    in a \Fundescx{Mandates} element in the specification of $C$;
+  \item
+    the call is specified to produce a reflection of a type,
+    but $S$ would have no member named \tcode{type}; or
+  \item
+    the call is specified to return \tcode{$S$::value},
+    but that expression would not be a valid converted constant expression of type \tcode{R},
+    where \tcode{R} is the return type of $F$;
+  \end{itemize}
+  then an exception of type \tcode{meta::exception} is thrown.
+  \begin{note}
+  For the first case, $S$ is not instantiated.
+  \end{note}
+  \item
+    Otherwise, if the instantiation of $S$ would result in undefined behavior
+    due to dependence on an incomplete type\iref{meta.rqmts},
+    then the call is not a constant subexpression.
+  \item
+    Otherwise, if the template arguments of $S$ do not meet the preconditions of $C$,
+    then it is unspecified whether the call is a constant subexpression.
+    If it is, the call produces the result
+    that would be produced if $C$ had no preconditions.
+\end{itemize}
+
+\pnum
 Each function or function template declared above has the following behavior
 based on the signature and return type of that function or function template.
 \begin{note}
@@ -6899,20 +6910,20 @@ The associated class template need not be instantiated.
 
 \tcode{bool meta::\placeholder{UNARY}(info type);\br
 bool meta::\placeholder{UNARY}_type(info type);}  &
-\tcode{std::\placeholder{UNARY}_v<$T$>},
+\tcode{std::\placeholder{UNARY}<$T$>::value},
 where $T$ is the type or type alias represented by \tcode{type}
 \\  \rowsep
 
 \tcode{bool meta::\placeholder{BINARY}(info t1, info t2);\br
 bool meta::\placeholder{BINARY}_type(info t1, info t2);}  &
-\tcode{std::\placeholder{BINARY}_v<$T_1$, $T_2$>},
+\tcode{std::\placeholder{BINARY}<$T_1$, $T_2$>::value},
 where $T_1$ and $T_2$ are the types or type aliases
 represented by \tcode{t1} and \tcode{t2}, respectively
 \\  \rowsep
 
 \tcode{template<reflection_range R>\br
   bool meta::\placeholder{VARIADIC}_type(info type, R\&\& args);}  &
-\tcode{std::\placeholder{VARIADIC}_v<$T$, $U$...>},
+\tcode{std::\placeholder{VARIADIC}<$T$, $U$...>::value},
 where $T$ is the type or type alias represented by \tcode{type}
 and \tcode{U...} is the pack of types or type aliases
 whose elements are represented by the corresponding elements of \tcode{args}
@@ -6920,7 +6931,7 @@ whose elements are represented by the corresponding elements of \tcode{args}
 
 \tcode{template<reflection_range R>\br
   bool meta::\placeholder{VARIADIC}_type(info t1, info t2, R\&\& args);}  &
-\tcode{std::\placeholder{VARIADIC}_v<$T_1$, $T_2$, $U$...>},
+\tcode{std::\placeholder{VARIADIC}<$T_1$, $T_2$, $U$...>::value},
 where $T_1$ and $T_2$ are the types or type aliases
 represented by \tcode{t1} and \tcode{t2}, respectively,
 and \tcode{$U$...} is the pack of types or type aliases
@@ -6929,14 +6940,14 @@ whose elements are represented by the corresponding elements of \tcode{args}
 
 \tcode{info meta::\placeholder{UNARY}(info type);}  &
 A reflection representing the type denoted by
-\tcode{std::\placeholder{UNARY}_t<\brk{}$T$>},
+\tcode{std::\placeholder{UNARY}<\brk{}$T$>::type},
 where $T$ is the type or type alias represented by \tcode{type}
 \\  \rowsep
 
 \tcode{template<reflection_range R>\br
   info meta::\placeholder{VARIADIC}(R\&\& args);}  &
 A reflection representing the type denoted by
-\tcode{std::\placeholder{VARIADIC}_t<$T$...>},
+\tcode{std::\placeholder{VARIADIC}<$T$...>::type},
 where \tcode{$T$...} is the pack of types or type aliases
 whose elements are represented by the corresponding elements of \tcode{args}
 \\  \rowsep
@@ -6944,7 +6955,7 @@ whose elements are represented by the corresponding elements of \tcode{args}
 \tcode{template<reflection_range R>\br
   info meta::\placeholder{VARIADIC}(info type, R\&\& args);}  &
 A reflection representing the type denoted by
-\tcode{std::\placeholder{VARIADIC}_t<$T$, $U$...>},
+\tcode{std::\placeholder{VARIADIC}<$T$, $U$...>::type},
 where \tcode{$T$} is the type or type alias represented by \tcode{type}
 and \tcode{$U$...} is the pack of types or type aliases
 whose elements are represented by the corresponding elements of \tcode{args}
@@ -6974,7 +6985,7 @@ consteval size_t rank(info type);
 \begin{itemdescr}
 \pnum
 \returns
-\tcode{rank_v<$T$>},
+\tcode{std::rank<$T$>::value},
 where $T$ is the type represented by \tcode{dealias(type)}.
 \end{itemdescr}
 
@@ -6986,7 +6997,7 @@ consteval size_t extent(info type, unsigned i = 0);
 \begin{itemdescr}
 \pnum
 \returns
-\tcode{extent_v<$T$, $I$>},
+\tcode{std::extent<$T$, $I$>::value},
 where $T$ is the type represented by \tcode{dealias(type)}
 and $I$ is a constant equal to \tcode{i}.
 \end{itemdescr}
@@ -6999,7 +7010,7 @@ consteval size_t tuple_size(info type);
 \begin{itemdescr}
 \pnum
 \returns
-\tcode{tuple_size_v<$T$>},
+\tcode{std::tuple_size<$T$>::value},
 where $T$ is the type represented by \tcode{dealias(type)}.
 \end{itemdescr}
 
@@ -7012,7 +7023,7 @@ consteval info tuple_element(size_t index, info type);
 \pnum
 \returns
 A reflection representing
-the type denoted by \tcode{tuple_element_t<$I$, $T$>},
+the type denoted by \tcode{std::tuple_element<$I$, $T$>::type},
 where $T$ is the type represented by \tcode{dealias(type)}
 and $I$ is a constant equal to \tcode{index}.
 \end{itemdescr}
@@ -7025,7 +7036,7 @@ consteval size_t variant_size(info type);
 \begin{itemdescr}
 \pnum
 \returns
-\tcode{variant_size_v<$T$>},
+\tcode{std::variant_size<$T$>::value},
 where $T$ is the type represented by \tcode{dealias(type)}.
 \end{itemdescr}
 
@@ -7038,7 +7049,7 @@ consteval info variant_alternative(size_t index, info type);
 \pnum
 \returns
 A reflection representing the type denoted by
-\tcode{variant_alternative_t<$I$, $T$>},
+\tcode{std::variant_alternative<$I$, $T$>::type},
 where $T$ is the type represented by \tcode{dealias(type)}
 and $I$ is a constant equal to \tcode{index}.
 \end{itemdescr}
@@ -7051,9 +7062,9 @@ consteval strong_ordering type_order(info t1, info t2);
 \begin{itemdescr}
 \pnum
 \returns
-\tcode{type_order_v<$T_1$, $T_2$>},
+\tcode{std::type_order<$T_1$, $T_2$>::value},
 where $T_1$ and $T_2$ are the types
-represented by \tcode{dealias(t1)} and \tcode{dealias(t2)}, respectively.
+represented by \tcode{de\-alias(\brk{}t1)} and \tcode{dealias(t2)}, respectively.
 \end{itemdescr}
 
 \rSec1[ratio]{Compile-time rational arithmetic}
@@ -7310,5 +7321,5 @@ For each of the \grammarterm{typedef-name}{s}
 \tcode{ronna}, and \tcode{quetta},
 if both of the constants used in its
 specification are representable by \tcode{intmax_t}, the typedef is
-defined; if either of the constants is not representable by \tcode{intmax_t},
-the typedef is not defined.
+declared; if either of the constants is not representable by \tcode{intmax_t},
+the typedef is not declared.
