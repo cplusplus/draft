@@ -143,6 +143,10 @@ grep -ne '\bconstexpr\b.*\sstatic\s' $texlib |
 grep -ne "using.*= typename" $texlib |
     fail 'type alias with typename' || failed=1
 
+# In library declarations, friend should not follow constexpr
+grep -ne '\bconstexpr\b.*\sfriend\s' $texlib |
+    fail 'constexpr friend' || failed=1
+
 # "Class" heading without namespace
 for f in $texlib; do
     sed -n '/rSec[0-9].*{Class/,/\\end{codeblock}/{/\\begin{example}/,/\\end{example}/b;/\\begin{codeblock}/,/\(^namespace\)\|\(\\end{codeblock}\)/{s/template<[^>]*>//;/\(class\|struct\)[A-Za-z0-9_: ]*{/{=;p;};};}' $f |
