@@ -1700,26 +1700,78 @@ class UseOfUndefinedCheck(Check):
         self.definition_pattern = definition_pattern
         self.usage_pattern = usage_pattern
         self.defined: Set[str] = set()
-        self.used: Dict[str, List[Tuple[str, int]]] = defaultdict(list)
+        self.used: Dict[str, List[Tuple[str, int, int, int]]] = defaultdict(list)
 
     def check_line(self, line_num: int, line: str) -> None:
         for m in self.definition_pattern.finditer(line):
             self.defined.add(m.group(1))
         for pattern in self.usage_pattern:
             for m in pattern.finditer(line):
-                name = m.group(1)
-                self.used[name].append((os.path.relpath(self.file_path), line_num))
+                for name in m.group(1).split(","):
+                    name = name.strip()
+                    if not name or name.startswith("\\"):
+                        continue
+                    self.used[name].append(
+                        (
+                            os.path.relpath(self.file_path),
+                            line_num,
+                            m.start(1),
+                            m.end(1),
+                        )
+                    )
 
     def end_checks(self) -> None:
         for name, locations in sorted(self.used.items()):
             if name not in self.defined:
-                file_name, line_num = locations[0]
+                file_name, line_num, column_start, column_end = locations[0]
                 emit_check_failure(
                     self,
                     file_name,
                     line_num,
-                    0,
-                    0,
+                    column_start,
+                    column_end,
+                    f"`{name}` has no definition.",
+                )
+
+
+class RefUndefinedCheck(Check):
+    """Checks whether any uses of `\\ref` or `\\iref` are dangling."""
+
+    SECTION_PATTERN = re.compile(r"\\rSec[0-9]\[([^\]]+)\]")
+    DEFINITION_PATTERN = re.compile(r"\\definition\{[^\}]*?\}\{(.+?)\}")
+    ETC_PATTERN = re.compile(r"\\(?:infannex|normannex|label)\{(.+?)\}")
+    DEFINING_PATTERNS = [SECTION_PATTERN, DEFINITION_PATTERN, ETC_PATTERN]
+
+    # TODO: Excluding `:` means that `tab:...` references are currently unchecked.
+    #       Maybe that could be added in the future,
+    #       but there are lots of different kinds of tables that could be defining.
+    REF_IREF_PATTERN = re.compile(r"\\i?ref\{([^}\\:]+)\}")
+
+    def __init__(self, check_id: str):
+        self.id = check_id
+        self.defined: Set[str] = set()
+        self.used: Dict[str, List[Tuple[str, int, int, int]]] = defaultdict(list)
+
+    def check_line(self, line_num: int, line: str) -> None:
+        for defining_pattern in self.DEFINING_PATTERNS:
+            for m in defining_pattern.finditer(line):
+                self.defined.add(m.group(1))
+        for m in self.REF_IREF_PATTERN.finditer(line):
+            for usage in m.group(1).split(","):
+                self.used[usage.strip()].append(
+                    (os.path.relpath(self.file_path), line_num, m.start(1), m.end(1))
+                )
+
+    def end_checks(self) -> None:
+        for name, locations in sorted(self.used.items()):
+            if name not in self.defined:
+                file_name, line_num, column_start, column_end = locations[0]
+                emit_check_failure(
+                    self,
+                    file_name,
+                    line_num,
+                    column_start,
+                    column_end,
                     f"`{name}` has no definition.",
                 )
 
@@ -1895,6 +1947,7 @@ CHECKS: List[Check] = [
     SubclausesWithoutSiblingsCheck("base-lonely-subclause"),
     UnknownCommandCheck("base-unknown-command"),
     SectionSelfReferenceCheck("base-self-ref"),
+    RefUndefinedCheck("base-ref-undef"),
     UseOfUndefinedCheck(
         "base-grammarterm-undef",
         definition_pattern=re.compile(r"\\nontermdef\{([^}]+)\}"),
