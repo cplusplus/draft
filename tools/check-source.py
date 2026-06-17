@@ -888,12 +888,12 @@ class Environment(Enum):
     FOOTNOTE = "footnote"
     EXAMPLE = "example"
 
-    def __init__(self, _name: str):
+    def __init__(self, name: str):
         self.begin_pattern: Pattern[str] = re.compile(
-            r"\\begin\{" + re.escape(_name) + r"\}"
+            r"\\begin\{" + re.escape(name) + r"\}"
         )
         self.end_pattern: Pattern[str] = re.compile(
-            r"\\end\{" + re.escape(_name) + r"\}"
+            r"\\end\{" + re.escape(name) + r"\}"
         )
 
 
@@ -930,7 +930,7 @@ class ExpectedFailure:
 # ==================================================================================================
 
 source_dir: Path = Path()
-_file_locations: Dict[str, Path] = {}
+file_locations: Dict[str, Path] = {}
 expected_registry: Dict[Tuple[str, int], ExpectedFailure] = {}
 
 # ==================================================================================================
@@ -1022,19 +1022,19 @@ def find_env_ranges(
     lines: List[str],
     env: Environment,
 ) -> List[Tuple[int, int]]:
-    begin_re = env.begin_pattern
-    end_re = env.end_pattern
+    begin_pattern = env.begin_pattern
+    end_pattern = env.end_pattern
     ranges: List[Tuple[int, int]] = []
     stack: List[int] = []
     for idx, line in enumerate(lines):
-        if begin_re.search(line):
+        if begin_pattern.search(line):
             stack.append(idx)
-        if end_re.search(line) and stack:
+        if end_pattern.search(line) and stack:
             ranges.append((stack.pop(), idx + 1))
     return ranges
 
 
-_unexpected_count = 0
+unexpected_count = 0
 
 
 def emit_check_failure(
@@ -1049,10 +1049,10 @@ def emit_check_failure(
     Prints a failure immediately (unless consumed by an expected-failure marker).
     Line numbers and columns follow the same convention as `Failure`.
     """
-    global _unexpected_count
+    global unexpected_count
     if consume_expected(file, line, check.id):
         return
-    _unexpected_count += 1
+    unexpected_count += 1
     fail = Failure(
         file=file,
         line=line,
@@ -1064,7 +1064,7 @@ def emit_check_failure(
     # Reading the file from scratch is very slow,
     # but we don't care because this is the unhappy path anyway,
     # and we usually don't expect failures anyway.
-    file_path = _file_locations[file]
+    file_path = file_locations[file]
     lines = read_file(file_path)
     print(format_failure(fail, lines), file=sys.stderr)
     print(file=sys.stderr)
@@ -1142,7 +1142,7 @@ class BannedPatternCheck(Check):
         )
 
 
-class _EnvRanges:
+class EnvRanges:
     """Pre-computed line ranges for a LaTeX environment within one file."""
 
     def __init__(self, lines: List[str], env: Environment):
@@ -1169,27 +1169,27 @@ class BannedPatternInEnvironmentCheck(Check):
         message: str,
     ):
         self.id = check_id
-        self._env = env
-        self._pattern = pattern
-        self._message = message
+        self.env = env
+        self.pattern = pattern
+        self.message = message
 
     def begin_file(self, file_path: Path, lines: List[str]) -> None:
         super().begin_file(file_path, lines)
-        self._ranges = _EnvRanges(lines, self._env)
+        self.ranges = EnvRanges(lines, self.env)
 
     def check_line(self, line_num: int, line: str) -> None:
-        if not self._ranges.contains(line_num):
+        if not self.ranges.contains(line_num):
             return
         if COMMENT_PATTERN.match(line):
             return
-        m = self._pattern.search(line)
+        m = self.pattern.search(line)
         if m is None:
             return
         self.fail(
             line_num,
             m.start(),
             m.end(),
-            self._message,
+            self.message,
         )
 
 
@@ -1238,20 +1238,20 @@ class ConsecutivePnumCheck(Check):
 
     def begin_file(self, file_path: Path, lines: List[str]) -> None:
         super().begin_file(file_path, lines)
-        self._prev_was_pnum = False
+        self.previous_was_pnum = False
 
     def check_line(self, line_num: int, line: str) -> None:
         if COMMENT_PATTERN.match(line):
             return
         is_pnum = line == "\\pnum"
-        if is_pnum and self._prev_was_pnum:
+        if is_pnum and self.previous_was_pnum:
             self.fail(
                 line_num,
                 0,
                 0,
                 "Two consecutive `\\pnum` found; remove the duplicate.",
             )
-        self._prev_was_pnum = is_pnum
+        self.previous_was_pnum = is_pnum
 
 
 class TailnoteTailexampleCheck(Check):
@@ -1263,12 +1263,12 @@ class TailnoteTailexampleCheck(Check):
 
     def begin_file(self, file_path: Path, lines: List[str]) -> None:
         super().begin_file(file_path, lines)
-        self._pending: Optional[Tuple[int, int, int]] = None
+        self.pending: Optional[Tuple[int, int, int]] = None
 
     def check_line(self, line_num: int, line: str) -> None:
         # Check whether the previous line should have used \\tailnote.
-        if self._pending is not None:
-            prev_line_num, cs, ce = self._pending
+        if self.pending is not None:
+            prev_line_num, cs, ce = self.pending
             if self.TAIL_PATTERN.search(line):
                 self.fail(
                     prev_line_num,
@@ -1277,11 +1277,11 @@ class TailnoteTailexampleCheck(Check):
                     "`\\end{note}` or `\\end{example}` appears at the end of a table cell; "
                     "use `\\tailnote` or `\\tailexample` instead.",
                 )
-            self._pending = None
+            self.pending = None
 
         m = self.END_PATTERN.search(line)
         if m is not None:
-            self._pending = (line_num, m.start(), m.end())
+            self.pending = (line_num, m.start(), m.end())
 
 
 class BlankLineExampleCodeblockCheck(Check):
@@ -1290,11 +1290,11 @@ class BlankLineExampleCodeblockCheck(Check):
 
     def begin_file(self, file_path: Path, lines: List[str]) -> None:
         super().begin_file(file_path, lines)
-        self._prev: Optional[str] = None
+        self.previous_line: Optional[str] = None
 
     def check_line(self, line_num: int, line: str) -> None:
         if (
-            self._prev == "\\begin{example}"
+            self.previous_line == "\\begin{example}"
             and line == ""
             and line_num + 1 < len(self.lines)
             and self.lines[line_num + 1] == "\\begin{codeblock}"
@@ -1306,7 +1306,7 @@ class BlankLineExampleCodeblockCheck(Check):
                 "Blank line between `\\begin{example}` and `\\begin{codeblock}`; "
                 "remove the empty line.",
             )
-        self._prev = line
+        self.previous_line = line
 
 
 class CommentAlignmentCheck(Check):
@@ -1324,13 +1324,13 @@ class CommentAlignmentCheck(Check):
 
     def begin_file(self, file_path: Path, lines: List[str]) -> None:
         super().begin_file(file_path, lines)
-        self._in_range: Set[int] = set()
+        self.in_range: Set[int] = set()
         for env in self.ENVIRONMENTS:
             for start, end in find_env_ranges(lines, env):
-                self._in_range.update(range(start, end))
+                self.in_range.update(range(start, end))
 
     def check_line(self, line_num: int, line: str) -> None:
-        if line_num not in self._in_range:
+        if line_num not in self.in_range:
             return
         m = self.CHECKED_COMMENT_PATTERN.search(line)
         if m is None:
@@ -1349,103 +1349,106 @@ class CommentAlignmentCheck(Check):
 
 
 class HangingParagraphsCheck(Check):
-    _rsec_re = re.compile(r"^\\rSec([0-9])")
+    SECTION_PATTERN = re.compile(r"^\\rSec([0-9])")
 
     def __init__(self, check_id: str):
         self.id = check_id
 
     def begin_file(self, file_path: Path, lines: List[str]) -> None:
         super().begin_file(file_path, lines)
-        self._prev_level = 0
-        self._prev_line = 0
-        self._prev_text = ""
-        self._has_text = False
+        self.previous_level = 0
+        self.previous_line = 0
+        self.previous_text = ""
+        self.has_text = False
 
     def check_line(self, line_num: int, line: str) -> None:
         if line == "\\pnum":
-            self._has_text = True
+            self.has_text = True
             return
-        m = self._rsec_re.match(line)
+        m = self.SECTION_PATTERN.match(line)
         if not m:
             return
         level = int(m.group(1))
-        if self._has_text and level > self._prev_level:
+        if self.has_text and level > self.previous_level:
             self.fail(
                 line_num,
                 0,
                 0,
-                f"Hanging paragraph: `{self._prev_text.strip()}` has text "
+                f"Hanging paragraph: `{self.previous_text.strip()}` has text "
                 f"but no `\\pnum` before a deeper subclause follows.",
             )
-        self._prev_level = level
-        self._prev_line = line_num
-        self._prev_text = line
-        self._has_text = False
+        self.previous_level = level
+        self.previous_line = line_num
+        self.previous_text = line
+        self.has_text = False
 
 
 class SubclausesWithoutSiblingsCheck(Check):
-    _rsec_re = re.compile(r"^\\rSec([0-9])")
+    SECTION_PATTERN = re.compile(r"^\\rSec([0-9])")
 
     def __init__(self, check_id: str):
         self.id = check_id
 
     def begin_file(self, file_path: Path, lines: List[str]) -> None:
         super().begin_file(file_path, lines)
-        self._prev_level = 0
-        self._secs: Dict[int, int] = {}
-        self._titles: Dict[int, str] = {}
+        self.previous_level = 0
+        self.sections: Dict[int, int] = {}
+        self.titles: Dict[int, str] = {}
 
     def check_line(self, line_num: int, line: str) -> None:
-        m = self._rsec_re.match(line)
+        m = self.SECTION_PATTERN.match(line)
         if not m:
             return
         level = int(m.group(1))
-        if level < self._prev_level and self._secs.get(self._prev_level, 0) == 1:
+        if (
+            level < self.previous_level
+            and self.sections.get(self.previous_level, 0) == 1
+        ):
             self.fail(
                 line_num,
                 0,
                 0,
                 f"Subclause without siblings: "
-                f"`{self._titles.get(self._prev_level, '?').strip()}` "
+                f"`{self.titles.get(self.previous_level, '?').strip()}` "
                 f"is the only subclause at its level.",
             )
-        self._secs[level] = self._secs.get(level, 0) + 1
-        self._titles[level] = line
-        self._secs[level + 1] = 0
-        self._prev_level = level
+        self.sections[level] = self.sections.get(level, 0) + 1
+        self.titles[level] = line
+        self.sections[level + 1] = 0
+        self.previous_level = level
 
 
 class SectionSelfReferenceCheck(Check):
-    _sec_re = re.compile(r"^\\rSec.\[([^\]]*)\]")
-    _iref_re = re.compile(r"\\iref\{([^\}]*)\}")
+    SECTION_PATTERN = re.compile(r"^\\rSec.\[([^\]]*)\]")
+    IREF_PATTERN = re.compile(r"\\iref\{([^\}]*)\}")
 
     def __init__(self, check_id: str):
         self.id = check_id
 
     def begin_file(self, file_path: Path, lines: List[str]) -> None:
         super().begin_file(file_path, lines)
-        self._current_label: Optional[str] = None
+        self.current_label: Optional[str] = None
 
     def check_line(self, line_num: int, line: str) -> None:
-        m = self._sec_re.match(line)
+        m = self.SECTION_PATTERN.match(line)
         if m:
-            self._current_label = m.group(1)
+            self.current_label = m.group(1)
             return
-        if self._current_label is None:
+        if self.current_label is None:
             return
-        for im in self._iref_re.finditer(line):
-            if im.group(1) == self._current_label:
+        for im in self.IREF_PATTERN.finditer(line):
+            if im.group(1) == self.current_label:
                 self.fail(
                     line_num,
                     im.start(),
                     im.end(),
                     f"Section self-reference: "
-                    f"`\\iref{{{self._current_label}}}` must not refer to its own section.",
+                    f"`\\iref{{{self.current_label}}}` must not refer to its own section.",
                 )
 
 
 class PnumMissingInItemdescrCheck(Check):
-    _element_re = re.compile(r"^\\" + make_alt_pattern(PARAGRAPH_DESCRIPTORS))
+    ELEMENT_PATTERN = re.compile(r"^\\" + make_alt_pattern(PARAGRAPH_DESCRIPTORS))
 
     def __init__(self, check_id: str):
         self.id = check_id
@@ -1464,7 +1467,7 @@ class PnumMissingInItemdescrCheck(Check):
                     continue
                 if line.startswith("\\index"):
                     continue
-                if self._element_re.match(line):
+                if self.ELEMENT_PATTERN.match(line):
                     if not seen_pnum:
                         self.fail(
                             idx,
@@ -1479,11 +1482,11 @@ class PnumMissingInItemdescrCheck(Check):
 
 
 class ClassDefinitionOutsideNamespaceCheck(Check):
-    _class_sec_re = re.compile(r"\\rSec[0-9].*\{Class")
-    _rsec_re = re.compile(r"\\rSec")
-    _template_re = re.compile(r"template<[^>]*>")
-    _class_def_re = re.compile(r"(?:class|struct)\s+[A-Za-z0-9_:]+\s*\{")
-    _namespace_re = re.compile(r"^\s*namespace\s", re.MULTILINE)
+    CLASS_SECTION_PATTERN = re.compile(r"\\rSec[0-9].*\{Class")
+    SECTION_PATTERN = re.compile(r"\\rSec")
+    TEMPLATE_PATTERN = re.compile(r"template<[^>]*>")
+    CLASS_DEFINITION_PATTERN = re.compile(r"(?:class|struct)\s+[A-Za-z0-9_:]+\s*\{")
+    NAMESPACE_PATTERN = re.compile(r"^\s*namespace\s", re.MULTILINE)
 
     def __init__(self, check_id: str):
         self.id = check_id
@@ -1499,10 +1502,10 @@ class ClassDefinitionOutsideNamespaceCheck(Check):
         cb_lines: List[str] = []
         cb_start = 0
         for idx, line in enumerate(lines):
-            if self._class_sec_re.search(line):
+            if self.CLASS_SECTION_PATTERN.search(line):
                 in_section = True
                 continue
-            if in_section and self._rsec_re.match(line):
+            if in_section and self.SECTION_PATTERN.match(line):
                 in_section = False
                 continue
             if not in_section:
@@ -1522,12 +1525,12 @@ class ClassDefinitionOutsideNamespaceCheck(Check):
             if "\\end{codeblock}" in line:
                 in_cb = False
                 cb_text = "\n".join(cb_lines)
-                stripped = self._template_re.sub("", cb_text)
-                if self._class_def_re.search(stripped):
-                    if not self._namespace_re.search(stripped):
+                stripped = self.TEMPLATE_PATTERN.sub("", cb_text)
+                if self.CLASS_DEFINITION_PATTERN.search(stripped):
+                    if not self.NAMESPACE_PATTERN.search(stripped):
                         for ci, cline in enumerate(cb_lines):
-                            cs = self._template_re.sub("", cline)
-                            if self._class_def_re.search(cs):
+                            cs = self.TEMPLATE_PATTERN.sub("", cline)
+                            if self.CLASS_DEFINITION_PATTERN.search(cs):
                                 self.fail(
                                     cb_start + ci,
                                     0,
@@ -1565,8 +1568,8 @@ class OutdatedFiguresCheck(Check):
 
 
 class FunctionDescriptorOutOfOrderCheck(Check):
-    _element_index: Dict[str, int] = {e: i for i, e in enumerate(FUNCTION_DESCRIPTORS)}
-    _relevant_line_pattern = re.compile(r"^\\" + make_alt_pattern(FUNCTION_DESCRIPTORS))
+    element_index: Dict[str, int] = {e: i for i, e in enumerate(FUNCTION_DESCRIPTORS)}
+    relevant_line_pattern = re.compile(r"^\\" + make_alt_pattern(FUNCTION_DESCRIPTORS))
 
     def __init__(self, check_id: str):
         self.id = check_id
@@ -1581,12 +1584,12 @@ class FunctionDescriptorOutOfOrderCheck(Check):
                 continue
             prev_name: Optional[str] = None
             for idx in range(start, end):
-                m = self._relevant_line_pattern.match(lines[idx])
+                m = self.relevant_line_pattern.match(lines[idx])
                 if not m:
                     continue
                 name = m.group(0)[1:]
                 if prev_name is not None:
-                    if self._element_index[name] < self._element_index[prev_name]:
+                    if self.element_index[name] < self.element_index[prev_name]:
                         self.fail(
                             idx,
                             m.start(),
@@ -1604,7 +1607,7 @@ class UnbalancedBeginAndEndCheck(Check):
 
     def begin_file(self, file_path: Path, lines: List[str]) -> None:
         super().begin_file(file_path, lines)
-        self._stack: List[Tuple[str, int, int, int]] = []
+        self.stack: List[Tuple[str, int, int, int]] = []
 
     def check_line(self, line_num: int, line: str) -> None:
         if COMMENT_PATTERN.match(line):
@@ -1616,9 +1619,9 @@ class UnbalancedBeginAndEndCheck(Check):
             column_end = m.end()
 
             if directive == "begin":
-                self._stack.append((name, line_num, column_start, column_end))
+                self.stack.append((name, line_num, column_start, column_end))
             else:
-                if not self._stack:
+                if not self.stack:
                     self.fail(
                         line_num,
                         column_start,
@@ -1626,7 +1629,7 @@ class UnbalancedBeginAndEndCheck(Check):
                         f"`\\end{{{name}}}` has no matching `\\begin{{{name}}}`.",
                     )
                 else:
-                    open_name, open_line_num, _, _ = self._stack.pop()
+                    open_name, open_line_num, _, _ = self.stack.pop()
                     if open_name != name:
                         self.fail(
                             line_num,
@@ -1638,7 +1641,7 @@ class UnbalancedBeginAndEndCheck(Check):
                         )
 
     def end_file(self, file_path: Path) -> None:
-        for name, line_num, column_start, column_end in self._stack:
+        for name, line_num, column_start, column_end in self.stack:
             self.fail(
                 line_num,
                 column_start,
@@ -1660,12 +1663,12 @@ class UnknownCommandCheck(Check):
     def __init__(self, check_id: str):
         self.id = check_id
 
-    _cmd_re = re.compile(r"\\([a-zA-Z][a-zA-Z]*)")
+    COMMAND_PATTERN = re.compile(r"\\([a-zA-Z][a-zA-Z]*)")
 
     def check_line(self, line_num: int, line: str) -> None:
         if COMMENT_PATTERN.match(line):
             return
-        for m in self._cmd_re.finditer(line):
+        for m in self.COMMAND_PATTERN.finditer(line):
             cmd = m.group(1)
             if cmd in KNOWN_COMMANDS:
                 continue
@@ -1694,22 +1697,22 @@ class UseOfUndefinedCheck(Check):
         usage_pattern: List[Pattern[str]],
     ):
         self.id = check_id
-        self._def_re = definition_pattern
-        self._use_res = usage_pattern
-        self._defined: Set[str] = set()
-        self._used: Dict[str, List[Tuple[str, int]]] = defaultdict(list)
+        self.definition_pattern = definition_pattern
+        self.usage_pattern = usage_pattern
+        self.defined: Set[str] = set()
+        self.used: Dict[str, List[Tuple[str, int]]] = defaultdict(list)
 
     def check_line(self, line_num: int, line: str) -> None:
-        for m in self._def_re.finditer(line):
-            self._defined.add(m.group(1))
-        for use_re in self._use_res:
-            for m in use_re.finditer(line):
+        for m in self.definition_pattern.finditer(line):
+            self.defined.add(m.group(1))
+        for pattern in self.usage_pattern:
+            for m in pattern.finditer(line):
                 name = m.group(1)
-                self._used[name].append((os.path.relpath(self.file_path), line_num))
+                self.used[name].append((os.path.relpath(self.file_path), line_num))
 
     def end_checks(self) -> None:
-        for name, locations in sorted(self._used.items()):
-            if name not in self._defined:
+        for name, locations in sorted(self.used.items()):
+            if name not in self.defined:
                 file_name, line_num = locations[0]
                 emit_check_failure(
                     self,
@@ -1993,12 +1996,12 @@ NO_CHECK_PATTERN = re.compile(r"^\s*%NOCHECK(BEGIN|END|NEXTLINE)(?:\((\S*)\))?\s
 
 def run_checks(tex_files: List[Path]) -> int:
     """Run all registered checks. Returns the number of unexpected failures."""
-    global _unexpected_count
-    _unexpected_count = 0
-    _file_locations.clear()
+    global unexpected_count
+    unexpected_count = 0
+    file_locations.clear()
 
     for fp in tex_files:
-        _file_locations[os.path.relpath(fp)] = fp
+        file_locations[os.path.relpath(fp)] = fp
 
     all_ids = {c.id for c in CHECKS if c.id}
 
@@ -2057,7 +2060,7 @@ def run_checks(tex_files: List[Path]) -> int:
     for c in CHECKS:
         c.end_checks()
 
-    return _unexpected_count
+    return unexpected_count
 
 
 def parse_expected_from_files(tex_files: List[Path]) -> None:
@@ -2066,12 +2069,12 @@ def parse_expected_from_files(tex_files: List[Path]) -> None:
     The directive must appear alone on its line; *id* is the check that is
     expected to fire on the **next** line.
     """
-    expect_re = re.compile(r"^\s*%EXPECTCHECKNEXTLINE\((\S+)\)\s*$")
+    EXPECT_CHECK_PATTERN = re.compile(r"^\s*%EXPECTCHECKNEXTLINE\((\S+)\)\s*$")
 
     for file_path in tex_files:
         lines = read_file(file_path)
         for idx in range(len(lines) - 1):
-            m = expect_re.match(lines[idx])
+            m = EXPECT_CHECK_PATTERN.match(lines[idx])
             if m:
                 register_expected(os.path.relpath(file_path), idx, m.group(1).strip())
 
@@ -2135,7 +2138,7 @@ def main() -> None:
     unhit = collect_unexpectedly_not_failed()
     num_failures += len(unhit)
     for entry in unhit:
-        fp = _file_locations.get(entry.file)
+        fp = file_locations.get(entry.file)
         if fp is None:
             fp = Path.cwd() / entry.file
         lines = read_file(fp)
