@@ -212,9 +212,9 @@ done |
     fail '"shall", "should", or "may" inside a note' || failed=1
 
 # Comma after e.g. and i.e.
-grep -n "e\.g\.[^,]" $texfiles |
+grep -nP "e\.g\.(?!,)" $texfiles |
     fail '"e.g." must be followed by a comma'
-grep -n "i\.e\.[^,]" $texfiles |
+grep -nP "i\.e\.(?!,)" $texfiles |
     fail '"i.e." must be followed by a comma'
 
 
