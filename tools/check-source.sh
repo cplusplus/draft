@@ -87,7 +87,7 @@ grep -n 'U+' $texfiles |
     fail 'use \\unicode or \\ucode or \\uname instead' || failed=1
 
 # Discourage double-wrapping \tcode{\exposid{data_}}
-grep -n '\\tcode{\\exposid{[a-zA-Z0-9_]*}}' $texfiles |
+grep -n '\\tcode{\\exposid{[a-zA-Z0-9_-]*}}' $texfiles |
     fail 'double-wrapped \\exposid in \\tcode' || failed=1
 
 # Hex digits inside \ucode and \unicode must be lowercase so that \textsc works
