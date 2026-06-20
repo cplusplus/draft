@@ -146,6 +146,7 @@
 \begin{bnf}
 \nontermdef{embed-standard-parameter}\br
     \terminal{limit} \terminal{(} pp-balanced-token-seq \terminal{)}\br
+    \terminal{offset} \terminal{(} pp-balanced-token-seq \terminal{)}\br
     \terminal{prefix} \terminal{(} \opt{pp-balanced-token-seq} \terminal{)}\br
     \terminal{suffix} \terminal{(} \opt{pp-balanced-token-seq} \terminal{)}\br
     \terminal{if_empty} \terminal{(} \opt{pp-balanced-token-seq} \terminal{)}
@@ -915,16 +916,25 @@ If the implementation-resource-width is not an integral multiple of
 \libmacro{CHAR_BIT}, the program is ill-formed.
 Let \defn{implementation-resource-count} be
 implementation-resource-width divided by \libmacro{CHAR_BIT}.
+Every resource has a \defn{resource-offset}, which is
+
+\begin{itemize}
+\item
+  the value as computed from the optionally-provided \tcode{offset}
+  \grammarterm{embed-parameter}\iref{cpp.embed.param.offset}, if present;
+\item
+  otherwise, \tcode{0}.
+\end{itemize}
 Every resource also has a \defn{resource-count}, which is
 
 \begin{itemize}
 \item
-  the value as computed from the optionally-provided \tcode{limit}
-  \grammarterm{embed-parameter}\iref{cpp.embed.param.limit}, if present;
+  the value $\max(\min(\text{limit-value}, \text{implementation-resource-count} - \text{resource-offset}), 0)$
+  if the \tcode{limit} \grammarterm{embed-parameter}\iref{cpp.embed.param.limit} is present,
+  where the value computed from the \tcode{limit} \grammarterm{embed-parameter} is \defn{limit-value};
 \item
-  otherwise, the implementation-resource-count.
+  otherwise, the value $\max(\text{implementation-resource-count} - \text{resource-offset}, 0)$.
 \end{itemize}
-
 A resource is empty if the resource-count is zero.
 
 \pnum
@@ -941,11 +951,15 @@ literals of type \tcode{int}, unless otherwise modified by embed
 parameters\iref{cpp.embed.param}.
 
 \pnum
-The integer literals in the comma-separated list correspond to
-resource-count consecutive calls to \tcode{std::fgetc}\iref{cstdio.syn}
-from the resource, as a binary file.
-If any call to \tcode{std::fgetc} returns \tcode{EOF}, the program is
-ill-formed.
+First,
+resource-offset calls to \tcode{std::fgetc}
+from the resource as a binary file
+have their result discarded and ignored.
+Next,
+resource-count consecutive calls to \tcode{std::fgetc}
+produce the elements of the comma-separated list of integer literals, in order.
+If any of the resource-count calls to \tcode{std::fgetc} returns \tcode{EOF},
+the program is ill-formed.
 
 \pnum
 \recommended The value of each integer literal should closely represent
@@ -1102,11 +1116,6 @@ is equivalent to:
 \pnum
 The \grammarterm{constant-expression} shall be an integral constant expression
 whose value is greater than or equal to zero.
-The resource-count\iref{cpp.embed.gen} becomes
-implementation-resource-count, if the value of the
-\grammarterm{constant-expression} is greater than
-implementation-resource-count; otherwise, the value of the
-\grammarterm{constant-expression}.
 \begin{example}
 \begin{codeblock}
 constexpr unsigned char sound_signature[] = {
@@ -1118,7 +1127,51 @@ static_assert(sizeof(sound_signature) == 4);    // OK
 \end{codeblock}
 \end{example}
 
+\rSec3[cpp.embed.param.offset]{offset parameter}
+
+\pnum
+An \grammarterm{embed-parameter} of the form
+\tcode{offset (} \grammarterm{pp-balanced-token-seq} \tcode{)}
+denotes the number of elements to be skipped from the resource.
+It shall appear at most once in the \grammarterm{embed-parameter-seq}.
+
+\pnum
+The \grammarterm{pp-balanced-token-seq}
+is evaluated as a \grammarterm{constant-expression}
+using the rules as described in conditional inclusion\iref{cpp.cond},
+but without being processed as in normal text an additional time.
+
+\pnum
+The \grammarterm{constant-expression}
+shall be an integral constant expression
+whose value is greater than or equal to zero.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+constexpr const unsigned char arr[] = {
+// a hypothetical resource capable of expanding to four or more elements
+#embed <sdk/jump.wav>
+};
+
+constexpr const unsigned char offset_arr[] = {
+// the same hypothetical resource capable of expanding to four or more elements
+#embed <sdk/jump.wav> offset(2)
+};
+
+constexpr const unsigned char offset_limit_arr[] = {
+// the same hypothetical resource capable of expanding to four or more elements
+#embed <sdk/jump.wav> offset(1) limit(1)
+};
+
+static_assert(arr[2] == offset_arr[0]);         // OK
+static_assert(arr[3] == offset_arr[1]);         // OK
+static_assert(arr[1] == offset_limit_arr[0]);   // OK
+\end{codeblock}
+\end{example}
+
 \rSec3[cpp.embed.param.prefix]{prefix parameter}
+
 \pnum
 An \grammarterm{embed-parameter} of the form
 \begin{ncsimplebnf}
@@ -1132,6 +1185,7 @@ Otherwise, the \grammarterm{pp-balanced-token-seq} is placed immediately
 before the comma-delimited list of integral literals.
 
 \rSec3[cpp.embed.param.suffix]{suffix parameter}
+
 \pnum
 An \grammarterm{embed-parameter} of the form
 \begin{ncsimplebnf}
@@ -1162,6 +1216,7 @@ static_assert(is_empty || is_not_empty);
 \end{example}
 
 \rSec3[cpp.embed.param.if.empty]{\tcode{if_empty} parameter}
+
 \pnum
 An embed-parameter of the form
 \begin{ncsimplebnf}
@@ -1202,6 +1257,19 @@ int infinity_zero () {
 #error "The resource does not exist"
 #endif
 }
+\end{codeblock}
+\end{example}
+
+\begin{example}
+Given a resource \tcode{<single_byte>}
+that has an implementation-resource-count of \tcode{1},
+the following directives:
+\begin{codeblock}
+#embed <single_byte> offset(1) if_empty(42203)
+\end{codeblock}
+are replaced with:
+\begin{codeblock}
+42203
 \end{codeblock}
 \end{example}
 
@@ -2389,7 +2457,7 @@ an \impldef{text of \mname{TIME} when time of translation is not available} vali
 \defnxname{cpp_nsdmi}                             & \tcode{200809L} \\ \rowsep
 \defnxname{cpp_pack_indexing}                     & \tcode{202606L} \\ \rowsep
 \defnxname{cpp_placeholder_variables}             & \tcode{202306L} \\ \rowsep
-\defnxname{cpp_pp_embed}                          & \tcode{202502L} \\ \rowsep
+\defnxname{cpp_pp_embed}                          & \tcode{202606L} \\ \rowsep
 \defnxname{cpp_range_based_for}                   & \tcode{202211L} \\ \rowsep
 \defnxname{cpp_raw_strings}                       & \tcode{200710L} \\ \rowsep
 \defnxname{cpp_ref_qualifiers}                    & \tcode{200710L} \\ \rowsep
