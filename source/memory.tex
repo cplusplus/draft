@@ -8,12 +8,13 @@ This Clause describes components for memory management.
 
 \pnum
 The following subclauses describe general memory management facilities,
-smart pointers, memory resources, and scoped allocators,
+smart pointers, pointer tagging, memory resources, and scoped allocators,
 as summarized in \tref{mem.summary}.
 
 \begin{libsumtab}{Memory management library summary}{mem.summary}
 \ref{memory}                & Memory                            & \tcode{<cstdlib>}, \tcode{<memory>} \\ \rowsep
 \ref{smartptr}              & Smart pointers                    & \tcode{<memory>}           \\ \rowsep
+\ref{ptrtag}                & Pointer tagging                   & \tcode{<memory>}           \\ \rowsep
 \ref{mem.composite.types}   & Types for composite class design  & \tcode{<memory>}           \\ \rowsep
 \ref{mem.res}               & Memory resources                  & \tcode{<memory_resource>}  \\ \rowsep
 \ref{allocator.adaptor}     & Scoped allocators                 & \tcode{<scoped_allocator>} \\
@@ -37,6 +38,10 @@ for containers and other template types, destroy objects, and
 construct objects in
 uninitialized memory
 buffers~(\ref{pointer.traits}--\ref{specialized.addressof} and \ref{specialized.algorithms}).
+The header also defines class template \tcode{pointer_tag_pair}
+to support storing additional information in unused bits of pointers.
+Selection of the bits is implementation-defined,
+and the size of the pointer wrapping object is the same as the size of the original pointer.
 The header also defines the templates
 \tcode{unique_ptr}, \tcode{shared_ptr}, \tcode{weak_ptr},
 \tcode{out_ptr_t}, \tcode{inout_ptr_t}, and various function
@@ -521,6 +526,44 @@ namespace std {
         I destroy_n(Ep&& exec, I first, iter_difference_t<I> n);            // freestanding-deleted,
                                                                             // see \ref{algorithms.parallel.overloads}
   }
+
+  // \ref{ptrtag}, pointer tagging
+  inline constexpr unsigned max_pointer_bits_available = @\seebelow@;             // freestanding
+  constexpr unsigned pointer_bits_available(size_t alignment);                  // freestanding
+
+  template<class T> constexpr unsigned @\exposid{bits-available}@ = pointer_bits_available(alignof(T)); // \expos
+
+  template<class U> using @\exposid{element-of}@ = pointer_traits<U>::element_type; // \expos
+
+  template<class Ptr, unsigned BitsRequested = @\exposid{bits-available}@<@\exposid{element-of}@<Ptr>>,
+           class TagT = unsigned>
+    class pointer_tag_pair;                                                     // freestanding
+
+  template<class Ptr, unsigned BitsRequested, class TagT>
+    struct tuple_size<pointer_tag_pair<Ptr, BitsRequested, TagT>>               // freestanding
+      : integral_constant<size_t, 2> { };
+
+  template<class Ptr, unsigned BitsRequested, class TagT>
+    struct tuple_element<0, pointer_tag_pair<Ptr, BitsRequested, TagT>> {       // freestanding
+      using type = Ptr;
+    };
+  template<class Ptr, unsigned BitsRequested, class TagT>
+    struct tuple_element<1, pointer_tag_pair<Ptr, BitsRequested, TagT>> {       // freestanding
+      using type = TagT;
+    };
+
+  template<class Ptr, unsigned BitsRequested, class TagT>
+    struct tuple_element<0, const pointer_tag_pair<Ptr, BitsRequested, TagT>> { // freestanding
+      using type = Ptr;
+    };
+  template<class Ptr, unsigned BitsRequested, class TagT>
+    struct tuple_element<1, const pointer_tag_pair<Ptr, BitsRequested, TagT>> { // freestanding
+      using type = TagT;
+    };
+
+  template<class Ptr, unsigned BitsRequested, class TagT>
+    constexpr tuple_element_t<I, pointer_tag_pair<Ptr, BitsRequested, TagT>>    // freestanding
+      get(pointer_tag_pair<Ptr, BitsRequested, TagT> p) noexcept;
 
   // \ref{unique.ptr}, class template \tcode{unique_ptr}
   template<class T> struct default_delete;                                          // freestanding
@@ -2118,6 +2161,428 @@ deallocate storage by calling
 \end{itemdescr}
 
 \xrefc{7.24.4}
+
+\rSec1[ptrtag]{Pointer tagging}
+
+\rSec2[ptrtag.bits]{Pointer tagging limits}
+
+\indexlibraryglobal{max_pointer_bits_available}%
+\begin{itemdecl}
+inline constexpr unsigned max_pointer_bits_available = @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+The \impldef{value of \tcode{max_pointer_bits_available}}
+limit of usable bits for pointer tagging.
+
+\pnum
+\remarks
+A non-zero value of \tcode{max_pointer_bits_available} indicates that
+non-arithmetic operations on invalid pointers
+with implementation-defined behavior\iref{basic.compound}
+preserve sufficient information to guarantee that
+for an object \tcode{tp} of a type \tcode{TP}
+that is a specialization of \tcode{tagged_pointer_pair} and a pointer value \tcode{q},
+that is a result of applying a sequence of such operations
+to the result of \tcode{tp.tagged()},
+\tcode{tp} is equal to \tcode{TP::from_tagged(q)}.
+\end{itemdescr}
+
+\indexlibraryglobal{pointer_bits_available}%
+\begin{itemdecl}
+constexpr unsigned pointer_bits_available(size_t alignment);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constant
+Precondition is met.
+
+\pnum
+\expects
+\tcode{alignment} is a power of two.
+
+\pnum
+\returns
+The \impldef{value returned by \tcode{pointer_bits_available}}
+number of unused bits in a pointer
+pointing to a hypothetical object with alignment \tcode{alignment}.
+
+\pnum
+\recommended
+The result is non-zero for \tcode{alignment} values larger than \tcode{1}.
+
+\pnum
+\begin{note}
+On most platforms, the value is the minimum of
+\tcode{countr_zero(alignment)} and \tcode{max_pointer_bits_available}.
+\end{note}
+\end{itemdescr}
+
+\rSec2[ptrtag.pair]{Class template \tcode{pointer_tag_pair}}
+
+\rSec3[ptrtag.pair.general]{General}
+
+\pnum
+The class template \tcode{pointer_tag_pair} provides a type to store an
+object pointer together with a tag value.
+
+\indexlibraryglobal{pointer_tag_pair}%
+\begin{itemdecl}
+namespace std {
+  template<class U, class PtrT, unsigned BitsRequested, size_t Alignment = alignof(U)>
+    concept @\exposconcept{tagging-compatible-pointee}@ =                          // \expos
+      convertible_to<U*, PtrT> &&
+      pointer_bits_available(Alignment) >= BitsRequested &&
+      (is_void_v<@\exposid{element-of}@<PtrT>> ||
+       is_scalar_v<@\exposid{element-of}@<PtrT>> ||
+       is_union_v<@\exposid{element-of}@<PtrT>> ||
+       is_pointer_interconvertible_base_of_v<@\exposid{element-of}@<PtrT>, U>);
+
+  template<class TagT> constexpr unsigned @\exposid{tag-bit-width}@(TagT value) noexcept; // \expos
+
+  template<class Ptr, unsigned BitsRequested = @\exposid{bits-available}@<@\exposid{element-of}@<Ptr>>,
+           class TagT = unsigned>
+  class pointer_tag_pair {   // freestanding
+  public:
+    using pointer_type        = Ptr;
+    using element_type        = pointer_traits<Ptr>::element_type;
+    using tagged_pointer_type = @\seebelow@;
+    using tag_type            = TagT;
+    static constexpr unsigned bits_requested = BitsRequested;
+
+    // Constructors and assignment
+    constexpr pointer_tag_pair() noexcept;
+
+    template<@\exposconcept{tagging-compatible-pointee}@<pointer_type, bits_requested> U>
+      constexpr pointer_tag_pair(U* p, tag_type t);
+    constexpr pointer_tag_pair(nullptr_t p, tag_type t);
+
+    // Special construction helpers
+    template<size_t PromisedAlignment,
+      @\exposconcept{tagging-compatible-pointee}@<pointer_type, bits_requested, PromisedAlignment> U>
+      static constexpr pointer_tag_pair from_overaligned(U* p, tag_type t);
+
+    static pointer_tag_pair from_tagged(tagged_pointer_type p) noexcept;
+
+    // Accessors
+    tagged_pointer_type tagged_pointer() const noexcept;
+    constexpr pointer_type pointer() const noexcept;
+    constexpr tag_type tag() const noexcept;
+
+    // Swap
+    constexpr void swap(pointer_tag_pair& o) noexcept;
+
+    // Comparisons
+    friend constexpr @\seebelow@ operator<=>(pointer_tag_pair lhs, pointer_tag_pair rhs)
+      noexcept requires @\libconcept{three_way_comparable}@<tag_type>;
+    friend constexpr bool operator==(pointer_tag_pair, pointer_tag_pair)
+      noexcept requires @\libconcept{equality_comparable}@<tag_type>;
+  };
+
+  template<class Ptr>
+    pointer_tag_pair(Ptr*) -> pointer_tag_pair<Ptr*>;
+  template<class Ptr, class TagT>
+    pointer_tag_pair(Ptr*, TagT tag)
+      -> pointer_tag_pair<Ptr*, @\exposid{bits-available}@<@\exposid{element-of}@<Ptr>>, TagT>;
+}
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+An object of class \tcode{pointer_tag_pair<Ptr, BitsRequested, TagT>}
+represents a pair of
+pointer value of type \tcode{Ptr} and
+tag value of type \tcode{TagT}.
+
+\pnum
+Each specialization \tcode{PT} of \tcode{pointer_tag_pair}
+is a trivially copyable type that models \libconcept{copyable} such that
+\tcode{sizeof(PT)} is equal to \tcode{sizeof(Ptr)} and
+\tcode{alignof(PT)} is equal to \tcode{alignof(Ptr)}.
+
+\pnum
+\mandates
+\begin{itemize}
+\item \tcode{is_same_v<remove_cvref_t<Ptr>, Ptr>} is \tcode{true}.
+\item \tcode{is_same_v<remove_cvref_t<TagT>, TagT>} is \tcode{true}.
+\item \tcode{is_pointer_v<Ptr> \&\& !is_function_v<remove_pointer_t<Ptr>>} is \tcode{true}.
+\item \tcode{is_unsigned_v<UT>} is \tcode{true},
+where \tcode{UT} is
+\tcode{underlying_type_t<TagT>} if \tcode{TagT} is an enumeration type, and
+\tcode{TagT} otherwise.
+\item \tcode{sizeof(TagT) <= sizeof(void*)} is \tcode{true}.
+\item \tcode{BitsRequested <= max_pointer_bits_available} is \tcode{true}.
+\end{itemize}
+\end{itemdescr}
+
+\indexlibraryglobal{\exposid{tag-bit-width}}%
+\begin{itemdecl}
+template<class T> constexpr unsigned @\exposid{tag-bit-width}@(T v) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{static_cast<unsigned>(bit_width(to_underlying(v)))}
+if \tcode{is_enum_v<T>} is \tcode{true},
+otherwise \tcode{static_cast<unsigned>(bit_width(v))}.
+\end{itemdescr}
+
+\rSec3[ptrtag.pair.cons]{Constructors}
+
+\indexlibraryglobal{pointer_tag_pair}%
+\begin{itemdecl}
+constexpr pointer_tag_pair() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\postconditions
+\tcode{pointer()} is equal to \tcode{nullptr} and
+\tcode{tag()} is equal to \tcode{TagT()}.
+\end{itemdescr}
+
+\indexlibraryglobal{pointer_tag_pair}%
+\begin{itemdecl}
+template<@\exposconcept{tagging-compatible-pointee}@<pointer_type, bits_requested> U>
+  constexpr pointer_tag_pair(U* p, tag_type t);
+constexpr pointer_tag_pair(nullptr_t p, tag_type t);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constant
+Preconditions are met.
+
+\pnum
+\expects
+\begin{itemize}
+\item \tcode{p} is not a pointer past the end of an object\iref{basic.compound}.
+\item \tcode{\exposid{tag-bit-width}(t) <= bits_requested} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\postconditions
+\tcode{pointer()} is equal to \tcode{p} and
+\tcode{tag()} is equal to \tcode{t}.
+
+\pnum
+\throws
+Nothing.
+\end{itemdescr}
+
+\rSec3[ptrtag.pair.overalign]{Support for overaligned pointers}
+
+\indexlibraryglobal{from_overaligned}%
+\begin{itemdecl}
+template<size_t PromisedAlignment,
+  @\exposconcept{tagging-compatible-pointee}@<pointer_type, bits_requested, PromisedAlignment> U>
+  static constexpr pointer_tag_pair from_overaligned(U* p, tag_type t);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\constant
+Preconditions are met.
+
+\pnum
+\expects
+\begin{itemize}
+\item \tcode{p} is not a pointer past the end of an object\iref{basic.compound}.
+\item \tcode{p == nullptr || is_sufficiently_aligned<PromisedAlignment>(p)} is \tcode{true}.
+\item \tcode{\exposid{tag-bit-width}(t) <= bits_requested} is \tcode{true}.
+\end{itemize}
+
+\pnum
+\returns
+An object \tcode{ptp} of type \tcode{pointer_tag_pair} such that both
+\tcode{ptp.pointer()} is equal to \tcode{p} and
+\tcode{ptp.tag()} is equal to \tcode{t}.
+
+\pnum
+\throws
+Nothing.
+\end{itemdescr}
+
+\rSec3[ptrtag.pair.tagops]{Tagged pointer operations}
+
+\indexlibraryglobal{tagged_pointer_type}%
+\begin{itemdecl}
+using tagged_pointer_type = @\seebelow@;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\tcode{tagged_pointer_type} denotes \cv{}~\tcode{void*},
+%FIXME: what do we mean by "pointer denotes"? \tcode{pointer()}?
+for \cv{} such that pointer denotes \cv{}~\tcode{U*} for some type \tcode{U}.
+\end{itemdescr}
+
+\indexlibraryglobal{tagged_pointer}%
+\begin{itemdecl}
+tagged_pointer_type tagged_pointer() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+An unspecified value \tcode{tp} of \tcode{tagged_pointer_type} type
+such that for any specialization \tcode{DP} of \tcode{pointer_tag_pair} and
+alignment value \tcode{A} for which:
+\begin{itemize}
+\item \tcode{pointer_bits_available(A) >= DP::bits_requested} is \tcode{true},
+\item \tcode{is_sufficiently_aligned<A>(ptr)} is \tcode{true}, and
+\item \tcode{\exposid{tag-bit-width}(tag) <= DP::bits_requested} is \tcode{true},
+\end{itemize}
+\tcode{DP::from_tagged(tp)} produces an object \tcode{dp} such that
+\tcode{reinterpret_cast<pointer_type>(dp.pointer())} is equal to \tcode{ptr} and
+\tcode{static_cast<TagT>(dp.tag())} is equal to \tcode{tag}.
+\begin{note}
+This function returns an invalid pointer value\iref{basic.compound}
+with implementation-defined behavior.
+\end{note}
+\end{itemdescr}
+
+\indexlibraryglobal{from_tagged}%
+\begin{itemdecl}
+static pointer_tag_pair from_tagged(tagged_pointer_type p) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+An object \tcode{dp} of type \tcode{pointer_tag_type}, such that:
+\begin{itemize}
+\item
+\tcode{reinterpret_cast<pointer_type>(sp.pointer())} is equal to \tcode{dp.pointer()} and
+\tcode{static_cast<TagT>(sp.tag())} is equal to \tcode{dp.tag()},
+if \tcode{p} is equal to \tcode{sp.tagged_pointer()}
+for some object \tcode{sp} of a type that is a specialization of \tcode{pointer_tag_type},
+such that for some alignment value \tcode{A}:
+\begin{itemize}
+\item \tcode{pointer_bits_available(A) >= bits_requested} is \tcode{true},
+\item \tcode{is_sufficiently_aligned<A>(sp.pointer())} is \tcode{true}, and
+\item \tcode{\exposid{tag-bit-width}(sp.tag()) <= bits_requested} is \tcode{true},
+\end{itemize}
+\item
+otherwise, the values of \tcode{dp.pointer()} and \tcode{dp.tag()} are unspecified.
+\end{itemize}
+\end{itemdescr}
+
+\rSec3[ptrtag.pair.accessors]{Accessors}
+
+\indexlibraryglobal{pointer}%
+\begin{itemdecl}
+constexpr pointer_type pointer() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+The pointer value represented by \tcode{*this}.
+\end{itemdescr}
+
+\indexlibraryglobal{tag}%
+\begin{itemdecl}
+constexpr tag_type tag() const noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+The tag value represented by \tcode{*this}.
+\end{itemdescr}
+
+\rSec3[ptrtag.pair.swap]{Swap}
+
+\indexlibraryglobal{swap}%
+\begin{itemdecl}
+constexpr void swap(pointer_tag_pair& o) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Exchanges the values of \tcode{*this} and \tcode{o}.
+\end{itemdescr}
+
+\rSec3[ptrtag.pair.comp]{Comparisons}
+
+\indexlibrarymember{operator<=>}{pointer_tag_pair}%
+\begin{itemdecl}
+friend constexpr auto operator<=>(pointer_tag_pair lhs, pointer_tag_pair rhs)
+  noexcept requires @\libconcept{three_way_comparable}@<tag_type>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return pair(lhs.pointer(), lhs.tag()) <=> pair(rhs.pointer(), rhs.tag());
+\end{codeblock}
+
+\pnum
+\recommended
+%FIXME: These imperative instructions directly addressing compiler developers seem highly unusual.
+%Don't we normally say something like "implementations should"?
+%Same issue for operator==.
+Directly compare the internal bit representations
+if the expression \tcode{lhs.tag() <=> rhs.tag()}
+results in a call to a built-in operator \tcode{<=>}
+comparing values of type \tcode{tag_type}.
+
+\begin{note}
+The result of comparing unrelated pointers is unspecified.
+\end{note}
+\end{itemdescr}
+
+\indexlibrarymember{operator==}{pointer_tag_pair}%
+\begin{itemdecl}
+friend constexpr bool operator==(pointer_tag_pair lhs, pointer_tag_pair rhs)
+  noexcept requires @\libconcept{equality_comparable}@<tag_type>;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Equivalent to:
+\begin{codeblock}
+return pair(lhs.pointer(), lhs.tag()) == pair(rhs.pointer(), rhs.tag());
+\end{codeblock}
+
+\pnum
+\recommended
+Directly compare the internal bit representations
+if the expression \tcode{lhs.tag() == rhs.tag()}
+results in a call to a built-in operator \tcode{==}
+comparing values of type \tcode{tag_type}.
+\end{itemdescr}
+
+\rSec3[ptrtag.pair.get]{Tuple interface}
+
+\indexlibrarymember{get}{pointer_tag_pair}%
+\begin{itemdecl}
+template<class Ptr, unsigned BitsRequested, class TagT>
+  constexpr tuple_element_t<I, pointer_tag_pair<Ptr, BitsRequested, TagT>>
+    get(pointer_tag_pair<Ptr, BitsRequested, TagT> p) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+%FIXME: is true
+\tcode{I < 2}.
+
+\pnum
+\returns
+\begin{itemize}
+\item \tcode{p.pointer()} if \tcode{I} is equal to zero,
+\item \tcode{p.tag()} otherwise.
+\end{itemize}
+\end{itemdescr}
 
 \rSec1[smartptr]{Smart pointers}
 
