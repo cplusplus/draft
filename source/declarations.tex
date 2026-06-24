@@ -4959,9 +4959,15 @@ initializer follows a declarator.
 \end{bnf}
 
 \begin{bnf}
-\nontermdef{designated-initializer-list}\br
+\nontermdef{designated-only-initializer-list}\br
     designated-initializer-clause\br
-    designated-initializer-list \terminal{,} designated-initializer-clause
+    designated-only-initializer-list \terminal{,} designated-initializer-clause
+\end{bnf}
+
+\begin{bnf}
+\nontermdef{designated-initializer-list}\br
+    designated-only-initializer-list\br
+    initializer-list \terminal{,} designated-only-initializer-list
 \end{bnf}
 
 \begin{bnf}
@@ -5526,6 +5532,38 @@ that are not members of an anonymous union, in declaration order.
 \end{itemize}
 
 \pnum
+The \defnadj{associated}{element} of a member \tcode{M}
+of an aggregate \tcode{T} is:
+\begin{itemize}
+\item \tcode{M} if \tcode{M} is an element of \tcode{T};
+\item otherwise, the element of \tcode{T} that contains \tcode{M}.
+\end{itemize}
+\begin{example}
+\begin{codeblock}
+struct A {
+  int a1;
+  union {
+    int a2;
+    char a3;
+  };
+};
+
+struct B : A {
+  int b1;
+  union {
+    double b2;
+  };
+};
+\end{codeblock}
+The associated element of each of
+the members \tcode{A::a1}, \tcode{A::a2}, and \tcode{A::a3}
+of \tcode{B} is \tcode{A}.
+The associated element of the member \tcode{B::b1} of \tcode{B} is itself.
+The associated element of the member \tcode{B::b2} of \tcode{B} is
+the anonymous union containing it.
+\end{example}
+
+\pnum
 When an aggregate is initialized by an initializer list
 as specified in~\ref{dcl.init.list},
 the elements of the initializer list are taken as initializers
@@ -5536,32 +5574,74 @@ of the aggregate are determined as follows:
 \item
 If the initializer list is
 a brace-enclosed \grammarterm{designated-initializer-list},
-the aggregate shall be of class type,
-the \grammarterm{identifier} in each \grammarterm{designator}
-shall name a direct non-static data member of the class, and
-the explicitly initialized elements of the aggregate
-are the elements that are, or contain, those members.
+the aggregate shall be of class type \tcode{C}.
+For each \grammarterm{designator}
+within the \grammarterm{designated-only-initializer-list}
+of the \grammarterm{designated-initializer-list},
+the lookup set for the \grammarterm{identifier}
+in \tcode{C}\iref{class.member.lookup} shall comprise
+\begin{itemize}
 \item
-If the initializer list is a brace-enclosed \grammarterm{initializer-list},
+a declaration set consisting of a single non-static data member and
+\item
+a subobject set containing only one subobject,
+whose type shall be an aggregate base of \tcode{C}.
+An aggregate \tcode{B} is an \defnadj{aggregate}{base} of a class \tcode{D}
+if it is \tcode{D} or a direct base class of an aggregate base of \tcode{D}.
+\end{itemize}
+
+That non-static data member is \defnx{designated}{designate!aggregate element}
+by the \grammarterm{identifier}.
+Each \grammarterm{initializer-clause} of the \grammarterm{initializer-list},
+if any,
+shall appertain (see below) to a (direct) base class subobject of \tcode{C}.
+The explicitly initialized elements of the aggregate include
+the associated elements of each member \tcode{M} of \tcode{C}
+for which \tcode{M} is designated by an \grammarterm{identifier}
+in a \grammarterm{designated-initializer-clause}.
+
+\item
+If the \grammarterm{braced-init-list} has an \grammarterm{initializer-list}
+(possibly within a \grammarterm{designated-initializer-list})
 the explicitly initialized elements of the aggregate
-are those for which an element of the initializer list
+include those for which an element of the initializer list
 appertains to the aggregate element or to a subobject thereof (see below).
 \item
-Otherwise, the initializer list must be \tcode{\{\}},
-and there are no explicitly initialized elements.
+No other elements of the aggregate are explicitly initialized.
+\begin{note}
+The initializer \tcode{\{\}} does not explicitly initialize
+any elements of the aggregate.
+\end{note}
 \end{itemize}
+If any element of the aggregate is explicitly initialized per
+both an \grammarterm{initializer-list} and
+a \grammarterm{designated-only-initializer-list},
+the program is ill-formed.
+\begin{example}
+\begin{codeblock}
+struct A { int a1, a2; };
+struct B : A { int b; };
+struct C : A { int a1; };
+
+A v0 = A{1, .a2=2};             // error: \grammarterm{initializer-clause} appertains to non-static data member
+B v1 = B{.a1=1, .b=2};          // the explicitly initialized elements are [\tcode{A}, \tcode{B::b}]
+B v2 = B{.a1=1, .a2=2, .b=3};   // the explicitly initialized elements are [\tcode{A}, \tcode{B::b}]
+B v3 = B{A{1, 2}, .b=3};        // the explicitly initialized elements are [\tcode{A}, \tcode{B::b}]
+B v4 = B{A{}, .a2=1, .b=3};     // error: \tcode{A} initialized two different ways
+C v5 = C{.a1=4};                // the explicitly initialized elements are [\tcode{C::a1}]
+\end{codeblock}
+\end{example}
 
 \pnum
 For each explicitly initialized element:
 \begin{itemize}
 \item
 If the element is an anonymous union member and
-the initializer list is
-a brace-enclosed \grammarterm{designated-initializer-list},
+is explicitly initialized per a \grammarterm{designated-only-initializer-list},
 the element is initialized by the
 \grammarterm{braced-init-list} \tcode{\{ }\placeholder{D}\tcode{ \}},
 where \placeholder{D} is the \grammarterm{designated-initializer-clause}
-naming a member of the anonymous union member.
+whose associated element is the anonymous union member.
 There shall be only one such \grammarterm{designated-initializer-clause}.
 \begin{example}
 \begin{codeblock}
@@ -5576,8 +5656,11 @@ struct C {
 initializes \tcode{c.a} with 1 and \tcode{c.x} with 3.
 \end{example}
 \item
-Otherwise, if the initializer list is
-a brace-enclosed \grammarterm{designated-initializer-list},
+Otherwise, if the element is explicitly initialized
+per a \grammarterm{designated-only-initializer-list}, then
+\begin{itemize}
+\item
+if the element is a (direct) non-static data member, then
 the element is initialized with the \grammarterm{brace-or-equal-initializer}
 of the corresponding \grammarterm{designated-initializer-clause}.
 If that initializer is of the form
@@ -5590,8 +5673,29 @@ The form of the initializer determines
 whether copy-initialization or direct-initialization is performed.
 \end{note}
 \item
+otherwise, the element is a base class subobject $B$, and
+is copy-initialized from
+a brace-enclosed \grammarterm{designated-initializer-list}
+consisting of all of the \grammarterm{designated-initializer-clause}s
+whose associated element is $B$, in order.
+\end{itemize}
+\begin{example}
+\begin{codeblock}
+struct A { int a; };
+struct B : A { int b; };
+struct C : B { int c; };
+
+// the \tcode{A} element is initialized from \tcode{\{.a=1\}}
+B x = B{.a=1};
+
+// the \tcode{B} element is initialized from \tcode{\{.a=2, .b=3\}}
+// which leads to its \tcode{A} element being initialized from \tcode{\{.a=2\}}
+C y = C{.a=2, .b=3, .c=4};
+\end{codeblock}
+\end{example}
+\item
 Otherwise,
-the initializer list is a brace-enclosed \grammarterm{initializer-list}.
+element is explicitly initialized per an \grammarterm{initializer-list}.
 If an \grammarterm{initializer-clause} appertains to the aggregate element,
 then the aggregate element is copy-initialized from the \grammarterm{initializer-clause}.
 Otherwise,
@@ -5857,8 +5961,7 @@ and leaves the rest zero.
 \end{example}
 
 \pnum
-Each \grammarterm{initializer-clause} in
-a brace-enclosed \grammarterm{initializer-list}
+Each \grammarterm{initializer-clause} in a \grammarterm{braced-init-list}
 is said to \defn{appertain}
 to an element of the aggregate being initialized or
 to an element of one of its subaggregates.
@@ -6464,18 +6567,30 @@ If the \grammarterm{braced-init-list}
 contains a \grammarterm{designated-initializer-list} and
 \tcode{T} is not a reference type,
 \tcode{T} shall be an aggregate class.
-The ordered \grammarterm{identifier}{s}
+The associated elements of the non-static data members of \tcode{T}
+designated by the ordered \grammarterm{identifier}{s}
 in the \grammarterm{designator}{s}
 of the \grammarterm{designated-initializer-list}
-shall form a subsequence
-of the ordered \grammarterm{identifier}{s}
-in the direct non-static data members of \tcode{T}.
+shall be in non-decreasing element order.
 Aggregate initialization is performed\iref{dcl.init.aggr}.
 \begin{example}
 \begin{codeblock}
 struct A { int x; int y; int z; };
 A a{.y = 2, .x = 1};                // error: designator order does not match declaration order
 A b{.x = 1, .z = 2};                // OK, \tcode{b.y} initialized to \tcode{0}
+
+struct B : A { int q; };
+B e{.x = 1, .q = 3};                // OK, \tcode{e.y} and \tcode{e.z} initialized to \tcode{0}
+B f{.q = 3, .x = 1};                // error: designator order does not match declaration order
+
+struct C { int p; int x; };
+struct D : A, C { };
+D g{.y=1, .p=2};                    // OK
+D h{.x=2};                          // error: ambiguous lookup for \tcode{x}
+
+struct NonAggr { int na; NonAggr(int); };
+struct E : NonAggr { int e; };
+E i{.na=1, .e=2};                   // error: the lookup set for \tcode{na} finds \tcode{NonAggr}, which is not an aggregate base of \tcode{E}
 \end{codeblock}
 \end{example}
 
