@@ -8584,6 +8584,7 @@ It is unspecified whether the value of \tcode{f()} will be \tcode{true} or \tcod
 A type has \defnadj{constexpr-unknown}{representation} if it
 \begin{itemize}
 \item is a union,
+\item is \tcode{std::meta::type_info},
 \item is a pointer or pointer-to-member type,
 \item is volatile-qualified,
 \item is a class type with a non-static data member of reference type, or
@@ -9081,58 +9082,81 @@ constexpr auto& gallagher = typeid(trident);    // error: constexpr-unknown dyna
 \rSec2[expr.const.const]{Constant expressions}
 
 \pnum
-A \defnadj{constant}{expression} is either
+A \defnadj{consteval-only}{value} is either
 \begin{itemize}
 \item
-a glvalue core constant expression $E$ for which
+a reflection value\iref{basic.fundamental}
+that is not the null reflection value or
+\item
+a pointer or pointer-to-member
+that points to an immediate function
+or to or past the end of an immediate object.
+\end{itemize}
+
+\pnum
+An object is an \defnadj{immediate}{object}
+if its complete object has
 \begin{itemize}
 \item
-$E$ refers to a non-immediate function,
+a constituent value that is consteval-only or
 \item
-$E$ designates an object \tcode{o}, and
-if the complete object of \tcode{o} is of consteval-only type then so is $E$,
+a constituent reference that refers to
+an immediate object or immediate function.
+\end{itemize}
+
+\pnum
+Every immediate object shall be
+\begin{itemize}
+\item
+the object associated with a constexpr variable
+or a subobject thereof,
+\item
+a template parameter object\iref{temp.param}
+or a subject thereof, or
+\item
+an object whose lifetime begins and ends
+during the evaluation of a core constant expression.
+\end{itemize}
 \begin{example}
 \begin{codeblock}
-struct Base { };
-struct Derived : Base { std::meta::info r; };
+consteval int plus1(int x) { return x + 1; }
+template <auto V> struct C {};
 
-consteval const Base& fn(const Derived& derived) { return derived; }
+auto a = plus1;                 // error: immediate object not associated with constexpr variable
+constexpr auto b = plus1;       // OK
+auto c = C<plus1>();            // OK
 
-constexpr Derived obj{.r=^^::};     // OK
-constexpr const Derived& d = obj;   // OK
-constexpr const Base& b = fn(obj);  // error: not a constant expression because \tcode{Derived}
-                                    // is a consteval-only type but \tcode{Base} is not.
+auto d = @\reflexpr{int}@;                 // error: immediate object not associated with constexpr variable
+auto e = @C<\reflexpr{char}@>();           // OK
 \end{codeblock}
 \end{example}
-\end{itemize}
-or
-\item
-a prvalue core constant expression whose result object\iref{basic.lval} (if any)
-satisfies the following constraints:
+Each expression $E$ that odr-uses a variable
+that declares or refers to an immediate object
+shall be in an immediate function context;
+a diagnostic is required only if either
 \begin{itemize}
 \item
-each constituent reference refers to an object or a non-immediate function,
+the innermost declaration that contains $E$ or
 \item
-no constituent value of scalar type is an indeterminate or erroneous value\iref{basic.indet},
-\item
-no constituent value of pointer type is a pointer to an immediate function or
-an invalid pointer value\iref{basic.compound},
-\item
-no constituent value of pointer-to-member type designates an immediate function, and
-\item
-unless the value is of consteval-only type,
+the defining declaration of the variable
+\end{itemize}
+is reachable from the other.
+
+\pnum
+A core constant expression
+is a \defnadj{constant}{expression}
+unless it is a prvalue whose result object\iref{basic.lval}
+has a constituent value that is an invalid pointer value\iref{basic.compound}
+or is indeterminate or erroneous\iref{basic.indet}
+
+\pnum
+A constant expression is an \defnadj{immediate}{constant}{expression}
+if it is either
 \begin{itemize}
 \item
-no constituent value of pointer-to-member type points to
-a direct member of a consteval-only class type,
+a glvalue that refers to an immediate object or an immediate function, or
 \item
-no constituent value of pointer type points to or past an object
-whose complete object is of consteval-only type, and
-\item
-no constituent reference refers to an object
-whose complete object is of consteval-only type.
-\end{itemize}
-\end{itemize}
+a prvalue whose result object (if any) is an immediate object.
 \end{itemize}
 \begin{note}
 A glvalue core constant expression
@@ -9451,12 +9475,25 @@ if it is neither initially in an immediate function context
 nor a subexpression of an immediate invocation, and
 \begin{itemize}
 \item
-it is an \grammarterm{id-expression} or \grammarterm{splice-expression}
-that designates an immediate function,
+it is an immediate constant expression or
+\begin{example}
+\begin{codeblock}
+consteval std::meta::info refl() { return @\reflexpr{int}@; }
+template <auto F> constexpr void ex() { auto x = F(); }
+auto p = &ex<refl>;             // error: immediate function because \tcode{F()}
+                                // is an immediate constant expression
+\end{codeblock}
+\end{example}
 \item
-it is an immediate invocation that is not a constant expression, or
-\item
-it is of consteval-only type\iref{basic.types.general}.
+it is an immediate invocation that is not a constant expression.
+\begin{example}
+\begin{codeblock}
+consteval int id(int x) { return x; }
+template <auto F> constexpr auto apply_to(int i) { return F(i); }
+auto p = &apply_to<id>;         // error: immediate function because \tcode{F(i)}
+                                // is not a constant expression
+\end{codeblock}
+\end{example}
 \end{itemize}
 
 \pnum
@@ -9478,20 +9515,13 @@ An immediate-escalating expression shall appear only
 in an immediate-escalating function.
 
 \pnum
-An \defnadj{immediate}{function} is a function that is
+An \defnadj{immediate}{function} is a function that is either
 \begin{itemize}
 \item
-declared with the \keyword{consteval} specifier,
-\item
-an immediate-escalating function
-whose type is consteval-only\iref{basic.types.general}, or
+declared with the \keyword{consteval} specifier, or
 \item
 an immediate-escalating function \tcode{\placeholder{F}}
-whose function body contains either
-\begin{itemize}
-\item an immediate-escalating expression or
-\item a definition of a non-constexpr variable with consteval-only type
-\end{itemize}
+whose function body contains an immediate-escalating expression
 whose innermost enclosing non-block scope
 is \tcode{\placeholder{F}}'s function parameter scope.
 \begin{tailnote}
