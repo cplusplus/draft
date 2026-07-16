@@ -58,3 +58,4 @@
  * [N5032](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2025/n5032.pdf) 2025-12 C++ Working Draft
  * [N5046](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2026/n5046.pdf) 2026-05 C++ Working Draft
  * [N5050](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2026/n5050.pdf) 2026-06 C++ Working Draft
+ * [N5054](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2026/n5054.pdf) 2026-07 C++ Working Draft
