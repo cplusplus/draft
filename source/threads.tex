@@ -1474,11 +1474,22 @@ namespace std {
   public:
     // \ref{thread.thread.id}, class \tcode{thread::id}
     class id;
+
+    // \ref{thread.attributes}, thread attributes
+    template<@\libconcept{same_as}@<char> T>
+      class name_hint;
+    template<class T>
+      name_hint(const T*) -> name_hint<T>;
+    template<class T>
+      name_hint(basic_string<T>) -> name_hint<T>;
+    class stack_size_hint;
+
     using native_handle_type = @\impdefnc@;         // see~\ref{thread.req.native}
 
     // construct/copy/destroy
     thread() noexcept;
-    template<class F, class... Args> explicit thread(F&& f, Args&&... args);
+    template<class... Args>
+      explicit thread(Args&&... args);
     ~thread();
     thread(const thread&) = delete;
     thread(thread&&) noexcept;
@@ -1498,6 +1509,108 @@ namespace std {
   };
 }
 \end{codeblock}
+
+\rSec3[thread.attributes]{Thread attributes}
+
+\rSec4[thread.attributes.general]{General}
+
+\pnum
+\defnx{Thread attributes}{thread attribute}
+can be used to define additional implementation-defined behaviors
+on a \tcode{thread} or \tcode{jthread} object.
+
+\pnum
+The set of \defnadj{thread attribute}{types} contains
+\tcode{thread::name_hint},
+\tcode{thread::stack_size_hint}, and
+an \impldef{set of additional thread-attributes} set of additional thread-attributes.
+
+\pnum
+When an object of a thread attribute type is passed to
+a \tcode{thread} or \tcode{jthread} constructor,
+it may affect the new thread's behavior.
+
+\rSec4[thread.attributes.hint]{Class \tcode{thread::name_hint}}
+
+\indexlibraryglobal{thread::name_hint}%
+\begin{codeblock}
+namespace std {
+  template<@\libconcept{same_as}@<char> T>
+  class thread::name_hint {
+  public:
+    constexpr explicit name_hint(basic_string_view<T> n) noexcept;
+    name_hint(name_hint&&) = delete;
+    name_hint(const name_hint&) = delete;
+
+  private:
+    basic_string_view<T> @\exposidnc{name}@;  // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+The \tcode{name_hint} thread attribute can be used to set the name of a thread
+for debugging purposes or platform-specific display mechanisms.
+
+\recommended
+Implementations should not store the value of the \tcode{name_hint} attribute
+in the \tcode{thread} or \tcode{jthread} object.
+
+\recommended
+\exposid{name} is interpreted as a string
+in the associated character encoding
+of \tcode{T}~(\tref{lex.string.literal}).
+
+\indexlibraryctor{thread::name_hint}%
+\begin{itemdecl}
+constexpr explicit name_hint(basic_string_view<T> n) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{name} with \tcode{n}.
+\end{itemdescr}
+
+\rSec4[thread.attributes.size]{Class \tcode{thread::stack_size_hint}}
+
+\indexlibraryglobal{thread::stack_size_hint}%
+\begin{codeblock}
+namespace std {
+  class thread::stack_size_hint {
+  public:
+    constexpr explicit stack_size_hint(size_t s) noexcept;
+
+  private:
+    size_t @\exposidnc{size}@;                // \expos
+  };
+}
+\end{codeblock}
+
+\pnum
+\tcode{stack_size_hint} can be used to configure a desired size in bytes
+for platform-specific storage required for a thread.
+\begin{note}
+Such storage is typically used for variables with automatic storage duration.
+\end{note}
+
+\pnum
+The stack size set by the implementation may be adjusted up or down
+to meet platform-specific requirements.
+
+\pnum
+If \exposid{size} is zero, the thread attribute is ignored.
+
+\indexlibraryctor{thread::stack_size_hint}%
+\begin{itemdecl}
+constexpr explicit stack_size_hint(size_t s) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+Initializes \exposid{size} with \tcode{s}.
+\end{itemdescr}
 
 \rSec3[thread.thread.id]{Class \tcode{thread::id}}
 
@@ -1675,21 +1788,57 @@ The object does not represent a thread of execution.
 
 \indexlibraryctor{thread}%
 \begin{itemdecl}
-template<class F, class... Args> explicit thread(F&& f, Args&&... args);
+template<class... Args> explicit thread(Args&&... args);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \constraints
-\tcode{remove_cvref_t<F>} is not the same type as \tcode{thread}.
+\begin{itemize}
+\item
+\tcode{Args} is not an empty pack, and
+\item
+\tcode{remove_cvref_t<Args...[0]>} is not the same type as \tcode{thread}.
+\end{itemize}
+
+\pnum
+Then:
+\begin{itemize}
+\item
+Let $i$ be the smallest value such that
+\tcode{decay_t<Args...[$i$]>}
+is not a thread attribute type.
+If no such $i$ exists, the program is ill-formed.
+\item
+Let \tcode{F} be \tcode{Args...[$i$]}.
+\item
+Let \tcode{f} be \tcode{args...[$i$]}.
+\item
+Let \tcode{Attrs} be a pack of the types
+\tcode{Args...[$j$]} for each $j$
+such that $0 \leq j < i$.
+\item
+Let \tcode{attrs} be a pack of the expressions
+\tcode{args...[$j$]} for each $j$
+such that $0 \leq j < i$.
+\item
+Let \tcode{FArgs} be a pack of the types
+\tcode{Args...[$j$]} for each $j$
+such that $i < j < \tcode{sizeof...(args)}$.
+\item
+Let \tcode{fargs} be a pack of the expressions
+\tcode{args...[$j$]} for each $j$
+such that $i < j < \tcode{sizeof...(args)}$.
+\end{itemize}
 
 \pnum
 \mandates
 The following are all \tcode{true}:
 \begin{itemize}
 \item \tcode{is_constructible_v<decay_t<F>, F>},
-\item \tcode{(is_constructible_v<decay_t<Args>, Args> \&\& ...)}, and
-\item \tcode{is_invocable_v<decay_t<F>, decay_t<Args>...>}.
+\item \tcode{(is_constructible_v<decay_t<FArgs>, FArgs> \&\& ...)},
+\item \tcode{is_invocable_v<decay_t<F>, decay_t<FArgs>...>}, and
+\item no type is present more than once in the pack \tcode{remove_cvref_t<Attrs>}.
 \end{itemize}
 
 \pnum
@@ -1697,7 +1846,7 @@ The following are all \tcode{true}:
 The new thread of execution executes
 \begin{codeblock}
 invoke(auto(std::forward<F>(f)),                // for \tcode{invoke}, see \ref{func.invoke}
-       auto(std::forward<Args>(args))...)
+       auto(std::forward<FArgs>(fargs))...)
 \end{codeblock}
 with the values produced by \tcode{auto}
 being materialized\iref{conv.rval} in the constructing thread.
@@ -1708,6 +1857,10 @@ of \tcode{f} will be thrown in the constructing thread, not the new thread.
 \end{note}
 If the invocation of \tcode{invoke} terminates with an uncaught exception,
 \tcode{terminate} is invoked\iref{except.terminate}.
+\begin{note}
+The parameters \tcode{attrs...}
+can affect the behavior of the new thread\iref{thread.attributes}.
+\end{note}
 
 \pnum
 \sync
@@ -1951,9 +2104,14 @@ namespace std {
     using id = thread::id;
     using native_handle_type = thread::native_handle_type;
 
+    template<class T>
+      using name_hint = thread::name_hint<T>;
+    using stack_size_hint = thread::stack_size_hint;
+
     // \ref{thread.jthread.cons}, constructors, move, and assignment
     jthread() noexcept;
-    template<class F, class... Args> explicit jthread(F&& f, Args&&... args);
+    template<class... Args>
+      explicit jthread(Args&&... args);
     ~jthread();
     jthread(const jthread&) = delete;
     jthread(jthread&&) noexcept;
@@ -2006,21 +2164,58 @@ and \tcode{\exposid{ssource}.stop_possible()} is \tcode{false}.
 
 \indexlibraryctor{jthread}%
 \begin{itemdecl}
-template<class F, class... Args> explicit jthread(F&& f, Args&&... args);
+template<class... Args> explicit jthread(Args&&... args);
 \end{itemdecl}
 
 \begin{itemdescr}
 \pnum
 \constraints
-\tcode{remove_cvref_t<F>} is not the same type as \tcode{jthread}.
+\begin{itemize}
+\item
+\tcode{Args} is not an empty pack, and
+\item
+\tcode{remove_cvref_t<Args...[0]>} is not the same type as \tcode{jthread}.
+\end{itemize}
+
+\pnum
+Then:
+\begin{itemize}
+\item
+Let $i$ be the smallest value such that
+\tcode{decay_t<Args...[$i$]>}
+is not a thread attribute type.
+If no such $i$ exists, the program is ill-formed.
+\item
+Let \tcode{F} be \tcode{Args...[$i$]}.
+\item
+Let \tcode{f} be \tcode{args...[$i$]}.
+\item
+Let \tcode{Attrs} be a pack of the types
+\tcode{Args...[$j$]} for each $j$
+such that $0 \leq j < i$.
+\item
+Let \tcode{attrs} be a pack of the expressions
+\tcode{args...[$j$]} for each $j$
+such that $0 \leq j < i$.
+\item
+Let \tcode{FArgs} be a pack of the types
+\tcode{Args...[$j$]} for each $j$
+such that $i < j < \tcode{sizeof...(args)}$.
+\item
+Let \tcode{fargs} be a pack of the expressions
+\tcode{args...[$j$]} for each $j$
+such that $i < j < \tcode{sizeof...(args)}$.
+\end{itemize}
 
 \pnum
 \mandates
 The following are all \tcode{true}:
 \begin{itemize}
 \item \tcode{is_constructible_v<decay_t<F>, F>},
-\item \tcode{(is_constructible_v<decay_t<Args>, Args> \&\& ...)}, and
-\item \tcode{is_invocable_v<decay_t<F>, decay_t<Args>...> ||} \\ \tcode{is_invocable_v<decay_t<F>, stop_token, decay_t<Args>...>}.
+\item \tcode{(is_constructible_v<decay_t<FArgs>, FArgs> \&\& ...)},
+\item \tcode{is_invocable_v<decay_t<F>, decay_t<FArgs>...> ||} \\
+      \tcode{is_invocable_v<decay_t<F>, stop_token, decay_t<FArgs>...>}, and
+\item no type is present more than once in the pack \tcode{remove_cvref_t<Attrs>}.
 \end{itemize}
 
 \pnum
@@ -2029,12 +2224,12 @@ Initializes \exposid{ssource}.
 The new thread of execution executes
 \begin{codeblock}
 invoke(auto(std::forward<F>(f)), get_stop_token(),  // for \tcode{invoke}, see \ref{func.invoke}
-       auto(std::forward<Args>(args))...)
+       auto(std::forward<FArgs>(fargs))...)
 \end{codeblock}
 if that expression is well-formed,
 otherwise
 \begin{codeblock}
-invoke(auto(std::forward<F>(f)), auto(std::forward<Args>(args))...)
+invoke(auto(std::forward<F>(f)), auto(std::forward<FArgs>(fargs))...)
 \end{codeblock}
 with the values produced by \tcode{auto}
 being materialized\iref{conv.rval} in the constructing thread.
@@ -2045,6 +2240,10 @@ of \tcode{f} will be thrown in the constructing thread, not the new thread.
 \end{note}
 If the \tcode{invoke} expression exits via an exception,
 \tcode{terminate} is called.
+\begin{note}
+The parameters \tcode{attrs...}
+can affect the behavior of the new thread\iref{thread.attributes}.
+\end{note}
 
 \pnum
 \sync
