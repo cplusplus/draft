@@ -21,6 +21,14 @@ function fail() {
     grep .
 }
 
+# If we detect GNU sed (on macOS installed with brew) then we will use it.
+# Otherwise the script can fail on macOS which ships with BSD sed.
+if command -v gsed >/dev/null 2>&1; then
+	GSED=$(command -v gsed)
+	sed() {
+		${GSED} "$@"
+	}
+fi
 
 # We require GNU tools.
 sed --version | grep -Fqe "GNU sed" || { echo "sed is not GNU sed"; exit 1; }
