@@ -73,14 +73,14 @@ for f in *.tex; do
     # handle codeblock
     sed -n 's,//.*$,,;s/%.*$//;s/"[^"]*"/""/;/begin{codeblock\(tu\)\?}/,/end{codeblock\(tu\)\?}/{/[^-_a-z\]\('"$patt"'\)[^-_}a-z0-9();,]/{=;p;};}' $f |
 	# prefix output with filename and line
-	sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/" |
+	sed -e '/^[0-9]\+$/{N;s/\n/:/;}' -e "s/.*/$f:&/" |
 	grep -v "@.seebelow" |
 	sed "s/\$/ -- concept name without markup/" |
 	fail || failed=1
     # handle itemdecl
     sed -n 's,//.*$,,;s/%.*$//;s/"[^"]*"/""/;/begin{itemdecl}/,/end{itemdecl}/{/[^-_a-z]\('"$patt"'\)[^-_a-z();,]/{/concept{[a-z_-]*}/d;=;p;};}' $f |
 	# prefix output with filename and line
-	sed '/^[0-9]\+$/{N;s/\n/:/;}' | sed "s/.*/$f:&/" |
+	sed -e '/^[0-9]\+$/{N;s/\n/:/;}' -e "s/.*/$f:&/" |
 	grep -v "@.seebelow" |
 	sed "s/\$/ -- concept name without markup/" |
 	    fail || failed=1
