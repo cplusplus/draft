@@ -13,8 +13,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Pattern, Set, Tuple
-
+from re import Pattern
 
 # ==================================================================================================
 # Lookup tables
@@ -930,8 +929,8 @@ class ExpectedFailure:
 # ==================================================================================================
 
 source_dir: Path = Path()
-file_locations: Dict[str, Path] = {}
-expected_registry: Dict[Tuple[str, int], ExpectedFailure] = {}
+file_locations: dict[str, Path] = {}
+expected_registry: dict[tuple[str, int], ExpectedFailure] = {}
 
 # ==================================================================================================
 # Expected-failure tracking
@@ -960,7 +959,7 @@ def consume_expected(file: str, failure_line: int, check_id: str) -> bool:
     return False
 
 
-def collect_unexpectedly_not_failed() -> List[ExpectedFailure]:
+def collect_unexpectedly_not_failed() -> list[ExpectedFailure]:
     return [e for e in expected_registry.values() if not e.hit]
 
 
@@ -972,11 +971,11 @@ def collect_unexpectedly_not_failed() -> List[ExpectedFailure]:
 COMMENT_PATTERN = re.compile(r"^\s*%")
 
 
-def make_alt_pattern(items: List[str]) -> str:
+def make_alt_pattern(items: list[str]) -> str:
     return "(?:" + "|".join(re.escape(s) for s in items) + ")"
 
 
-def read_file(path: Path) -> List[str]:
+def read_file(path: Path) -> list[str]:
     try:
         with open(path, encoding="utf-8", errors="replace") as f:
             return f.read().splitlines()
@@ -984,8 +983,8 @@ def read_file(path: Path) -> List[str]:
         return []
 
 
-def format_failure(fail: Failure, lines: List[str]) -> str:
-    parts: List[str] = []
+def format_failure(fail: Failure, lines: list[str]) -> str:
+    parts: list[str] = []
     message = (
         re.sub(r"`([^`]+)`", f"{ANSI_YELLOW}\\1{ANSI_RESET}", fail.message)
         if COLOR
@@ -1019,13 +1018,13 @@ def format_failure(fail: Failure, lines: List[str]) -> str:
 
 
 def find_env_ranges(
-    lines: List[str],
+    lines: list[str],
     env: Environment,
-) -> List[Tuple[int, int]]:
+) -> list[tuple[int, int]]:
     begin_pattern = env.begin_pattern
     end_pattern = env.end_pattern
-    ranges: List[Tuple[int, int]] = []
-    stack: List[int] = []
+    ranges: list[tuple[int, int]] = []
+    stack: list[int] = []
     for idx, line in enumerate(lines):
         if begin_pattern.search(line):
             stack.append(idx)
@@ -1080,7 +1079,7 @@ class Check(ABC):
 
     id: str = ""
 
-    def begin_file(self, file_path: Path, lines: List[str]) -> None:
+    def begin_file(self, file_path: Path, lines: list[str]) -> None:
         """Called before processing any line of `file_path`."""
         self.file_path = file_path
         self.lines = lines
@@ -1145,8 +1144,8 @@ class BannedPatternCheck(Check):
 class EnvRanges:
     """Pre-computed line ranges for a LaTeX environment within one file."""
 
-    def __init__(self, lines: List[str], env: Environment):
-        self.in_range: Set[int] = set()
+    def __init__(self, lines: list[str], env: Environment):
+        self.in_range: set[int] = set()
         for start, end in find_env_ranges(lines, env):
             self.in_range.update(range(start, end))
 
@@ -1173,7 +1172,7 @@ class BannedPatternInEnvironmentCheck(Check):
         self.pattern = pattern
         self.message = message
 
-    def begin_file(self, file_path: Path, lines: List[str]) -> None:
+    def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
         self.ranges = EnvRanges(lines, self.env)
 
@@ -1236,7 +1235,7 @@ class ConsecutivePnumCheck(Check):
     def __init__(self, check_id: str):
         self.id = check_id
 
-    def begin_file(self, file_path: Path, lines: List[str]) -> None:
+    def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
         self.previous_was_pnum = False
 
@@ -1261,9 +1260,9 @@ class TailnoteTailexampleCheck(Check):
     END_PATTERN = re.compile(r"\\end\{(?:example|note)\}")
     TAIL_PATTERN = re.compile(r"- *(?:\\\\|&)")
 
-    def begin_file(self, file_path: Path, lines: List[str]) -> None:
+    def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
-        self.pending: Optional[Tuple[int, int, int]] = None
+        self.pending: tuple[int, int, int] | None = None
 
     def check_line(self, line_num: int, line: str) -> None:
         # Check whether the previous line should have used \\tailnote.
@@ -1288,9 +1287,9 @@ class BlankLineExampleCodeblockCheck(Check):
     def __init__(self, check_id: str):
         self.id = check_id
 
-    def begin_file(self, file_path: Path, lines: List[str]) -> None:
+    def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
-        self.previous_line: Optional[str] = None
+        self.previous_line: str | None = None
 
     def check_line(self, line_num: int, line: str) -> None:
         if (
@@ -1322,9 +1321,9 @@ class CommentAlignmentCheck(Check):
     CHECKED_COMMENT_PATTERN = re.compile(r"^[^@]*[^@\s][^@]*? //")
     ENVIRONMENTS = (Environment.CODEBLOCK, Environment.CODEBLOCKTU)
 
-    def begin_file(self, file_path: Path, lines: List[str]) -> None:
+    def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
-        self.in_range: Set[int] = set()
+        self.in_range: set[int] = set()
         for env in self.ENVIRONMENTS:
             for start, end in find_env_ranges(lines, env):
                 self.in_range.update(range(start, end))
@@ -1354,7 +1353,7 @@ class HangingParagraphsCheck(Check):
     def __init__(self, check_id: str):
         self.id = check_id
 
-    def begin_file(self, file_path: Path, lines: List[str]) -> None:
+    def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
         self.previous_level = 0
         self.previous_line = 0
@@ -1389,11 +1388,11 @@ class SubclausesWithoutSiblingsCheck(Check):
     def __init__(self, check_id: str):
         self.id = check_id
 
-    def begin_file(self, file_path: Path, lines: List[str]) -> None:
+    def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
         self.previous_level = 0
-        self.sections: Dict[int, int] = {}
-        self.titles: Dict[int, str] = {}
+        self.sections: dict[int, int] = {}
+        self.titles: dict[int, str] = {}
 
     def check_line(self, line_num: int, line: str) -> None:
         m = self.SECTION_PATTERN.match(line)
@@ -1425,9 +1424,9 @@ class SectionSelfReferenceCheck(Check):
     def __init__(self, check_id: str):
         self.id = check_id
 
-    def begin_file(self, file_path: Path, lines: List[str]) -> None:
+    def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
-        self.current_label: Optional[str] = None
+        self.current_label: str | None = None
 
     def check_line(self, line_num: int, line: str) -> None:
         m = self.SECTION_PATTERN.match(line)
@@ -1453,11 +1452,11 @@ class PnumMissingInItemdescrCheck(Check):
     def __init__(self, check_id: str):
         self.id = check_id
 
-    def begin_file(self, file_path: Path, lines: List[str]) -> None:
+    def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
         self.check_file(file_path, lines)
 
-    def check_file(self, file_path: Path, lines: List[str]) -> None:
+    def check_file(self, file_path: Path, lines: list[str]) -> None:
         for start, end in find_env_ranges(lines, Environment.ITEMDESCR):
             seen_pnum = False
             for idx in range(start, end):
@@ -1491,15 +1490,15 @@ class ClassDefinitionOutsideNamespaceCheck(Check):
     def __init__(self, check_id: str):
         self.id = check_id
 
-    def begin_file(self, file_path: Path, lines: List[str]) -> None:
+    def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
         self.check_file(file_path, lines)
 
-    def check_file(self, file_path: Path, lines: List[str]) -> None:
+    def check_file(self, file_path: Path, lines: list[str]) -> None:
         in_section = False
         in_example = False
         in_cb = False
-        cb_lines: List[str] = []
+        cb_lines: list[str] = []
         cb_start = 0
         for idx, line in enumerate(lines):
             if self.CLASS_SECTION_PATTERN.search(line):
@@ -1568,21 +1567,21 @@ class OutdatedFiguresCheck(Check):
 
 
 class FunctionDescriptorOutOfOrderCheck(Check):
-    element_index: Dict[str, int] = {e: i for i, e in enumerate(FUNCTION_DESCRIPTORS)}
+    element_index: dict[str, int] = {e: i for i, e in enumerate(FUNCTION_DESCRIPTORS)}
     relevant_line_pattern = re.compile(r"^\\" + make_alt_pattern(FUNCTION_DESCRIPTORS))
 
     def __init__(self, check_id: str):
         self.id = check_id
 
-    def begin_file(self, file_path: Path, lines: List[str]) -> None:
+    def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
         self.check_file(file_path, lines)
 
-    def check_file(self, file_path: Path, lines: List[str]) -> None:
+    def check_file(self, file_path: Path, lines: list[str]) -> None:
         for start, end in find_env_ranges(lines, Environment.ITEMDESCR):
             if "% NOCHECK:" in lines[start] and "order" in lines[start]:
                 continue
-            prev_name: Optional[str] = None
+            prev_name: str | None = None
             for idx in range(start, end):
                 m = self.relevant_line_pattern.match(lines[idx])
                 if not m:
@@ -1605,9 +1604,9 @@ class UnbalancedBeginAndEndCheck(Check):
     def __init__(self, check_id: str):
         self.id = check_id
 
-    def begin_file(self, file_path: Path, lines: List[str]) -> None:
+    def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
-        self.stack: List[Tuple[str, int, int, int]] = []
+        self.stack: list[tuple[str, int, int, int]] = []
 
     def check_line(self, line_num: int, line: str) -> None:
         if COMMENT_PATTERN.match(line):
@@ -1694,13 +1693,13 @@ class UseOfUndefinedCheck(Check):
         self,
         check_id: str,
         definition_pattern: Pattern[str],
-        usage_pattern: List[Pattern[str]],
+        usage_pattern: list[Pattern[str]],
     ):
         self.id = check_id
         self.definition_pattern = definition_pattern
         self.usage_pattern = usage_pattern
-        self.defined: Set[str] = set()
-        self.used: Dict[str, List[Tuple[str, int, int, int]]] = defaultdict(list)
+        self.defined: set[str] = set()
+        self.used: dict[str, list[tuple[str, int, int, int]]] = defaultdict(list)
 
     def check_line(self, line_num: int, line: str) -> None:
         for m in self.definition_pattern.finditer(line):
@@ -1749,8 +1748,8 @@ class RefUndefinedCheck(Check):
 
     def __init__(self, check_id: str):
         self.id = check_id
-        self.defined: Set[str] = set()
-        self.used: Dict[str, List[Tuple[str, int, int, int]]] = defaultdict(list)
+        self.defined: set[str] = set()
+        self.used: dict[str, list[tuple[str, int, int, int]]] = defaultdict(list)
 
     def check_line(self, line_num: int, line: str) -> None:
         for defining_pattern in self.DEFINING_PATTERNS:
@@ -1776,7 +1775,7 @@ class RefUndefinedCheck(Check):
                 )
 
 
-CHECKS: List[Check] = [
+CHECKS: list[Check] = [
     # -- Text checks -------------------------------------------------------------------------------
     # Such checks run on all files and identify problems like illegal characters,
     # trailing whitespace, etc.
@@ -2047,7 +2046,7 @@ CHECKS: List[Check] = [
 NO_CHECK_PATTERN = re.compile(r"^\s*%NOCHECK(BEGIN|END|NEXTLINE)(?:\((\S*)\))?\s*$")
 
 
-def run_checks(tex_files: List[Path]) -> int:
+def run_checks(tex_files: list[Path]) -> int:
     """Run all registered checks. Returns the number of unexpected failures."""
     global unexpected_count
     unexpected_count = 0
@@ -2069,9 +2068,9 @@ def run_checks(tex_files: List[Path]) -> int:
             c.begin_file(file_path, lines)
 
         # Active-set management — controls whether check_line is called.
-        active: Set[str] = set(all_ids)
+        active: set[str] = set(all_ids)
         # Per-check next-line skips: check_id → set of line numbers.
-        skip_next: Dict[str, Set[int]] = defaultdict(set)
+        skip_next: dict[str, set[int]] = defaultdict(set)
 
         for idx, line in enumerate(lines):
             line_num = idx
@@ -2116,7 +2115,7 @@ def run_checks(tex_files: List[Path]) -> int:
     return unexpected_count
 
 
-def parse_expected_from_files(tex_files: List[Path]) -> None:
+def parse_expected_from_files(tex_files: list[Path]) -> None:
     """Pre-scan ``.tex`` files for ``%EXPECTCHECKNEXTLINE(id)`` directives.
 
     The directive must appear alone on its line; *id* is the check that is
@@ -2132,8 +2131,8 @@ def parse_expected_from_files(tex_files: List[Path]) -> None:
                 register_expected(os.path.relpath(file_path), idx, m.group(1).strip())
 
 
-def collect_tex_files_recursively(root_paths: List[Path]) -> List[Path]:
-    result: List[Path] = []
+def collect_tex_files_recursively(root_paths: list[Path]) -> list[Path]:
+    result: list[Path] = []
     for root in root_paths:
         if root.is_dir():
             result.extend(sorted(root.rglob("*.tex")))
