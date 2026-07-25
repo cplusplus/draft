@@ -38,7 +38,7 @@ def style(text: str, code: str) -> str:
 
 
 # ==================================================================================================
-# Data types
+# Utilities
 # ==================================================================================================
 
 
@@ -87,48 +87,38 @@ class ExpectedFailure:
     """`true` if a matching failure was reported."""
 
 
-# ==================================================================================================
-# Global state
-# ==================================================================================================
+class ExpectedTracker:
+    """Tracks ``%EXPECTCHECKNEXTLINE`` directives and whether they were hit."""
 
-source_dir: Path = Path()
-file_locations: dict[str, Path] = {}
-expected_registry: dict[tuple[str, int], ExpectedFailure] = {}
+    def __init__(self) -> None:
+        self._registry: dict[tuple[str, int], ExpectedFailure] = {}
 
-# ==================================================================================================
-# Expected-failure tracking
-# ==================================================================================================
+    def register(self, file: str, comment_line: int, check_id: str) -> None:
+        key = (file, comment_line)
+        if key not in self._registry:
+            self._registry[key] = ExpectedFailure(file, comment_line, check_id)
 
+    def consume(self, file: str, failure_line: int, check_id: str) -> bool:
+        """
+        Consumes a possibly expected failure with the specified location and `check_id`.
+        Returns `true` if the failure was expected,
+        in which case the expected failure is considered "hit".
+        """
+        # Walk backwards through *consecutive* %EXPECTCHECKNEXTLINE directive  only.
+        # A blank line (or any other content) breaks the chain:
+        # EXPECTCHECKNEXTLINE always refers to the immediately following line.
+        for offset in range(1, min(failure_line, 20) + 1):
+            entry = self._registry.get((file, failure_line - offset))
+            if entry is None:
+                return False
+            if entry.check_id == check_id:
+                entry.hit = True
+                return True
+            # A different EXPECTCHECKNEXTLINE -> keep looking (stacked directives).
+        return False
 
-def register_expected(file: str, comment_line: int, check_id: str) -> None:
-    key = (file, comment_line)
-    if key not in expected_registry:
-        expected_registry[key] = ExpectedFailure(file, comment_line, check_id)
-
-
-def consume_expected(file: str, failure_line: int, check_id: str) -> bool:
-    # Walk backwards through *consecutive* %EXPECTCHECKNEXTLINE directives
-    # only.  A blank line (or any other content) breaks the chain —
-    # EXPECTCHECKNEXTLINE always refers to the immediately following line.
-    for offset in range(1, min(failure_line, 20) + 1):
-        entry = expected_registry.get((file, failure_line - offset))
-        if entry is None:
-            # Not an EXPECTCHECKNEXTLINE line — chain is broken.
-            return False
-        if entry.check_id == check_id:
-            entry.hit = True
-            return True
-        # A different EXPECTCHECKNEXTLINE — keep looking (stacked directives).
-    return False
-
-
-def collect_unexpectedly_not_failed() -> list[ExpectedFailure]:
-    return [e for e in expected_registry.values() if not e.hit]
-
-
-# ==================================================================================================
-# Utilities
-# ==================================================================================================
+    def collect_unhit(self) -> list[ExpectedFailure]:
+        return [e for e in self._registry.values() if not e.hit]
 
 
 COMMENT_PATTERN = re.compile(r"^\s*%")
@@ -192,9 +182,6 @@ def find_env_ranges(
             yield stack.pop(), idx + 1
 
 
-unexpected_count = 0
-
-
 def emit_check_failure(
     check: Check,
     file: str,
@@ -207,10 +194,9 @@ def emit_check_failure(
     Prints a failure immediately (unless consumed by an expected-failure marker).
     Line numbers and columns follow the same convention as `Failure`.
     """
-    global unexpected_count
-    if consume_expected(file, line, check.uid):
+    if check.expected_tracker.consume(file, line, check.uid):
         return
-    unexpected_count += 1
+    check.failure_count += 1
     fail = Failure(
         file=file,
         line=line,
@@ -222,7 +208,7 @@ def emit_check_failure(
     # Reading the file from scratch is very slow,
     # but we don't care because this is the unhappy path anyway,
     # and we usually don't expect failures anyway.
-    file_path = file_locations[file]
+    file_path = check.file_locations[file]
     lines = read_file(file_path)
     print(format_failure(fail, lines), file=sys.stderr)
     print(file=sys.stderr)
@@ -234,9 +220,22 @@ def emit_check_failure(
 
 
 class Check(ABC):
-    """Base class for all checks."""
+    """Base class for all checks.
+
+    The following attributes are late-initialized by `run_checks`
+    before any file processing begins:
+    """
 
     uid: str
+    """Unique identifier for this check."""
+    file_locations: dict[str, Path]
+    """Mapping from relative file path to absolute `Path`."""
+    expected_tracker: ExpectedTracker
+    """Shared registry of `%EXPECTCHECKNEXTLINE` directives."""
+    failure_count: int
+    """Number of unexpected failures emitted by this check."""
+    source_dir: Path
+    """Project TeX source directory."""
 
     def __init__(self, uid: str):
         self.uid = uid
@@ -708,7 +707,7 @@ class OutdatedFiguresCheck(Check):
         super().__init__(check_id)
 
     def end_checks(self) -> None:
-        for dot_file in sorted(source_dir.glob("*.dot")):
+        for dot_file in sorted(self.source_dir.glob("*.dot")):
             pdf_file = dot_file.with_suffix(".pdf")
             if (
                 pdf_file.exists()
@@ -1213,14 +1212,23 @@ CHECKS: list[Check] = [
 NO_CHECK_PATTERN = re.compile(r"^\s*%NOCHECK(BEGIN|END|NEXTLINE)(?:\((\S*)\))?\s*$")
 
 
-def run_checks(tex_files: list[Path]) -> int:
-    """Run all registered checks. Returns the number of unexpected failures."""
-    global unexpected_count
-    unexpected_count = 0
-    file_locations.clear()
-
+def run_checks(
+    tex_files: list[Path],
+    expected_tracker: ExpectedTracker,
+    source_dir: Path,
+) -> tuple[int, dict[str, Path]]:
+    """Run all registered checks.
+    Returns ``(unexpected_failures, file_locations)``.
+    """
+    file_locations: dict[str, Path] = {}
     for fp in tex_files:
         file_locations[os.path.relpath(fp)] = fp
+
+    for c in CHECKS:
+        c.file_locations = file_locations
+        c.expected_tracker = expected_tracker
+        c.failure_count = 0
+        c.source_dir = source_dir
 
     all_ids = {c.uid for c in CHECKS if c.uid}
 
@@ -1279,10 +1287,13 @@ def run_checks(tex_files: list[Path]) -> int:
     for c in CHECKS:
         c.end_checks()
 
-    return unexpected_count
+    return sum(c.failure_count for c in CHECKS), file_locations
 
 
-def parse_expected_from_files(tex_files: list[Path]) -> None:
+def parse_expected_from_files(
+    tex_files: list[Path],
+    expected_tracker: ExpectedTracker,
+) -> None:
     """Pre-scan ``.tex`` files for ``%EXPECTCHECKNEXTLINE(id)`` directives.
 
     The directive must appear alone on its line; *id* is the check that is
@@ -1295,7 +1306,9 @@ def parse_expected_from_files(tex_files: list[Path]) -> None:
         for idx in range(len(lines) - 1):
             m = EXPECT_CHECK_PATTERN.match(lines[idx])
             if m:
-                register_expected(os.path.relpath(file_path), idx, m.group(1).strip())
+                expected_tracker.register(
+                    os.path.relpath(file_path), idx, m.group(1).strip()
+                )
 
 
 def collect_tex_files_recursively(root_paths: list[Path]) -> list[Path]:
@@ -1336,7 +1349,6 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    global source_dir
     project_root = find_project_root()
     source_dir = (
         project_root / "source" if (project_root / "source").is_dir() else project_root
@@ -1351,10 +1363,11 @@ def main() -> None:
         print("error: no .tex files found", file=sys.stderr)
         sys.exit(1)
 
-    parse_expected_from_files(tex_files)
-    num_failures = run_checks(tex_files)
+    expected_tracker = ExpectedTracker()
+    parse_expected_from_files(tex_files, expected_tracker)
+    num_failures, file_locations = run_checks(tex_files, expected_tracker, source_dir)
 
-    unhit = collect_unexpectedly_not_failed()
+    unhit = expected_tracker.collect_unhit()
     num_failures += len(unhit)
     for entry in unhit:
         fp = file_locations.get(entry.file)
