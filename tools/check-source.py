@@ -157,8 +157,8 @@ def format_failure(fail: Failure, lines: list[str]) -> str:
         f"{style(fail.file, ANSI_BOLD)}:"
         f"{style(str(fail.line + 1), ANSI_BOLD)}:"
         f"{style(str(fail.column_start + 1), ANSI_BOLD)}: "
-        f"{style('error:', ANSI_RED)} {message}"
-        f" {style(f'[{fail.check_id}]', ANSI_GRAY)}"
+        f"{style('error:', ANSI_RED)} {message} "
+        f"{style(f'[{fail.check_id}]', ANSI_GRAY)}"
     )
     if fail.line < len(lines):
         src_line = lines[fail.line]
