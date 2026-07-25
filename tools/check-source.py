@@ -249,15 +249,12 @@ class Check(ABC):
 
     def check_line(self, line_num: int, line: str) -> None:
         """Called for each line while the check is active."""
-        pass
 
     def end_file(self, file_path: Path) -> None:
         """Called after processing all lines of `file_path`."""
-        pass
 
     def end_checks(self) -> None:
         """Called once after all files have been processed."""
-        pass
 
     def fail(
         self,
