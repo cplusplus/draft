@@ -1380,7 +1380,7 @@ def main() -> None:
             file=sys.stderr,
         )
 
-    exit_code = 1 if num_failures > 0 else 0
+    exit_code = num_failures > 1
     sys.exit(exit_code)
 
 
