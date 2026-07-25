@@ -130,8 +130,7 @@ def make_alt_pattern(items: list[str]) -> str:
 
 def read_file(path: Path) -> list[str]:
     try:
-        with open(path, encoding="utf-8", errors="replace") as f:
-            return f.read().splitlines()
+        return path.read_text(encoding="utf-8", errors="replace").split(os.linesep)
     except OSError:
         return []
 
