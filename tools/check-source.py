@@ -263,7 +263,7 @@ class Check(ABC):
         """Report a failure at `self.file_path`."""
         emit_check_failure(
             self,
-            os.path.relpath(self.file_path),
+            str(self.file_path.relative_to(Path.cwd())),
             line,
             column_start,
             column_end,
@@ -714,7 +714,7 @@ class OutdatedFiguresCheck(Check):
             ):
                 emit_check_failure(
                     self,
-                    os.path.relpath(dot_file),
+                    str(dot_file.relative_to(Path.cwd())),
                     0,
                     0,
                     0,
@@ -873,7 +873,7 @@ class UseOfUndefinedCheck(Check):
                         continue
                     self.used[name].append(
                         (
-                            os.path.relpath(self.file_path),
+                            str(self.file_path.relative_to(Path.cwd())),
                             line_num,
                             m.start(1),
                             m.end(1),
@@ -923,7 +923,12 @@ class RefUndefinedCheck(Check):
         for m in self.REF_IREF_PATTERN.finditer(line):
             for usage in m.group(1).split(","):
                 self.used[usage.strip()].append(
-                    (os.path.relpath(self.file_path), line_num, m.start(1), m.end(1))
+                    (
+                        str(self.file_path.relative_to(Path.cwd())),
+                        line_num,
+                        m.start(1),
+                        m.end(1),
+                    )
                 )
 
     def end_checks(self) -> None:
@@ -1221,7 +1226,7 @@ def run_checks(
     """
     file_locations: dict[str, Path] = {}
     for fp in tex_files:
-        file_locations[os.path.relpath(fp)] = fp
+        file_locations[str(fp.relative_to(Path.cwd()))] = fp
 
     for c in CHECKS:
         c.file_locations = file_locations
@@ -1306,7 +1311,7 @@ def parse_expected_from_files(
             m = EXPECT_CHECK_PATTERN.match(lines[idx])
             if m:
                 expected_tracker.register(
-                    os.path.relpath(file_path), idx, m.group(1).strip()
+                    str(file_path.relative_to(Path.cwd())), idx, m.group(1).strip()
                 )
 
 
