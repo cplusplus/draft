@@ -166,14 +166,14 @@ def format_failure(fail: Failure, lines: list[str]) -> str:
         line_num_str = str(fail.line + 1)
         num_width = max(6, len(line_num_str))
         pad = " " * (num_width - len(line_num_str))
-        col1 = fail.column_start + 1
-        col2 = fail.column_end + 1
         parts.append(f"{pad}{line_num_str} | {display_line}")
-        prefix = display_line[: col1 - 1]
+        start = fail.column_start + 1
+        end = fail.column_end + 1
+        prefix = display_line[: start - 1]
         highlight_pad = len(prefix)
-        highlight_len = max(1, col2 - col1)
-        if col1 - 1 + highlight_len > len(display_line):
-            highlight_len = max(1, len(display_line) - (col1 - 1))
+        highlight_len = max(1, end - start)
+        if start - 1 + highlight_len > len(display_line):
+            highlight_len = max(1, len(display_line) - (start - 1))
         gutter = " " * (num_width + 1) + "| "
         hl = style("^" + "~" * (highlight_len - 1), ANSI_GREEN)
         parts.append(f"{gutter}{' ' * highlight_pad}{hl}")
