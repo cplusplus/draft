@@ -8,7 +8,6 @@ import os
 import re
 import sys
 import unicodedata
-from abc import ABC
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum
@@ -218,7 +217,7 @@ def emit_check_failure(
 # ==================================================================================================
 
 
-class Check(ABC):
+class Check:
     """Base class for all checks.
 
     The following attributes are late-initialized by `run_checks`
