@@ -262,7 +262,7 @@ class Check:
         """Report a failure at `self.file_path`."""
         emit_check_failure(
             self,
-            str(self.file_path.relative_to(Path.cwd())),
+            str(self.file_path.relative_to(Path.cwd(), walk_up=True)),
             line,
             column_start,
             column_end,
@@ -713,7 +713,7 @@ class OutdatedFiguresCheck(Check):
             ):
                 emit_check_failure(
                     self,
-                    str(dot_file.relative_to(Path.cwd())),
+                    str(dot_file.relative_to(Path.cwd(), walk_up=True)),
                     0,
                     0,
                     0,
@@ -872,7 +872,7 @@ class UseOfUndefinedCheck(Check):
                         continue
                     self.used[name].append(
                         (
-                            str(self.file_path.relative_to(Path.cwd())),
+                            str(self.file_path.relative_to(Path.cwd(), walk_up=True)),
                             line_num,
                             m.start(1),
                             m.end(1),
@@ -923,7 +923,7 @@ class RefUndefinedCheck(Check):
             for usage in m.group(1).split(","):
                 self.used[usage.strip()].append(
                     (
-                        str(self.file_path.relative_to(Path.cwd())),
+                        str(self.file_path.relative_to(Path.cwd(), walk_up=True)),
                         line_num,
                         m.start(1),
                         m.end(1),
@@ -1225,7 +1225,7 @@ def run_checks(
     """
     file_locations: dict[str, Path] = {}
     for fp in tex_files:
-        file_locations[str(fp.relative_to(Path.cwd()))] = fp
+        file_locations[str(fp.relative_to(Path.cwd(), walk_up=True))] = fp
 
     for c in CHECKS:
         c.file_locations = file_locations
@@ -1305,7 +1305,9 @@ def parse_expected_from_files(
             m = EXPECT_CHECK_PATTERN.match(lines[idx])
             if m:
                 expected_tracker.register(
-                    str(file_path.relative_to(Path.cwd())), idx, m.group(1).strip()
+                    str(file_path.relative_to(Path.cwd(), walk_up=True)),
+                    idx,
+                    m.group(1).strip(),
                 )
 
 
