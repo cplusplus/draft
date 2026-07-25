@@ -184,14 +184,12 @@ def find_env_ranges(
     lines: list[str],
     env: Environment,
 ) -> list[tuple[int, int]]:
-    begin_pattern = env.begin_pattern
-    end_pattern = env.end_pattern
     ranges: list[tuple[int, int]] = []
     stack: list[int] = []
     for idx, line in enumerate(lines):
-        if begin_pattern.search(line):
+        if env.begin_pattern.search(line):
             stack.append(idx)
-        if end_pattern.search(line) and stack:
+        if env.end_pattern.search(line) and stack:
             ranges.append((stack.pop(), idx + 1))
     return ranges
 
