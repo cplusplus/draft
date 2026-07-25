@@ -183,15 +183,13 @@ def format_failure(fail: Failure, lines: list[str]) -> str:
 def find_env_ranges(
     lines: list[str],
     env: Environment,
-) -> list[tuple[int, int]]:
-    ranges: list[tuple[int, int]] = []
+):
     stack: list[int] = []
     for idx, line in enumerate(lines):
         if env.begin_pattern.search(line):
             stack.append(idx)
         if env.end_pattern.search(line) and stack:
-            ranges.append((stack.pop(), idx + 1))
-    return ranges
+            yield stack.pop(), idx + 1
 
 
 unexpected_count = 0
