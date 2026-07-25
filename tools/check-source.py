@@ -683,19 +683,20 @@ class ClassDefinitionOutsideNamespaceCheck(Check):
                 in_cb = False
                 cb_text = "\n".join(cb_lines)
                 stripped = self.TEMPLATE_PATTERN.sub("", cb_text)
-                if self.CLASS_DEFINITION_PATTERN.search(stripped):
-                    if not self.NAMESPACE_PATTERN.search(stripped):
-                        for ci, cline in enumerate(cb_lines):
-                            cs = self.TEMPLATE_PATTERN.sub("", cline)
-                            if self.CLASS_DEFINITION_PATTERN.search(cs):
-                                self.fail(
-                                    cb_start + ci,
-                                    0,
-                                    0,
-                                    "Class definition in a `Class` section "
-                                    "not wrapped in a `namespace` block.",
-                                )
-                                break
+                if self.CLASS_DEFINITION_PATTERN.search(
+                    stripped
+                ) and not self.NAMESPACE_PATTERN.search(stripped):
+                    for ci, cline in enumerate(cb_lines):
+                        cs = self.TEMPLATE_PATTERN.sub("", cline)
+                        if self.CLASS_DEFINITION_PATTERN.search(cs):
+                            self.fail(
+                                cb_start + ci,
+                                0,
+                                0,
+                                "Class definition in a `Class` section "
+                                "not wrapped in a `namespace` block.",
+                            )
+                            break
                 continue
             if in_cb:
                 cb_lines.append(line)
@@ -725,11 +726,12 @@ class OutdatedFiguresCheck(Check):
 
 
 class FunctionDescriptorOutOfOrderCheck(Check):
-    element_index: dict[str, int] = {e: i for i, e in enumerate(FUNCTION_DESCRIPTORS)}
+    element_index: dict[str, int]
     relevant_line_pattern = re.compile(r"^\\" + make_alt_pattern(FUNCTION_DESCRIPTORS))
 
     def __init__(self, check_id: str):
         self.id = check_id
+        self.element_index = {e: i for i, e in enumerate(FUNCTION_DESCRIPTORS)}
 
     def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
@@ -745,14 +747,16 @@ class FunctionDescriptorOutOfOrderCheck(Check):
                 if not m:
                     continue
                 name = m.group(0)[1:]
-                if prev_name is not None:
-                    if self.element_index[name] < self.element_index[prev_name]:
-                        self.fail(
-                            idx,
-                            m.start(),
-                            m.end(),
-                            f"`{name}` must not precede `{prev_name}`.",
-                        )
+                if (
+                    prev_name is not None
+                    and self.element_index[name] < self.element_index[prev_name]
+                ):
+                    self.fail(
+                        idx,
+                        m.start(),
+                        m.end(),
+                        f"`{name}` must not precede `{prev_name}`.",
+                    )
                 prev_name = name
 
 
@@ -897,7 +901,6 @@ class RefUndefinedCheck(Check):
     SECTION_PATTERN = re.compile(r"\\rSec[0-9]\[([^\]]+)\]")
     DEFINITION_PATTERN = re.compile(r"\\definition\{[^\}]*?\}\{(.+?)\}")
     ETC_PATTERN = re.compile(r"\\(?:infannex|normannex|label)\{(.+?)\}")
-    DEFINING_PATTERNS = [SECTION_PATTERN, DEFINITION_PATTERN, ETC_PATTERN]
 
     # TODO: Excluding `:` means that `tab:...` references are currently unchecked.
     #       Maybe that could be added in the future,
@@ -905,6 +908,11 @@ class RefUndefinedCheck(Check):
     REF_IREF_PATTERN = re.compile(r"\\i?ref\{([^}\\:]+)\}")
 
     def __init__(self, check_id: str):
+        self.DEFINING_PATTERNS = [
+            self.SECTION_PATTERN,
+            self.DEFINITION_PATTERN,
+            self.ETC_PATTERN,
+        ]
         self.id = check_id
         self.defined: set[str] = set()
         self.used: dict[str, list[tuple[str, int, int, int]]] = defaultdict(list)
