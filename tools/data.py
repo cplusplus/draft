@@ -1,19 +1,19 @@
 # Remember to keep this in sync with [structure.specifications] and our set of macros.
 # The order matters for ElementOrderCheck.
 FUNCTION_DESCRIPTORS = [
-    "constraints",  # Constraints
-    "mandates",  # Mandates
-    "constantwhen",  # Constant When
-    "expects",  # Preconditions
-    "hardexpects",  # Hardened preconditions
-    "effects",  # Effects
-    "sync",  # Synchronization
-    "ensures",  # Postconditions
-    "returns",  # Returns
-    "throws",  # Throws
-    "complexity",  # Complexity
-    "remarks",  # Remarks
-    "errors",  # Error conditions
+    "constraints",
+    "mandates",
+    "constantwhen",
+    "expects",
+    "hardexpects",
+    "effects",
+    "sync",
+    "ensures",
+    "returns",
+    "throws",
+    "complexity",
+    "remarks",
+    "errors",
 ]
 
 # All library descriptors.
@@ -21,12 +21,12 @@ FUNCTION_DESCRIPTORS = [
 # is preceded by `\pnum`
 PARAGRAPH_DESCRIPTORS = [
     *FUNCTION_DESCRIPTORS,
-    "recommended",  # Recommended practice
-    "required",  # Required behavior
-    "implimits",  # Implementation limits
-    "returntype",  # Return type
-    "ctype",  # Type
-    "templalias",  # Alias template
+    "recommended",
+    "required",
+    "implimits",
+    "returntype",
+    "ctype",
+    "templalias",
 ]
 
 DIFF_DESCRIPTORS = [
