@@ -1251,32 +1251,27 @@ def run_checks(
         # Per-check next-line skips: check_id → set of line numbers.
         skip_next: dict[str, set[int]] = defaultdict(set)
 
+        def _resolve_ids(cid: str) -> set[str]:
+            if cid == "*":
+                return set(all_ids)
+            return {a for a in all_ids if fnmatch.fnmatch(a, cid)}
+
         for idx, line in enumerate(lines):
             line_num = idx
 
-            # Process %NOCHECK… directives.
+            # Process %NOCHECK... directives.
             m = NO_CHECK_PATTERN.match(line)
             if m:
                 directive = m.group(1)  # BEGIN, END, or NEXTLINE
                 cid = m.group(2) or "*"
+                matched = _resolve_ids(cid)
                 if directive == "BEGIN":
-                    if cid == "*":
-                        active.clear()
-                    else:
-                        active = {a for a in active if not fnmatch.fnmatch(a, cid)}
+                    active -= matched
                 elif directive == "END":
-                    if cid == "*":
-                        active = set(all_ids)
-                    else:
-                        active |= {a for a in all_ids if fnmatch.fnmatch(a, cid)}
+                    active |= matched
                 elif directive == "NEXTLINE":
-                    if cid == "*":
-                        for c in all_ids:
-                            skip_next[c].add(line_num + 1)
-                    else:
-                        matched = {a for a in all_ids if fnmatch.fnmatch(a, cid)}
-                        for c in matched:
-                            skip_next[c].add(line_num + 1)
+                    for c in matched:
+                        skip_next[c].add(line_num + 1)
 
             # Call check_line only on active checks (not skipped).
             for c in CHECKS:
