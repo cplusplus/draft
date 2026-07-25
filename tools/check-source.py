@@ -210,7 +210,7 @@ def emit_check_failure(
     Line numbers and columns follow the same convention as `Failure`.
     """
     global unexpected_count
-    if consume_expected(file, line, check.id):
+    if consume_expected(file, line, check.uid):
         return
     unexpected_count += 1
     fail = Failure(
@@ -219,7 +219,7 @@ def emit_check_failure(
         column_start=column_start,
         column_end=column_end,
         message=message,
-        check_id=check.id,
+        check_id=check.uid,
     )
     # Reading the file from scratch is very slow,
     # but we don't care because this is the unhappy path anyway,
@@ -238,7 +238,10 @@ def emit_check_failure(
 class Check(ABC):
     """Base class for all checks."""
 
-    id: str = ""
+    uid: str
+
+    def __init__(self, uid: str):
+        self.uid = uid
 
     def begin_file(self, file_path: Path, lines: list[str]) -> None:
         """Called before processing any line of `file_path`."""
@@ -281,7 +284,7 @@ class BannedPatternCheck(Check):
         pattern: Pattern[str],
         message: str,
     ):
-        self.id = check_id
+        super().__init__(check_id)
         self.pattern = pattern
         self.message = message
 
@@ -325,7 +328,7 @@ class BannedPatternInEnvironmentCheck(Check):
         pattern: Pattern[str],
         message: str,
     ):
-        self.id = check_id
+        super().__init__(check_id)
         self.env = env
         self.pattern = pattern
         self.message = message
@@ -354,7 +357,7 @@ class NonAsciiCheck(Check):
     NON_ASCII_PATTERN = re.compile(r"[^\x09\x0a\x0d\x20-\x7e]")
 
     def __init__(self, check_id: str):
-        self.id = check_id
+        super().__init__(check_id)
 
     def check_line(self, line_num: int, line: str) -> None:
         for m in self.NON_ASCII_PATTERN.finditer(line):
@@ -371,7 +374,7 @@ class NonAsciiCheck(Check):
 
 class TrailingEmptyLinesCheck(Check):
     def __init__(self, check_id: str):
-        self.id = check_id
+        super().__init__(check_id)
 
     def end_file(self, file_path: Path) -> None:
         try:
@@ -391,7 +394,7 @@ class TrailingEmptyLinesCheck(Check):
 
 class ConsecutivePnumCheck(Check):
     def __init__(self, check_id: str):
-        self.id = check_id
+        super().__init__(check_id)
 
     def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
@@ -413,7 +416,7 @@ class ConsecutivePnumCheck(Check):
 
 class TailnoteTailexampleCheck(Check):
     def __init__(self, check_id: str):
-        self.id = check_id
+        super().__init__(check_id)
 
     END_PATTERN = re.compile(r"\\end\{(?:example|note)\}")
     TAIL_PATTERN = re.compile(r"- *(?:\\\\|&)")
@@ -443,7 +446,7 @@ class TailnoteTailexampleCheck(Check):
 
 class BlankLineExampleCodeblockCheck(Check):
     def __init__(self, check_id: str):
-        self.id = check_id
+        super().__init__(check_id)
 
     def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
@@ -468,7 +471,7 @@ class BlankLineExampleCodeblockCheck(Check):
 
 class CommentAlignmentCheck(Check):
     def __init__(self, check_id: str):
-        self.id = check_id
+        super().__init__(check_id)
 
     # This pattern checks for //, with some notable exemptions:
     # - If '@' is present anywhere, we don't match the comment because we cannot compute alignment.
@@ -509,7 +512,7 @@ class HangingParagraphsCheck(Check):
     SECTION_PATTERN = re.compile(r"^\\rSec([0-9])")
 
     def __init__(self, check_id: str):
-        self.id = check_id
+        super().__init__(check_id)
 
     def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
@@ -544,7 +547,7 @@ class SubclausesWithoutSiblingsCheck(Check):
     SECTION_PATTERN = re.compile(r"^\\rSec([0-9])")
 
     def __init__(self, check_id: str):
-        self.id = check_id
+        super().__init__(check_id)
 
     def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
@@ -580,7 +583,7 @@ class SectionSelfReferenceCheck(Check):
     IREF_PATTERN = re.compile(r"\\iref\{([^\}]*)\}")
 
     def __init__(self, check_id: str):
-        self.id = check_id
+        super().__init__(check_id)
 
     def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
@@ -608,7 +611,7 @@ class PnumMissingInItemdescrCheck(Check):
     ELEMENT_PATTERN = re.compile(r"^\\" + make_alt_pattern(PARAGRAPH_DESCRIPTORS))
 
     def __init__(self, check_id: str):
-        self.id = check_id
+        super().__init__(check_id)
 
     def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
@@ -646,7 +649,7 @@ class ClassDefinitionOutsideNamespaceCheck(Check):
     NAMESPACE_PATTERN = re.compile(r"^\s*namespace\s", re.MULTILINE)
 
     def __init__(self, check_id: str):
-        self.id = check_id
+        super().__init__(check_id)
 
     def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
@@ -704,7 +707,7 @@ class ClassDefinitionOutsideNamespaceCheck(Check):
 
 class OutdatedFiguresCheck(Check):
     def __init__(self, check_id: str):
-        self.id = check_id
+        super().__init__(check_id)
 
     def end_checks(self) -> None:
         for dot_file in sorted(source_dir.glob("*.dot")):
@@ -730,7 +733,7 @@ class FunctionDescriptorOutOfOrderCheck(Check):
     relevant_line_pattern = re.compile(r"^\\" + make_alt_pattern(FUNCTION_DESCRIPTORS))
 
     def __init__(self, check_id: str):
-        self.id = check_id
+        super().__init__(check_id)
         self.element_index = {e: i for i, e in enumerate(FUNCTION_DESCRIPTORS)}
 
     def begin_file(self, file_path: Path, lines: list[str]) -> None:
@@ -764,7 +767,7 @@ class UnbalancedBeginAndEndCheck(Check):
     BEGIN_OR_END_PATTERN = re.compile(r"\\(begin|end)\{([^}]+)\}")
 
     def __init__(self, check_id: str):
-        self.id = check_id
+        super().__init__(check_id)
 
     def begin_file(self, file_path: Path, lines: list[str]) -> None:
         super().begin_file(file_path, lines)
@@ -822,7 +825,7 @@ class UnknownCommandCheck(Check):
     """
 
     def __init__(self, check_id: str):
-        self.id = check_id
+        super().__init__(check_id)
 
     COMMAND_PATTERN = re.compile(r"\\([a-zA-Z][a-zA-Z]*)")
 
@@ -857,7 +860,7 @@ class UseOfUndefinedCheck(Check):
         definition_pattern: Pattern[str],
         usage_pattern: list[Pattern[str]],
     ):
-        self.id = check_id
+        super().__init__(check_id)
         self.definition_pattern = definition_pattern
         self.usage_pattern = usage_pattern
         self.defined: set[str] = set()
@@ -913,7 +916,7 @@ class RefUndefinedCheck(Check):
             self.DEFINITION_PATTERN,
             self.ETC_PATTERN,
         ]
-        self.id = check_id
+        super().__init__(check_id)
         self.defined: set[str] = set()
         self.used: dict[str, list[tuple[str, int, int, int]]] = defaultdict(list)
 
@@ -1221,7 +1224,7 @@ def run_checks(tex_files: list[Path]) -> int:
     for fp in tex_files:
         file_locations[os.path.relpath(fp)] = fp
 
-    all_ids = {c.id for c in CHECKS if c.id}
+    all_ids = {c.uid for c in CHECKS if c.uid}
 
     for file_path in tex_files:
         if not file_path.exists():
@@ -1267,7 +1270,7 @@ def run_checks(tex_files: list[Path]) -> int:
 
             # Call check_line only on active checks (not skipped).
             for c in CHECKS:
-                if c.id in active and line_num not in skip_next.get(c.id, set()):
+                if c.uid in active and line_num not in skip_next.get(c.uid, set()):
                     c.check_line(line_num, line)
 
         # Always call end_file.
