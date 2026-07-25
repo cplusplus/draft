@@ -1357,9 +1357,7 @@ def main() -> None:
         comment_line = entry.comment_line
         if comment_line < len(lines):
             line_text = lines[comment_line]
-            column = line_text.find(entry.check_id)
-            if column < 0:
-                column = 0
+            column = max(line_text.find(entry.check_id), 0)
             fail = Failure(
                 file=entry.file,
                 line=comment_line,
