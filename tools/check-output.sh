@@ -23,8 +23,7 @@ grep item < std-generalindex.ind | sed 's/,.*$//;s/\\[sub]*item //' |
     sed 's/^ *//;s/  */ /g' | sort > tmp.txt
 
 grep -o '\\see{[^}]*}' < std-generalindex.ind |
-    sed 's/^\\see{//;s/}$//;s/\\-//' |
-    grep -v "leavevmode\|texttt\|textsc\|kern" |
+    sed -e 's/^\\see{//;s/}$//;s/\\-//' -e "/leavevmode\|texttt\|textsc\|kern/d" |
     while read see; do
 	if grep -q "$see" tmp.txt; then
 	    :
@@ -35,10 +34,11 @@ grep -o '\\see{[^}]*}' < std-generalindex.ind |
 rm -f tmp.txt
 
 # Find bad labels
-grep newlabel `ls *.aux | grep -v std.aux` | awk -F '{' '{ print  $2 }' |
-    sed 's/}//g' | sed 's/^tab://;s/fig://;s/eq://;s/ub://;s/ubx://;s/ifndr://;s/ifndrx://;s/idx.*\..//' |
-    grep -v '^[a-z.0-9]*$' |
-    sed 's/^\(.*\)$/bad label \1/' |
+grep -Fe 'newlabel' `ls *.aux | grep -v std.aux` | awk -F '{' '{ print  $2 }' |
+  sed -e 's/}//g' \
+      -e 's/^tab://;s/fig://;s/eq://;s/ub://;s/ubx://;s/ifndr://;s/ifndrx://;s/idx.*\..//' \
+      -e '/^[a-z.0-9]*$/d' \
+      -e 's/^\(.*\)$/bad label \1/' |
     fail || failed=1
 
 # Find grammar index entries missing a definition
@@ -73,17 +73,17 @@ for f in *.tex; do
     # handle codeblock
     sed -n 's,//.*$,,;s/%.*$//;s/"[^"]*"/""/;/begin{codeblock\(tu\)\?}/,/end{codeblock\(tu\)\?}/{/[^-_a-z\]\('"$patt"'\)[^-_}a-z0-9();,]/{=;p;};}' $f |
 	# prefix output with filename and line
-	sed -e '/^[0-9]\+$/{N;s/\n/:/;}' -e "s/.*/$f:&/" |
-	grep -v "@.seebelow" |
-	sed "s/\$/ -- concept name without markup/" |
+	sed -e '/^[0-9]\+$/{N;s/\n/:/;}' -e "s/.*/$f:&/" \
+	    -e "/@.seebelow/d" \
+	    -e "s/\$/ -- concept name without markup/" |
 	fail || failed=1
     # handle itemdecl
     sed -n 's,//.*$,,;s/%.*$//;s/"[^"]*"/""/;/begin{itemdecl}/,/end{itemdecl}/{/[^-_a-z]\('"$patt"'\)[^-_a-z();,]/{/concept{[a-z_-]*}/d;=;p;};}' $f |
 	# prefix output with filename and line
-	sed -e '/^[0-9]\+$/{N;s/\n/:/;}' -e "s/.*/$f:&/" |
-	grep -v "@.seebelow" |
-	sed "s/\$/ -- concept name without markup/" |
-	    fail || failed=1
+	sed -e '/^[0-9]\+$/{N;s/\n/:/;}' -e "s/.*/$f:&/" \
+	    -e "/@.seebelow/d" \
+	    -e "s/\$/ -- concept name without markup/" |
+        fail || failed=1
 done
 
 # Cross references since C++17.
