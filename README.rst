@@ -13,18 +13,25 @@ Get involved:
 - `How to tell if an issue is editorial <https://github.com/cplusplus/draft/wiki/How-to-tell-if-an-issue-is-editorial>`_
 - `How to submit a new issue/defect report <https://isocpp.org/std/submit-issue>`_ for non-editorial issues
 
-More information about the C++ standard can be found at `isocpp.org <http://isocpp.org/std>`_.
+More information about the C++ standard can be found at `isocpp.org <https://isocpp.org/std>`_.
 
----------------------------
-Getting Started on Mac OS X
----------------------------
+------------------------
+Getting Started on macOS
+------------------------
 
-Install the `MacTeX distribution <http://tug.org/mactex/>`_.
+Install the `MacTeX distribution <https://tug.org/mactex/>`_.
 
-If you are on a slow network, you'll want to get the `BasicTeX package <http://tug.org/mactex/morepackages.html>`_ instead,
+If you are on a slow network, you'll want to get the `BasicTeX package <https://tug.org/mactex/morepackages.html>`_ instead,
 then run the following command to install the other packages that the draft requires::
 
    sudo tlmgr install latexmk isodate substr relsize ulem fixme rsfs extract layouts enumitem l3packages l3kernel imakeidx splitindex xstring
+
+Using homebrew on macOS
+=======================
+
+Instead of downloading packages from the internet, you can use the `HomeBrew package manager <https://brew.sh>` to install all that is needed to build the draft and run checks on it:
+
+   brew install mactex gnu-sed
 
 ---------------------------------------
 Getting Started on Debian-based Systems
