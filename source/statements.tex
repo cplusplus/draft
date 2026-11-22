@@ -181,13 +181,31 @@ used anywhere in a \grammarterm{compound-statement}.
 \end{bnf}
 
 The optional \grammarterm{attribute-specifier-seq} appertains to the label.
+\begin{note}
 \indextext{statement!\idxcode{goto}}%
-The only use of a label with an \grammarterm{identifier} is
-as the target of a \tcode{goto}.
-\indextext{label!scope of}%
-No two labels in a function shall have the same \grammarterm{identifier}.
 A label can be used in a \tcode{goto} statement
 before its introduction.
+\indextext{label!scope of}%
+A function can contain multiple labels with the same identifier,
+but such duplicate labels cannot be used in a \tcode{goto} statement.
+\end{note}
+
+\pnum
+An \grammarterm{identifier} $J$
+\defnx{labels}{label!\idxgram{statement}} a \grammarterm{statement} $S$ if
+$S$ is the \grammarterm{statement} of a \grammarterm{labeled-statement} $X$ and
+\begin{itemize}
+\item $J$ is the \grammarterm{identifier} (if any) of the \grammarterm{label} of $X$, or
+\item $J$ labels $X$.
+\end{itemize}
+\begin{example}
+\begin{codeblock}
+a: b: while (0) { }                     // both \tcode{a} and \tcode{b} label the loop
+c: { d: switch (0) {                    // unlike \tcode{c}, \tcode{d} labels the \tcode{switch} statement
+    e: default: f: while (0) { }        // both \tcode{e} and \tcode{f} label the loop
+} }
+\end{codeblock}
+\end{example}
 
 \pnum
 \indextext{\idxgram{labeled-statement}}%
@@ -206,12 +224,8 @@ A \defnadj{control-flow-limited}{statement} is a statement \tcode{S} for which:
   \tcode{S}, and
 \item
   a label declared in \tcode{S} shall only be referred to by a
-  statement\iref{stmt.goto} in \tcode{S}.
+  statement in \tcode{S}.
 \end{itemize}
-
-\pnum
-An identifier label shall not be enclosed
-by an \grammarterm{expansion-statement}\iref{stmt.expand}.
 
 \rSec1[stmt.expr]{Expression statement}%
 \indextext{statement!expression}
@@ -1017,11 +1031,11 @@ Jump statements unconditionally transfer control.
 %
 \begin{bnf}
 \nontermdef{jump-statement}\br
-    \keyword{break} \terminal{;}\br
-    \keyword{continue} \terminal{;}\br
+    \keyword{goto} identifier \terminal{;}\br
+    \keyword{break} \opt{identifier} \terminal{;}\br
+    \keyword{continue} \opt{identifier} \terminal{;}\br
     \keyword{return} \opt{expr-or-braced-init-list} \terminal{;}\br
-    coroutine-return-statement\br
-    \keyword{goto} identifier \terminal{;}
+    coroutine-return-statement
 \end{bnf}
 
 \pnum
@@ -1049,27 +1063,59 @@ A suspension of a coroutine\iref{expr.await} is not considered to be an exit fro
 \indextext{statement!\idxcode{break}}
 
 \pnum
-A \keyword{break} statement shall be enclosed by\iref{stmt.pre}
+A \defnadj{breakable}{statement} is
 \indextext{\idxgram{iteration-statement}}%
-\indextext{statement!\idxcode{switch}}%
 an \grammarterm{iteration-statement}\iref{stmt.iter},
+\indextext{\idxgram{expansion-statement}}%
 an \grammarterm{expansion-statement}\iref{stmt.expand}, or
+\indextext{statement!\idxcode{switch}}%
 a \keyword{switch} statement\iref{stmt.switch}.
-The \keyword{break} statement causes
-termination of the innermost such enclosing statement;
-control passes to the statement following the
-terminated statement, if any.
+The \keyword{break} statement
+selects an enclosing \grammarterm{statement} $S$ as follows:
+\begin{itemize}
+\item
+If an identifier $J$ is present,
+$S$ is the innermost enclosing statement labeled by $J$.
+\item
+Otherwise, $S$ is the innermost enclosing breakable statement.
+\end{itemize}
+$S$ shall exist and shall be a breakable statement.
+Control passes to the statement following $S$, if any.
+\begin{example}
+\begin{codeblock}
+y: a: b: while (/* ... */) {
+    a: a: c: for (/* ... */) {
+        break;                  // OK, terminates enclosing \tcode{for} loop
+        break a;                // OK, same
+        break b;                // OK, terminates enclosing \tcode{while} loop
+        y: { break y; }         // error: \tcode{break} does not refer to a breakable statement
+    }
+    break c;                    // error: \tcode{break} does not refer to an enclosing statement
+}
+break;                          // error: \tcode{break} is not enclosed by a breakable statement
+\end{codeblock}
+\end{example}
 
 \rSec2[stmt.cont]{The \keyword{continue} statement}%
 \indextext{statement!\idxcode{continue}}
 
 \pnum
-A \keyword{continue}
-statement shall be enclosed by\iref{stmt.pre}
+A \defnadj{continuable}{statement} is
 \indextext{\idxgram{iteration-statement}}%
-an \grammarterm{iteration-statement} or an \grammarterm{expansion-statement}.
-If the innermost enclosing such statement $X$
-is an \grammarterm{iteration-statement}\iref{stmt.iter},
+an \grammarterm{iteration-statement}\iref{stmt.iter} or
+\indextext{\idxgram{expansion-statement}}%
+an \grammarterm{expansion-statement}\iref{stmt.expand}.
+The \tcode{continue} statement
+selects and enclosing statement $X$ as follows:
+\begin{itemize}
+\item
+If an \grammarterm{identifier} $J$ is present,
+$X$ is the innermost enclosing statement labeled by $J$.
+\item
+Otherwise, $X$ is the innermost enclosing continuable statement.
+\end{itemize}
+$X$ shall exist and shall be a continuable statement.
+If $X$ is an \grammarterm{iteration-statement}\iref{stmt.iter},
 the \keyword{continue} statement
 causes control to pass to the end of the \grammarterm{statement} of $X$.
 Otherwise, control passes to the end of the \grammarterm{compound-statement}
@@ -1231,10 +1277,12 @@ results in undefined behavior\ubdef{stmt.return.coroutine.flow.off}.
 \indextext{statement!\idxcode{goto}}
 
 \pnum
-The \tcode{goto} statement unconditionally transfers control to the
-statement labeled by the identifier. The identifier shall be a
-\indextext{label}%
-label\iref{stmt.label} located in the current function.
+A \tcode{goto} statement with an \grammarterm{identifier} $J$
+unconditionally transfers control to a \grammarterm{labeled-statement}
+where the identifier of the \grammarterm{label} is $J$,
+in the current function.
+There shall be exactly one such statement,
+and such a statement shall not be enclosed by an \grammarterm{expansion-statement}.
 
 \rSec1[stmt.contract.assert]{Assertion statement}
 
