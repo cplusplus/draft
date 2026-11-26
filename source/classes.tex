@@ -1144,10 +1144,32 @@ An \defnadj{eligible}{special member function} is a special member function for 
 \begin{itemize}
 \item the function is not deleted,
 \item the associated constraints\iref{temp.constr}, if any, are satisfied, and
-\item no special member function of the same kind
-whose associated constraints, if any, are satisfied
-is more constrained\iref{temp.constr.order}.
+\item there exists no special member function
+  \begin{itemize}
+  \item that is of the same kind,
+  \item that is not more explicit,
+  \item whose associated constraints, if any, are satisfied, and
+  \item that is more constrained\iref{temp.constr.order},
+  \end{itemize}
+where a function \tcode{F1} is more explicit than a function \tcode{F2}
+if \tcode{F1} is explicit\iref{dcl.fct.spec} and \tcode{F2} is not.
 \end{itemize}
+\begin{example}
+\begin{codeblock}
+template<class T>
+struct X {
+  X() = default;
+  X(const X&) = default;                        // \#1
+private:
+  explicit X(const X&) requires true = default; // \#2
+};
+
+int main() {
+  X<int> x;
+  X<int> x2 = x;    // OK, selects \#1; both \#1 and \#2 are eligible
+}
+\end{codeblock}
+\end{example}
 
 \pnum
 For a class, its direct non-static data members, its non-virtual direct base classes,
@@ -1161,32 +1183,33 @@ classes are called its \defnadjx{potentially constructed}{subobjects}{subobject}
 \indextext{special member function|see{constructor}}%
 
 \pnum
-A \grammarterm{declarator} declares a \defn{constructor} if it is a
-function declarator\iref{dcl.fct} of the form
+A \grammarterm{declaration} declares a \defn{constructor} if
+\begin{itemize}
+\item
+in a friend declaration\iref{class.friend},
+the \grammarterm{declarator-id} is a \grammarterm{qualified-id} that
+names a constructor\iref{class.qual};
+
+\item
+otherwise,
+in a \grammarterm{member-declaration} that
+belongs to the \grammarterm{member-specification} of a class or class template,
+the \grammarterm{declarator-id} is the injected-class-name\iref{class.pre} of
+the immediately-enclosing entity;
+
+\item
+otherwise,
+the \grammarterm{declarator-id} is a \grammarterm{qualified-id} whose
+\grammarterm{unqualified-id} is the injected-class-name of its lookup context.
+\end{itemize}
+
+The declarator of a constructor declaration shall have the form
 \begin{ncbnf}
 ptr-declarator \terminal{(} parameter-declaration-clause \terminal{)} \opt{noexcept-specifier} \opt{attribute-specifier-seq}
 \end{ncbnf}
 where the \grammarterm{ptr-declarator} consists solely of an
 \grammarterm{id-expression}, an optional \grammarterm{attribute-specifier-seq},
-and optional surrounding parentheses, and the \grammarterm{id-expression} has
-one of the following forms:
-\begin{itemize}
-\item
-in a friend declaration\iref{class.friend},
-the \grammarterm{id-expression} is a \grammarterm{qualified-id}
-that names a constructor\iref{class.qual};
-\item
-otherwise, in a \grammarterm{member-declaration} that belongs to the
-\grammarterm{member-specification} of a class or class template,
-the \grammarterm{id-expression} is the
-injected-class-name\iref{class.pre} of the immediately-enclosing entity;
-
-\item
-otherwise, the
-\grammarterm{id-expression} is a \grammarterm{qualified-id}
-whose \grammarterm{unqualified-id} is
-the injected-class-name of its lookup context.
-\end{itemize}
+and optional surrounding parentheses.
 Constructors do not have names.
 In a constructor declaration, each \grammarterm{decl-specifier} in the optional
 \grammarterm{decl-specifier-seq} shall be
@@ -3104,6 +3127,41 @@ A friend function\iref{class.friend} defined
 within a nested class has no special access rights to
 members of an enclosing class.
 
+\rSec2[class.mem.ambig]{Ambiguity resolution}
+
+\pnum
+An ambiguity can arise in a \grammarterm{member-declaration} when
+a \grammarterm{type-name} is enclosed in parentheses.
+In this case, the choice is between
+the declaration of a function with an unnamed parameter and
+the declaration of a member with redundant parentheses
+around the \grammarterm{declarator-id}.
+If the former interpretation would declare a function whose
+name is the injected-class-name of
+the enclosing class or class template and
+its \grammarterm{decl-specifier-seq}, if present,
+would contain neither \keyword{friend} nor a \grammarterm{decl-specifier} that
+is not permitted for a constructor\iref{class.ctor.general},
+the former interpretation is chosen
+(i.e. the \grammarterm{type-name}
+is considered a \grammarterm{simple-type-specifier}
+rather than a \grammarterm{declarator-id});
+otherwise, the latter interpretation is chosen.
+As in \ref{stmt.ambig}, the disambiguation
+is purely syntactic and
+can result in an ill-formed interpretation.
+\begin{example}
+\begin{codeblock}
+typedef int t1, t2;
+template<class> struct u1;
+struct A {
+  A(t1);            // OK, declares constructor having unnamed parameter of type \tcode{int}, not a data member named \tcode{t1}
+  typedef A(t2);    // OK, declares \tcode{t2} as an alias for \tcode{A}
+  A(u1);            // error: placeholder for deduced class type cannot appear in this context\iref{dcl.type.class.deduct}
+};
+\end{codeblock}
+\end{example}
+
 \rSec1[class.union]{Unions}%
 
 \rSec2[class.union.general]{General}%
@@ -3371,8 +3429,12 @@ union U {
 \indextext{class!local|see{local class}}%
 
 \pnum
-A class can be declared within a function definition; such a class is
-called a \defnadj{local}{class}.
+\indextext{nested class!local class}%
+A class is a \defnadj{local}{class} if
+\begin{itemize}
+\item its declaration inhabits a block scope or
+\item it is a nested class of a local class.
+\end{itemize}
 \begin{note}
 A declaration in a local class
 cannot odr-use\iref{term.odr.use}
@@ -3414,13 +3476,10 @@ Member functions of a local class shall be defined within their class
 definition, if they are defined at all.
 
 \pnum
-\indextext{nested class!local class}%
 \indextext{restriction!local class}%
-A class nested within
-a local class is a local class.
 A member of a local class \tcode{X} shall be
 declared only in the definition of \tcode{X} or,
-if the member is a nested class,
+if the member is an enumeration or a nested class,
 in the nearest enclosing block scope of \tcode{X}.
 
 \pnum
@@ -3669,10 +3728,12 @@ A base class specifier that does not contain the keyword
 class specifier that contains the keyword \keyword{virtual} specifies a
 \defnadj{virtual}{base class}. For each distinct occurrence of a
 non-virtual base class in the class lattice of the most derived class,
-the most derived object\iref{intro.object} shall contain a
+the most derived object\iref{intro.object} contains a
 corresponding distinct base class subobject of that type. For each
 distinct base class that is specified virtual, the most derived object
-shall contain a single base class subobject of that type.
+contains a single base class subobject of that type.
+A \defnadj{transitively virtual}{base class} is
+a virtual base class or a base class thereof.
 
 \pnum
 \begin{note}
@@ -5843,9 +5904,9 @@ before all the
 \grammarterm{mem-initializer}{s}
 for base classes have completed,
 \item
-a precondition assertion of a constructor, or
+a precondition assertion of a constructor of the object under construction, or
 \item
-a postcondition assertion of a destructor\iref{dcl.contract.func},
+a postcondition assertion of the destructor of the object under destruction\iref{dcl.contract.func},
 \end{itemize}
 the program has undefined behavior\ubdef{class.base.init.mem.fun}.
 \begin{example}
