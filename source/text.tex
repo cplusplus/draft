@@ -155,7 +155,8 @@ constexpr to_chars_result to_chars(char* first, char* last, @\placeholder{intege
 \effects
 The value of \tcode{value} is converted
 to a string of digits in the given base
-(with no redundant leading zeroes).
+(with no redundant leading zeroes)
+in the ordinary literal encoding\iref{lex.charset}.
 Digits in the range 10..35 (inclusive)
 are represented as lowercase characters \tcode{a}..\tcode{z}.
 If \tcode{value} is less than zero,
@@ -180,11 +181,11 @@ in the style of \tcode{printf}
 in the \tcode{"C"} locale.
 The conversion specifier is \tcode{f} if
 the absolute value of \tcode{value} is in the range \range{$l$}{$u$}, where
-$l$ is the smallest value larger than or equal to $10^{-4}$
+$l$ is the value of type \tcode{T} that is nearest to $10^{-4}$
 that is representable by \tcode{T} and
-$u$ is the largest value smaller than or equal to
+$u$ is the value of type \tcode{T} that is nearest to
 $\tcode{numeric_limits<T>::radix}^{\tcode{numeric_limits<T>::digits + 1}}$
-rounded down to the nearest power of 10 representable by \tcode{T},
+rounded down to the nearest power of 10,
 otherwise \tcode{e}.
 
 \pnum
@@ -505,7 +506,7 @@ namespace std {
     template<class Facet> locale(const locale& other, Facet* f);
     locale(const locale& other, const locale& one, category);
     ~locale();                  // not virtual
-    const locale& operator=(const locale& other) noexcept;
+    locale& operator=(const locale& other) noexcept;
 
     // \ref{locale.members}, locale operations
     template<class Facet> locale combine(const locale& other) const;
@@ -999,7 +1000,7 @@ the first two arguments both have names.
 
 \indexlibrarymember{operator=}{locale}%
 \begin{itemdecl}
-const locale& operator=(const locale& other) noexcept;
+locale& operator=(const locale& other) noexcept;
 \end{itemdecl}
 
 \begin{itemdescr}
@@ -2153,7 +2154,7 @@ result do_in(
 \begin{itemdescr}
 \pnum
 \expects
-\tcode{(from <= from_end \&\& to <= to_end)} is well-defined and \tcode{true};
+\range{from}{from_end} and \range{to}{to_end} are both valid ranges;
 \tcode{state} is initialized, if at the beginning of a sequence,
 or else is equal to the result of converting
 the preceding characters in the sequence.
@@ -2259,7 +2260,7 @@ result do_unshift(stateT& state, externT* to, externT* to_end, externT*& to_next
 \begin{itemdescr}
 \pnum
 \expects
-\tcode{(to <= to_end)} is well-defined and \tcode{true};
+\range{to}{to_end} is a valid range;
 \tcode{state} is initialized, if at the beginning of a sequence,
 or else is equal to the result of converting
 the preceding characters in the sequence.
@@ -2335,7 +2336,7 @@ int do_length(stateT& state, const externT* from, const externT* from_end, size_
 \begin{itemdescr}
 \pnum
 \expects
-\tcode{(from <= from_end)} is well-defined and \tcode{true};
+\range{from}{from_end} is a valid range;
 \tcode{state} is initialized, if at the beginning of a sequence,
 or else is equal to the result of converting
 the preceding characters in the sequence.
@@ -4406,6 +4407,8 @@ An iterator pointing immediately after the last character produced.
 % issues 22-021, 22-030, 22-034 from 97-0058/N1096, 97-0036/N1074
 The currency symbol is generated
 if and only if \tcode{(str.flags() \& str.showbase)} is nonzero.
+If the format specifies a decimal point,
+at least one digit character appears before it.
 If the number of characters generated for the specified format
 is less than the value returned by \tcode{str.width()} on entry to the function,
 then copies of \tcode{fill} are inserted as necessary
@@ -9456,6 +9459,15 @@ namespace std {
       const sub_match<BiIter>& lhs,
       const basic_string<typename iterator_traits<BiIter>::value_type, ST, SA>& rhs);
 
+  template<class BiIter, class ST>
+    bool operator==(
+      const sub_match<BiIter>& lhs,
+      basic_string_view<typename iterator_traits<BiIter>::value_type, ST> rhs);
+  template<class BiIter, class ST>
+    auto operator<=>(
+      const sub_match<BiIter>& lhs,
+      basic_string_view<typename iterator_traits<BiIter>::value_type, ST> rhs);
+
   template<class BiIter>
     bool operator==(const sub_match<BiIter>& lhs,
                     const typename iterator_traits<BiIter>::value_type* rhs);
@@ -10749,7 +10761,6 @@ If an exception is thrown, \tcode{*this} is unchanged.
 
 \pnum
 \ensures
-If no exception is thrown,
 \tcode{flags()} returns \tcode{f} and \tcode{mark_count()}
 returns the number of marked sub-expressions within the expression.
 
@@ -10913,6 +10924,7 @@ namespace std {
     int compare(const sub_match& s) const;
     int compare(const string_type& s) const;
     int compare(const value_type* s) const;
+    int compare(basic_string_view<value_type> s) const;
 
     void swap(sub_match& s) noexcept(@\seebelow@);
   };
@@ -11000,6 +11012,17 @@ int compare(const value_type* s) const;
 \tcode{str().compare(s)}.
 \end{itemdescr}
 
+\indexlibrarymember{sub_match}{compare}%
+\begin{itemdecl}
+int compare(basic_string_view<value_type> s) const;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{str().compare(s)}.
+\end{itemdescr}
+
 \indexlibrarymember{sub_match}{swap}%
 \begin{itemdecl}
 void swap(sub_match& s) noexcept(@\seebelow@);
@@ -11028,10 +11051,10 @@ The exception specification is equivalent to
 \rSec3[re.submatch.op]{Non-member operators}
 
 \pnum
-Let \tcode{\placeholdernc{SM-CAT}(I)} be
-\begin{codeblock}
-compare_three_way_result_t<basic_string<typename iterator_traits<I>::value_type>>
-\end{codeblock}
+Let \tcode{\placeholdernc{SV}(I)} be
+\tcode{basic_string_view<typename iterator_traits<I>::value_type>} and
+let \tcode{\placeholdernc{SM-CAT}(I)} be
+\tcode{compare_three_way_result_t<\placeholdernc{SV}(I)>}.
 
 \indexlibrarymember{sub_match}{operator==}%
 \begin{itemdecl}
@@ -11068,9 +11091,7 @@ template<class BiIter, class ST, class SA>
 \begin{itemdescr}
 \pnum
 \returns
-\begin{codeblock}
-lhs.compare(typename sub_match<BiIter>::string_type(rhs.data(), rhs.size())) == 0
-\end{codeblock}
+\tcode{lhs.compare(\placeholder{SV}(BiIter)(rhs.data(), rhs.size())) == 0}.
 \end{itemdescr}
 
 \indexlibrarymember{operator<=>}{sub_match}%
@@ -11086,7 +11107,38 @@ template<class BiIter, class ST, class SA>
 \returns
 \begin{codeblock}
 static_cast<@\placeholdernc{SM-CAT}@(BiIter)>(lhs.compare(
-  typename sub_match<BiIter>::string_type(rhs.data(), rhs.size()))
+  @\placeholder{SV}@(BiIter)(rhs.data(), rhs.size()))
+    <=> 0
+  )
+\end{codeblock}
+\end{itemdescr}
+
+\indexlibrarymember{sub_match}{operator==}%
+\begin{itemdecl}
+template<class BiIter, class ST>
+  bool operator==(const sub_match<BiIter>& lhs,
+                  basic_string_view<typename iterator_traits<BiIter>::value_type, ST> rhs);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\tcode{lhs.compare(\placeholder{SV}(BiIter)(rhs.data(), rhs.size())) == 0}.
+\end{itemdescr}
+
+\indexlibrarymember{sub_match}{operator<=>}%
+\begin{itemdecl}
+template<class BiIter, class ST>
+  auto operator<=>(const sub_match<BiIter>& lhs,
+                   basic_string_view<typename iterator_traits<BiIter>::value_type, ST> rhs);
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\returns
+\begin{codeblock}
+static_cast<@\placeholdernc{SM-CAT}@(BiIter)>(lhs.compare(
+  @\placeholder{SV}@(BiIter)(rhs.data(), rhs.size()))
     <=> 0
   )
 \end{codeblock}
@@ -12724,6 +12776,11 @@ bool operator==(const regex_token_iterator& right) const;
 \end{itemdecl}
 
 \begin{itemdescr}
+\pnum
+\expects
+At least one of \tcode{*this} and \tcode{right} is an end-of-sequence iterator,
+or \tcode{*this} and \tcode{right} have the same underlying sequence.
+
 \pnum
 \returns
 \tcode{true} if \tcode{*this} and \tcode{right} are both end-of-sequence iterators,
