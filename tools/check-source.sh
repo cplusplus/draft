@@ -50,6 +50,10 @@ grep -ne '\\pnum.\+$' $texfiles |
     fail "pnum not alone on line" || failed=1
 # Fixup: sed '/\\pnum.\+$/s/\\pnum\s*/\\pnum\n/'
 
+# Exclude tables
+grep -Pne '^	[	]*+(?!\&)' $texfiles |
+	fail 'No line should begin with a tab' || failed=1
+
 # Two consecutive \pnum
 for f in $texfiles; do
     awk 'prev == $0 && /^\\pnum/ { print FILENAME ":" FNR ":" } { prev = $0 }' $f
