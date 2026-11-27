@@ -13583,7 +13583,8 @@ initiates a new protection epoch and ends the preceding one.
 \pnum
 An object \tcode{x} of hazard-protectable type \tcode{T} is
 \defn{retired} with a deleter of type \tcode{D}
-when the member function \tcode{hazard_pointer_obj_base<T, D>::retire}
+when either the member function \tcode{hazard_pointer_obj_base<T, D>::retire}
+or the member function \tcode{hazard_pointer_obj_base<T, D>::retire_to_cohort}
 is invoked on \tcode{x}.
 Any given object \tcode{x} shall be retired at most once.
 
@@ -13591,6 +13592,7 @@ Any given object \tcode{x} shall be retired at most once.
 A retired object \tcode{x} is \defn{reclaimed}
 by invoking its deleter with a pointer to \tcode{x};
 the behavior is undefined if that invocation exits via an exception.
+Any given retired object \tcode{x} is reclaimed at most once.
 
 \pnum
 A hazard-protectable object \tcode{x} is \defn{possibly-reclaimable}
@@ -13665,6 +13667,9 @@ void update_name(Name* new_name) {
 \indexheader{hazard_pointer}%
 \begin{codeblock}
 namespace std {
+  // \ref{saferecl.hp.cohort}, class \tcode{hazard_pointer_cohort}
+  class hazard_pointer_cohort;
+
   // \ref{saferecl.hp.base}, class template \tcode{hazard_pointer_obj_base}
   template<class T, class D = default_delete<T>> class hazard_pointer_obj_base;
 
@@ -13676,8 +13681,66 @@ namespace std {
   void swap(hazard_pointer&, hazard_pointer&) noexcept;
   void make_hazard_pointer_batch(span<hazard_pointer>);
   void clear_hazard_pointer_batch(span<hazard_pointer>) noexcept;
+  void hazard_pointer_try_reclamation() noexcept;
 }
 \end{codeblock}
+
+\rSec3[saferecl.hp.cohort]{Class \tcode{hazard_pointer_cohort}}
+
+\begin{codeblock}
+namespace std {
+  class hazard_pointer_cohort {
+  public:
+    constexpr hazard_pointer_cohort() noexcept = default;
+    hazard_pointer_cohort(const hazard_pointer_cohort&) = delete;
+    hazard_pointer_cohort(hazard_pointer_cohort&&) = delete;
+    hazard_pointer_cohort& operator=(const hazard_pointer_cohort&) = delete;
+    hazard_pointer_cohort& operator=(hazard_pointer_cohort&&) = delete;
+    ~hazard_pointer_cohort();
+  };
+}
+\end{codeblock}
+
+\pnum
+A \defn{hazard-cohort} is a set of hazard-protectable objects.
+Objects of type \tcode{hazard_pointer_cohort} represent distinct hazard-cohorts.
+
+\pnum
+An object \tcode{x} of hazard-protectable type \tcode{T}
+with a deleter of type \tcode{D}
+belongs to the hazard-cohort represented by
+a \tcode{hazard_pointer_cohort} \tcode{c} if the member function
+\tcode{hazard_pointer_obj_base<T, D>::retire_to_cohort}
+%%FIXME: What is "the cohort argument"?
+has been invoked on \tcode{x} with \tcode{c} as the \tcode{cohort} argument.
+
+\pnum
+\tcode{hazard_pointer_cohort} operations do not allocate memory.
+
+\indexlibrarydtor{hazard_pointer_cohort}%
+\begin{itemdecl}
+~hazard_pointer_cohort();
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\expects
+All objects that belong to the hazard-cohort represented by \tcode{*this}
+are either reclaimed or possibly-reclaimable
+with respect to the evaluation of this destructor.
+
+\pnum
+\sync
+For each object \tcode{x} that belongs to the hazard-cohort
+represented by \tcode{*this},
+the completion of the deleter for \tcode{x} synchronizes
+with the return from this destructor.
+
+\pnum
+\ensures
+All objects that belong to the hazard-cohort represented by \tcode{*this}
+are reclaimed.
+\end{itemdescr}
 
 \rSec3[saferecl.hp.base]{Class template \tcode{hazard_pointer_obj_base}}
 
@@ -13687,6 +13750,7 @@ namespace std {
   class hazard_pointer_obj_base {
   public:
     void retire(D d = D()) noexcept;
+    void retire_to_cohort(hazard_pointer_cohort& c, D d = D()) noexcept;
   protected:
     hazard_pointer_obj_base() = default;
     hazard_pointer_obj_base(const hazard_pointer_obj_base&) = default;
@@ -13743,6 +13807,38 @@ Move-assigns \tcode{d} to \tcode{deleter},
 thereby setting it as the deleter of \tcode{x},
 then retires \tcode{x}.
 May reclaim possibly-reclaimable objects.
+\end{itemdescr}
+
+\indexlibrarymember{retire_to_cohort}{hazard_pointer_obj_base}%
+\begin{itemdecl}
+void retire_to_cohort(hazard_pointer_cohort& c, D d = D()) noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\mandates
+\tcode{T} is a hazard-protectable type.
+
+\pnum
+\expects
+\tcode{*this} is a base class subobject of
+an object \tcode{x} of type \tcode{T} and
+\tcode{x} is not retired.
+Move-assigning \tcode{d} to \tcode{deleter} does not exit via an exception.
+
+\pnum
+\effects
+Move-assigns \tcode{d} to \tcode{deleter},
+thereby setting it as the deleter of \tcode{x},
+then retires \tcode{x}.
+May reclaim possibly-reclaimable objects that
+belong to the hazard-cohort represented by \tcode{c}.
+
+\pnum
+\remarks
+Concurrent invocations of \tcode{retire_to_cohort}
+with the same \tcode{hazard_pointer_cohort} object
+do not introduce data races.
 \end{itemdescr}
 
 \rSec3[saferecl.hp.holder]{Class \tcode{hazard_pointer}}
@@ -14035,4 +14131,15 @@ For each element \tcode{e} of \tcode{batch},
 if \tcode{e.empty()} is \tcode{false},
 destroys the hazard pointer owned by \tcode{e} and
 makes \tcode{e} empty.
+\end{itemdescr}
+
+\indexlibraryglobal{hazard_pointer_try_reclamation}%
+\begin{itemdecl}
+void hazard_pointer_try_reclamation() noexcept;
+\end{itemdecl}
+
+\begin{itemdescr}
+\pnum
+\effects
+May reclaim possibly-reclaimable objects.
 \end{itemdescr}
