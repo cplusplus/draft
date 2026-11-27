@@ -118,12 +118,19 @@ struct S {};    // IFNDR, definition here, injected declaration at \#1
 \ifndrdescription{basic.def.odr.maximum.one.def}
 
 \pnum
-If there are definitions
-in different translation units
-of a non-inline non-templated function or variable
-that are not attached to a named module
-or are not reachable from one another,
-the program is ill-formed, no diagnostic required.
+If a definable item \tcode{D}
+\begin{itemize}
+\item
+is a non-inline non-templated function or variable,
+\item
+is not defined by an injected declaration\iref{expr.const.reflect},
+\item
+has definitions in different translation units, and
+\item
+is not attached to a named module or
+has definitions that are not reachable from one another,
+\end{itemize}
+then the program is ill-formed, no diagnostic required.
 
 \pnum
 \begin{example}
@@ -146,31 +153,40 @@ void g();           // error: \#2 is reachable
 \ifndrdescription{basic.def.odr.definition.matches}
 
 \pnum
-If there are definitions
-in different translation units
-of a definable item \tcode{D}
-where
+If a definable item \tcode{D}
+that
 \begin{itemize}
-\item \tcode{D} is not defined by an injected declaration\iref{expr.const.reflect},
-\item \tcode{D} is not an inline or templated function or variable, and
-\item \tcode{D} is not attached to a named module or the declarations are not reachable from one another,
+\item
+is not a non-inline non-templated function or variable,
+\item
+is not defined by an injected declaration\iref{expr.const.reflect},
+\item
+has definitions in different translation units
+that do not satisfy
+the matching rules described in \ref{basic.def.odr}, and
+\item
+is not attached to a named module or
+has no definition that is reachable from any other,
 \end{itemize}
-that do not satisfy the matching rules described in \ref{basic.def.odr},
-the program is ill-formed, no diagnostic required.
+then the program is ill-formed, no diagnostic required.
 
 \pnum
 \begin{example}
 \begin{codeblocktu}{Translation unit \#1}
 inline void f() {}          // \#1
 inline void g() {}          // \#2
-inline void h() {[]{}();}   // \#3
+inline void h(bool cond, void (*p)() = []{}) {
+  if (cond) h(false);
+}                           // \#3
 namespace { int i = 0; }
 inline void j() {++i;}      // \#4
 \end{codeblocktu}
 \begin{codeblocktu}{Translation unit \#2}
 inline void f() {}          // OK, same as \#1
 inline void g() {;}         // IFNDR, different sequence of tokens than \#2
-inline void h() {[]{}();}   // IFNDR, closure has different type than \#3
+inline void h(bool cond, void (*p)() = []{}) {
+  if (cond) h(false);
+}                           // IFNDR, closure in default argument has different type than \#3
 namespace { int i = 0; }
 inline void j() {++i; }     // IFNDR, \tcode{i} refers to different entity than in \#4
 \end{codeblocktu}
@@ -297,10 +313,41 @@ the program is ill-formed; no diagnostic required.
 \begin{example}
 \begin{codeblock}
 template <typename T> concept C = requires {
-  new int[-(int)sizeof(T)];     // IFNDR, the size of the allocation is required to be greater
-                                // than zero but can never be
+  new decltype((void)T{});  // IFNDR, invalid use of \tcode{void} in all instantiations
 };
 \end{codeblock}
+\end{example}
+
+\ifndrdescription{expr.const.const.immediate.var.def}
+
+\pnum
+A variable that
+declares or refers to
+an immediate object
+must be odr-used
+only from
+immediate function contexts.
+No diagnostic is required
+if the odr-use
+is not reachable from
+the defining declaration
+of the variable
+and the defining declaration
+of the variable
+is not reachable from
+the odr-use.
+
+\pnum
+\begin{example}
+\begin{codeblocktu}{Translation unit \#1}
+struct S { decltype(^^::) d = ^^::; };
+extern constexpr S s{};         // \#1
+\end{codeblocktu}
+\begin{codeblocktu}{Translation unit \#2}
+struct S;
+extern const S s;
+const void* p = &s;             // IFNDR, cannot reach \#1 that is an immediate object
+\end{codeblocktu}
 \end{example}
 
 \rSec1[ifndr.stmt]{\ref*{stmt}: Statements}
@@ -397,6 +444,26 @@ inline int f(int x = 3, int y = 4);
 \end{codeblocktu}
 \end{example}
 
+\ifndrdescription{dcl.contract.func.mismatched.redeclaration}
+
+\pnum
+If a function that is not attached to a named module
+has a redeclaration in a different translation unit
+and that redeclaration declares mismatched function-contract specifiers,
+the program is ill-formed, no diagnostic required.
+
+\pnum
+\begin{example}
+\begin{codeblocktu}{Translation unit \#1}
+export module M;
+export extern "C++" int f(int x) pre(x >= 0);   // \#1, attached to the global module
+\end{codeblocktu}
+\begin{codeblocktu}{Translation unit \#2}
+import M;
+int f(int x) pre(x != 0);       // IFNDR, \tcode{pre} differs from \#1, which is reachable
+\end{codeblocktu}
+\end{example}
+
 \ifndrdescription{dcl.contract.func.mismatched.contract.specifiers}
 
 \pnum
@@ -417,6 +484,24 @@ int f(int x);                   // IFNDR, \tcode{pre} not present, present in th
 int g(int x) pre(x != 0);       // IFNDR, \tcode{pre} differs from the other first declaration of \tcode{g}
 int h(int y) pre(y <= 0);       // OK, \tcode{pre} equivalent to \tcode{pre} on the other first declaration of \tcode{h}
 \end{codeblocktu}
+\end{example}
+
+\ifndrdescription{dcl.contract.func.mismatched.lambda}
+
+\pnum
+If the function-contract specifiers
+must compare equal
+and they do not match
+solely due to the comparison of \grammarterm{lambda-expression}s
+nested within them
+then no diagnostic is required.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+void f() pre([]{ return true; }());
+void f() pre([]{ return true; }());     // IFNDR, closures have different types
+\end{codeblock}
 \end{example}
 
 \ifndrdescription{dcl.fct.def.replace.bad.replacement}
@@ -551,6 +636,23 @@ is ill-formed, no diagnostic required.
 module A;
 export import :Internals;       // IFNDR, module partition not allowed
 \end{codeblock}
+\end{example}
+
+\ifndrdescription{module.unit.conflicting.module.partitions}
+
+\pnum
+If more than one module partition
+has the same \grammarterm{module-partition},
+the program is ill-formed, no diagnostic required.
+
+\pnum
+\begin{example}
+\begin{codeblocktu}{Translation unit \#1}
+module M:oops;  // IFNDR, multiple module partitions named \tcode{:oops}
+\end{codeblocktu}
+\begin{codeblocktu}{Translation unit \#2}
+module M:oops;  // IFNDR, multiple module partitions named \tcode{:oops}
+\end{codeblocktu}
 \end{example}
 
 \ifndrdescription{module.unit.unexported.module.partition}
@@ -847,6 +949,151 @@ void h() { g(0); }      // IFNDR, selects \#3 here but selects \#1 using lookup 
 \end{codeblock}
 \end{example}
 
+\ifndrdescription{temp.res.general.no.valid.specialization}
+
+\pnum
+If no valid specialization,
+ignoring failing \grammarterm{static_assert-declaration}s,
+can be generated for a templated entity,
+or for a substatement of a constexpr if statement within one,
+and the innermost enclosing template is not instantiated,
+the program is ill-formed, no diagnostic required.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+template<class T> void f() {
+  T& r[1];      // IFNDR, an array of references is never valid
+}
+\end{codeblock}
+\end{example}
+
+\ifndrdescription{temp.res.general.no.valid.expansion}
+
+\pnum
+If no valid specialization,
+ignoring failing \grammarterm{static_assert-declaration}s,
+can be generated
+for the body of an \grammarterm{expansion-statement}
+that is never instantiated,
+the program is ill-formed, no diagnostic required.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+void f() {
+  template for (auto x : {}) {
+    decltype(x)& r[1];  // IFNDR, never valid and never instantiated
+  }
+}
+\end{codeblock}
+\end{example}
+
+\ifndrdescription{temp.res.general.no.valid.default.arg}
+
+\pnum
+If no valid specialization,
+ignoring failing \grammarterm{static_assert-declaration}s,
+can be generated
+for a default \grammarterm{template-argument}
+that is never used,
+the program is ill-formed, no diagnostic required.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+template<class T, class U = T&[1]> struct S {};     // IFNDR, \tcode{T\&[1]} is never valid
+S<int, int> s;
+\end{codeblock}
+\end{example}
+
+\ifndrdescription{temp.res.general.no.valid.alias}
+
+\pnum
+If no specialization of an alias template is valid
+and none is named in the program,
+the program is ill-formed, no diagnostic required.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+template<class T> using A = T&[1];  // IFNDR, no specialization of \tcode{A} is valid
+\end{codeblock}
+\end{example}
+
+\ifndrdescription{temp.res.general.no.valid.constraint.check}
+
+\pnum
+If an atomic constraint can never be checked
+without being ill-formed and is never checked,
+the program is ill-formed, no diagnostic required.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+template<class T>
+  requires (sizeof(T) > 1) && 1     // IFNDR, \tcode{1} is not of type \tcode{bool}
+void f(T);
+\end{codeblock}
+\end{example}
+
+\ifndrdescription{temp.res.general.variadic.empty.pack}
+
+\pnum
+If every valid specialization of a variadic template
+requires an empty template parameter pack,
+the program is ill-formed, no diagnostic required.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+template<class... T> struct S {
+  void operator++(int, T...);       // IFNDR, valid only if \tcode{T} is empty
+};
+\end{codeblock}
+\end{example}
+
+\ifndrdescription{temp.res.general.hypothetical.ill.formed}
+
+\pnum
+If a templated entity would be ill-formed
+because of a construct that does not depend on a template parameter
+(other than a failing \grammarterm{static_assert-declaration}),
+the program is ill-formed, no diagnostic required.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+template<class T> void f() {
+  int* p = 1;   // IFNDR, ill-formed for every \tcode{T}
+}
+\end{codeblock}
+\end{example}
+
+\ifndrdescription{temp.res.general.hypothetical.different.meaning}
+
+\pnum
+If a construct that does not depend on a template parameter
+would be interpreted differently
+immediately following the definition of a templated entity
+than in an instantiation of that entity,
+the program is ill-formed, no diagnostic required.
+
+\pnum
+\begin{example}
+\begin{codeblock}
+struct B {};
+struct D;
+void h(void*);
+void h(B*);
+template<class T> void f(D* p) {
+  h(p);         // IFNDR, \tcode{h(void*)} here, \tcode{h(B*)} in \tcode{f<int>}
+}
+struct D : B {};
+template void f<int>(D*);
+\end{codeblock}
+\end{example}
+
 \ifndrdescription{temp.point.diff.pt.diff.meaning}
 
 \pnum
@@ -1006,6 +1253,33 @@ void x() {
                 // Substituting into \#2 instantiates \tcode{A<T>}, which is ill-formed.
 }
 \end{codeblock}
+\end{example}
+
+\rSec1[ifndr.except]{\ref*{except}: Exception handling}
+
+\ifndrdescription{except.spec.mismatched.explicit.instantiation}
+
+\pnum
+If an explicit instantiation in one translation unit
+contains a \grammarterm{noexcept-specifier}
+that is not the same as
+that of a declaration of the same function
+in another translation unit,
+the program is ill-formed, no diagnostic required.
+
+\pnum
+\begin{example}
+\begin{codeblocktu}{Translation unit \#1}
+void g(int) noexcept;
+template<class T> void f(T t) noexcept(noexcept(g(t))) {}
+template void f(int) noexcept;                  // \#1, \tcode{g(int)} is \tcode{noexcept}
+\end{codeblocktu}
+\begin{codeblocktu}{Translation unit \#2}
+void g(long);
+template<class T> void f(T t) noexcept(noexcept(g(t)));
+extern template void f(int) noexcept(false);    // IFNDR, \tcode{g(long)} is not \tcode{noexcept},
+                                                // differs from \#1
+\end{codeblocktu}
 \end{example}
 
 \rSec1[ifndr.cpp]{\ref*{cpp}: Preprocessing directives}

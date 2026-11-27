@@ -106,7 +106,6 @@ Y* make_y() {
 \end{example}
 
 \ubdescription{basic.align.object.alignment}
-
 \pnum
 All instances of a type must be created in storage
 that meets the alignment requirement of that type.
@@ -119,7 +118,7 @@ struct alignas(4) S {};
 void make_misaligned()
 {
     alignas(S) char s[sizeof(S) + 1];
-    new (&s+1) S();     // undefined behavior, \tcode{\&s+1} will yield a pointer to
+    new (&s[1]) S();    // undefined behavior, \tcode{\&s[1]} will yield a pointer to
                         // a \tcode{char} which is $1$ byte away from an address with
                         // an alignment of $4$ and so cannot have an alignment of $4$
 }
@@ -127,12 +126,11 @@ void make_misaligned()
 \end{example}
 
 \ubdescription{lifetime.outside.pointer.delete}
-
 \pnum
 For a pointer pointing to an object outside of its lifetime,
-behavior is undefined if the object will be or was of a class type
-with a non-trivial destructor
-and the pointer is used as the operand of a \grammarterm{delete-expression}.
+behavior is undefined
+if the pointer is used
+as the operand of a \grammarterm{delete-expression}.
 
 \pnum
 \begin{example}
@@ -145,8 +143,7 @@ struct S {
 void f() {
   S* p = new S;
   p->~S();
-  delete p;     // undefined behavior, operand of \tcode{delete}, lifetime has ended and \tcode{S}
-                // has a non-trivial destructor
+  delete p;     // undefined behavior, operand of \tcode{delete}, lifetime has ended
 }
 \end{codeblock}
 \end{example}
@@ -154,8 +151,9 @@ void f() {
 \ubdescription{lifetime.outside.pointer.member}
 
 \pnum
-For a pointer pointing to an object outside of its lifetime, behavior is
-undefined if the pointer is used to access a non-static data member or call a
+For a pointer pointing to an object outside of its lifetime,
+behavior is undefined
+if the pointer is used to access a non-static data member or call a
 non-static member function of the object.
 
 \pnum
@@ -175,11 +173,11 @@ float f() {
 \end{example}
 
 \ubdescription{lifetime.outside.pointer.virtual}
-
 \pnum
-For a pointer pointing to an object outside of its lifetime, behavior is
-undefined if the pointer is implicitly converted\iref{conv.ptr} to a pointer
-to a virtual base class (or base class of a virtual base class).
+For a pointer pointing to an object outside of its lifetime,
+behavior is undefined
+if the pointer is converted\iref{conv.ptr,expr.static.cast}
+to a pointer to a transitively virtual base class.
 
 \pnum
 \begin{example}
@@ -190,7 +188,8 @@ void f() {
   D d;
   D* p = &d;
   d.~D();
-  B* b = p;     // undefined behavior
+  B* b1 = p;                    // undefined behavior, implicit conversion
+  B* b2 = static_cast<B*>(p);   // undefined behavior, explicit conversion
 }
 \end{codeblock}
 \end{example}
@@ -198,8 +197,9 @@ void f() {
 \ubdescription{lifetime.outside.pointer.dynamic.cast}
 
 \pnum
-For a pointer pointing to an object outside of its lifetime, behavior is
-undefined if the pointer is used as the operand of a
+For a pointer pointing to an object outside of its lifetime,
+behavior is undefined
+if the pointer is used as the operand of a
 \tcode{dynamic_cast}\iref{expr.dynamic.cast}.
 
 \pnum
@@ -220,8 +220,9 @@ void f()
 \ubdescription{lifetime.outside.glvalue.access}
 
 \pnum
-Behavior is undefined if a glvalue referring to an object
-outside of its lifetime is used to access the object.
+Behavior is undefined if a glvalue referring to
+an object outside of its lifetime
+is used to access the object.
 
 \pnum
 \begin{example}
@@ -367,13 +368,11 @@ void g() {
 \end{codeblock}
 \end{example}
 
-\ubdescription{basic.stc.alloc.dealloc.constraint}
-
+\ubdescription{basic.stc.alloc.constraint}
 \pnum
-If the behavior of an allocation or deallocation function
+If the behavior of an allocation function
 does not satisfy the semantic constraints specified
-in~\ref{basic.stc.dynamic.allocation}
-and~\ref{basic.stc.dynamic.deallocation},
+in~\ref{basic.stc.dynamic.allocation},
 the behavior is undefined.
 
 \pnum
@@ -386,9 +385,6 @@ void* operator new(std::size_t sz) {
 
   return std::malloc(1);        // undefined behavior, if successful should return allocation with
                                 // length in bytes is at least as large as the requested size
-}
-void operator delete(void* ptr) noexcept {
-  throw 0;                      // undefined behavior, terminates by throwing an exception
 }
 \end{codeblock}
 \end{example}
@@ -410,10 +406,49 @@ void test()
 \end{codeblock}
 \end{example}
 
+\ubdescription{basic.compound.pointer.before.storage.duration}
+
+\pnum
+Producing a pointer value
+to or past the end of an object
+before the beginning of the
+duration of that object's storage
+has undefined behavior.
+Therefore
+any pointer created
+before the beginning of the storage duration
+of an object
+cannot be a pointer
+to that object.
+
+\pnum
+\begin{example}
+In the following example,
+initializing the pointer \tcode{p}
+has undefined behavior
+because all possible values of \tcode{p},
+including \tcode{\&y},
+lead to undefined behavior.
+\begin{codeblock}
+#include <cstdint>
+void f() {
+  int x;
+  std::uintptr_t pval = reinterpret_cast<std::uintptr_t>((&x)+1);
+  int *p = reinterpret_cast<int*>(pval);    // undefined behavior
+  {
+    int y;          // storage duration of \tcode{y} begins, so \tcode{p} is not \tcode{\&y}
+    if (pval == reinterpret_cast<std::uintptr_t>(&y)) { // consider when \tcode{x} and \tcode{y} are consecutive
+      *p = 17;      // undefined behavior, so \tcode{p} is not \tcode{(\&x)+1}
+    }
+  }
+}
+\end{codeblock}
+\end{example}
+
 \ubdescription{basic.compound.invalid.pointer}
 
 \pnum
-Indirection or the invocation of a deallocation function
+Indirection
 with a pointer value referencing storage that has been freed
 has undefined behavior.
 (Most other uses of such a pointer have implementation-defined behavior.)
@@ -426,7 +461,6 @@ void f()
     int *x = new int{5};
     delete x;
     int y = *x; // undefined behavior
-    delete x;   // undefined behavior
 }
 \end{codeblock}
 \end{example}
@@ -468,11 +502,13 @@ Any such data race results in undefined behavior.
 
 \pnum
 \begin{example}
+In the following example,
+\tcode{t1}, \tcode{t2}, and \tcode{t3}
+have a data race on access of variable \tcode{count}.
 \begin{codeblock}
 int count = 0;
-auto f = [&] { count++; };
+auto f = [] { ++count; };
 std::thread t1{f}, t2{f}, t3{f};
-// undefined behavior, \tcode{t1}, \tcode{t2} and \tcode{t3} have a data race on access of variable \tcode{count}
 \end{codeblock}
 \end{example}
 
@@ -484,12 +520,17 @@ that has not terminated stops making execution steps.
 
 \pnum
 \begin{example}
+In the following example,
+the loop condition \tcode{!stop()}
+is not a constant expression,
+so the resulting infinite loop
+has undefined behavior.
 \begin{codeblock}
 bool stop() { return false; }
 
 void busy_wait_thread() {
-  while (!stop());  // undefined behavior, thread makes no progress but the loop
-}                   // is not trivial because \tcode{stop()} is not a constant expression
+  while (!stop());  // undefined behavior
+}
 
 int main() {
   std::thread t(busy_wait_thread);
@@ -517,8 +558,13 @@ struct Exiter {
 Exiter ex;
 
 int main() {}
-// undefined behavior when destructor of static variable \tcode{ex} is called it will call \tcode{std::exit}
 \end{codeblock}
+During the destruction
+of static variables
+after \tcode{main} completes,
+the destructor of the variable \tcode{ex},
+which invokes \tcode{std::exit},
+has undefined behavior.
 \end{example}
 
 \ubdescription{basic.start.term.use.after.destruction}
@@ -551,11 +597,21 @@ struct C {
 C c;
 B b;    // call to \tcode{f()} in constructor begins lifetime of \tcode{a}
 
-int main() {}
-// undefined behavior, static objects are destructed in reverse order, in this case \tcode{a} then \tcode{b} and
-// finally \tcode{c}. When the destructor of \tcode{c} is called, it calls \tcode{f()} which passes through the definition of
-// previously destroyed block-scope object
+int main() {}   // undefined behavior
 \end{codeblock}
+Objects with static storage duration
+are destroyed in reverse order
+of the completion
+of their construction.
+In the above example,
+first \tcode{c} then \tcode{a} and finally \tcode{b}
+complete construction.
+When the destructor of \tcode{c} is called
+after first destroying \tcode{b} and then \tcode{a},
+it calls \tcode{f()} which
+passes through the definition of
+the previously destroyed
+block-scope object \tcode{a}.
 \end{example}
 
 \rSec1[ub.expr]{\ref*{expr}: Expressions}
@@ -570,14 +626,36 @@ the behavior is undefined.
 
 \pnum
 \begin{example}
+In the following example, assume that
+\tcode{std::int32_t} is supported\iref{cstdint.syn}
+and is \tcode{int}.
+\begin{codeblock}
+#include <cstdint>
+#include <limits>
+int main() {
+  std::int32_t x1 = std::numeric_limits<std::int32_t>::max() + 1;
+        // undefined behavior, $2{,}147{,}483{,}647 + 1$ is not representable as a \tcode{std::int32_t}
+  std::int32_t x2 = std::numeric_limits<std::int32_t>::min() / -1;
+        // undefined behavior, $-2{,}147{,}483{,}648 / -1$ is not representable as a \tcode{std::int32_t}
+  std::int32_t x3 = std::numeric_limits<std::int32_t>::min() * -1;
+        // undefined behavior, $-2{,}147{,}483{,}648 * -1$ is not representable as a \tcode{std::int32_t}
+}
+\end{codeblock}
+\end{example}
+
+\pnum
+\begin{example}
+Assuming a \tcode{float} type
+that does not have
+NaN or infinities,
+operations that result in either
+have undefined behavior
+because their results
+are not in the range of \tcode{float}.
 \begin{codeblock}
 #include <limits>
 int main() {
-  // Assuming $32$-bit \tcode{int}, the range of values is: $-2,147,483,648$ to $2,147,483,647$.
-  int x1 = std::numeric_limits<int>::max() + 1;
-        // undefined behavior, $2,147,483,647 + 1$ is not representable as an \tcode{int}
-  int x2 = std::numeric_limits<int>::min() / -1;
-        // undefined behavior, $-2,147,483,648 / -1$ is not representable as an \tcode{int}
+  float x = std::numeric_limits<float>::max() * 2;  // undefined behavior, overflow
 }
 \end{codeblock}
 \end{example}
@@ -670,24 +748,47 @@ bool f() {
 \end{codeblock}
 \end{example}
 
-\ubdescription{conv.double.out.of.range}
-
+\ubdescription{conv.array.dissimilar.type}
 \pnum
-Converting a floating-point value to a type
-that cannot represent the value has undefined behavior.
+Performing an array-to-pointer conversion
+on an expression that refers to an object
+whose type is not similar\iref{conv.qual} to the type of the expression
+has undefined behavior.
 
 \pnum
 \begin{example}
 \begin{codeblock}
+void f() {
+  int arr[4] = {};
+  int* p = reinterpret_cast<int(&)[2]>(arr);    // undefined behavior, \tcode{arr} is
+                                                // an array of a different size
+}
+\end{codeblock}
+\end{example}
+
+\ubdescription{conv.double.out.of.range}
+\pnum
+Converting a floating-point value to a type
+that cannot represent
+that value
+and does not have two adjacent values in the destination type
+has undefined behavior.
+
+\pnum
+\begin{example}
+Assume that \tcode{double}
+has a larger range of representable values
+than \tcode{float}
+and that \tcode{float}
+has no representation for infinity
+for the following example.
+\begin{codeblock}
 #include <limits>
 
 int main() {
-  // Assuming 32-bit \tcode{int}, 32-bit \tcode{float} and 64-bit \tcode{double}.
   double d2 = std::numeric_limits<double>::max();
-  float f = d2; // undefined behavior on systems where the range of representable values
-                // of \tcode{float} is \tcode{[-max,+max]}; on systems where the range of representable
-                // values is \tcode{[-inf,+inf]} this would not be undefined behavior
-  int i = d2;   // undefined behavior, the max value of \tcode{double} is not representable as \tcode{int}
+  float f = d2;     // undefined behavior, \tcode{d2} is greater than
+                    // the largest representable \tcode{float}
 }
 \end{codeblock}
 \end{example}
@@ -696,18 +797,30 @@ int main() {
 
 \pnum
 When converting a floating-point value to an integer type, if
-the value is not representable in the destination type, the behavior is undefined.
+the truncated value
+is not representable in the destination type,
+the behavior is undefined.
 
 \pnum
 \begin{example}
+In the following example, assume that
+\tcode{std::float64_t}, \tcode{std::int32_t}, and \tcode{std::uint32_t}
+are supported.
 \begin{codeblock}
+#include <cstdint>
+#include <stdfloat>
 #include <limits>
 
 int main() {
-  // Assuming $32$-bit \tcode{int}, the range of values is: $-2,147,483,648$ to
-  // $2,147,483,647$. Assuming $32$-bit \tcode{float} and $64$-bit \tcode{double}.
-  double d = (double)std::numeric_limits<int>::max() + 1;
-  int x1 = d;   // undefined behavior, $2,147,483,647 + 1$ is not representable as \tcode{int}
+  std::float64_t d  = static_cast<std::float64_t>(std::numeric_limits<std::int32_t>::max()) + 1;
+  std::int32_t   x1 = d;        // undefined behavior, $2{,}147{,}483{,}647 + 1$ is not representable as \tcode{std::int32_t}
+  std::int32_t   x2 = std::numeric_limits<std::float64_t>::infinity();
+                                // undefined behavior, infinity is not representable as \tcode{std::int32_t}
+  std::int32_t   x3 = -std::numeric_limits<std::float64_t>::infinity();
+                                // undefined behavior, negative infinity is not representable as \tcode{std::int32_t}
+  std::int32_t   x4 = std::numeric_limits<std::float64_t>::quiet_NaN();
+                                // undefined behavior, NaN is not representable as \tcode{std::int32_t}
+  std::uint32_t  x5 = -0.5f;    // OK, truncated value is $0$
 }
 \end{codeblock}
 \end{example}
@@ -733,7 +846,6 @@ int main() {
 \end{example}
 
 \ubdescription{conv.ptr.virtual.base}
-
 \pnum
 Converting
 a pointer to a derived class \tcode{D}
@@ -752,7 +864,7 @@ struct D : virtual B {};
 void f()
 {
   D ds[1];
-  B* b = &ds[1];    // undefined behavior
+  B* b = ds + 1;    // undefined behavior
 }
 \end{codeblock}
 \end{example}
@@ -827,7 +939,6 @@ int x = reinterpret_cast<B&>(a).j;  // undefined behavior
 \end{example}
 
 \ubdescription{expr.dynamic.cast.pointer.lifetime}
-
 \pnum
 Evaluating a \keyword{dynamic_cast} on a non-null pointer
 that points to an object (of polymorphic type) of the wrong type
@@ -838,15 +949,16 @@ has undefined behavior.
 \begin{example}
 \begin{codeblock}
 struct B { virtual ~B(); };
+struct D : B {};
 void f() {
-  B bs[1];
-  B* dp = dynamic_cast<B*>(bs+1);   // undefined behavior
+  B* bp = new B;
+  bp->~B();
+  D* dp = dynamic_cast<D*>(bp);     // undefined behavior
 }
 \end{codeblock}
 \end{example}
 
 \ubdescription{expr.dynamic.cast.glvalue.lifetime}
-
 \pnum
 Evaluating a \keyword{dynamic_cast} on a reference
 that denotes an object (of polymorphic type)
@@ -858,9 +970,12 @@ has undefined behavior.
 \begin{example}
 \begin{codeblock}
 struct B { virtual ~B(); };
+struct D : B {};
 void f() {
-  B bs[1];
-  B& dr = dynamic_cast<B&>(bs[1]);  // undefined behavior
+  B* bp = new B;
+  B& br = *bp;
+  bp->~B();
+  D& dr = dynamic_cast<D&>(br);     // undefined behavior
 }
 \end{codeblock}
 \end{example}
@@ -984,6 +1099,45 @@ int main() {
 \end{codeblock}
 \end{example}
 
+\ubdescription{expr.reinterpret.cast.invalid.pointer.value}
+
+\pnum
+Converting a value of integral or enumeration type
+to a pointer using \keyword{reinterpret_cast}
+when at least one pointer value
+converts to
+that integral or enumeration value,
+but no such pointer value would
+give the program defined behavior,
+has undefined behavior.
+
+\pnum
+\begin{example}
+In the following example,
+undefined behavior will occur
+when converting \tcode{pval} to a pointer.
+The results based on
+\tcode{x} or \tcode{y}
+would lead to undefined behavior,
+as would any result based on
+other objects (that share storage with \tcode{y})
+that are outside of their lifetime.
+\begin{codeblock}
+#include <cstdint>
+void f()
+{
+  int x, y;         // can be at consecutive addresses in memory
+  int *p = (&x)+1;  // pointer past the end of \tcode{x}
+  std::uintptr_t pval = reinterpret_cast<std::uintptr_t>(p);
+  if (pval == reinterpret_cast<std::uintptr_t>(&y)) {   // consider when \tcode{x} and \tcode{y} are consecutive
+    int *q = reinterpret_cast<int*>(pval);  // undefined behavior
+    q-1;                            // undefined behavior if \tcode{q} is \tcode{\&y}
+    *q;                             // undefined behavior if \tcode{q} is \tcode{(\&x)+1} or refers to some \tcode{int} outside \tcode{f}
+  }
+}
+\end{codeblock}
+\end{example}
+
 \ubdescription{expr.unary.dereference}
 
 \pnum
@@ -1032,7 +1186,18 @@ int main() {
 \end{example}
 
 \ubdescription{expr.delete.mismatch}
+\pnum
+Using single object delete on the result of an array new expression has undefined behavior.
 
+\pnum
+\begin{example}
+\begin{codeblock}
+int* x = new int[10];
+delete x;           // undefined behavior, allocated using array new expression
+\end{codeblock}
+\end{example}
+
+\ubdescription{expr.delete.array.mismatch}
 \pnum
 Using array delete on the result of a single object new expression
 has undefined behavior.
@@ -1042,19 +1207,6 @@ has undefined behavior.
 \begin{codeblock}
 int* x = new int;
 delete[] x;         // undefined behavior, allocated using single object new expression
-\end{codeblock}
-\end{example}
-
-\ubdescription{expr.delete.array.mismatch}
-
-\pnum
-Using single object delete on the result of an array new expression has undefined behavior.
-
-\pnum
-\begin{example}
-\begin{codeblock}
-int* x = new int[10];
-delete x;           // undefined behavior, allocated using array new expression
 \end{codeblock}
 \end{example}
 
@@ -1117,26 +1269,34 @@ void f(int i) {
 \end{example}
 
 \ubdescription{expr.mptr.oper.not.contain.member}
-
 \pnum
-Abbreviating \grammarterm{pm-expression}.*\grammarterm{cast-expression}
-as \tcode{E1.*E2}, \tcode{E1} is called the object expression.
-If the dynamic type of \tcode{E1} does not contain the member
-to which \tcode{E2} refers, the behavior is undefined.
+In a \grammarterm{pm-expression} of the form
+\tcode{E1.*E2},
+if \tcode{E1} refers to an object
+whose type is not similar to the type of \tcode{E1},
+or whose most derived object\iref{intro.object}
+does not contain the member
+to which \tcode{E2} refers,
+the behavior is undefined.
 
 \pnum
 \begin{example}
 \begin{codeblock}
-struct B {};
-struct D : B {
+struct A { int x; };
+struct B { int x; };
+struct C {};
+struct D : C {
   int x;
 };
 
 void f() {
-  B *b = new B;
-  D *d = static_cast<D *>(b);
-  int D::*p = &D::x;
-  (*d).*p = 1;          // undefined behavior, dynamic type \tcode{B} does not contain \tcode{x}
+  int C::*pc = static_cast<int C::*>(&D::x);
+  C c;
+  c.*pc = 1;                        // undefined behavior, \tcode{C} does not contain \tcode{D::x}
+
+  int A::*pa = &A::x;
+  B b;
+  reinterpret_cast<A&>(b).*pa = 1;  // undefined behavior, \tcode{B} is not similar to \tcode{A}
 }
 \end{codeblock}
 \end{example}
@@ -1171,10 +1331,8 @@ Division by zero has undefined behavior.
 \begin{example}
 \begin{codeblock}
 int main() {
-  int x = 1 / 0;        // undefined behavior, division by zero
-  double d = 1.0 / 0.0; // undefined behavior on systems where the range of
-                        // representable values of \tcode{double} is \tcode{[-max,+max]}, on systems where
-                        // representable values is \tcode{[-inf,+inf]} this would not be undefined behavior
+  int x = 1 / 0;        // undefined behavior
+  double d = 1.0 / 0.0; // undefined behavior
 }
 \end{codeblock}
 \end{example}
@@ -1191,13 +1349,21 @@ otherwise, the behavior of both \tcode{a/b} and \tcode{a\%b} is undefined.
 
 \pnum
 \begin{example}
+In the following example, assume that
+\tcode{std::int32_t} is supported\iref{cstdint.syn}
+and is \tcode{int}.
+Dividing the minimum \tcode{std::int32_t} value
+of $-2{,}147{,}483{,}648$
+by $-1$ yields
+$2{,}147{,}483{,}648$,
+which is not representable in \tcode{std::int32_t}.
 \begin{codeblock}
+#include <cstdint>
 #include <limits>
 
 int main() {
-  int x = std::numeric_limits<int>::min() / -1;
-        // Assuming \tcode{LP64} $-2,147,483,648$ which when divided by $-1$
-        // gives us $2,147,483,648$ which is not representable by \tcode{int}.
+  std::int32_t x = std::numeric_limits<std::int32_t>::min() / -1;   // undefined behavior
+  std::int32_t y = std::numeric_limits<std::int32_t>::min() % -1;   // undefined behavior
 }
 \end{codeblock}
 \end{example}
@@ -1210,20 +1376,12 @@ Creating an out of bounds pointer has undefined behavior.
 \pnum
 \begin{example}
 \begin{codeblock}
-static const int arrs[10]{};
-
-int main() {
-  const int *y = arrs + 11;             // undefined behavior, creating an out of bounds pointer
-}
-\end{codeblock}
-\end{example}
-
-\begin{example}
-\begin{codeblock}
+static const int arr[10]{};
 static const int arrs[10][10]{};
 
 int main() {
-  const int(*y)[10] = arrs + 11;        // undefined behavior, creating an out of bounds pointer
+  const int *x = arr + 11;      // undefined behavior, creating an out of bounds pointer
+  const int *y = arrs[0] + 11;  // undefined behavior, creating an out of bounds pointer
 }
 \end{codeblock}
 \end{example}
@@ -1249,7 +1407,6 @@ void f() {
 \end{example}
 
 \ubdescription{expr.add.not.similar}
-
 \pnum
 For addition or subtraction of two expressions $P$ and $Q$,
 if $P$ or $Q$ have type ``pointer to \cv{}~\tcode{T}'', where \tcode{T} and the array
@@ -1284,11 +1441,12 @@ the bit-width of a type has undefined behavior.
 \pnum
 \begin{example}
 \begin{codeblock}
-int y = 1 << -1;        // undefined behavior, shift is negative
-
-static_assert(sizeof(int) == 4 && CHAR_BIT == 8);
-int y1 = 1 << 32;       // undefined behavior, shift is equal to the bit width of \tcode{int}
-int y2 = 1 >> 32;       // undefined behavior, shift is equal to the bit width of \tcode{int}
+#include <limits>
+unsigned int y1 = 1 << -1;  // undefined behavior, shift is negative
+unsigned int y2 = 1 << std::numeric_limits<unsigned int>::digits;
+                            // undefined behavior, shift is equal to bit width
+unsigned int y3 = 1 >> std::numeric_limits<unsigned int>::digits;
+                            // undefined behavior, shift is equal to bit width
 \end{codeblock}
 \end{example}
 
@@ -1333,10 +1491,11 @@ void b() {
 \end{example}
 
 \ubdescription{stmt.return.coroutine.flow.off}
-
 \pnum
-Flowing off the end of a coroutine function body
-that does not return \tcode{void} has undefined behavior.
+In a coroutine whose promise object is \tcode{p}
+and for which overload resolution for \tcode{p.return_void()} fails,
+flowing off the end of the \grammarterm{function-body}
+has undefined behavior.
 
 \pnum
 \begin{example}
@@ -1382,7 +1541,7 @@ const char* resumable::return_val() {
 resumable foo() {
   std::cout << "Hello" << std::endl;
   co_await std::suspend_always();
-  // undefined behavior, falling off the end of coroutine that does not return \tcode{void}
+  // undefined behavior, falling off the end of coroutine that cannot \tcode{co_return} \tcode{void}
 }
 
 int main() {
@@ -1479,7 +1638,6 @@ int& i = reinterpret_cast<int&>(g);     // undefined behavior
 \end{example}
 
 \ubdescription{dcl.ref.uninitialized.reference}
-
 \pnum
 Evaluating a reference
 prior to initializing that
@@ -1491,12 +1649,12 @@ reference has undefined behavior.
 extern int &ir1;
 int i2 = ir1;   // undefined behavior, \tcode{ir1} not yet initialized
 int i3 = 17;
-int &ir1 = i3;
+int& dynamicValue() { return i3; }  // not \tcode{constexpr}
+int &ir1 = dynamicValue();          // not constant-initialized
 \end{codeblock}
 \end{example}
 
 \ubdescription{dcl.fct.def.coroutine.resume.not.suspended}
-
 \pnum
 Invoking a resumption member function for a coroutine
 that is not suspended
@@ -1507,51 +1665,31 @@ results in undefined behavior.
 \begin{codeblock}
 #include <coroutine>
 
-struct minig {
+struct task {
   struct promise_type {
-    int val;
-    minig get_return_object() { return {*this}; }
-    constexpr suspend_always initial_suspend() noexcept { return {}; }
-    constexpr suspend_always final_suspend() noexcept { return {}; }
-    constexpr void return_void() noexcept {}
-    [[noreturn]] void unhandled_exception() noexcept { throw; }
-    suspend_always yield_value(int v) noexcept {
-      val = v;
-      return {};
-    }
+    task get_return_object() { return {}; }
+    std::suspend_never initial_suspend() noexcept { return {}; }
+    std::suspend_never final_suspend() noexcept { return {}; }
+    void return_void() noexcept {}
+    void unhandled_exception() noexcept {}
   };
-  using HDL = coroutine_handle<promise_type>;
-  HDL coro;
-  minig(promise_type& p) : coro(HDL::from_promise(p)) {}
-  ~minig() { coro.destroy(); }
-  bool move_next() {
-    coro.resume();
-    return !coro.done();
-  }
-  int current_value() { return coro.promise().val; }
 };
 
-static minig f(int n) {
-  for (int i = 0; i < n; ++i)
-    co_yield i;
-}
+struct get_handle {
+  std::coroutine_handle<> h;
+  bool await_ready() noexcept { return false; }
+  bool await_suspend(std::coroutine_handle<> c) noexcept { h = c; return false; }
+  std::coroutine_handle<> await_resume() noexcept { return h; }
+};
 
-int main() {
-  auto g = f(10);
-  int sum = 0;
-  while (g.move_next())
-    sum += g.current_value();
-
-  g.move_next();    // undefined behavior, will call \tcode{coro.resume()} but \tcode{final_suspend}
-                    // has already returned, even though it returned \tcode{suspend_always}
-
-  return sum;
+task f() {
+  std::coroutine_handle<> self = co_await get_handle{};
+  self.resume();    // undefined behavior, \tcode{f} is running, not suspended
 }
 \end{codeblock}
 \end{example}
 
 \ubdescription{dcl.fct.def.coroutine.destroy.not.suspended}
-
 \pnum
 Invoking \tcode{destroy()} on a coroutine that is not suspended has undefined behavior.
 
@@ -1560,46 +1698,26 @@ Invoking \tcode{destroy()} on a coroutine that is not suspended has undefined be
 \begin{codeblock}
 #include <coroutine>
 
-struct minig {
+struct task {
   struct promise_type {
-    int val;
-    minig get_return_object() { return {*this}; }
-    constexpr suspend_always initial_suspend() noexcept { return {}; }
-    constexpr suspend_always final_suspend() noexcept { return {}; }
-    constexpr void return_void() noexcept {}
-    [[noreturn]] void unhandled_exception() { throw; }
-    suspend_always yield_value(int v) noexcept {
-      val = v;
-      return {};
-    }
+    task get_return_object() { return {}; }
+    std::suspend_never initial_suspend() noexcept { return {}; }
+    std::suspend_never final_suspend() noexcept { return {}; }
+    void return_void() noexcept {}
+    void unhandled_exception() noexcept {}
   };
-  using HDL = coroutine_handle<promise_type>;
-  HDL coro;
-  minig(promise_type& p) : coro(HDL::from_promise(p)) {}
-  ~minig() { coro.destroy(); }
-  bool move_next() {
-    coro.resume();
-    return !coro.done();
-  }
-  int current_value() {
-    // this coroutine is not suspended therefore a call to destroy has undefined behavior
-    coro.destroy();
-    return coro.promise().val;
-  }
 };
 
-static minig f(int n) {
-  for (int i = 0; i < n; ++i)
-    co_yield i;
-}
+struct get_handle {
+  std::coroutine_handle<> h;
+  bool await_ready() noexcept { return false; }
+  bool await_suspend(std::coroutine_handle<> c) noexcept { h = c; return false; }
+  std::coroutine_handle<> await_resume() noexcept { return h; }
+};
 
-int main() {
-  auto g = f(10);
-  int sum = 0;
-  while (g.move_next())
-    sum += g.current_value();
-
-  return sum;
+task f() {
+  std::coroutine_handle<> self = co_await get_handle{};
+  self.destroy();   // undefined behavior, \tcode{f} is running, not suspended
 }
 \end{codeblock}
 \end{example}
@@ -1698,8 +1816,12 @@ struct D : B {
 \pnum
 Calling a member function
 before all the \grammarterm{mem-initializer}s
-for base classes have completed
+for base classes have completed,
+or after base classes have been destroyed,
 has undefined behavior.
+This includes calls in
+precondition assertions of the constructor
+and postcondition assertions of the destructor.
 
 \pnum
 \begin{example}
@@ -1715,8 +1837,17 @@ class B : public A {
 public:
   int f();
   B()
+      pre(this->f())    // undefined behavior, calls member function in constructor precondition
       : A(f()),         // undefined behavior, calls member function but base \tcode{A} not yet initialized
         j(f()) {}       // defined, bases are all initialized
+
+  B(int x)
+      pre(this->f())    // undefined behavior, calls member function in delegating constructor precondition
+      : B() {}
+
+  ~B()
+      post(this->f())   // undefined behavior, calls member function in destructor postcondition
+      {}
 };
 
 class C {
@@ -1805,15 +1936,23 @@ struct D : virtual A { D(A*); };
 struct X { X(A*); };
 
 struct E : C, D, X {
-  E() : D(this),    // undefined behavior, upcast from \tcode{E*} to \tcode{A*} might use path \tcode{E*} $\rightarrow$ \tcode{D*} $\rightarrow$ \tcode{A*}
-                    // but \tcode{D} is not constructed
-
-                    // ``\tcode{D((C*)this)}\!'' would be defined, \tcode{E*} $\rightarrow$ \tcode{C*} is defined because \tcode{E()} has started,
-                    // and \tcode{C*} $\rightarrow$ \tcode{A*} is defined because \tcode{C} is fully constructed
-
-  X(this) {}        // defined, upon construction of \tcode{X}, \tcode{C/B/D/A} sublattice is fully constructed
+  E() : D(this),    // undefined behavior
+        X(this) {}  // defined, upon construction of \tcode{X}, \tcode{C/B/D/A} sublattice is fully constructed
 };
 \end{codeblock}
+In the above constructor for \tcode{E},
+the conversion from \tcode{E*} to \tcode{A*}
+might use the path
+\tcode{E*}~$\rightarrow$~\tcode{D*}~$\rightarrow$~\tcode{A*},
+but the \tcode{D} subobject has
+not yet been constructed.
+If the member initializer were instead
+\tcode{D((C*)this)}
+then that would be defined,
+because \tcode{E*}~$\rightarrow$~\tcode{C*} is defined
+(\tcode{E()} has started) and
+\tcode{C*}~$\rightarrow$~\tcode{A*} is defined
+(the \tcode{C} subobject is fully constructed).
 \end{example}
 
 \ubdescription{class.cdtor.form.pointer}
